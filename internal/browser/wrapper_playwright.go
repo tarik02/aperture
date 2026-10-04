@@ -25,6 +25,7 @@ type playwrightMCPBackend struct {
 	cdpEndpoint string
 	mu          sync.Mutex
 	session     *mcp.ClientSession
+	proxy       *cdpProxy
 }
 
 type playwrightCallRequest struct {
@@ -46,11 +47,15 @@ func (r *wrapperRuntime) startAutomationBackend(ctx context.Context, liveSession
 		liveSession.pointer = pointer
 	}
 	proxy := newCDPProxy(net.JoinHostPort("127.0.0.1", strconv.Itoa(r.values.CDPPort)), liveSession.automationCadence, pointer, liveSession.journal, func() bool { return liveSession.activeRecordings.Load() > 0 })
+	proxy.following = liveSession.followsAutomation
+	proxy.prepareTarget = liveSession.prepareRecordingTarget
+	proxy.navigateTarget = liveSession.browser.navigate
 	endpoint, err := proxy.serve(ctx)
 	if err != nil {
 		return err
 	}
 	r.playwright = newPlaywrightMCPBackend(r.values, endpoint)
+	r.playwright.proxy = proxy
 	go func() {
 		<-ctx.Done()
 		r.playwright.Close()
@@ -88,6 +93,11 @@ func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments 
 		}
 	}
 
+	if b.proxy != nil {
+		// Tab management prepares creation/selection explicitly. Its title reads are not actions.
+		b.proxy.beginAction(name != "browser_tabs" && !playwrightmcp.ReadOnly(name))
+		defer b.proxy.beginAction(false)
+	}
 	result, err := b.session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: arguments})
 	if err != nil {
 		_ = b.session.Close()

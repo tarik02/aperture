@@ -96,7 +96,7 @@ func (c Config) Edits() bool {
 }
 
 // ErrFFmpegRequired names the instance setting an edit needs.
-var ErrFFmpegRequired = fmt.Errorf("%w: capture bursts, idle and ripple need recording_ffmpeg_executable, which this instance does not set", ErrInvalid)
+var ErrFFmpegRequired = fmt.Errorf("%w: recording edits need recording_ffmpeg_executable, which this instance does not set", ErrInvalid)
 
 // EditErrorCode says why a recording that asked for an edit, or has a timeline to publish, has none.
 type EditErrorCode string

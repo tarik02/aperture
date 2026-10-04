@@ -81,6 +81,8 @@ func (session *liveSession) handleAnnotation(w http.ResponseWriter, req *http.Re
 	switch {
 	case errors.Is(err, recording.ErrInvalid):
 		writeWrapperError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, errWrapperRecordingNotFound):
+		writeWrapperError(w, http.StatusNotFound, err.Error())
 	case err != nil:
 		writeWrapperError(w, http.StatusConflict, err.Error())
 	default:
@@ -92,10 +94,19 @@ func (session *liveSession) handleAnnotation(w http.ResponseWriter, req *http.Re
 // It holds the browser-call gate while it acts, so no automation interleaves with it.
 func (session *liveSession) annotate(ctx context.Context, request annotationRequest) error {
 	r := session.runtime
+	release, err := session.acquireRecordingGate(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
 	var active *wrapperRecording
 	var targetID string
 	running := 0
 	r.mu.Lock()
+	if request.recordingID != "" && session.recordings[request.recordingID] == nil {
+		r.mu.Unlock()
+		return errWrapperRecordingNotFound
+	}
 	for _, candidate := range session.recordings {
 		if candidate.Status == wrapperRecordingRunning && !candidate.stopping && (request.recordingID == "" || candidate.ID == request.recordingID) {
 			active, targetID = candidate, candidate.TargetID
@@ -110,11 +121,9 @@ func (session *liveSession) annotate(ctx context.Context, request annotationRequ
 	default:
 		return errors.New("several recordings are running: pass recordingId")
 	}
-	release, err := session.acquireRecordingGate(ctx)
-	if err != nil {
-		return err
+	if request.kind != "attention" && r.values.RecordingFFmpegExecutable == "" {
+		return recording.ErrFFmpegRequired
 	}
-	defer release()
 	var started time.Time
 	var fields map[string]any
 	switch request.kind {

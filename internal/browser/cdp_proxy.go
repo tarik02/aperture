@@ -29,12 +29,18 @@ const (
 // cdpProxy sits between Playwright MCP and Chromium. It relays CDP frames untouched and, when the
 // automation cadence asks for it, turns pointer input and reveal scrolling into followable motion.
 type cdpProxy struct {
-	upstream  string // Chromium's debugging endpoint, host:port
-	cadence   func() automationCadence
-	timing    func(automationCadence) cadenceTiming // tests pace the cadences faster
-	pointer   *cdpPointer                           // nil for sessions without a compositor
-	journal   journalFunc                           // what the proxy does for real, for the recordings that run
-	recording func() bool                           // whether any recording runs, so the journal's extra page queries are worth it
+	upstream       string // Chromium's debugging endpoint, host:port
+	cadence        func() automationCadence
+	timing         func(automationCadence) cadenceTiming // tests pace the cadences faster
+	pointer        *cdpPointer                           // nil for sessions without a compositor
+	journal        journalFunc                           // what the proxy does for real, for the recordings that run
+	recording      func() bool                           // whether any recording runs, so the journal's extra page queries are worth it
+	following      func() bool
+	prepareTarget  func(context.Context, string) error
+	navigateTarget func(string, string) error
+	action         atomic.Bool // a mutating MCP tool is running
+	actionMu       sync.Mutex
+	actionTarget   string
 }
 
 func newCDPProxy(upstream string, cadence func() automationCadence, pointer *cdpPointer, journal journalFunc, recording func() bool) *cdpProxy {
@@ -220,6 +226,10 @@ func (c *cdpProxyConn) reply(request cdpMessage, result json.RawMessage, failure
 
 func (c *cdpProxyConn) fromClient(raw []byte) {
 	_, method := peekCDP(raw)
+	if method == "Target.createTarget" && c.proxy.following != nil && c.proxy.following() {
+		c.createRecordedTarget(raw)
+		return
+	}
 	switch method {
 	case "Target.attachToTarget":
 		var params struct {
@@ -235,11 +245,96 @@ func (c *cdpProxyConn) fromClient(raw []byte) {
 			return
 		}
 	case "DOM.scrollIntoViewIfNeeded":
+		if !c.prepareTarget(raw) {
+			return
+		}
 		if c.proxy.cadence() != cadenceImmediate && c.revealScroll(raw) {
 			return
 		}
 	}
+	switch method {
+	case "Runtime.evaluate", "Runtime.callFunctionOn":
+		if !c.prepareEvaluation(raw) {
+			return
+		}
+	case "Page.bringToFront", "Page.navigate", "Page.reload", "Page.navigateToHistoryEntry", "Page.handleJavaScriptDialog", "DOM.setFileInputFiles", "Emulation.setDeviceMetricsOverride", "Emulation.setEmulatedMedia", "Input.dispatchKeyEvent", "Input.insertText", "Input.dispatchMouseEvent", "Input.dispatchDragEvent":
+		if !c.prepareTarget(raw) {
+			return
+		}
+	}
 	c.toUp(raw)
+}
+
+func (c *cdpProxyConn) prepareTarget(raw []byte) bool {
+	var message cdpMessage
+	if json.Unmarshal(raw, &message) != nil {
+		return true
+	}
+	_, root, known := c.rootSession(message.SessionID)
+	if !known || root.kind != "page" {
+		return true
+	}
+	if c.proxy.action.Load() {
+		c.proxy.actionMu.Lock()
+		c.proxy.actionTarget = root.targetID
+		c.proxy.actionMu.Unlock()
+	}
+	if c.proxy.prepareTarget == nil {
+		return true
+	}
+	if err := c.proxy.prepareTarget(c.ctx, root.targetID); err != nil {
+		c.reply(message, nil, err.Error())
+		return false
+	}
+	return true
+}
+
+// A URL supplied at creation would load before the extension has given the tab its own
+// capture output. Create it blank, capture its first frame, then perform the navigation.
+func (c *cdpProxyConn) createRecordedTarget(raw []byte) {
+	params := map[string]json.RawMessage{}
+	message, ok := decodeCDP(raw, &params)
+	if !ok || message.ID == nil {
+		c.toUp(raw)
+		return
+	}
+	var url string
+	if err := json.Unmarshal(params["url"], &url); err != nil {
+		c.toUp(raw)
+		return
+	}
+	params["url"] = json.RawMessage(`"about:blank"`)
+	go func() {
+		result, err := c.call(c.ctx, message.SessionID, "Target.createTarget", params)
+		var created struct {
+			TargetID string `json:"targetId"`
+		}
+		if err == nil {
+			err = json.Unmarshal(result, &created)
+		}
+		if err == nil && created.TargetID == "" {
+			err = errors.New("browser omitted the created target ID")
+		}
+		if err == nil {
+			if c.proxy.action.Load() {
+				c.proxy.actionMu.Lock()
+				c.proxy.actionTarget = created.TargetID
+				c.proxy.actionMu.Unlock()
+			}
+			err = c.proxy.prepareTarget(c.ctx, created.TargetID)
+		}
+		if err == nil && url != "" && url != "about:blank" {
+			err = c.proxy.navigateTarget(created.TargetID, url)
+		}
+		if err != nil {
+			if created.TargetID != "" {
+				_, _ = c.call(c.ctx, message.SessionID, "Target.closeTarget", map[string]string{"targetId": created.TargetID})
+			}
+			c.reply(message, nil, err.Error())
+			return
+		}
+		c.reply(message, result, "")
+	}()
 }
 
 func (c *cdpProxyConn) fromUpstream(raw []byte) {

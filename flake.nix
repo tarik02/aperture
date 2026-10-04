@@ -418,7 +418,7 @@
         ffmpegFeatureCheck =
           pkgs.runCommand "aperture-ffmpeg-features"
             {
-              nativeBuildInputs = [ runtimeFfmpeg ];
+              nativeBuildInputs = [ runtimeFfmpeg pkgs.fontconfig ];
             }
             ''
               export HOME=$TMPDIR
@@ -428,11 +428,20 @@
               for filter in ass mpdecimate showinfo perspective select setpts fps; do
                 grep -Eq "^ [A-Z.]+ +$filter +" <<<"$filters" || { echo "ffmpeg lacks the $filter filter" >&2; exit 1; }
               done
-              # One render with a caption, which needs libass and the bundled font: libass says which file it chose.
+              export FONTCONFIG_FILE=${browserFontsConf}
+              font=$(fc-match -f '%{file}' 'Noto Sans')
+              case "$font" in
+                ${pkgs.noto-fonts}/*) ;;
+                *) echo "Noto Sans is not a bundled font: $font" >&2; exit 1 ;;
+              esac
+              # White caption pixels on a black frame prove the ASS filter actually renders text.
               printf '[Script Info]\nPlayResX: 320\nPlayResY: 240\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, Alignment\nStyle: Default,Noto Sans,20,&H00FFFFFF,2\n\n[Events]\nFormat: Layer, Start, End, Style, Text\nDialogue: 0,0:00:00.00,0:00:01.00,Default,Hello\n' > c.ass
-              log=$(ffmpeg -hide_banner -loglevel verbose -f lavfi -i testsrc2=s=320x240:r=10:d=1 -vf ass=c.ass -c:v libx264 out.mp4 2>&1)
+              ffmpeg -hide_banner -loglevel error -f lavfi -i color=black:s=320x240:r=10:d=1 -vf ass=c.ass -c:v libx264 out.mp4
               [ -s out.mp4 ]
-              grep -Fq "fontselect: (Noto Sans, 400, 0) -> ${pkgs.noto-fonts}/" <<<"$log" || { echo "the caption did not use the bundled Noto Sans" >&2; exit 1; }
+              ffmpeg -hide_banner -loglevel error -i out.mp4 -frames:v 1 -pix_fmt rgb24 -f rawvideo caption.rgb
+              [ "$(wc -c < caption.rgb)" -eq 230400 ]
+              pixels=$(od -An -tu1 -v caption.rgb | awk '{ for (i=1; i<=NF; i++) if ($i > 128) n++ } END { print n+0 }')
+              [ "$pixels" -gt 100 ] || { echo "the caption did not produce visible text" >&2; exit 1; }
               touch $out
             '';
 

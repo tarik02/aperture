@@ -932,6 +932,75 @@ paths:
       responses:
         '200': {description: Retargeted recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
         default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/recordings/{recordingId}/caption:
+    post:
+      operationId: captionSessionRecording
+      tags: [sessions]
+      summary: Add a recording caption
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
+      description: Shows text in the edited video from now on. Returns immediately. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/RecordingId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RecordingCaptionInput'}
+      responses:
+        '204': {description: Caption added}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/recordings/{recordingId}/focus:
+    post:
+      operationId: focusSessionRecording
+      tags: [sessions]
+      summary: Focus a recording on an area
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
+      description: Zooms the edited video on a rect or an element in the recorded tab. Pass exactly one of rect and selector. Blocks for durationMs while browser automation waits. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/RecordingId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RecordingFocusInput'}
+      responses:
+        '204': {description: Focus completed}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/recordings/{recordingId}/attention:
+    post:
+      operationId: attentionSessionRecording
+      tags: [sessions]
+      summary: Draw attention with the recording pointer
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
+      description: Circles the real pointer around a point or an element in the recorded tab. Pass exactly one of point and selector. Blocks for durationMs while browser automation waits. Requires a running recording and compositor; never wakes a suspended session.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/RecordingId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RecordingAttentionInput'}
+      responses:
+        '204': {description: Attention completed}
+        default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/recordings/{recordingId}/stop:
     post:
       operationId: stopSessionRecording
@@ -2994,6 +3063,42 @@ components:
               minimum: 0
               maximum: 60000
               description: Longest wait for the screen to settle after a call. Defaults to 3000.
+    RecordingCaptionInput:
+      type: object
+      required: [text]
+      properties:
+        text: {type: string, minLength: 1, maxLength: 200, description: Caption text. Whitespace is trimmed.}
+        durationMs: {type: integer, minimum: 0, maximum: 30000, description: Display duration in milliseconds. Zero or omitted means 3000; other values must be at least 200.}
+    RecordingRect:
+      type: object
+      required: [x, y, width, height]
+      properties:
+        x: {type: number, description: Left edge in viewport CSS pixels.}
+        y: {type: number, description: Top edge in viewport CSS pixels.}
+        width: {type: number, minimum: 0}
+        height: {type: number, minimum: 0}
+    RecordingPoint:
+      type: object
+      required: [x, y]
+      properties:
+        x: {type: number, description: Horizontal position in viewport CSS pixels.}
+        y: {type: number, description: Vertical position in viewport CSS pixels.}
+    RecordingFocusInput:
+      type: object
+      required: [zoom]
+      properties:
+        rect: {$ref: '#/components/schemas/RecordingRect'}
+        selector: {type: string, minLength: 1, description: CSS selector in the top-level document; pass instead of rect.}
+        zoom: {type: number, minimum: 1, exclusiveMinimum: true, maximum: 4}
+        durationMs: {type: integer, minimum: 0, maximum: 10000, description: Hold duration in milliseconds. Zero or omitted means 2000; other values must be at least 200.}
+    RecordingAttentionInput:
+      type: object
+      properties:
+        point: {$ref: '#/components/schemas/RecordingPoint'}
+        selector: {type: string, minLength: 1, description: CSS selector in the top-level document; pass instead of point.}
+        radius: {type: number, minimum: 0, maximum: 300, description: Circle radius in CSS pixels. Zero or omitted means 40; other values must be at least 8.}
+        loops: {type: integer, minimum: 0, maximum: 5, description: Number of circles. Zero or omitted means 2.}
+        durationMs: {type: integer, minimum: 0, maximum: 5000, description: Circle duration in milliseconds. Zero or omitted means 1200; other values must be at least 300.}
     RetargetSessionRecordingInput:
       type: object
       description: Destination for a running tab recording.

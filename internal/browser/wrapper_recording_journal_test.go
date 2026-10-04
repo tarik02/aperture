@@ -16,7 +16,7 @@ import (
 
 func newJournalSession(t *testing.T, recordings ...*wrapperRecording) *liveSession {
 	t.Helper()
-	runtime := newWrapperRuntime(RuntimeEnvValues{}, "")
+	runtime := newWrapperRuntime(RuntimeEnvValues{RecordingFFmpegExecutable: os.Args[0]}, "")
 	runtime.ctx = context.Background()
 	session := &liveSession{runtime: runtime, recordings: map[string]*wrapperRecording{}, gate: make(chan struct{}, 1)}
 	for _, recording := range recordings {

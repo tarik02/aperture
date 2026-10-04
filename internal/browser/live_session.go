@@ -247,8 +247,8 @@ type liveSessionServerMessage struct {
 	Color           string                   `json:"color,omitempty"`
 	Width           float64                  `json:"width,omitempty"`
 	Phase           string                   `json:"phase,omitempty"`
-	Recordings      []wrapperRecording       `json:"recordings,omitempty"`
-	Recording       *wrapperRecording        `json:"recording,omitempty"`
+	Recordings      []recordingStatus        `json:"recordings,omitempty"`
+	Recording       *recordingStatus         `json:"recording,omitempty"`
 	Presentation    *liveSessionPresentation `json:"presentation,omitempty"`
 	RealtimeCounter uint64                   `json:"realtimeCounter,omitempty"`
 	// Viewport ownership fields are sent only to clients whose hello carried autoSize,

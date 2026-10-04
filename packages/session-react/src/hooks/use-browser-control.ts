@@ -10,7 +10,7 @@ import {
 } from "./use-live-session.ts";
 import type * as HttpClient from "effect/http/HttpClient";
 import type { ApiRequestError, IceServer } from "@aperture-browser/api-client";
-import type { Recording } from "@aperture-browser/api-client";
+import type { Recording, RecordingSettings } from "@aperture-browser/api-client";
 import {
   downloadSessionRecording,
   getTargetThumbnail,
@@ -132,7 +132,7 @@ export interface UseBrowserControlResult {
   stopLoading: () => void;
   historyBack: () => void;
   historyForward: () => void;
-  startRecording: (mode: "tab" | "viewer") => void;
+  startRecording: (mode: "tab" | "viewer", settings: RecordingSettings) => void;
   stopRecording: (recordingId: string) => void;
   cancelRecording: (recordingId: string) => void;
   setRemoteCursorEnabled: (enabled: boolean) => void;
@@ -475,21 +475,21 @@ export function useBrowserControl({
     );
 
   const runStartRecording = useEffectCallback(
-    (mode: "tab" | "viewer", targetId: string) =>
+    (mode: "tab" | "viewer", targetId: string, settings: RecordingSettings) =>
       settleRecording(
-        live.request("recording.start", { mode, targetId }),
+        live.request("recording.start", { mode, targetId, ...settings }),
         "Recording failed to start",
       ),
     [live],
   );
   const startRecording = useCallback(
-    (mode: "tab" | "viewer") => {
+    (mode: "tab" | "viewer", settings: RecordingSettings) => {
       const targetId = activeTargetIdRef.current;
       if (!targetId || !canRecord || recordingBusy) {
         return;
       }
       setRecordingBusy(true);
-      runStartRecording(mode, targetId);
+      runStartRecording(mode, targetId, settings);
     },
     [canRecord, recordingBusy, runStartRecording],
   );

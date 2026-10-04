@@ -69,6 +69,9 @@ export interface PromoteSessionInput {
 }
 
 export type CreateSessionRecordingInput = Api.CreateSessionRecordingInput;
+export type RecordingCaptionInput = Api.RecordingCaptionInput;
+export type RecordingFocusInput = Api.RecordingFocusInput;
+export type RecordingAttentionInput = Api.RecordingAttentionInput;
 export type SessionFileDownloadURLInput = Api.SessionFileDownloadURLInput;
 
 export interface DownloadedFile {
@@ -198,6 +201,24 @@ export class SessionsApi extends Context.Service<
       sessionId: string,
       recordingId: string,
     ) => Call<SessionRecording>;
+    readonly captionSessionRecording: (
+      credentials: ApiCredentials,
+      sessionId: string,
+      recordingId: string,
+      input: RecordingCaptionInput,
+    ) => Call<void>;
+    readonly focusSessionRecording: (
+      credentials: ApiCredentials,
+      sessionId: string,
+      recordingId: string,
+      input: RecordingFocusInput,
+    ) => Call<void>;
+    readonly attentionSessionRecording: (
+      credentials: ApiCredentials,
+      sessionId: string,
+      recordingId: string,
+      input: RecordingAttentionInput,
+    ) => Call<void>;
     /**
      * Every file and directory of the session, also while it is not running. See
      * `sessionFileTree`.

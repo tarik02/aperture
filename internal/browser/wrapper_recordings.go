@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -45,34 +46,32 @@ const (
 )
 
 type wrapperRecording struct {
-	ID                string                 `json:"recordingId"`
-	Mode              wrapperRecordingMode   `json:"mode"`
-	TargetID          string                 `json:"targetId"`
-	CaptureGeneration uint64                 `json:"captureGeneration"`
-	Status            wrapperRecordingStatus `json:"status"`
-	StopReason        string                 `json:"stopReason,omitempty"`
-	Path              string                 `json:"-"`
-	StartedAt         time.Time              `json:"startedAt"`
-	StoppedAt         *time.Time             `json:"stoppedAt,omitempty"`
-	SizeBytes         int64                  `json:"sizeBytes,omitempty"`
-	FPS               int                    `json:"fps"`
-	BitrateKbps       int                    `json:"bitrateKbps"`
-	Codec             string                 `json:"codec"`
+	ID                string
+	Mode              wrapperRecordingMode
+	TargetID          string
+	CaptureGeneration uint64
+	Status            wrapperRecordingStatus
+	StopReason        string
+	Path              string
+	StartedAt         time.Time
+	StoppedAt         *time.Time
+	SizeBytes         int64
+	FPS               int
+	BitrateKbps       int
+	Codec             string
 	filesRoot         string
 	segmentDir        string
 	segments          []*recordingSegment
 	journal           *recordingJournal
 	config            recording.Config
-	follow            chan string        // bursts: the target the latest automation acted on, for followAutomation
-	cancelFollow      context.CancelFunc // ends followAutomation
 	// Editing says the stop's edit is still running; the raw video is already published. The edit
 	// fields are filled when it ends.
-	Editing      bool                    `json:"editing"`
+	Editing      bool
 	cancelEdit   context.CancelCauseFunc // ends the edit; the cause says why
 	editDone     chan struct{}           // closed when the edit has ended
-	EditedPath   string                  `json:"-"` // the edited video, when the stop made one
-	TimelinePath string                  `json:"-"`
-	EditError    *recording.EditError    `json:"editError,omitempty"`
+	EditedPath   string                  // the edited video, when the stop made one
+	TimelinePath string
+	EditError    *recording.EditError
 	cmd          *exec.Cmd
 	done         <-chan error
 	viewport     compositorViewport
@@ -199,7 +198,7 @@ func (session *liveSession) handleRecording(w http.ResponseWriter, req *http.Req
 	w.WriteHeader(http.StatusMethodNotAllowed)
 }
 
-func serveWrapperRecording(w http.ResponseWriter, req *http.Request, recording wrapperRecording) {
+func serveWrapperRecording(w http.ResponseWriter, req *http.Request, recording recordingStatus) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(recording.Path)))
 	contentType := "video/webm"
 	if recording.Codec == "h264-va" {
@@ -238,40 +237,43 @@ func (session *liveSession) acquireRecordingGate(ctx context.Context) (func(), e
 	return release, nil
 }
 
-func (session *liveSession) startRecording(request wrapperRecordingRequest) (wrapperRecording, error) {
+func (session *liveSession) startRecording(request wrapperRecordingRequest) (recordingStatus, error) {
 	r := session.runtime
 	// The daemon checked the config already; live-session clients reach the wrapper without it.
 	if err := request.Validate(); err != nil {
-		return wrapperRecording{}, err
+		return recordingStatus{}, err
+	}
+	if request.Edits() && r.values.RecordingFFmpegExecutable == "" {
+		return recordingStatus{}, recording.ErrFFmpegRequired
 	}
 	if request.ClientID != "" {
 		parsedClientID, err := uuid.Parse(request.ClientID)
 		if err != nil || parsedClientID.String() != request.ClientID {
-			return wrapperRecording{}, errors.New("clientId must be a UUID")
+			return recordingStatus{}, errors.New("clientId must be a UUID")
 		}
 	}
 	switch request.Mode {
 	case wrapperRecordingModeTab:
 	case wrapperRecordingModeViewer:
 		if request.ClientID == "" {
-			return wrapperRecording{}, errors.New("viewer recording requires a valid clientId")
+			return recordingStatus{}, errors.New("viewer recording requires a valid clientId")
 		}
 		if request.Capture == recording.CaptureBursts { // a viewer recording follows its client, so it cannot follow automation
-			return wrapperRecording{}, fmt.Errorf("%w: capture bursts applies to tab recordings, not to viewer recordings", recording.ErrInvalid)
+			return recordingStatus{}, fmt.Errorf("%w: capture bursts applies to tab recordings, not to viewer recordings", recording.ErrInvalid)
 		}
 	default:
-		return wrapperRecording{}, errors.New("recording mode must be tab or viewer")
+		return recordingStatus{}, errors.New("recording mode must be tab or viewer")
 	}
 	r.mu.Lock()
 	registry := r.targets
 	r.mu.Unlock()
 	if registry == nil {
-		return wrapperRecording{}, errors.New("target registry is unavailable")
+		return recordingStatus{}, errors.New("target registry is unavailable")
 	}
 	// The gate comes before recordingMu: nothing that holds recordingMu waits for the gate.
 	release, err := session.acquireRecordingGate(r.ctx)
 	if err != nil {
-		return wrapperRecording{}, err
+		return recordingStatus{}, err
 	}
 	defer release()
 	if request.ClientID != "" {
@@ -296,18 +298,18 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	id := uuid.NewString()
 	if codec == "h264-va" {
 		if err := probeGStreamerElements(r.values, codec, []string{"vapostproc", "vah264enc", "h264parse", "matroskamux"}); err != nil {
-			return wrapperRecording{}, fmt.Errorf("%w: %w", errWrapperRecordingCodecUnavailable, err)
+			return recordingStatus{}, fmt.Errorf("%w: %w", errWrapperRecordingCodecUnavailable, err)
 		}
 	}
 	files := paths.SessionFiles(r.values.FilesDir)
 	recordingsDir := files.Recordings
 	path, err := recordingPath(files, request.Path, id, codec)
 	if err != nil {
-		return wrapperRecording{}, err
+		return recordingStatus{}, err
 	}
 	segmentDir := filepath.Join(recordingsDir, ".recording-"+id)
 	if err := os.MkdirAll(segmentDir, 0o700); err != nil {
-		return wrapperRecording{}, fmt.Errorf("mkdir recording segment dir: %w", err)
+		return recordingStatus{}, fmt.Errorf("mkdir recording segment dir: %w", err)
 	}
 	segmentPath := filepath.Join(segmentDir, "segment-0000"+filepath.Ext(path))
 
@@ -321,13 +323,13 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		session.mu.Unlock()
 		if client == nil {
 			_ = os.RemoveAll(segmentDir)
-			return wrapperRecording{}, errors.New("session client is unavailable")
+			return recordingStatus{}, errors.New("session client is unavailable")
 		}
 	}
 	target, exists := registry.readyTarget(targetID)
 	if !exists {
 		_ = os.RemoveAll(segmentDir)
-		return wrapperRecording{}, errors.New("target is not ready")
+		return recordingStatus{}, errors.New("target is not ready")
 	}
 
 	recording := &wrapperRecording{
@@ -365,13 +367,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	if active >= wrapperRecordingCapacity {
 		r.mu.Unlock()
 		_ = os.RemoveAll(segmentDir)
-		return wrapperRecording{}, fmt.Errorf("recording capacity of %d is exhausted", wrapperRecordingCapacity)
-	}
-	if request.Capture == "bursts" {
-		var followCtx context.Context
-		followCtx, recording.cancelFollow = context.WithCancel(r.ctx)
-		recording.follow = make(chan string, 1)
-		go session.followAutomation(followCtx, recording)
+		return recordingStatus{}, fmt.Errorf("recording capacity of %d is exhausted", wrapperRecordingCapacity)
 	}
 	session.recordings[id] = recording
 	session.setRecordingStatusLocked(recording, wrapperRecordingStarting)
@@ -381,7 +377,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		r.mu.Unlock()
 		_ = os.RemoveAll(segmentDir)
 		session.broadcastRecordings()
-		return wrapperRecording{}, err
+		return recordingStatus{}, err
 	}
 	recording.cmd = cmd
 	recording.done = done
@@ -398,15 +394,15 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 			recording.cmd, recording.done = nil, nil
 			r.mu.Unlock()
 		} else {
-			_ = stopRecordingSegment(recording)
+			_ = session.stopRecordingSegment(recording)
 		}
 		_, _ = session.failRecording(recording, "start_failed", err)
 		session.broadcastRecordings()
-		return wrapperRecording{}, err
+		return recordingStatus{}, err
 	}
 	r.mu.Lock()
 	session.setRecordingStatusLocked(recording, wrapperRecordingRunning)
-	status := *recording
+	status := recording.statusLocked()
 	r.mu.Unlock()
 	session.broadcastRecordings()
 	return status, nil
@@ -492,7 +488,7 @@ func (session *liveSession) stopViewerRecordings(clientID, reason string) {
 	}
 }
 
-func (session *liveSession) stopRecording(recordingID string, reason string) (wrapperRecording, error) {
+func (session *liveSession) stopRecording(recordingID string, reason string) (recordingStatus, error) {
 	return session.stopRecordingForTarget(recordingID, "", reason)
 }
 
@@ -502,7 +498,7 @@ func (session *liveSession) stopRecording(recordingID string, reason string) (wr
 // edit runs on after the stop has returned. Stops that follow from events (a closed target, a
 // gone client, the session ending) do not wait for the gate: they can run while recordingMu is
 // held, which a starting recording needs after it took the gate; and they publish the raw video only.
-func (session *liveSession) stopRecordingRequested(recordingID string, reason string) (wrapperRecording, error) {
+func (session *liveSession) stopRecordingRequested(recordingID string, reason string) (recordingStatus, error) {
 	// A recording that is done needs no gate, whether or not its edit still runs: this stop only
 	// reports its status, and must not hold the gate while it does.
 	settled := func() bool {
@@ -514,7 +510,7 @@ func (session *liveSession) stopRecordingRequested(recordingID string, reason st
 	}
 	release, err := session.acquireRecordingGate(session.runtime.ctx)
 	if err != nil {
-		return wrapperRecording{}, err
+		return recordingStatus{}, err
 	}
 	defer release()
 	if settled() { // the stop ahead of this one ended the recording while this waited for the gate
@@ -526,7 +522,7 @@ func (session *liveSession) stopRecordingRequested(recordingID string, reason st
 
 // cancelRecording stops a recording without an edit; a recording whose edit is running keeps the
 // raw video and loses the edit.
-func (session *liveSession) cancelRecording(recordingID string) (wrapperRecording, error) {
+func (session *liveSession) cancelRecording(recordingID string) (recordingStatus, error) {
 	r := session.runtime
 	r.mu.Lock()
 	recording := session.recordings[recordingID]
@@ -544,17 +540,17 @@ func (session *liveSession) cancelRecording(recordingID string) (wrapperRecordin
 	return status, nil
 }
 
-func (session *liveSession) stopRecordingForTarget(recordingID string, targetID string, reason string) (wrapperRecording, error) {
+func (session *liveSession) stopRecordingForTarget(recordingID string, targetID string, reason string) (recordingStatus, error) {
 	return session.stopRecordingWithGate(recordingID, targetID, reason, func() {})
 }
 
-func (session *liveSession) stopRecordingWithGate(recordingID string, targetID string, reason string, releaseGate func()) (wrapperRecording, error) {
+func (session *liveSession) stopRecordingWithGate(recordingID string, targetID string, reason string, releaseGate func()) (recordingStatus, error) {
 	r := session.runtime
 	r.mu.Lock()
 	recording := session.recordings[recordingID]
 	r.mu.Unlock()
 	if recording == nil {
-		return wrapperRecording{}, errWrapperRecordingNotFound
+		return recordingStatus{}, errWrapperRecordingNotFound
 	}
 	defer session.broadcastRecordings()
 	recording.operationMu.Lock()
@@ -563,12 +559,12 @@ func (session *liveSession) stopRecordingWithGate(recordingID string, targetID s
 	r.mu.Lock()
 	session.refreshRecordingLocked(recording)
 	if (targetID != "" && recording.TargetID != targetID) || recording.Status == wrapperRecordingStopped {
-		status := *recording
+		status := recording.statusLocked()
 		r.mu.Unlock()
 		return status, nil
 	}
 	if recording.Status == wrapperRecordingFailed {
-		status := *recording
+		status := recording.statusLocked()
 		r.mu.Unlock()
 		return status, errors.New("recording has failed")
 	}
@@ -587,7 +583,7 @@ func (session *liveSession) stopRecordingWithGate(recordingID string, targetID s
 // stopCapture ends the capture pipeline and joins what it recorded into one file, in the work
 // directory. The failure names what a returned error failed.
 func (session *liveSession) stopCapture(recording *wrapperRecording) (source string, failure string, err error) {
-	if err := stopRecordingSegment(recording); err != nil {
+	if err := session.stopRecordingSegment(recording); err != nil {
 		return "", "pipeline_failed", err
 	}
 	recordCaptureFacts(recording)
@@ -601,7 +597,7 @@ func (session *liveSession) stopCapture(recording *wrapperRecording) (source str
 // publishStoppedRecording makes the raw video visible and the recording stopped. Only a requested
 // stop edits: the others come from events that cannot wait for ffmpeg. The video is opened before
 // it is published, so the edit reads this very file, and the edit runs on after the stop returns.
-func (session *liveSession) publishStoppedRecording(rec *wrapperRecording, source string, reason string) (wrapperRecording, error) {
+func (session *liveSession) publishStoppedRecording(rec *wrapperRecording, source string, reason string) (recordingStatus, error) {
 	r := session.runtime
 	var video *os.File
 	var editError *recording.EditError
@@ -640,7 +636,7 @@ func (session *liveSession) publishStoppedRecording(rec *wrapperRecording, sourc
 	if video != nil {
 		session.startEditLocked(rec, video, finalPath)
 	}
-	status := *rec
+	status := rec.statusLocked()
 	r.mu.Unlock()
 	return status, nil
 }
@@ -672,7 +668,7 @@ func (session *liveSession) startEditLocked(recording *wrapperRecording, video *
 }
 
 // failRecording marks a recording failed after keeping what it captured.
-func (session *liveSession) failRecording(recording *wrapperRecording, reason string, cause error) (wrapperRecording, error) {
+func (session *liveSession) failRecording(recording *wrapperRecording, reason string, cause error) (recordingStatus, error) {
 	salvaged := abandonRecordingSegments(recording.segmentDir, recording.Path)
 	r := session.runtime
 	r.mu.Lock()
@@ -681,7 +677,7 @@ func (session *liveSession) failRecording(recording *wrapperRecording, reason st
 	if salvaged != "" {
 		recording.Path = salvaged
 	}
-	return *recording, cause
+	return recording.statusLocked(), cause
 }
 
 // markFailedLocked ends a recording in failure: it stops counting, and keeps why and when.
@@ -693,35 +689,40 @@ func (session *liveSession) markFailedLocked(recording *wrapperRecording, reason
 	recording.StoppedAt = &stoppedAt
 }
 
-func stopRecordingSegment(recording *wrapperRecording) error {
-	if recording.cmd == nil || recording.cmd.Process == nil {
+func (session *liveSession) stopRecordingSegment(recording *wrapperRecording) error {
+	r := session.runtime
+	r.mu.Lock()
+	cmd, done := recording.cmd, recording.done
+	recording.cmd, recording.done = nil, nil
+	r.mu.Unlock()
+	return stopRecordingProcess(cmd, done)
+}
+
+func stopRecordingProcess(cmd *exec.Cmd, done <-chan error) error {
+	if cmd == nil || cmd.Process == nil {
 		return nil
 	}
 	select {
-	case err := <-recording.done:
-		recording.cmd = nil
-		recording.done = nil
+	case err := <-done:
 		if err != nil {
 			return fmt.Errorf("recording pipeline stopped: %w", err)
 		}
 		return nil
 	default:
 	}
-	_ = recording.cmd.Process.Signal(syscall.SIGINT)
+	_ = cmd.Process.Signal(syscall.SIGINT)
 	timer := time.NewTimer(5 * time.Second)
 	defer timer.Stop()
 	var stopErr error
 	select {
-	case err := <-recording.done:
+	case err := <-done:
 		if err != nil {
 			stopErr = fmt.Errorf("recording pipeline stopped: %w", err)
 		}
 	case <-timer.C:
-		_ = recording.cmd.Process.Kill()
-		<-recording.done
+		_ = cmd.Process.Kill()
+		<-done
 	}
-	recording.cmd = nil
-	recording.done = nil
 	return stopErr
 }
 
@@ -747,14 +748,14 @@ func (session *liveSession) replaceRecordingTargets(ctx context.Context, target 
 	return nil
 }
 
-func (session *liveSession) retargetRecording(ctx context.Context, recordingID, targetID string) (wrapperRecording, error) {
+func (session *liveSession) retargetRecording(ctx context.Context, recordingID, targetID string) (recordingStatus, error) {
 	r := session.runtime
 	r.mu.Lock()
 	recording := session.recordings[recordingID]
 	registry := r.targets
 	r.mu.Unlock()
 	if recording == nil {
-		return wrapperRecording{}, errWrapperRecordingNotFound
+		return recordingStatus{}, errWrapperRecordingNotFound
 	}
 
 	recording.operationMu.Lock()
@@ -764,17 +765,17 @@ func (session *liveSession) retargetRecording(ctx context.Context, recordingID, 
 	r.mu.Lock()
 	session.refreshRecordingLocked(recording)
 	if recording.Mode != wrapperRecordingModeTab {
-		status := *recording
+		status := recording.statusLocked()
 		r.mu.Unlock()
 		return status, errors.New("only tab recordings can be retargeted")
 	}
 	if recording.Status != wrapperRecordingRunning {
-		status := *recording
+		status := recording.statusLocked()
 		r.mu.Unlock()
 		return status, errors.New("only running recordings can be retargeted")
 	}
 	if recording.TargetID == targetID {
-		status := *recording
+		status := recording.statusLocked()
 		r.mu.Unlock()
 		return status, nil
 	}
@@ -782,17 +783,17 @@ func (session *liveSession) retargetRecording(ctx context.Context, recordingID, 
 	r.mu.Unlock()
 
 	if registry == nil {
-		return wrapperRecording{}, errors.New("target registry is unavailable")
+		return recordingStatus{}, errors.New("target registry is unavailable")
 	}
 	target, exists := registry.readyTarget(targetID)
 	if !exists {
-		return wrapperRecording{}, errors.New("target is not ready")
+		return recordingStatus{}, errors.New("target is not ready")
 	}
 	if err := session.rotateRecordingTargetLocked(ctx, recording, target, expectedTargetID, true); err != nil {
-		return wrapperRecording{}, err
+		return recordingStatus{}, err
 	}
 	r.mu.Lock()
-	status := *recording
+	status := recording.statusLocked()
 	r.mu.Unlock()
 	return status, nil
 }
@@ -839,47 +840,20 @@ func (session *liveSession) rotateRecordingTargetLocked(ctx context.Context, rec
 	cmd, done, clock, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment.path, fps, bitrateKbps, codec)
 	segment.clock = clock
 	if err == nil {
-		waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		for waitCtx.Err() == nil {
-			if info, statErr := os.Stat(segment.path); statErr == nil && info.Size() > 0 {
-				break
-			}
-			select {
-			case pipelineErr := <-done:
-				cmd = nil
-				done = nil
-				if pipelineErr != nil {
-					err = fmt.Errorf("replacement recording pipeline exited before producing data: %w", pipelineErr)
-				} else {
-					err = errors.New("replacement recording pipeline exited before producing data")
-				}
-			default:
-			}
-			if err != nil {
-				break
-			}
-			timer := time.NewTimer(25 * time.Millisecond)
-			select {
-			case <-waitCtx.Done():
-				timer.Stop()
-			case <-timer.C:
-			}
+		err = clock.waitForFirstFrame(ctx, func() {
+			_, _ = sendCompositorControlCommand(ctx, r.controlSocket, "output-repaint "+target.CaptureID+"\n")
+		}, done)
+		if errors.Is(err, errCapturePipelineExited) {
+			cmd, done = nil, nil
 		}
-		if err == nil && waitCtx.Err() != nil {
-			err = fmt.Errorf("replacement recording pipeline did not produce data: %w", waitCtx.Err())
-		}
-		cancel()
 	}
 	if err != nil {
-		if cmd != nil {
-			replacement := &wrapperRecording{cmd: cmd, done: done}
-			_ = stopRecordingSegment(replacement)
-		}
+		_ = stopRecordingProcess(cmd, done)
+		_ = os.Remove(segment.path)
 		return err
 	}
-	if err := stopRecordingSegment(recording); err != nil {
-		replacement := &wrapperRecording{cmd: cmd, done: done}
-		_ = stopRecordingSegment(replacement)
+	if err := session.stopRecordingSegment(recording); err != nil {
+		_ = stopRecordingProcess(cmd, done)
 		r.mu.Lock()
 		session.markFailedLocked(recording, "replacement_failed")
 		r.mu.Unlock()
@@ -921,7 +895,7 @@ func (session *liveSession) failRecordingTargets(targetID string, generation uin
 		}
 		recording.replacing = true
 		r.mu.Unlock()
-		_ = stopRecordingSegment(recording)
+		_ = session.stopRecordingSegment(recording)
 		r.mu.Lock()
 		recording.cmd = nil
 		recording.done = nil
@@ -977,8 +951,14 @@ func (session *liveSession) stopAllRecordings(reason string) {
 // before it is complete.
 func (session *liveSession) joinRecordingSegments(recording *wrapperRecording) (string, error) {
 	r := session.runtime
-	if len(recording.segments) == 1 {
-		return recording.segments[0].path, nil
+	segments := slices.DeleteFunc(slices.Clone(recording.segments), func(segment *recordingSegment) bool {
+		return segment.FirstFrameMS == 0
+	})
+	if len(segments) == 0 {
+		return "", errWrapperRecordingEmpty
+	}
+	if len(segments) == 1 {
+		return segments[0].path, nil
 	}
 	mux := "webmmux"
 	parser := ""
@@ -988,7 +968,7 @@ func (session *liveSession) joinRecordingSegments(recording *wrapperRecording) (
 	}
 	joined := filepath.Join(recording.segmentDir, "joined"+filepath.Ext(recording.Path))
 	args := []string{"concat", "name=join", "!", "queue", "!", mux, "!", "filesink", "location=" + joined, "sync=false"}
-	for _, segment := range recording.segments {
+	for _, segment := range segments {
 		args = append(args, "filesrc", "location="+segment.path, "!", "matroskademux", "!", "queue", "!")
 		if parser != "" {
 			args = append(args, parser, "!")
@@ -1101,34 +1081,6 @@ func recordingPath(files paths.SessionFilesLayout, requested, id, codec string) 
 	return target, nil
 }
 
-// MarshalJSON reports the recording's file relative to the session files root;
-// host paths never leave the wrapper.
-func (recording wrapperRecording) MarshalJSON() ([]byte, error) {
-	type fields wrapperRecording
-	relative := func(path string) string {
-		if rel, err := filepath.Rel(recording.filesRoot, path); err == nil && path != "" {
-			return filepath.ToSlash(rel)
-		}
-		return ""
-	}
-	path := relative(recording.Path)
-	sandboxPath := ""
-	if path != "" {
-		sandboxPath = sessionfiles.SandboxPath(path)
-	}
-	return json.Marshal(struct {
-		fields
-		RelativePath string `json:"relativePath"`
-		SandboxPath  string `json:"sandboxPath,omitempty"`
-		// Path repeats RelativePath for clients that still read the field it replaced.
-		// It used to carry a host path, which it never does now.
-		Path                 string `json:"path"`
-		EditedRelativePath   string `json:"editedRelativePath,omitempty"`
-		TimelineRelativePath string `json:"timelineRelativePath,omitempty"`
-	}{fields: fields(recording), RelativePath: path, SandboxPath: sandboxPath, Path: path,
-		EditedRelativePath: relative(recording.EditedPath), TimelineRelativePath: relative(recording.TimelinePath)})
-}
-
 // publishRecording moves a finished recording into place without replacing an
 // existing file, numbering the name instead, as uploads do.
 func publishRecording(source, target string) (string, error) {
@@ -1154,30 +1106,30 @@ func publishRecording(source, target string) (string, error) {
 	}
 }
 
-func (session *liveSession) recording(recordingID string) (wrapperRecording, bool) {
+func (session *liveSession) recording(recordingID string) (recordingStatus, bool) {
 	r := session.runtime
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	recording := session.recordings[recordingID]
 	if recording == nil {
-		return wrapperRecording{}, false
+		return recordingStatus{}, false
 	}
 	session.refreshRecordingLocked(recording)
-	return *recording, true
+	return recording.statusLocked(), true
 }
 
-func (session *liveSession) listRecordings() []wrapperRecording {
+func (session *liveSession) listRecordings() []recordingStatus {
 	r := session.runtime
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return session.listRecordingsLocked()
 }
 
-func (session *liveSession) listRecordingsLocked() []wrapperRecording {
-	recordings := make([]wrapperRecording, 0, len(session.recordings))
+func (session *liveSession) listRecordingsLocked() []recordingStatus {
+	recordings := make([]recordingStatus, 0, len(session.recordings))
 	for _, recording := range session.recordings {
 		session.refreshRecordingLocked(recording)
-		recordings = append(recordings, *recording)
+		recordings = append(recordings, recording.statusLocked())
 	}
 	sort.Slice(recordings, func(left int, right int) bool {
 		return recordings[left].StartedAt.Before(recordings[right].StartedAt)
@@ -1188,9 +1140,6 @@ func (session *liveSession) listRecordingsLocked() []wrapperRecording {
 // setRecordingStatusLocked changes a recording's status and refreshes the count the cadence reads without locks.
 func (session *liveSession) setRecordingStatusLocked(recording *wrapperRecording, status wrapperRecordingStatus) {
 	recording.Status = status
-	if recording.cancelFollow != nil && (recording.stopping || status == wrapperRecordingStopped || status == wrapperRecordingFailed) {
-		recording.cancelFollow()
-	}
 	var active, presentation int32
 	for _, other := range session.recordings {
 		if (other.Status == wrapperRecordingStarting || other.Status == wrapperRecordingRunning) && !other.stopping {

@@ -157,12 +157,18 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		if err := requireBrowserMutation(client); err != nil {
 			return liveSessionServerMessage{}, err
 		}
-		targetID, err := session.browser.createTarget(message.URL)
+		// A viewer's recording must follow the blank tab before its first navigation.
+		targetID, err := session.browser.createTarget("about:blank")
 		if err != nil {
 			return liveSessionServerMessage{}, err
 		}
 		if err := session.updateActiveTarget(client, targetID); err != nil {
 			return liveSessionServerMessage{}, err
+		}
+		if message.URL != "" && message.URL != "about:blank" {
+			if err := session.browser.navigate(targetID, message.URL); err != nil {
+				return liveSessionServerMessage{}, err
+			}
 		}
 		return liveSessionServerMessage{TargetID: targetID}, nil
 	case "target.close":

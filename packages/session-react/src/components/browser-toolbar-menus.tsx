@@ -47,6 +47,7 @@ import type { UseBrowserControlResult } from "../hooks/use-browser-control.ts";
 import { copyTextWithToast } from "../clipboard.ts";
 import { useEffectCallback } from "../effect.tsx";
 import { toast } from "sonner";
+import { RecordingSettingsDialog } from "./recording-settings-dialog.tsx";
 
 const STREAM_PRESETS = [
   {
@@ -103,6 +104,7 @@ export function BrowserMenus({
   onSessionDetails?: () => void;
   now: number;
 }) {
+  const [recordingMode, setRecordingMode] = useState<"tab" | "viewer" | null>(null);
   const runningRecordings = control.recordings.filter(
     (recording) => recording.status === "starting" || recording.status === "running",
   );
@@ -149,6 +151,7 @@ export function BrowserMenus({
               connected={connected}
               runningRecordings={runningRecordings}
               now={now}
+              onStartRecording={setRecordingMode}
             />
             <DropdownMenuSeparator />
             <ViewportStreamMenuItems
@@ -191,6 +194,7 @@ export function BrowserMenus({
               connected={connected}
               runningRecordings={runningRecordings}
               now={now}
+              onStartRecording={setRecordingMode}
             />
           </DropdownMenuContent>
         </DropdownMenu>
@@ -256,6 +260,20 @@ export function BrowserMenus({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      {recordingMode !== null && (
+        <RecordingSettingsDialog
+          key={recordingMode}
+          mode={recordingMode}
+          disabled={
+            !connected || !control.canRecord || !control.activeTargetId || control.recordingBusy
+          }
+          onClose={() => setRecordingMode(null)}
+          onStart={(settings) => {
+            control.startRecording(recordingMode, settings);
+            setRecordingMode(null);
+          }}
+        />
+      )}
     </>
   );
 }
@@ -378,11 +396,13 @@ function RecordingMenuItems({
   connected,
   runningRecordings,
   now,
+  onStartRecording,
 }: {
   control: UseBrowserControlResult;
   connected: boolean;
   runningRecordings: UseBrowserControlResult["recordings"];
   now: number;
+  onStartRecording: (mode: "tab" | "viewer") => void;
 }) {
   const recordingAvailable = connected && control.canRecord;
   const canStart = recordingAvailable && Boolean(control.activeTargetId) && !control.recordingBusy;
@@ -390,16 +410,16 @@ function RecordingMenuItems({
     <>
       <DropdownMenuGroup>
         <DropdownMenuLabel>Recording</DropdownMenuLabel>
-        <DropdownMenuItem disabled={!canStart} onClick={() => control.startRecording("tab")}>
+        <DropdownMenuItem disabled={!canStart} onClick={() => onStartRecording("tab")}>
           <Circle />
           <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
             <span>Record this tab</span>
             <span className="aperture:text-xs aperture:text-muted-foreground">
-              Stay pinned to this target
+              Choose capture and edit settings
             </span>
           </span>
         </DropdownMenuItem>
-        <DropdownMenuItem disabled={!canStart} onClick={() => control.startRecording("viewer")}>
+        <DropdownMenuItem disabled={!canStart} onClick={() => onStartRecording("viewer")}>
           <Monitor />
           <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
             <span>Record this viewer</span>

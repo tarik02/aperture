@@ -1960,6 +1960,31 @@ type RecordingMode string
 // RecordingStatus defines model for Recording.Status.
 type RecordingStatus string
 
+// RecordingAttentionInput defines model for RecordingAttentionInput.
+type RecordingAttentionInput struct {
+	// DurationMs Circle duration in milliseconds. Zero or omitted means 1200; other values must be at least 300.
+	DurationMs *int `json:"durationMs,omitempty"`
+
+	// Loops Number of circles. Zero or omitted means 2.
+	Loops *int            `json:"loops,omitempty"`
+	Point *RecordingPoint `json:"point,omitempty"`
+
+	// Radius Circle radius in CSS pixels. Zero or omitted means 40; other values must be at least 8.
+	Radius *float32 `json:"radius,omitempty"`
+
+	// Selector CSS selector in the top-level document; pass instead of point.
+	Selector *string `json:"selector,omitempty"`
+}
+
+// RecordingCaptionInput defines model for RecordingCaptionInput.
+type RecordingCaptionInput struct {
+	// DurationMs Display duration in milliseconds. Zero or omitted means 3000; other values must be at least 200.
+	DurationMs *int `json:"durationMs,omitempty"`
+
+	// Text Caption text. Whitespace is trimmed.
+	Text string `json:"text"`
+}
+
 // RecordingEditError Why a recording has no edit although one was due or a timeline could not be written. The raw video is published regardless.
 type RecordingEditError struct {
 	Code    RecordingEditErrorCode `json:"code"`
@@ -1968,6 +1993,38 @@ type RecordingEditError struct {
 
 // RecordingEditErrorCode defines model for RecordingEditError.Code.
 type RecordingEditErrorCode string
+
+// RecordingFocusInput defines model for RecordingFocusInput.
+type RecordingFocusInput struct {
+	// DurationMs Hold duration in milliseconds. Zero or omitted means 2000; other values must be at least 200.
+	DurationMs *int           `json:"durationMs,omitempty"`
+	Rect       *RecordingRect `json:"rect,omitempty"`
+
+	// Selector CSS selector in the top-level document; pass instead of rect.
+	Selector *string `json:"selector,omitempty"`
+	Zoom     float32 `json:"zoom"`
+}
+
+// RecordingPoint defines model for RecordingPoint.
+type RecordingPoint struct {
+	// X Horizontal position in viewport CSS pixels.
+	X float32 `json:"x"`
+
+	// Y Vertical position in viewport CSS pixels.
+	Y float32 `json:"y"`
+}
+
+// RecordingRect defines model for RecordingRect.
+type RecordingRect struct {
+	Height float32 `json:"height"`
+	Width  float32 `json:"width"`
+
+	// X Left edge in viewport CSS pixels.
+	X float32 `json:"x"`
+
+	// Y Top edge in viewport CSS pixels.
+	Y float32 `json:"y"`
+}
 
 // ReplaceTagsInput Complete replacement tag set. The map may be empty to clear all tags.
 type ReplaceTagsInput struct {
@@ -2900,6 +2957,24 @@ type GetSessionRecordingParams struct {
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
+// AttentionSessionRecordingParams defines parameters for AttentionSessionRecording.
+type AttentionSessionRecordingParams struct {
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
+}
+
+// CaptionSessionRecordingParams defines parameters for CaptionSessionRecording.
+type CaptionSessionRecordingParams struct {
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
+}
+
+// FocusSessionRecordingParams defines parameters for FocusSessionRecording.
+type FocusSessionRecordingParams struct {
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
+}
+
 // RetargetSessionRecordingParams defines parameters for RetargetSessionRecording.
 type RetargetSessionRecordingParams struct {
 	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
@@ -3083,6 +3158,15 @@ type UpdateSessionProxyJSONRequestBody = UpdateProxyConfig
 
 // CreateSessionRecordingJSONRequestBody defines body for CreateSessionRecording for application/json ContentType.
 type CreateSessionRecordingJSONRequestBody = CreateSessionRecordingInput
+
+// AttentionSessionRecordingJSONRequestBody defines body for AttentionSessionRecording for application/json ContentType.
+type AttentionSessionRecordingJSONRequestBody = RecordingAttentionInput
+
+// CaptionSessionRecordingJSONRequestBody defines body for CaptionSessionRecording for application/json ContentType.
+type CaptionSessionRecordingJSONRequestBody = RecordingCaptionInput
+
+// FocusSessionRecordingJSONRequestBody defines body for FocusSessionRecording for application/json ContentType.
+type FocusSessionRecordingJSONRequestBody = RecordingFocusInput
 
 // RetargetSessionRecordingJSONRequestBody defines body for RetargetSessionRecording for application/json ContentType.
 type RetargetSessionRecordingJSONRequestBody = RetargetSessionRecordingInput
@@ -3907,6 +3991,60 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /api/sessions/{sessionId}/recordings/{recordingId} (the `GetSessionRecording` operationId).
 	GetSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *GetSessionRecordingParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AttentionSessionRecordingWithBody Draw attention with the recording pointer
+	//
+	// Circles the real pointer around a point or an element in the recorded tab. Pass exactly one of point and selector. Blocks for durationMs while browser automation waits. Requires a running recording and compositor; never wakes a suspended session.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/attention (the `AttentionSessionRecording` operationId).
+	AttentionSessionRecordingWithBody(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *AttentionSessionRecordingParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AttentionSessionRecording Draw attention with the recording pointer
+	//
+	// Circles the real pointer around a point or an element in the recorded tab. Pass exactly one of point and selector. Blocks for durationMs while browser automation waits. Requires a running recording and compositor; never wakes a suspended session.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/attention (the `AttentionSessionRecording` operationId).
+	AttentionSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *AttentionSessionRecordingParams, body AttentionSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CaptionSessionRecordingWithBody Add a recording caption
+	//
+	// Shows text in the edited video from now on. Returns immediately. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/caption (the `CaptionSessionRecording` operationId).
+	CaptionSessionRecordingWithBody(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *CaptionSessionRecordingParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CaptionSessionRecording Add a recording caption
+	//
+	// Shows text in the edited video from now on. Returns immediately. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/caption (the `CaptionSessionRecording` operationId).
+	CaptionSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *CaptionSessionRecordingParams, body CaptionSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// FocusSessionRecordingWithBody Focus a recording on an area
+	//
+	// Zooms the edited video on a rect or an element in the recorded tab. Pass exactly one of rect and selector. Blocks for durationMs while browser automation waits. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/focus (the `FocusSessionRecording` operationId).
+	FocusSessionRecordingWithBody(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *FocusSessionRecordingParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// FocusSessionRecording Focus a recording on an area
+	//
+	// Zooms the edited video on a rect or an element in the recorded tab. Pass exactly one of rect and selector. Blocks for durationMs while browser automation waits. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/focus (the `FocusSessionRecording` operationId).
+	FocusSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *FocusSessionRecordingParams, body FocusSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// RetargetSessionRecordingWithBody Retarget a session recording
 	//
@@ -5165,6 +5303,120 @@ func (c *Client) CreateSessionRecording(ctx context.Context, sessionId SessionId
 // Corresponds with GET /api/sessions/{sessionId}/recordings/{recordingId} (the `GetSessionRecording` operationId).
 func (c *Client) GetSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *GetSessionRecordingParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetSessionRecordingRequest(c.Server, sessionId, recordingId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AttentionSessionRecordingWithBody Draw attention with the recording pointer
+//
+// Circles the real pointer around a point or an element in the recorded tab. Pass exactly one of point and selector. Blocks for durationMs while browser automation waits. Requires a running recording and compositor; never wakes a suspended session.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/attention (the `AttentionSessionRecording` operationId).
+func (c *Client) AttentionSessionRecordingWithBody(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *AttentionSessionRecordingParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAttentionSessionRecordingRequestWithBody(c.Server, sessionId, recordingId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AttentionSessionRecording Draw attention with the recording pointer
+//
+// Circles the real pointer around a point or an element in the recorded tab. Pass exactly one of point and selector. Blocks for durationMs while browser automation waits. Requires a running recording and compositor; never wakes a suspended session.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/attention (the `AttentionSessionRecording` operationId).
+func (c *Client) AttentionSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *AttentionSessionRecordingParams, body AttentionSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAttentionSessionRecordingRequest(c.Server, sessionId, recordingId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CaptionSessionRecordingWithBody Add a recording caption
+//
+// Shows text in the edited video from now on. Returns immediately. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/caption (the `CaptionSessionRecording` operationId).
+func (c *Client) CaptionSessionRecordingWithBody(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *CaptionSessionRecordingParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCaptionSessionRecordingRequestWithBody(c.Server, sessionId, recordingId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CaptionSessionRecording Add a recording caption
+//
+// Shows text in the edited video from now on. Returns immediately. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/caption (the `CaptionSessionRecording` operationId).
+func (c *Client) CaptionSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *CaptionSessionRecordingParams, body CaptionSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCaptionSessionRecordingRequest(c.Server, sessionId, recordingId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// FocusSessionRecordingWithBody Focus a recording on an area
+//
+// Zooms the edited video on a rect or an element in the recorded tab. Pass exactly one of rect and selector. Blocks for durationMs while browser automation waits. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/focus (the `FocusSessionRecording` operationId).
+func (c *Client) FocusSessionRecordingWithBody(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *FocusSessionRecordingParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewFocusSessionRecordingRequestWithBody(c.Server, sessionId, recordingId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// FocusSessionRecording Focus a recording on an area
+//
+// Zooms the edited video on a rect or an element in the recorded tab. Pass exactly one of rect and selector. Blocks for durationMs while browser automation waits. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/focus (the `FocusSessionRecording` operationId).
+func (c *Client) FocusSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *FocusSessionRecordingParams, body FocusSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewFocusSessionRecordingRequest(c.Server, sessionId, recordingId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -8194,6 +8446,213 @@ func NewGetSessionRecordingRequest(server string, sessionId SessionId, recording
 	return req, nil
 }
 
+// NewAttentionSessionRecordingRequest calls the generic AttentionSessionRecording builder with application/json body
+func NewAttentionSessionRecordingRequest(server string, sessionId SessionId, recordingId RecordingId, params *AttentionSessionRecordingParams, body AttentionSessionRecordingJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAttentionSessionRecordingRequestWithBody(server, sessionId, recordingId, params, "application/json", bodyReader)
+}
+
+// NewAttentionSessionRecordingRequestWithBody constructs an http.Request for the AttentionSessionRecording method, with any body, and a specified content type
+func NewAttentionSessionRecordingRequestWithBody(server string, sessionId SessionId, recordingId RecordingId, params *AttentionSessionRecordingParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionId", sessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "recordingId", recordingId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/sessions/%s/recordings/%s/attention", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XApertureTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Aperture-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewCaptionSessionRecordingRequest calls the generic CaptionSessionRecording builder with application/json body
+func NewCaptionSessionRecordingRequest(server string, sessionId SessionId, recordingId RecordingId, params *CaptionSessionRecordingParams, body CaptionSessionRecordingJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCaptionSessionRecordingRequestWithBody(server, sessionId, recordingId, params, "application/json", bodyReader)
+}
+
+// NewCaptionSessionRecordingRequestWithBody constructs an http.Request for the CaptionSessionRecording method, with any body, and a specified content type
+func NewCaptionSessionRecordingRequestWithBody(server string, sessionId SessionId, recordingId RecordingId, params *CaptionSessionRecordingParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionId", sessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "recordingId", recordingId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/sessions/%s/recordings/%s/caption", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XApertureTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Aperture-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewFocusSessionRecordingRequest calls the generic FocusSessionRecording builder with application/json body
+func NewFocusSessionRecordingRequest(server string, sessionId SessionId, recordingId RecordingId, params *FocusSessionRecordingParams, body FocusSessionRecordingJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewFocusSessionRecordingRequestWithBody(server, sessionId, recordingId, params, "application/json", bodyReader)
+}
+
+// NewFocusSessionRecordingRequestWithBody constructs an http.Request for the FocusSessionRecording method, with any body, and a specified content type
+func NewFocusSessionRecordingRequestWithBody(server string, sessionId SessionId, recordingId RecordingId, params *FocusSessionRecordingParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionId", sessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "recordingId", recordingId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/sessions/%s/recordings/%s/focus", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XApertureTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Aperture-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewRetargetSessionRecordingRequest calls the generic RetargetSessionRecording builder with application/json body
 func NewRetargetSessionRecordingRequest(server string, sessionId SessionId, recordingId RecordingId, params *RetargetSessionRecordingParams, body RetargetSessionRecordingJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -9852,6 +10311,60 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /api/sessions/{sessionId}/recordings/{recordingId} (the `GetSessionRecording` operationId).
 	GetSessionRecordingWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *GetSessionRecordingParams, reqEditors ...RequestEditorFn) (*GetSessionRecordingResponse, error)
+
+	// AttentionSessionRecordingWithBodyWithResponse Draw attention with the recording pointer
+	//
+	// Circles the real pointer around a point or an element in the recorded tab. Pass exactly one of point and selector. Blocks for durationMs while browser automation waits. Requires a running recording and compositor; never wakes a suspended session.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/attention (the `AttentionSessionRecording` operationId).
+	AttentionSessionRecordingWithBodyWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *AttentionSessionRecordingParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AttentionSessionRecordingResponse, error)
+
+	// AttentionSessionRecordingWithResponse Draw attention with the recording pointer
+	//
+	// Circles the real pointer around a point or an element in the recorded tab. Pass exactly one of point and selector. Blocks for durationMs while browser automation waits. Requires a running recording and compositor; never wakes a suspended session.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/attention (the `AttentionSessionRecording` operationId).
+	AttentionSessionRecordingWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *AttentionSessionRecordingParams, body AttentionSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*AttentionSessionRecordingResponse, error)
+
+	// CaptionSessionRecordingWithBodyWithResponse Add a recording caption
+	//
+	// Shows text in the edited video from now on. Returns immediately. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/caption (the `CaptionSessionRecording` operationId).
+	CaptionSessionRecordingWithBodyWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *CaptionSessionRecordingParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CaptionSessionRecordingResponse, error)
+
+	// CaptionSessionRecordingWithResponse Add a recording caption
+	//
+	// Shows text in the edited video from now on. Returns immediately. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/caption (the `CaptionSessionRecording` operationId).
+	CaptionSessionRecordingWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *CaptionSessionRecordingParams, body CaptionSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*CaptionSessionRecordingResponse, error)
+
+	// FocusSessionRecordingWithBodyWithResponse Focus a recording on an area
+	//
+	// Zooms the edited video on a rect or an element in the recorded tab. Pass exactly one of rect and selector. Blocks for durationMs while browser automation waits. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/focus (the `FocusSessionRecording` operationId).
+	FocusSessionRecordingWithBodyWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *FocusSessionRecordingParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*FocusSessionRecordingResponse, error)
+
+	// FocusSessionRecordingWithResponse Focus a recording on an area
+	//
+	// Zooms the edited video on a rect or an element in the recorded tab. Pass exactly one of rect and selector. Blocks for durationMs while browser automation waits. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/focus (the `FocusSessionRecording` operationId).
+	FocusSessionRecordingWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *FocusSessionRecordingParams, body FocusSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*FocusSessionRecordingResponse, error)
 
 	// RetargetSessionRecordingWithBodyWithResponse Retarget a session recording
 	//
@@ -12158,6 +12671,129 @@ func (r GetSessionRecordingResponse) ContentType() string {
 	return ""
 }
 
+type AttentionSessionRecordingResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r AttentionSessionRecordingResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r AttentionSessionRecordingResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AttentionSessionRecordingResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AttentionSessionRecordingResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AttentionSessionRecordingResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CaptionSessionRecordingResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r CaptionSessionRecordingResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r CaptionSessionRecordingResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CaptionSessionRecordingResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CaptionSessionRecordingResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CaptionSessionRecordingResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type FocusSessionRecordingResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r FocusSessionRecordingResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r FocusSessionRecordingResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r FocusSessionRecordingResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r FocusSessionRecordingResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r FocusSessionRecordingResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type RetargetSessionRecordingResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -13912,6 +14548,96 @@ func (c *ClientWithResponses) GetSessionRecordingWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParseGetSessionRecordingResponse(rsp)
+}
+
+// AttentionSessionRecordingWithBodyWithResponse Draw attention with the recording pointer
+//
+// Circles the real pointer around a point or an element in the recorded tab. Pass exactly one of point and selector. Blocks for durationMs while browser automation waits. Requires a running recording and compositor; never wakes a suspended session.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/attention (the `AttentionSessionRecording` operationId).
+func (c *ClientWithResponses) AttentionSessionRecordingWithBodyWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *AttentionSessionRecordingParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AttentionSessionRecordingResponse, error) {
+	rsp, err := c.AttentionSessionRecordingWithBody(ctx, sessionId, recordingId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAttentionSessionRecordingResponse(rsp)
+}
+
+// AttentionSessionRecordingWithResponse Draw attention with the recording pointer
+//
+// Circles the real pointer around a point or an element in the recorded tab. Pass exactly one of point and selector. Blocks for durationMs while browser automation waits. Requires a running recording and compositor; never wakes a suspended session.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/attention (the `AttentionSessionRecording` operationId).
+func (c *ClientWithResponses) AttentionSessionRecordingWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *AttentionSessionRecordingParams, body AttentionSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*AttentionSessionRecordingResponse, error) {
+	rsp, err := c.AttentionSessionRecording(ctx, sessionId, recordingId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAttentionSessionRecordingResponse(rsp)
+}
+
+// CaptionSessionRecordingWithBodyWithResponse Add a recording caption
+//
+// Shows text in the edited video from now on. Returns immediately. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/caption (the `CaptionSessionRecording` operationId).
+func (c *ClientWithResponses) CaptionSessionRecordingWithBodyWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *CaptionSessionRecordingParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CaptionSessionRecordingResponse, error) {
+	rsp, err := c.CaptionSessionRecordingWithBody(ctx, sessionId, recordingId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCaptionSessionRecordingResponse(rsp)
+}
+
+// CaptionSessionRecordingWithResponse Add a recording caption
+//
+// Shows text in the edited video from now on. Returns immediately. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/caption (the `CaptionSessionRecording` operationId).
+func (c *ClientWithResponses) CaptionSessionRecordingWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *CaptionSessionRecordingParams, body CaptionSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*CaptionSessionRecordingResponse, error) {
+	rsp, err := c.CaptionSessionRecording(ctx, sessionId, recordingId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCaptionSessionRecordingResponse(rsp)
+}
+
+// FocusSessionRecordingWithBodyWithResponse Focus a recording on an area
+//
+// Zooms the edited video on a rect or an element in the recorded tab. Pass exactly one of rect and selector. Blocks for durationMs while browser automation waits. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/focus (the `FocusSessionRecording` operationId).
+func (c *ClientWithResponses) FocusSessionRecordingWithBodyWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *FocusSessionRecordingParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*FocusSessionRecordingResponse, error) {
+	rsp, err := c.FocusSessionRecordingWithBody(ctx, sessionId, recordingId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseFocusSessionRecordingResponse(rsp)
+}
+
+// FocusSessionRecordingWithResponse Focus a recording on an area
+//
+// Zooms the edited video on a rect or an element in the recorded tab. Pass exactly one of rect and selector. Blocks for durationMs while browser automation waits. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/focus (the `FocusSessionRecording` operationId).
+func (c *ClientWithResponses) FocusSessionRecordingWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *FocusSessionRecordingParams, body FocusSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*FocusSessionRecordingResponse, error) {
+	rsp, err := c.FocusSessionRecording(ctx, sessionId, recordingId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseFocusSessionRecordingResponse(rsp)
 }
 
 // RetargetSessionRecordingWithBodyWithResponse Retarget a session recording
@@ -15738,6 +16464,93 @@ func ParseGetSessionRecordingResponse(rsp *http.Response) (*GetSessionRecordingR
 	return response, nil
 }
 
+// ParseAttentionSessionRecordingResponse parses an HTTP response from a AttentionSessionRecordingWithResponse call
+func ParseAttentionSessionRecordingResponse(rsp *http.Response) (*AttentionSessionRecordingResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AttentionSessionRecordingResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCaptionSessionRecordingResponse parses an HTTP response from a CaptionSessionRecordingWithResponse call
+func ParseCaptionSessionRecordingResponse(rsp *http.Response) (*CaptionSessionRecordingResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CaptionSessionRecordingResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseFocusSessionRecordingResponse parses an HTTP response from a FocusSessionRecordingWithResponse call
+func ParseFocusSessionRecordingResponse(rsp *http.Response) (*FocusSessionRecordingResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &FocusSessionRecordingResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseRetargetSessionRecordingResponse parses an HTTP response from a RetargetSessionRecordingWithResponse call
 func ParseRetargetSessionRecordingResponse(rsp *http.Response) (*RetargetSessionRecordingResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -16517,6 +17330,15 @@ type ServerInterface interface {
 	// GetSessionRecording Get a session recording
 	// (GET /api/sessions/{sessionId}/recordings/{recordingId})
 	GetSessionRecording(c *gin.Context, sessionId SessionId, recordingId RecordingId, params GetSessionRecordingParams)
+	// AttentionSessionRecording Draw attention with the recording pointer
+	// (POST /api/sessions/{sessionId}/recordings/{recordingId}/attention)
+	AttentionSessionRecording(c *gin.Context, sessionId SessionId, recordingId RecordingId, params AttentionSessionRecordingParams)
+	// CaptionSessionRecording Add a recording caption
+	// (POST /api/sessions/{sessionId}/recordings/{recordingId}/caption)
+	CaptionSessionRecording(c *gin.Context, sessionId SessionId, recordingId RecordingId, params CaptionSessionRecordingParams)
+	// FocusSessionRecording Focus a recording on an area
+	// (POST /api/sessions/{sessionId}/recordings/{recordingId}/focus)
+	FocusSessionRecording(c *gin.Context, sessionId SessionId, recordingId RecordingId, params FocusSessionRecordingParams)
 	// RetargetSessionRecording Retarget a session recording
 	// (POST /api/sessions/{sessionId}/recordings/{recordingId}/retarget)
 	RetargetSessionRecording(c *gin.Context, sessionId SessionId, recordingId RecordingId, params RetargetSessionRecordingParams)
@@ -18391,6 +19213,180 @@ func (siw *ServerInterfaceWrapper) GetSessionRecording(c *gin.Context) {
 	siw.Handler.GetSessionRecording(c, sessionId, recordingId, params)
 }
 
+// AttentionSessionRecording operation middleware
+func (siw *ServerInterfaceWrapper) AttentionSessionRecording(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", c.Param("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter sessionId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Path parameter "recordingId" -------------
+	var recordingId RecordingId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "recordingId", c.Param("recordingId"), &recordingId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter recordingId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AttentionSessionRecordingParams
+
+	headers := c.Request.Header
+
+	// ------------- Optional header parameter "X-Aperture-Tenant-Id" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Aperture-Tenant-Id")]; found {
+		var XApertureTenantId SelectedTenantId
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Aperture-Tenant-Id, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.XApertureTenantId = &XApertureTenantId
+
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.AttentionSessionRecording(c, sessionId, recordingId, params)
+}
+
+// CaptionSessionRecording operation middleware
+func (siw *ServerInterfaceWrapper) CaptionSessionRecording(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", c.Param("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter sessionId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Path parameter "recordingId" -------------
+	var recordingId RecordingId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "recordingId", c.Param("recordingId"), &recordingId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter recordingId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CaptionSessionRecordingParams
+
+	headers := c.Request.Header
+
+	// ------------- Optional header parameter "X-Aperture-Tenant-Id" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Aperture-Tenant-Id")]; found {
+		var XApertureTenantId SelectedTenantId
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Aperture-Tenant-Id, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.XApertureTenantId = &XApertureTenantId
+
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CaptionSessionRecording(c, sessionId, recordingId, params)
+}
+
+// FocusSessionRecording operation middleware
+func (siw *ServerInterfaceWrapper) FocusSessionRecording(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", c.Param("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter sessionId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Path parameter "recordingId" -------------
+	var recordingId RecordingId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "recordingId", c.Param("recordingId"), &recordingId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter recordingId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params FocusSessionRecordingParams
+
+	headers := c.Request.Header
+
+	// ------------- Optional header parameter "X-Aperture-Tenant-Id" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Aperture-Tenant-Id")]; found {
+		var XApertureTenantId SelectedTenantId
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Aperture-Tenant-Id, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.XApertureTenantId = &XApertureTenantId
+
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.FocusSessionRecording(c, sessionId, recordingId, params)
+}
+
 // RetargetSessionRecording operation middleware
 func (siw *ServerInterfaceWrapper) RetargetSessionRecording(c *gin.Context) {
 
@@ -19357,6 +20353,9 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/recordings", wrapper.CreateSessionRecording)
 	router.GET(options.BaseURL+"/api/sessions/:sessionId/recordings/:recordingId", wrapper.GetSessionRecording)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/recordings/:recordingId/retarget", wrapper.RetargetSessionRecording)
+	router.POST(options.BaseURL+"/api/sessions/:sessionId/recordings/:recordingId/caption", wrapper.CaptionSessionRecording)
+	router.POST(options.BaseURL+"/api/sessions/:sessionId/recordings/:recordingId/focus", wrapper.FocusSessionRecording)
+	router.POST(options.BaseURL+"/api/sessions/:sessionId/recordings/:recordingId/attention", wrapper.AttentionSessionRecording)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/recordings/:recordingId/stop", wrapper.StopSessionRecording)
 	router.DELETE(options.BaseURL+"/api/sessions/:sessionId/files", wrapper.DeleteSessionFile)
 	router.GET(options.BaseURL+"/api/sessions/:sessionId/files", wrapper.ListSessionFiles)
@@ -21072,6 +22071,114 @@ func (response GetSessionRecordingdefaultJSONResponse) VisitGetSessionRecordingR
 	return err
 }
 
+type AttentionSessionRecordingRequestObject struct {
+	SessionId   SessionId   `json:"sessionId"`
+	RecordingId RecordingId `json:"recordingId"`
+	Params      AttentionSessionRecordingParams
+	Body        *AttentionSessionRecordingJSONRequestBody
+}
+
+type AttentionSessionRecordingResponseObject interface {
+	VisitAttentionSessionRecordingResponse(w http.ResponseWriter) error
+}
+
+type AttentionSessionRecording204Response struct {
+}
+
+func (response AttentionSessionRecording204Response) VisitAttentionSessionRecordingResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type AttentionSessionRecordingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response AttentionSessionRecordingdefaultJSONResponse) VisitAttentionSessionRecordingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CaptionSessionRecordingRequestObject struct {
+	SessionId   SessionId   `json:"sessionId"`
+	RecordingId RecordingId `json:"recordingId"`
+	Params      CaptionSessionRecordingParams
+	Body        *CaptionSessionRecordingJSONRequestBody
+}
+
+type CaptionSessionRecordingResponseObject interface {
+	VisitCaptionSessionRecordingResponse(w http.ResponseWriter) error
+}
+
+type CaptionSessionRecording204Response struct {
+}
+
+func (response CaptionSessionRecording204Response) VisitCaptionSessionRecordingResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type CaptionSessionRecordingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CaptionSessionRecordingdefaultJSONResponse) VisitCaptionSessionRecordingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type FocusSessionRecordingRequestObject struct {
+	SessionId   SessionId   `json:"sessionId"`
+	RecordingId RecordingId `json:"recordingId"`
+	Params      FocusSessionRecordingParams
+	Body        *FocusSessionRecordingJSONRequestBody
+}
+
+type FocusSessionRecordingResponseObject interface {
+	VisitFocusSessionRecordingResponse(w http.ResponseWriter) error
+}
+
+type FocusSessionRecording204Response struct {
+}
+
+func (response FocusSessionRecording204Response) VisitFocusSessionRecordingResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type FocusSessionRecordingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response FocusSessionRecordingdefaultJSONResponse) VisitFocusSessionRecordingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RetargetSessionRecordingRequestObject struct {
 	SessionId   SessionId   `json:"sessionId"`
 	RecordingId RecordingId `json:"recordingId"`
@@ -21996,6 +23103,15 @@ type StrictServerInterface interface {
 	// GetSessionRecording Get a session recording
 	// (GET /api/sessions/{sessionId}/recordings/{recordingId})
 	GetSessionRecording(ctx context.Context, request GetSessionRecordingRequestObject) (GetSessionRecordingResponseObject, error)
+	// AttentionSessionRecording Draw attention with the recording pointer
+	// (POST /api/sessions/{sessionId}/recordings/{recordingId}/attention)
+	AttentionSessionRecording(ctx context.Context, request AttentionSessionRecordingRequestObject) (AttentionSessionRecordingResponseObject, error)
+	// CaptionSessionRecording Add a recording caption
+	// (POST /api/sessions/{sessionId}/recordings/{recordingId}/caption)
+	CaptionSessionRecording(ctx context.Context, request CaptionSessionRecordingRequestObject) (CaptionSessionRecordingResponseObject, error)
+	// FocusSessionRecording Focus a recording on an area
+	// (POST /api/sessions/{sessionId}/recordings/{recordingId}/focus)
+	FocusSessionRecording(ctx context.Context, request FocusSessionRecordingRequestObject) (FocusSessionRecordingResponseObject, error)
 	// RetargetSessionRecording Retarget a session recording
 	// (POST /api/sessions/{sessionId}/recordings/{recordingId}/retarget)
 	RetargetSessionRecording(ctx context.Context, request RetargetSessionRecordingRequestObject) (RetargetSessionRecordingResponseObject, error)
@@ -23345,6 +24461,111 @@ func (sh *strictHandler) GetSessionRecording(ctx *gin.Context, sessionId Session
 		sh.options.HandlerErrorFunc(ctx, err)
 	} else if validResponse, ok := response.(GetSessionRecordingResponseObject); ok {
 		if err := validResponse.VisitGetSessionRecordingResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AttentionSessionRecording operation middleware
+func (sh *strictHandler) AttentionSessionRecording(ctx *gin.Context, sessionId SessionId, recordingId RecordingId, params AttentionSessionRecordingParams) {
+	var request AttentionSessionRecordingRequestObject
+
+	request.SessionId = sessionId
+	request.RecordingId = recordingId
+	request.Params = params
+
+	var body AttentionSessionRecordingJSONRequestBody
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(ctx, err)
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.AttentionSessionRecording(ctx, request.(AttentionSessionRecordingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AttentionSessionRecording")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(AttentionSessionRecordingResponseObject); ok {
+		if err := validResponse.VisitAttentionSessionRecordingResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CaptionSessionRecording operation middleware
+func (sh *strictHandler) CaptionSessionRecording(ctx *gin.Context, sessionId SessionId, recordingId RecordingId, params CaptionSessionRecordingParams) {
+	var request CaptionSessionRecordingRequestObject
+
+	request.SessionId = sessionId
+	request.RecordingId = recordingId
+	request.Params = params
+
+	var body CaptionSessionRecordingJSONRequestBody
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(ctx, err)
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.CaptionSessionRecording(ctx, request.(CaptionSessionRecordingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CaptionSessionRecording")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(CaptionSessionRecordingResponseObject); ok {
+		if err := validResponse.VisitCaptionSessionRecordingResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// FocusSessionRecording operation middleware
+func (sh *strictHandler) FocusSessionRecording(ctx *gin.Context, sessionId SessionId, recordingId RecordingId, params FocusSessionRecordingParams) {
+	var request FocusSessionRecordingRequestObject
+
+	request.SessionId = sessionId
+	request.RecordingId = recordingId
+	request.Params = params
+
+	var body FocusSessionRecordingJSONRequestBody
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(ctx, err)
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.FocusSessionRecording(ctx, request.(FocusSessionRecordingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "FocusSessionRecording")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(FocusSessionRecordingResponseObject); ok {
+		if err := validResponse.VisitFocusSessionRecordingResponse(ctx.Writer); err != nil {
 			sh.options.ResponseErrorHandlerFunc(ctx, err)
 		}
 	} else if response != nil {
