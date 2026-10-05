@@ -52,6 +52,7 @@ type Service struct {
 	inhibitors      map[string]int
 	wakes           map[string]*wakeCall
 	metrics         *metrics.Metrics
+	ports           *portAllocator
 }
 
 // NewService constructs a session service.
@@ -67,6 +68,7 @@ func NewService(
 		traefikReconciler = traefik.NoopReconciler{}
 	}
 	return &Service{
+		ports:           newPortAllocator(),
 		cfg:             cfg,
 		repo:            repo,
 		overlay:         overlayClient,
@@ -266,14 +268,9 @@ func (s *Service) create(
 		return nil, &OverlayMountError{SessionID: sessionID, Err: err}
 	}
 
-	port, err := AllocateCDPPort()
+	port, wrapperPort, err := s.allocatePorts(ctx, sessionID)
 	if err != nil {
-		_ = s.markFailed(ctx, sessionRow, "cdp port allocation failed", err)
-		return nil, err
-	}
-	wrapperPort, err := AllocateCDPPort(port)
-	if err != nil {
-		_ = s.markFailed(ctx, sessionRow, "wrapper port allocation failed", err)
+		_ = s.markFailed(ctx, sessionRow, "port allocation failed", err)
 		return nil, err
 	}
 	wrapperControlToken, err := GenerateWrapperControlToken()
@@ -575,12 +572,7 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		return nil, fmt.Errorf("parse browser args: %w", err)
 	}
 
-	port, err := AllocateCDPPort()
-	if err != nil {
-		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
-		return nil, err
-	}
-	wrapperPort, err := AllocateCDPPort(port)
+	port, wrapperPort, err := s.allocatePorts(ctx, sessionID)
 	if err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return nil, err

@@ -136,6 +136,19 @@ func (r *Repository) ListSessionsByStatuses(ctx context.Context, statuses []stri
 	return sessions, nil
 }
 
+// ListSessionsHoldingPorts returns the sessions that keep a CDP port, running or waiting to wake on it.
+func (r *Repository) ListSessionsHoldingPorts(ctx context.Context) ([]Session, error) {
+	sessions := make([]Session, 0)
+	err := r.db.bun.NewSelect().
+		Model(&sessions).
+		Where("current_cdp_port IS NOT NULL").
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list sessions holding ports: %w", err)
+	}
+	return sessions, nil
+}
+
 // ListRunningSessionsIdleBefore returns running sessions without recent connection activity.
 func (r *Repository) ListRunningSessionsIdleBefore(ctx context.Context, connectedBefore string) ([]Session, error) {
 	sessions := make([]Session, 0)

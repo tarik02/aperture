@@ -214,8 +214,16 @@ func (a *App) Serve(ctx context.Context) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
+		// Requests that outlive the grace, such as MCP event streams, are closed: a stopping color
+		// has already drained, so a stream that is still open is not a failure of the server.
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("shutdown http server: %w", err)
+			if !errors.Is(err, context.DeadlineExceeded) {
+				return fmt.Errorf("shutdown http server: %w", err)
+			}
+			a.Logger.Info("closing requests still open after the shutdown grace")
+			if err := httpServer.Close(); err != nil {
+				return fmt.Errorf("close http server: %w", err)
+			}
 		}
 		return nil
 	case err := <-errCh:
