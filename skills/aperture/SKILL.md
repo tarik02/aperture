@@ -46,7 +46,7 @@ Scopes on API tokens: `sessions:read` opens reads and the observing live routes;
 
 1. `browser.targets` (MCP) and take a target whose `state` is `ready`.
 2. `recording.start` with that `targetId` and the edit settings; it returns once the first frame is captured.
-3. Drive the browser. Add `recording.caption` and `recording.attention` where a viewer needs them, and wrap actions a viewer should see up close in `recording.focus` … `recording.reset_focus`.
+3. Drive the browser. Add `recording.caption` where a viewer needs context. Wrap the actions a viewer should see up close in `recording.focus` (usually `target: {pointer: true}`) … `recording.reset_focus`: focus → act → act → reset → act. To point at something without acting, `focus` → `recording.attention` → `reset_focus`.
 4. `recording.stop`; it returns the recording at once, raw video published, `editing: true` while the edit runs.
 5. Poll `recording.status` until `editing` is false; then `editedRelativePath` and `timelineRelativePath` exist, or `editError` says why not.
 6. `session_files.create_download_url` with a `relativePath`, then `GET` the URL.

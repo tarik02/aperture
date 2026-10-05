@@ -46,15 +46,22 @@ type Caption struct {
 	DurationMS  int    `json:"durationMs,omitempty" jsonschema:"How long the caption shows, in milliseconds."`
 }
 
-// Focus zooms the recording on a rect or element until it is reset, the recording stops or
+// Focus zooms the recording on its target until it is reset, the recording stops or
 // FocusOpenMaxMS passes, or for DurationMS when that is set. A recording holds one focus: a new
 // one moves the view from the one before.
 type Focus struct {
-	RecordingID string  `json:"recordingId,omitempty" jsonschema:"Recording to zoom; omit when exactly one recording is running."`
-	Rect        *Rect   `json:"rect,omitempty" jsonschema:"Area to zoom on. Pass rect or selector."`
-	Selector    string  `json:"selector,omitempty" jsonschema:"CSS selector of the element to zoom on, in the top-level document. Pass rect or selector."`
-	Zoom        float64 `json:"zoom" jsonschema:"Zoom factor."`
-	DurationMS  int     `json:"durationMs,omitempty" jsonschema:"Zoom out after this many milliseconds; the call blocks for this long. Omit to keep the zoom until recording.reset_focus."`
+	RecordingID string      `json:"recordingId,omitempty" jsonschema:"Recording to zoom; omit when exactly one recording is running."`
+	Target      FocusTarget `json:"target" jsonschema:"What to zoom on: exactly one of rect, selector and pointer."`
+	Zoom        float64     `json:"zoom" jsonschema:"Zoom factor."`
+	DurationMS  int         `json:"durationMs,omitempty" jsonschema:"Zoom out after this many milliseconds; the call blocks for this long. Omit to keep the zoom until recording.reset_focus."`
+}
+
+// FocusTarget is what a focus zooms on: a fixed area, an element it follows as the page moves,
+// or the pointer it follows as automation moves it.
+type FocusTarget struct {
+	Rect     *Rect  `json:"rect,omitempty" jsonschema:"A fixed area of the viewport."`
+	Selector string `json:"selector,omitempty" jsonschema:"CSS selector of an element in the top-level document; the zoom follows it."`
+	Pointer  bool   `json:"pointer,omitempty" jsonschema:"Follow the pointer, so clicks and hovers stay in view."`
 }
 
 // ResetFocus zooms the recording out of its focus.
@@ -99,12 +106,18 @@ func (c *Caption) Validate() error {
 	return duration(&c.DurationMS, CaptionDurationDefaultMS, CaptionDurationMinMS, CaptionDurationMaxMS)
 }
 
-// Validate checks the focus and fills its defaults.
+// Validate checks the focus.
 func (f *Focus) Validate() error {
-	if err := place(f.Rect != nil, f.Selector); err != nil {
-		return err
+	named := 0
+	for _, set := range []bool{f.Target.Rect != nil, f.Target.Selector != "", f.Target.Pointer} {
+		if set {
+			named++
+		}
 	}
-	if f.Rect != nil && (f.Rect.Width < 0 || f.Rect.Height < 0) {
+	if named != 1 {
+		return invalidf("target must name exactly one of rect, selector and pointer")
+	}
+	if f.Target.Rect != nil && (f.Target.Rect.Width < 0 || f.Target.Rect.Height < 0) {
 		return invalidf("size must not be negative")
 	}
 	if f.Zoom <= 1 || f.Zoom > FocusMaxZoom {

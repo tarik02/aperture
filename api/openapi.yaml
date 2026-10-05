@@ -965,7 +965,7 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
-      description: Zooms the edited video on a rect or an element in the recorded tab, following a selector's element as the page moves. Pass exactly one of rect and selector. A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+      description: Zooms the edited video in on a target and holds it while automation acts. target names exactly one of pointer (follows the pointer), selector (follows an element as the page moves) and rect (a fixed area). A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/RecordingId'}
@@ -3103,12 +3103,18 @@ components:
         y: {type: number, description: Vertical position in viewport CSS pixels.}
     RecordingFocusInput:
       type: object
-      required: [zoom]
+      required: [target, zoom]
       properties:
-        rect: {$ref: '#/components/schemas/RecordingRect'}
-        selector: {type: string, minLength: 1, description: CSS selector in the top-level document; pass instead of rect.}
+        target: {$ref: '#/components/schemas/RecordingFocusTarget'}
         zoom: {type: number, minimum: 1, exclusiveMinimum: true, maximum: 4}
         durationMs: {type: integer, minimum: 0, maximum: 10000, description: Zoom out after this many milliseconds; at least 200. Zero or omitted keeps the focus until reset-focus.}
+    RecordingFocusTarget:
+      type: object
+      description: What a focus zooms on. Name exactly one of rect, selector and pointer.
+      properties:
+        rect: {$ref: '#/components/schemas/RecordingRect'}
+        selector: {type: string, minLength: 1, description: CSS selector of an element in the top-level document; the zoom follows it.}
+        pointer: {type: boolean, description: 'Follow the pointer, so clicks and hovers stay in view.'}
     RecordingAttentionInput:
       type: object
       properties:

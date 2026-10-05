@@ -18,8 +18,9 @@ import (
 //	reveal     targetId                         smooth scroll that brought an element into view
 //	retry      reason                           a check of the running action failed, so Playwright tries it again
 //	caption    text                             recording.caption
-//	focus      targetId, rect, zoom, track,     recording.focus until it ended: reset, replaced, duration, stopped or
-//	           ended                            expired; track lists {atMs, rect} where a selector's element moved
+//	focus      targetId, rect, zoom, follow,    recording.focus until it ended: reset, replaced, duration, stopped or
+//	           track, ended                     expired; follow is element or pointer, and track lists {atMs, rect}
+//	                                            where what it follows moved (the pointer is a rect without size)
 //	attention  targetId, x, y, radius, loops    recording.attention
 //
 // and startMs and endMs, both Unix milliseconds. Surface px are CSS px of the target's viewport.

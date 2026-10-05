@@ -48,20 +48,23 @@ func TestAnnotationRules(t *testing.T) {
 		}
 	}
 	for _, bad := range []Focus{
-		{Zoom: 1, Rect: &Rect{Width: 10, Height: 10}},                  // no zoom
-		{Zoom: 2, DurationMS: 10001, Rect: &Rect{Width: 1, Height: 1}}, // too long
-		{Zoom: 2, Rect: &Rect{Width: 1, Height: 1}, Selector: "#a"},    // two places
-		{Zoom: 2, DurationMS: 200},                                     // no place
-		{Zoom: 2, Rect: &Rect{Width: -1}},                              // negative size
+		{Zoom: 1, Target: FocusTarget{Rect: &Rect{Width: 10, Height: 10}}},                  // no zoom
+		{Zoom: 2, DurationMS: 10001, Target: FocusTarget{Rect: &Rect{Width: 1, Height: 1}}}, // too long
+		{Zoom: 2, Target: FocusTarget{Rect: &Rect{Width: 1, Height: 1}, Selector: "#a"}},    // two targets
+		{Zoom: 2, Target: FocusTarget{Selector: "#a", Pointer: true}},                       // two targets
+		{Zoom: 2, DurationMS: 200},                             // no target
+		{Zoom: 2, Target: FocusTarget{Rect: &Rect{Width: -1}}}, // negative size
 	} {
 		if err := bad.Validate(); !errors.Is(err, ErrInvalid) {
 			t.Errorf("focus %+v: %v", bad, err)
 		}
 	}
 	// Without a duration a focus holds until it is reset.
-	focus := Focus{Zoom: 2, Selector: "#a"}
-	if err := focus.Validate(); err != nil || focus.DurationMS != 0 {
-		t.Fatalf("focus = %+v, %v", focus, err)
+	for _, target := range []FocusTarget{{Selector: "#a"}, {Pointer: true}} {
+		focus := Focus{Zoom: 2, Target: target}
+		if err := focus.Validate(); err != nil || focus.DurationMS != 0 {
+			t.Fatalf("focus = %+v, %v", focus, err)
+		}
 	}
 	attention := Attention{Point: &Point{X: 1, Y: 2}}
 	if err := attention.Validate(); err != nil || attention.Radius != 40 || attention.Loops != 2 || attention.DurationMS != 1200 {

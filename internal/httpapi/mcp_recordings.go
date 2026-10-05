@@ -166,7 +166,7 @@ func (s *Server) addRecordingAnnotationTools(server *mcp.Server, a mcpAuth) {
 		return addressed()
 	}
 	addRecordingAnnotationTool[recording.Caption](s, server, "caption", "Show a caption in the recording from now on. Returns at once.", pick(mcpCaptionSchema, mcpBoundCaptionSchema))
-	addRecordingAnnotationTool[recording.Focus](s, server, "focus", "Zoom the recording on a rect or element, which it follows as the page moves. Holds until recording.reset_focus, the next focus (the view moves there) or the recording's end; with durationMs, zooms out after that and returns then. Browser tools run meanwhile.", pick(mcpFocusSchema, mcpBoundFocusSchema))
+	addRecordingAnnotationTool[recording.Focus](s, server, "focus", "Zoom the recording in on a target and hold it while you act: target.pointer follows the pointer, so the clicks, typing and hovers that follow stay in view; target.selector follows an element as the page moves; target.rect is a fixed area. Returns at once; the zoom holds through the browser tools you call next until recording.reset_focus, the next focus (the view moves there) or the end of the recording. With durationMs it zooms out after that and returns then.", pick(mcpFocusSchema, mcpBoundFocusSchema))
 	addRecordingAnnotationTool[recording.ResetFocus](s, server, "reset_focus", "Zoom the recording out of its focus. Does nothing without one.", pick(mcpResetFocusSchema, mcpBoundResetFocusSchema))
 	addRecordingAnnotationTool[recording.Attention](s, server, "attention", "Circle the real pointer around a point or element so a viewer looks there. Blocks for the duration. Needs a compositor session.", pick(mcpAttentionSchema, mcpBoundAttentionSchema))
 }

@@ -23,6 +23,7 @@ type annotationRequest struct {
 	text        string
 	selector    string
 	rect        *recording.Rect
+	pointer     bool // a focus that follows the pointer
 	zoom        float64
 	radius      float64
 	loops       int
@@ -53,7 +54,7 @@ func decodeAnnotation(kind string, body json.RawMessage) (annotationRequest, err
 		if err := decode(&f); err != nil {
 			return annotationRequest{}, err
 		}
-		return annotationRequest{kind: kind, recordingID: f.RecordingID, rect: f.Rect, selector: f.Selector, zoom: f.Zoom, durationMS: f.DurationMS}, nil
+		return annotationRequest{kind: kind, recordingID: f.RecordingID, rect: f.Target.Rect, selector: f.Target.Selector, pointer: f.Target.Pointer, zoom: f.Zoom, durationMS: f.DurationMS}, nil
 	case "reset_focus":
 		var reset recording.ResetFocus
 		if err := decode(&reset); err != nil {

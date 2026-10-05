@@ -1997,12 +1997,21 @@ type RecordingEditErrorCode string
 // RecordingFocusInput defines model for RecordingFocusInput.
 type RecordingFocusInput struct {
 	// DurationMs Zoom out after this many milliseconds; at least 200. Zero or omitted keeps the focus until reset-focus.
-	DurationMs *int           `json:"durationMs,omitempty"`
-	Rect       *RecordingRect `json:"rect,omitempty"`
+	DurationMs *int `json:"durationMs,omitempty"`
 
-	// Selector CSS selector in the top-level document; pass instead of rect.
+	// Target What a focus zooms on. Name exactly one of rect, selector and pointer.
+	Target RecordingFocusTarget `json:"target"`
+	Zoom   float32              `json:"zoom"`
+}
+
+// RecordingFocusTarget What a focus zooms on. Name exactly one of rect, selector and pointer.
+type RecordingFocusTarget struct {
+	// Pointer Follow the pointer, so clicks and hovers stay in view.
+	Pointer *bool          `json:"pointer,omitempty"`
+	Rect    *RecordingRect `json:"rect,omitempty"`
+
+	// Selector CSS selector of an element in the top-level document; the zoom follows it.
 	Selector *string `json:"selector,omitempty"`
-	Zoom     float32 `json:"zoom"`
 }
 
 // RecordingPoint defines model for RecordingPoint.
@@ -4036,7 +4045,7 @@ type ClientInterface interface {
 
 	// FocusSessionRecordingWithBody Focus a recording on an area
 	//
-	// Zooms the edited video on a rect or an element in the recorded tab, following a selector's element as the page moves. Pass exactly one of rect and selector. A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+	// Zooms the edited video in on a target and holds it while automation acts. target names exactly one of pointer (follows the pointer), selector (follows an element as the page moves) and rect (a fixed area). A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -4045,7 +4054,7 @@ type ClientInterface interface {
 
 	// FocusSessionRecording Focus a recording on an area
 	//
-	// Zooms the edited video on a rect or an element in the recorded tab, following a selector's element as the page moves. Pass exactly one of rect and selector. A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+	// Zooms the edited video in on a target and holds it while automation acts. target names exactly one of pointer (follows the pointer), selector (follows an element as the page moves) and rect (a fixed area). A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -5404,7 +5413,7 @@ func (c *Client) CaptionSessionRecording(ctx context.Context, sessionId SessionI
 
 // FocusSessionRecordingWithBody Focus a recording on an area
 //
-// Zooms the edited video on a rect or an element in the recorded tab, following a selector's element as the page moves. Pass exactly one of rect and selector. A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+// Zooms the edited video in on a target and holds it while automation acts. target names exactly one of pointer (follows the pointer), selector (follows an element as the page moves) and rect (a fixed area). A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
 //
 // Takes any type of body and a specified content type.
 //
@@ -5423,7 +5432,7 @@ func (c *Client) FocusSessionRecordingWithBody(ctx context.Context, sessionId Se
 
 // FocusSessionRecording Focus a recording on an area
 //
-// Zooms the edited video on a rect or an element in the recorded tab, following a selector's element as the page moves. Pass exactly one of rect and selector. A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+// Zooms the edited video in on a target and holds it while automation acts. target names exactly one of pointer (follows the pointer), selector (follows an element as the page moves) and rect (a fixed area). A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -10436,7 +10445,7 @@ type ClientWithResponsesInterface interface {
 
 	// FocusSessionRecordingWithBodyWithResponse Focus a recording on an area
 	//
-	// Zooms the edited video on a rect or an element in the recorded tab, following a selector's element as the page moves. Pass exactly one of rect and selector. A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+	// Zooms the edited video in on a target and holds it while automation acts. target names exactly one of pointer (follows the pointer), selector (follows an element as the page moves) and rect (a fixed area). A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -10445,7 +10454,7 @@ type ClientWithResponsesInterface interface {
 
 	// FocusSessionRecordingWithResponse Focus a recording on an area
 	//
-	// Zooms the edited video on a rect or an element in the recorded tab, following a selector's element as the page moves. Pass exactly one of rect and selector. A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+	// Zooms the edited video in on a target and holds it while automation acts. target names exactly one of pointer (follows the pointer), selector (follows an element as the page moves) and rect (a fixed area). A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -14748,7 +14757,7 @@ func (c *ClientWithResponses) CaptionSessionRecordingWithResponse(ctx context.Co
 
 // FocusSessionRecordingWithBodyWithResponse Focus a recording on an area
 //
-// Zooms the edited video on a rect or an element in the recorded tab, following a selector's element as the page moves. Pass exactly one of rect and selector. A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+// Zooms the edited video in on a target and holds it while automation acts. target names exactly one of pointer (follows the pointer), selector (follows an element as the page moves) and rect (a fixed area). A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -14763,7 +14772,7 @@ func (c *ClientWithResponses) FocusSessionRecordingWithBodyWithResponse(ctx cont
 
 // FocusSessionRecordingWithResponse Focus a recording on an area
 //
-// Zooms the edited video on a rect or an element in the recorded tab, following a selector's element as the page moves. Pass exactly one of rect and selector. A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+// Zooms the edited video in on a target and holds it while automation acts. target names exactly one of pointer (follows the pointer), selector (follows an element as the page moves) and rect (a fixed area). A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
