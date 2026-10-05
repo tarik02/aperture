@@ -360,6 +360,9 @@ in
     systemd.user.services."aperture@" = {
       description = "Aperture Chromium session supervisor (%i)";
       unitConfig.ConditionUser = cfg.user;
+      # aperture-rollout replaces the running color; activation must not restart it under the edge.
+      restartIfChanged = false;
+      stopIfChanged = false;
       after = [ "graphical-session.target" ];
       partOf = [ "graphical-session.target" ];
       environment = {
@@ -409,6 +412,10 @@ in
     systemd.user.services."browser-session@" = {
       description = "Browser session %i";
       unitConfig.ConditionUser = cfg.user;
+      # A running session keeps its browser across activations and runs the new wrapper from its
+      # next start; restarting it would lose its pages and recordings.
+      restartIfChanged = false;
+      stopIfChanged = false;
       serviceConfig = {
         Type = "simple";
         EnvironmentFile = "%t/aperture/sessions/%i.env";

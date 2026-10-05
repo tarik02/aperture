@@ -361,6 +361,11 @@ func (s *Service) wakeSuspendedSession(ctx context.Context, sessionRow *db.Sessi
 		return &OverlayMountError{SessionID: sessionRow.ID, Err: err}
 	}
 
+	// A session wakes on the ports it kept while they are still free; otherwise it takes new ones,
+	// and the session row and the edge routes follow below.
+	if port := sessionRow.CurrentCDPPort; port != nil && !(s.ports.free(*port) && s.ports.free(runtimeEnvWrapperPort(sessionRow))) {
+		sessionRow.CurrentCDPPort = nil
+	}
 	runtimeEnv, runtimePath, err := s.runtimeEnvForSession(ctx, sessionRow)
 	if err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
@@ -506,19 +511,12 @@ func (s *Service) runtimeEnvForSession(ctx context.Context, sessionRow *db.Sessi
 		return browser.RuntimeEnvValues{}, "", err
 	}
 	if sessionRow.CurrentCDPPort != nil && *sessionRow.CurrentCDPPort > 0 {
-		port := *sessionRow.CurrentCDPPort
-		wrapperPort, err := wrapperPortForSession(sessionRow, port)
-		if err != nil {
-			return browser.RuntimeEnvValues{}, "", err
+		if wrapperPort := runtimeEnvWrapperPort(sessionRow); wrapperPort > 0 {
+			return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, proxyConfig, *sessionRow.CurrentCDPPort, wrapperPort, rawSessionToken, controlToken), layout.RuntimeEnv, nil
 		}
-		return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, proxyConfig, port, wrapperPort, rawSessionToken, controlToken), layout.RuntimeEnv, nil
 	}
 
-	port, err := AllocateCDPPort()
-	if err != nil {
-		return browser.RuntimeEnvValues{}, "", err
-	}
-	wrapperPort, err := AllocateCDPPort(port)
+	port, wrapperPort, err := s.allocatePorts(ctx, sessionRow.ID)
 	if err != nil {
 		return browser.RuntimeEnvValues{}, "", err
 	}
@@ -587,19 +585,6 @@ func (s *Service) runtimeEnvValues(
 		MediaProducerUDPPortMin:    s.cfg.WebRTCMediaProducerUDPPortMin,
 		MediaProducerUDPPortMax:    s.cfg.WebRTCMediaProducerUDPPortMax,
 	}
-}
-
-func wrapperPortForSession(sessionRow *db.Session, cdpPort int) (int, error) {
-	if sessionRow.RuntimeEnvPath != nil {
-		body, err := os.ReadFile(*sessionRow.RuntimeEnvPath)
-		if err == nil {
-			values, err := browser.ParseRuntimeEnv(body)
-			if err == nil && values.WrapperPort > 0 {
-				return values.WrapperPort, nil
-			}
-		}
-	}
-	return AllocateCDPPort(cdpPort)
 }
 
 // wrapperControlTokenForSession reuses the running wrapper's control token so
