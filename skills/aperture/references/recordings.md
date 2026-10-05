@@ -54,7 +54,7 @@ Only a requested stop edits; a recording that ends because its tab closed, its c
 
 Next to the raw video, named like it and never overwriting: `<name>.timeline.json` whenever the journal has anything, and `<name>.edited.mp4` when something is to be applied (cuts, captions, focus, ripples). A recording with no settings and no annotations is not edited. Segments recorded after a resize are scaled to the first segment's size.
 
-The timeline holds `segments`, the `map` from raw to edited time when a video was made, and `events`: tool calls, glides, presses, wheel input, reveals, captions, focus and attention, each with `startMs` and `endMs` in raw time and `editedStartMs` and `editedEndMs` in edited time.
+The timeline holds `segments`, the `map` from raw to edited time when a video was made, and `events`: tool calls, glides, presses, wheel input, reveals, retries (`retry` with the `reason` a check of the running action failed, after which Playwright scrolled and tried again), captions, focus and attention, each with `startMs` and `endMs` in raw time and `editedStartMs` and `editedEndMs` in edited time.
 
 `editError.code` is one of `ffmpeg_unavailable`, `open_failed`, `nothing_kept` (a bursts recording with no call to keep), `analysis_failed`, `plan_failed`, `render_failed`, `timeout`, `cancelled` or `timeline_failed`. The raw video is there whatever the code.
 

@@ -104,6 +104,11 @@ func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments 
 		b.session = nil
 		return nil, err
 	}
+	if b.proxy != nil {
+		if retries := b.proxy.takeRetries(); len(retries) > 0 {
+			result.Content = append(result.Content, &mcp.TextContent{Text: retryNote(name, retries)})
+		}
+	}
 	return result, nil
 }
 

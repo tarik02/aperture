@@ -41,6 +41,7 @@ type cdpProxy struct {
 	action         atomic.Bool // a mutating MCP tool is running
 	actionMu       sync.Mutex
 	actionTarget   string
+	retries        []string // why the running action's checks failed, one entry per failure
 }
 
 func newCDPProxy(upstream string, cadence func() automationCadence, pointer *cdpPointer, journal journalFunc, recording func() bool) *cdpProxy {
@@ -125,6 +126,7 @@ func (p *cdpProxy) serveWebSocket(w http.ResponseWriter, req *http.Request) {
 		ctx:            ctx,
 		sessions:       make(map[string]cdpSession),
 		attaching:      make(map[int64]string),
+		checks:         make(map[int64]struct{}),
 		internal:       make(map[int64]chan cdpMessage),
 		mouse:          make(chan func(), 1024),
 		interceptDrags: make(map[string]bool),
@@ -161,6 +163,7 @@ type cdpProxyConn struct {
 	mu        sync.Mutex
 	sessions  map[string]cdpSession
 	attaching map[int64]string // Target.attachToTarget request id -> target
+	checks    map[int64]struct{} // request ids of Playwright's action checks whose answers are read
 	internal  map[int64]chan cdpMessage
 	nextID    atomic.Int64
 
@@ -251,6 +254,9 @@ func (c *cdpProxyConn) fromClient(raw []byte) {
 		if c.proxy.cadence() != cadenceImmediate && c.revealScroll(raw) {
 			return
 		}
+	}
+	if method == "Runtime.callFunctionOn" {
+		c.watchActionCheck(raw)
 	}
 	if method == "Runtime.callFunctionOn" && c.glideToHitTarget(raw) {
 		return
@@ -355,6 +361,7 @@ func (c *cdpProxyConn) fromUpstream(raw []byte) {
 			}
 			return
 		}
+		c.readActionCheck(*id, raw)
 		c.mu.Lock()
 		targetID, attaching := c.attaching[*id]
 		delete(c.attaching, *id)

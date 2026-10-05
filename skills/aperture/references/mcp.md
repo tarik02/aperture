@@ -38,4 +38,6 @@ Profiles are `core`, `vision`, `network` and `storage`. Playwright MCP starts la
 
 Aperture owns the browser process, so Playwright's browser close, browser install and arbitrary code execution tools are absent (stop a session with `sessions.suspend` or `sessions.delete`), and page-provided WebMCP tools are off. File arguments and results are session file paths, never host paths: automatically named output lands under `outputs/`, an explicit file name lands at that path, and `browser_file_upload` takes any session file `relativePath` ([session-files.md](session-files.md)).
 
+When Playwright had to retry an action because its checks failed (the element was covered, moving, hidden or outside the view), the tool's result ends with a note naming the reasons. Each retry scrolled the element again, so clear the way before acting the next time, especially while recording.
+
 A tool result is capped at `tool_output_max_bytes` (16 MiB by default).

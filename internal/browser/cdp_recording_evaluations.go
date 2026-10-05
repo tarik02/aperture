@@ -5,6 +5,7 @@ import "encoding/json"
 func (p *cdpProxy) beginAction(active bool) {
 	p.actionMu.Lock()
 	p.actionTarget = ""
+	p.retries = nil
 	p.action.Store(active)
 	p.actionMu.Unlock()
 }

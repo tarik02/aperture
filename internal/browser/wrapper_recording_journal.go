@@ -16,6 +16,7 @@ import (
 //	press      targetId, x, y, button, count, element
 //	wheel      targetId, x, y, dx, dy
 //	reveal     targetId                         smooth scroll that brought an element into view
+//	retry      reason                           a check of the running action failed, so Playwright tries it again
 //	caption    text                             recording.caption
 //	focus      targetId, rect, zoom, track      recording.focus; track lists {atMs, rect} where a selector's element moved
 //	attention  targetId, x, y, radius, loops    recording.attention
