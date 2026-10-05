@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aperture/aperture/internal/recording"
@@ -201,15 +202,33 @@ func runFFmpeg(ctx context.Context, values RuntimeEnvValues, work string, video 
 }
 
 // runNiced runs a command at low priority so it yields to the live session. Priority is per
-// thread on Linux and a child inherits its starting thread's, so the command starts from a
-// goroutine whose thread was made nice first; the goroutine keeps that thread until the command
-// ends, and Go discards a thread whose goroutine ended locked, so the priority never spreads.
+// thread on Linux and a child inherits its starting thread's, so commands start from one goroutine
+// whose thread was made nice and stays locked for the life of the wrapper. That thread must never
+// end: Go discards the thread of a goroutine that ends locked, and a process started with a death
+// signal for its parent (bubblewrap's --die-with-parent) is killed when the thread that started it
+// ends, so a discarded thread that happened to have started the browser would take the browser with it.
 func runNiced(cmd *exec.Cmd) error {
-	result := make(chan error, 1)
+	started := make(chan error, 1)
+	nicedStarts() <- nicedStart{cmd, started}
+	if err := <-started; err != nil {
+		return err
+	}
+	return cmd.Wait()
+}
+
+type nicedStart struct {
+	cmd     *exec.Cmd
+	started chan<- error
+}
+
+var nicedStarts = sync.OnceValue(func() chan<- nicedStart {
+	starts := make(chan nicedStart)
 	go func() {
 		runtime.LockOSThread()
 		_ = unix.Setpriority(unix.PRIO_PROCESS, unix.Gettid(), 10)
-		result <- cmd.Run()
+		for start := range starts {
+			start.started <- start.cmd.Start()
+		}
 	}()
-	return <-result
-}
+	return starts
+})

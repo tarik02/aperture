@@ -107,7 +107,7 @@ func TestRecordingWhoseCaptureDiedStopsCountingForTheCadence(t *testing.T) {
 	}
 }
 
-func TestAnnotationsTargetTheOneRunningRecordingAndHoldTheGate(t *testing.T) {
+func TestAnnotationsTargetTheOneRunningRecordingAndLeaveTheGateFree(t *testing.T) {
 	session := newJournalSession(t)
 	caption, err := decodeAnnotation("caption", json.RawMessage(`{"text":"  Open the menu ","durationMs":1500}`))
 	if err != nil {
@@ -142,7 +142,7 @@ func TestAnnotationsTargetTheOneRunningRecordingAndHoldTheGate(t *testing.T) {
 	if _, err := decodeAnnotation("blink", json.RawMessage(`{}`)); !errors.Is(err, recording.ErrInvalid) {
 		t.Errorf("unknown kind: err = %v", err)
 	}
-	// Focus blocks for its duration with the gate held, so a browser call waits for it.
+	// Focus blocks its caller for its duration but leaves the gate free, so a browser call acts during the zoom.
 	focus, err := decodeAnnotation("focus", json.RawMessage(`{"recordingId":"second","zoom":2,"durationMs":200,"rect":{"x":1,"y":2,"width":30,"height":40}}`))
 	if err != nil {
 		t.Fatal(err)
@@ -152,11 +152,15 @@ func TestAnnotationsTargetTheOneRunningRecordingAndHoldTheGate(t *testing.T) {
 	go func() { finished <- session.annotate(context.Background(), focus) }()
 	time.Sleep(50 * time.Millisecond)
 	release, err := session.acquireGate(context.Background())
-	if err != nil || time.Since(started) < 200*time.Millisecond {
-		t.Fatalf("a browser call got in during focus after %v (%v)", time.Since(started), err)
+	if err != nil || time.Since(started) >= 200*time.Millisecond {
+		t.Fatalf("a browser call waited for focus until %v (%v)", time.Since(started), err)
 	}
 	release()
-	if err := <-finished; err != nil || !strings.Contains(readJournal(t, second), `"rect":{"x":1,"y":2,"width":30,"height":40}`) {
+	err = <-finished
+	if time.Since(started) < 200*time.Millisecond {
+		t.Fatalf("focus returned after %v", time.Since(started))
+	}
+	if err != nil || !strings.Contains(readJournal(t, second), `"rect":{"x":1,"y":2,"width":30,"height":40}`) {
 		t.Fatalf("err = %v, journal = %q", err, readJournal(t, second))
 	}
 }

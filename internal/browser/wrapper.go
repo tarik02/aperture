@@ -644,6 +644,9 @@ func LaunchFromRuntimeEnv() error {
 
 	select {
 	case err := <-browserDone:
+		if err != nil {
+			return fmt.Errorf("browser exited: %w", err)
+		}
 		return err
 	case err := <-wrapperDone:
 		stopProcess(cmd, browserDone)
@@ -973,6 +976,9 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 			stopProcess(compositor, compositorDone)
 			stopProcess(wirePlumber, wirePlumberDone)
 			stopProcess(pipeWire, pipeWireDone)
+			if err != nil {
+				return fmt.Errorf("browser exited: %w", err)
+			}
 			return err
 		case err := <-compositorDone:
 			wrapper.liveSession.stopAllRecordings("session_closed")
