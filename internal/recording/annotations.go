@@ -13,9 +13,9 @@ const (
 	CaptionDurationDefaultMS   = 3000
 	CaptionDurationMinMS       = 200
 	CaptionDurationMaxMS       = 30000
-	FocusDurationDefaultMS     = 2000
 	FocusDurationMinMS         = 200
 	FocusDurationMaxMS         = 10000
+	FocusOpenMaxMS             = 60000 // a focus nobody reset zooms out after this
 	AttentionDurationDefaultMS = 1200
 	AttentionDurationMinMS     = 300
 	AttentionDurationMaxMS     = 5000
@@ -46,13 +46,20 @@ type Caption struct {
 	DurationMS  int    `json:"durationMs,omitempty" jsonschema:"How long the caption shows, in milliseconds."`
 }
 
-// Focus zooms the recording on a rect or element for a while.
+// Focus zooms the recording on a rect or element until it is reset, the recording stops or
+// FocusOpenMaxMS passes, or for DurationMS when that is set. A recording holds one focus: a new
+// one moves the view from the one before.
 type Focus struct {
 	RecordingID string  `json:"recordingId,omitempty" jsonschema:"Recording to zoom; omit when exactly one recording is running."`
 	Rect        *Rect   `json:"rect,omitempty" jsonschema:"Area to zoom on. Pass rect or selector."`
 	Selector    string  `json:"selector,omitempty" jsonschema:"CSS selector of the element to zoom on, in the top-level document. Pass rect or selector."`
 	Zoom        float64 `json:"zoom" jsonschema:"Zoom factor."`
-	DurationMS  int     `json:"durationMs,omitempty" jsonschema:"How long the zoom holds, in milliseconds. The call blocks for this long."`
+	DurationMS  int     `json:"durationMs,omitempty" jsonschema:"Zoom out after this many milliseconds; the call blocks for this long. Omit to keep the zoom until recording.reset_focus."`
+}
+
+// ResetFocus zooms the recording out of its focus.
+type ResetFocus struct {
+	RecordingID string `json:"recordingId,omitempty" jsonschema:"Recording to zoom out; omit when exactly one recording is running."`
 }
 
 // Attention circles the real pointer around a point or element so a viewer looks there.
@@ -103,8 +110,14 @@ func (f *Focus) Validate() error {
 	if f.Zoom <= 1 || f.Zoom > FocusMaxZoom {
 		return invalidf("zoom must be above 1 and at most %v", FocusMaxZoom)
 	}
-	return duration(&f.DurationMS, FocusDurationDefaultMS, FocusDurationMinMS, FocusDurationMaxMS)
+	if f.DurationMS != 0 && (f.DurationMS < FocusDurationMinMS || f.DurationMS > FocusDurationMaxMS) {
+		return invalidf("durationMs must be %d to %d", FocusDurationMinMS, FocusDurationMaxMS)
+	}
+	return nil
 }
+
+// Validate has nothing to check: a reset without a focus does nothing.
+func (r *ResetFocus) Validate() error { return nil }
 
 // Validate checks the attention and fills its defaults.
 func (a *Attention) Validate() error {

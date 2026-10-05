@@ -73,7 +73,7 @@ func TestRecordingAnnotationToolsAreAddressedBySessionUnlessBound(t *testing.T) 
 			}
 		}
 		slices.Sort(names)
-		if !slices.Equal(names, []string{"recording.attention", "recording.caption", "recording.focus"}) {
+		if !slices.Equal(names, []string{"recording.attention", "recording.caption", "recording.focus", "recording.reset_focus"}) {
 			t.Errorf("tools = %v", names)
 		}
 	}

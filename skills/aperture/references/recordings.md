@@ -12,7 +12,7 @@ A recording captures one browser target of a running session into a session file
 | Retarget | — | `POST …/recordings/:rid/retarget {targetId}` | `recording.retarget` |
 | Stop | `POST …/recordings/:rid/stop` answers with the raw media bytes | `POST …/recordings/:rid/stop` answers with the recording | `recording.stop` answers with the recording |
 | Download later | `GET …/recordings/:rid/content` of a `stopped` recording | a signed URL for the `relativePath` ([session-files.md](session-files.md#download)) | same |
-| Annotate | `POST …/recordings/annotations/{caption,focus,attention}` | — | `recording.caption`, `recording.focus`, `recording.attention` |
+| Annotate | `POST …/recordings/annotations/{caption,focus,reset_focus,attention}` | `POST …/recordings/:rid/{caption,focus,reset-focus,attention}` | `recording.caption`, `recording.focus`, `recording.reset_focus`, `recording.attention` |
 
 Interactive clients use the `recording.start`, `recording.stop` and `recording.cancel` commands of the [session protocol](live-session.md#session-protocol) instead, with the same fields; after `recording.stop.result`, fetch `/content` rather than stopping again. The API routes and their bodies are in the spec; the live-session and MCP bodies are the same fields.
 
@@ -31,7 +31,8 @@ Browser automation calls, recording start and stop, and `attention` share one ga
 They act on the recording named by `recordingId`, or on the only running one; with none or several running and no id, they fail. Coordinates are CSS pixels of the recorded tab's viewport; a `selector` is resolved in its top-level document.
 
 - `caption`: `text` (1 to 200 characters), `durationMs` (200 to 30000, default 3000). Returns at once; the text is burned in from that moment.
-- `focus`: `rect {x, y, width, height}` or `selector`, `zoom` (above 1, up to 4), `durationMs` (200 to 10000, default 2000). Returns when the zoom ends but holds nothing: browser tools run meanwhile, so to zoom on an element while acting on it, call `focus` and the browser tool together. A `selector` focus follows its element as automation scrolls or the layout moves. Only the part of the rect inside the viewport is shown, and the zoom is lowered so that part fits the frame. Focus windows under half a second apart stay zoomed and pan between.
+- `focus`: `rect {x, y, width, height}` or `selector`, `zoom` (above 1, up to 4), optional `durationMs` (200 to 10000). A recording holds one focus: it zooms in and holds until `reset_focus`, the next `focus` (the view moves and zooms from one to the other) or the recording's end, and zooms out after 60 s if nothing ended it. Without `durationMs` the call returns at once; with it, the focus zooms out after that long and the call returns then. Browser tools run meanwhile, so the usual flow is `focus`, act, `reset_focus`. A `selector` focus follows its element as automation scrolls or the layout moves. Only the part of the rect inside the viewport is shown, and the zoom is lowered so that part fits the frame.
+- `reset_focus`: zooms out of the recording's focus; does nothing without one.
 - `attention`: `point {x, y}` or `selector`, `radius` (8 to 300, default 40), `loops` (1 to 5, default 2), `durationMs` (300 to 5000, default 1200). Circles the real pointer around the place, so it needs a compositor session and the session's input to be free; blocks for the duration.
 
 ## Edit settings

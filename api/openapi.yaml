@@ -965,7 +965,7 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
-      description: Zooms the edited video on a rect or an element in the recorded tab. Pass exactly one of rect and selector. Blocks for durationMs while browser automation waits. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+      description: Zooms the edited video on a rect or an element in the recorded tab, following a selector's element as the page moves. Pass exactly one of rect and selector. A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/RecordingId'}
@@ -976,7 +976,25 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/RecordingFocusInput'}
       responses:
-        '204': {description: Focus completed}
+        '204': {description: 'Focus set; with durationMs, ended'}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/recordings/{recordingId}/reset-focus:
+    post:
+      operationId: resetFocusSessionRecording
+      tags: [sessions]
+      summary: Zoom a recording out of its focus
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
+      description: Ends the recording's focus, so the edited video zooms out. Does nothing without one. Requires a running recording; never wakes a suspended session.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/RecordingId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '204': {description: Focus ended}
         default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/recordings/{recordingId}/attention:
     post:
@@ -3090,7 +3108,7 @@ components:
         rect: {$ref: '#/components/schemas/RecordingRect'}
         selector: {type: string, minLength: 1, description: CSS selector in the top-level document; pass instead of rect.}
         zoom: {type: number, minimum: 1, exclusiveMinimum: true, maximum: 4}
-        durationMs: {type: integer, minimum: 0, maximum: 10000, description: Hold duration in milliseconds. Zero or omitted means 2000; other values must be at least 200.}
+        durationMs: {type: integer, minimum: 0, maximum: 10000, description: Zoom out after this many milliseconds; at least 200. Zero or omitted keeps the focus until reset-focus.}
     RecordingAttentionInput:
       type: object
       properties:

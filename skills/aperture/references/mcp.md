@@ -19,7 +19,7 @@ Access tokens (`apo_...`) last one hour and refresh tokens (`apr_...`) 30 days; 
 
 `tools/list` is the catalog with descriptions and schemas; the names, grouped:
 
-- Native, on both endpoints: `sessions.status`, `sessions.connection` (`cdpUrl`, `sessionToken`, `media`), `sessions.suspend`, `browser.targets`, `cursor.get`, `cursor.set`, `session_files.list`, `session_files.create_download_url`, `recording.start`, `recording.list`, `recording.status`, `recording.retarget`, `recording.stop`, `recording.caption`, `recording.focus`, `recording.attention`. `sessions.promote` too, except for a session token.
+- Native, on both endpoints: `sessions.status`, `sessions.connection` (`cdpUrl`, `sessionToken`, `media`), `sessions.suspend`, `browser.targets`, `cursor.get`, `cursor.set`, `session_files.list`, `session_files.create_download_url`, `recording.start`, `recording.list`, `recording.status`, `recording.retarget`, `recording.stop`, `recording.caption`, `recording.focus`, `recording.reset_focus`, `recording.attention`. `sessions.promote` too, except for a session token.
 - Native, central only: the rest of `sessions.*` (`create`, `create_from_snapshot`, `list`, `get`, `bulk_get`, `reopen`, `replace_tags`, `delete`, `session_token_rotate`), `snapshots.*`, `events.list`, `browser.channels`, `tenant.*`, `tenants.*`, `tokens.*`.
 - Browser tools: Playwright MCP's `browser_*` tools, for the session named by the arguments or the URL.
 

@@ -82,6 +82,7 @@ type wrapperRecording struct {
 	unsalvaged  bool // the pipeline exited; refreshRecordings still has to keep what it captured
 	clientID    string
 	operationMu *sync.Mutex
+	focus       *recordingFocus // the zoom the recording holds now
 }
 
 type wrapperRecordingRequest struct {
@@ -570,7 +571,12 @@ func (session *liveSession) stopRecordingWithGate(recordingID string, targetID s
 	}
 	recording.stopping = true
 	session.setRecordingStatusLocked(recording, recording.Status) // no longer counts as running
+	focus := recording.focus
+	recording.focus = nil
 	r.mu.Unlock()
+	if focus != nil {
+		focus.end("stopped")
+	}
 	releaseGate()
 
 	source, failure, err := session.stopCapture(recording)

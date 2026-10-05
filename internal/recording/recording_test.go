@@ -58,8 +58,9 @@ func TestAnnotationRules(t *testing.T) {
 			t.Errorf("focus %+v: %v", bad, err)
 		}
 	}
+	// Without a duration a focus holds until it is reset.
 	focus := Focus{Zoom: 2, Selector: "#a"}
-	if err := focus.Validate(); err != nil || focus.DurationMS != 2000 {
+	if err := focus.Validate(); err != nil || focus.DurationMS != 0 {
 		t.Fatalf("focus = %+v, %v", focus, err)
 	}
 	attention := Attention{Point: &Point{X: 1, Y: 2}}

@@ -79,7 +79,8 @@ func captionSchema(schema *jsonschema.Schema) {
 func focusSchema(schema *jsonschema.Schema) {
 	schema.Properties["zoom"].ExclusiveMinimum = jsonschema.Ptr(1.0)
 	schema.Properties["zoom"].Maximum = jsonschema.Ptr(recording.FocusMaxZoom)
-	annotationDurationSchema(schema.Properties["durationMs"], recording.FocusDurationDefaultMS, recording.FocusDurationMinMS, recording.FocusDurationMaxMS)
+	schema.Properties["durationMs"].Minimum = jsonschema.Ptr(float64(recording.FocusDurationMinMS))
+	schema.Properties["durationMs"].Maximum = jsonschema.Ptr(float64(recording.FocusDurationMaxMS))
 }
 
 func attentionSchema(schema *jsonschema.Schema) {
@@ -104,6 +105,8 @@ var (
 	mcpBoundFocusSchema          = mcpSchema[recording.Focus](focusSchema)
 	mcpAttentionSchema           = mcpSchema[recording.Attention](addressedAnnotation(attentionSchema))
 	mcpBoundAttentionSchema      = mcpSchema[recording.Attention](attentionSchema)
+	mcpResetFocusSchema          = mcpSchema[recording.ResetFocus](sessionAddressed)
+	mcpBoundResetFocusSchema     = mcpSchema[recording.ResetFocus](nil)
 )
 
 // addRecordingAnnotationTool adds one explicit recording tool, session-addressed or bound to the
@@ -163,7 +166,8 @@ func (s *Server) addRecordingAnnotationTools(server *mcp.Server, a mcpAuth) {
 		return addressed()
 	}
 	addRecordingAnnotationTool[recording.Caption](s, server, "caption", "Show a caption in the recording from now on. Returns at once.", pick(mcpCaptionSchema, mcpBoundCaptionSchema))
-	addRecordingAnnotationTool[recording.Focus](s, server, "focus", "Zoom the recording on a rect or element for a while. Returns when the zoom ends; browser tools run meanwhile, so call one alongside to act during the zoom. A zoom on a selector follows its element.", pick(mcpFocusSchema, mcpBoundFocusSchema))
+	addRecordingAnnotationTool[recording.Focus](s, server, "focus", "Zoom the recording on a rect or element, which it follows as the page moves. Holds until recording.reset_focus, the next focus (the view moves there) or the recording's end; with durationMs, zooms out after that and returns then. Browser tools run meanwhile.", pick(mcpFocusSchema, mcpBoundFocusSchema))
+	addRecordingAnnotationTool[recording.ResetFocus](s, server, "reset_focus", "Zoom the recording out of its focus. Does nothing without one.", pick(mcpResetFocusSchema, mcpBoundResetFocusSchema))
 	addRecordingAnnotationTool[recording.Attention](s, server, "attention", "Circle the real pointer around a point or element so a viewer looks there. Blocks for the duration. Needs a compositor session.", pick(mcpAttentionSchema, mcpBoundAttentionSchema))
 }
 

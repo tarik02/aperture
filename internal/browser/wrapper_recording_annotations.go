@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"time"
 
@@ -15,8 +14,8 @@ import (
 	"github.com/chromedp/cdproto/target"
 )
 
-// annotationRequest is one explicit recording tool, decoded and validated: a caption, a focus or an
-// attention. Each kind reads the fields it documents; attention's point is a rect without size.
+// annotationRequest is one explicit recording tool, decoded and validated: a caption, a focus, a
+// focus reset or an attention. Each kind reads the fields it documents; attention's point is a rect without size.
 // Coordinates are surface px: CSS px of the recorded target's viewport.
 type annotationRequest struct {
 	kind        string
@@ -55,6 +54,12 @@ func decodeAnnotation(kind string, body json.RawMessage) (annotationRequest, err
 			return annotationRequest{}, err
 		}
 		return annotationRequest{kind: kind, recordingID: f.RecordingID, rect: f.Rect, selector: f.Selector, zoom: f.Zoom, durationMS: f.DurationMS}, nil
+	case "reset_focus":
+		var reset recording.ResetFocus
+		if err := decode(&reset); err != nil {
+			return annotationRequest{}, err
+		}
+		return annotationRequest{kind: kind, recordingID: reset.RecordingID}, nil
 	case "attention":
 		var a recording.Attention
 		if err := decode(&a); err != nil {
@@ -128,16 +133,21 @@ func (session *liveSession) annotate(ctx context.Context, request annotationRequ
 	default:
 		return errors.New("several recordings are running: pass recordingId")
 	}
-	if request.kind != "attention" && r.values.RecordingFFmpegExecutable == "" {
+	if (request.kind == "caption" || request.kind == "focus") && r.values.RecordingFFmpegExecutable == "" {
 		return recording.ErrFFmpegRequired
 	}
 	var started time.Time
 	var fields map[string]any
 	switch request.kind {
+	case "focus":
+		return session.annotateFocus(ctx, active, targetID, request)
+	case "reset_focus":
+		if focus := session.takeFocus(active, nil); focus != nil {
+			focus.end("reset")
+		}
+		return nil
 	case "caption":
 		started, fields = time.Now(), map[string]any{"text": request.text, "durationMs": request.durationMS}
-	case "focus":
-		started, fields, err = session.annotateFocus(ctx, targetID, request)
 	default:
 		started, fields, err = session.annotateAttention(ctx, targetID, request)
 	}
@@ -153,52 +163,6 @@ func (session *liveSession) annotate(ctx context.Context, request annotationRequ
 	}
 	active.journal.append(journalLine(request.kind, started, fields))
 	return nil
-}
-
-// focusTrackInterval is how often a focus on a selector measures its element again.
-const focusTrackInterval = 100 * time.Millisecond
-
-// annotateFocus returns when a zoom's duration is over. A zoom on a selector follows its element
-// meanwhile, so it stays on it when automation scrolls or the layout moves: every move is a track
-// point at its offset from the start. A moment the element cannot be measured keeps the last rect.
-func (session *liveSession) annotateFocus(ctx context.Context, targetID string, request annotationRequest) (time.Time, map[string]any, error) {
-	rect, err := session.annotationRect(targetID, request)
-	if err != nil {
-		return time.Time{}, nil, err
-	}
-	started := time.Now()
-	fields := map[string]any{"targetId": targetID, "rect": rect, "zoom": request.zoom}
-	deadline := time.NewTimer(time.Duration(request.durationMS) * time.Millisecond)
-	defer deadline.Stop()
-	var tick <-chan time.Time
-	if request.selector != "" {
-		ticker := time.NewTicker(focusTrackInterval)
-		defer ticker.Stop()
-		tick = ticker.C
-	}
-	var track []map[string]any
-	for last := rect; ; {
-		select {
-		case <-ctx.Done():
-			return time.Time{}, nil, ctx.Err()
-		case <-deadline.C:
-			if len(track) > 0 {
-				fields["track"] = track
-			}
-			return started, fields, nil
-		case <-tick:
-			current, ok := session.trackRect(targetID, request.selector)
-			if !ok {
-				continue
-			}
-			moved := max(math.Abs(current.X-last.X), math.Abs(current.Y-last.Y), math.Abs(current.Width-last.Width), math.Abs(current.Height-last.Height))
-			if moved < 1 {
-				continue
-			}
-			track = append(track, map[string]any{"atMs": time.Since(started).Milliseconds(), "rect": current})
-			last = current
-		}
-	}
 }
 
 // annotateAttention loops the real pointer around a point so a viewer looks there.
