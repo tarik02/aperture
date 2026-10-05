@@ -162,7 +162,7 @@ type cdpProxyConn struct {
 
 	mu        sync.Mutex
 	sessions  map[string]cdpSession
-	attaching map[int64]string // Target.attachToTarget request id -> target
+	attaching map[int64]string   // Target.attachToTarget request id -> target
 	checks    map[int64]struct{} // request ids of Playwright's action checks whose answers are read
 	internal  map[int64]chan cdpMessage
 	nextID    atomic.Int64
