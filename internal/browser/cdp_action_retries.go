@@ -53,7 +53,11 @@ func (c *cdpProxyConn) readActionCheck(id int64, raw []byte) {
 	if !watched {
 		return
 	}
-	value, err := decodeRemoteObject(raw)
+	var message cdpMessage
+	if json.Unmarshal(raw, &message) != nil || len(message.Result) == 0 {
+		return
+	}
+	value, err := decodeRemoteObject(message.Result)
 	if err != nil || len(value) == 0 {
 		return
 	}
@@ -80,7 +84,8 @@ func actionCheckFailure(value any) string {
 		case "error:notinviewport":
 			return "element is outside of the viewport"
 		}
-		return value
+		// A preliminary hit-target check answers with the description of the element in the way.
+		return value + " intercepts pointer events"
 	case map[string]any:
 		properties, _ := value["o"].([]any)
 		for _, raw := range properties {
@@ -88,7 +93,7 @@ func actionCheckFailure(value any) string {
 			text, _ := property["v"].(string)
 			switch property["k"] {
 			case "hitTargetDescription":
-				return text
+				return text + " intercepts pointer events"
 			case "missingState":
 				return "element is not " + text
 			}
