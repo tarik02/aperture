@@ -363,7 +363,7 @@ func (s *Service) wakeSuspendedSession(ctx context.Context, sessionRow *db.Sessi
 
 	// A session wakes on the ports it kept while they are still free; otherwise it takes new ones,
 	// and the session row and the edge routes follow below.
-	if port := sessionRow.CurrentCDPPort; port != nil && !(s.ports.free(*port) && s.ports.free(runtimeEnvWrapperPort(sessionRow))) {
+	if port := sessionRow.CurrentCDPPort; port != nil && (!s.ports.free(*port) || !s.ports.free(runtimeEnvWrapperPort(sessionRow))) {
 		sessionRow.CurrentCDPPort = nil
 	}
 	runtimeEnv, runtimePath, err := s.runtimeEnvForSession(ctx, sessionRow)
