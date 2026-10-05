@@ -73,7 +73,7 @@ func TestRecordingAnnotationToolsAreAddressedBySessionUnlessBound(t *testing.T) 
 			}
 		}
 		slices.Sort(names)
-		if !slices.Equal(names, []string{"recording.attention", "recording.caption", "recording.focus"}) {
+		if !slices.Equal(names, []string{"recording.attention", "recording.caption", "recording.focus", "recording.reset_focus"}) {
 			t.Errorf("tools = %v", names)
 		}
 	}
@@ -190,7 +190,7 @@ func TestMCPAnnotationToolsCheckTheirArgumentsAndNeverWake(t *testing.T) {
 	}
 	// A suspended session has no running recording, and is not woken to say so.
 	env.suspend(t)
-	if text, ok := call(t, client, "recording.focus", map[string]any{"sessionId": env.sessionID, "selector": "#a", "zoom": 2}); ok || !strings.Contains(text, "recording_invalid_state") {
+	if text, ok := call(t, client, "recording.focus", map[string]any{"sessionId": env.sessionID, "target": map[string]any{"pointer": true}, "zoom": 2}); ok || !strings.Contains(text, "recording_invalid_state") {
 		t.Fatalf("result = %q, %v", text, ok)
 	}
 	if calls := env.wrapper.requests(); len(calls) != 1 || env.status(t) != db.SessionStatusSuspended {

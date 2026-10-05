@@ -213,6 +213,11 @@ export class SessionsApi extends Context.Service<
       recordingId: string,
       input: RecordingFocusInput,
     ) => Call<void>;
+    readonly resetFocusSessionRecording: (
+      credentials: ApiCredentials,
+      sessionId: string,
+      recordingId: string,
+    ) => Call<void>;
     readonly attentionSessionRecording: (
       credentials: ApiCredentials,
       sessionId: string,

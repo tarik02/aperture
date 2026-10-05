@@ -12,7 +12,7 @@ A recording captures one browser target of a running session into a session file
 | Retarget | — | `POST …/recordings/:rid/retarget {targetId}` | `recording.retarget` |
 | Stop | `POST …/recordings/:rid/stop` answers with the raw media bytes | `POST …/recordings/:rid/stop` answers with the recording | `recording.stop` answers with the recording |
 | Download later | `GET …/recordings/:rid/content` of a `stopped` recording | a signed URL for the `relativePath` ([session-files.md](session-files.md#download)) | same |
-| Annotate | `POST …/recordings/annotations/{caption,focus,attention}` | — | `recording.caption`, `recording.focus`, `recording.attention` |
+| Annotate | `POST …/recordings/annotations/{caption,focus,reset_focus,attention}` | `POST …/recordings/:rid/{caption,focus,reset-focus,attention}` | `recording.caption`, `recording.focus`, `recording.reset_focus`, `recording.attention` |
 
 Interactive clients use the `recording.start`, `recording.stop` and `recording.cancel` commands of the [session protocol](live-session.md#session-protocol) instead, with the same fields; after `recording.stop.result`, fetch `/content` rather than stopping again. The API routes and their bodies are in the spec; the live-session and MCP bodies are the same fields.
 
@@ -31,7 +31,13 @@ Browser automation calls, recording start and stop, and `attention` share one ga
 They act on the recording named by `recordingId`, or on the only running one; with none or several running and no id, they fail. Coordinates are CSS pixels of the recorded tab's viewport; a `selector` is resolved in its top-level document.
 
 - `caption`: `text` (1 to 200 characters), `durationMs` (200 to 30000, default 3000). Returns at once; the text is burned in from that moment.
-- `focus`: `rect {x, y, width, height}` or `selector`, `zoom` (above 1, up to 4), `durationMs` (200 to 10000, default 2000). Returns when the zoom ends but holds nothing: browser tools run meanwhile, so to zoom on an element while acting on it, call `focus` and the browser tool together. A `selector` focus follows its element as automation scrolls or the layout moves. Only the part of the rect inside the viewport is shown, and the zoom is lowered so that part fits the frame. Focus windows under half a second apart stay zoomed and pan between.
+- `focus`: `target` (exactly one of `pointer: true`, `selector`, `rect {x, y, width, height}`), `zoom` (above 1, up to 4), optional `durationMs` (200 to 10000). It zooms in on a stretch of the recording while you act inside it, not on a single moment: `focus`, then the browser tools and annotations that should be seen up close, then `reset_focus`, then whatever needs the whole page.
+  - `pointer: true` follows the pointer, so the clicks, typing and hovers that come next stay in view; the view moves only when the pointer nears the edge of the zoomed area, so it holds still for small moves.
+  - `selector` follows an element as automation scrolls or the layout moves; `rect` is a fixed area. Only the part inside the viewport is shown, and the zoom is lowered so that part fits the frame.
+  - A recording holds one focus: a new `focus` moves and zooms the view from the current one without zooming out. The focus holds until `reset_focus`, the next `focus` or the recording's end, and zooms out by itself after 60 s.
+  - Without `durationMs` the call returns at once and browser tools run inside the focus. With it, the call blocks for that long and the focus ends then; use that only to linger on something without acting.
+  - A focus with nothing inside it is a zoom on a still page. To point at something without acting, put `attention` inside it: `focus` → `attention` → `reset_focus`, e.g. to show a visual bug.
+- `reset_focus`: zooms out of the recording's focus; does nothing without one.
 - `attention`: `point {x, y}` or `selector`, `radius` (8 to 300, default 40), `loops` (1 to 5, default 2), `durationMs` (300 to 5000, default 1200). Circles the real pointer around the place, so it needs a compositor session and the session's input to be free; blocks for the duration.
 
 ## Edit settings
@@ -54,7 +60,7 @@ Only a requested stop edits; a recording that ends because its tab closed, its c
 
 Next to the raw video, named like it and never overwriting: `<name>.timeline.json` whenever the journal has anything, and `<name>.edited.mp4` when something is to be applied (cuts, captions, focus, ripples). A recording with no settings and no annotations is not edited. Segments recorded after a resize are scaled to the first segment's size.
 
-The timeline holds `segments`, the `map` from raw to edited time when a video was made, and `events`: tool calls, glides, presses, wheel input, reveals, captions, focus and attention, each with `startMs` and `endMs` in raw time and `editedStartMs` and `editedEndMs` in edited time.
+The timeline holds `segments`, the `map` from raw to edited time when a video was made, and `events`: tool calls, glides, presses, wheel input, reveals, retries (`retry` with the `reason` a check of the running action failed, after which Playwright scrolled and tried again), captions, focus and attention, each with `startMs` and `endMs` in raw time and `editedStartMs` and `editedEndMs` in edited time.
 
 `editError.code` is one of `ffmpeg_unavailable`, `open_failed`, `nothing_kept` (a bursts recording with no call to keep), `analysis_failed`, `plan_failed`, `render_failed`, `timeout`, `cancelled` or `timeline_failed`. The raw video is there whatever the code.
 

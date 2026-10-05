@@ -287,6 +287,16 @@ export const makeSessionsApi = Effect.gen(function* () {
       .pipe(tenantScoped(credentials));
   });
 
+  const resetFocusSessionRecording = Effect.fn("SessionsApi.resetFocusSessionRecording")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+    recordingId: string,
+  ) {
+    yield* api
+      .resetFocusSessionRecording(sessionId, recordingId, undefined)
+      .pipe(tenantScoped(credentials));
+  });
+
   const attentionSessionRecording = Effect.fn("SessionsApi.attentionSessionRecording")(function* (
     credentials: ApiCredentials,
     sessionId: string,
@@ -485,6 +495,7 @@ export const makeSessionsApi = Effect.gen(function* () {
     stopSessionRecording,
     captionSessionRecording,
     focusSessionRecording,
+    resetFocusSessionRecording,
     attentionSessionRecording,
     listSessionFiles,
     createSessionFileDownloadURL,

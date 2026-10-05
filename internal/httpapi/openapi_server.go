@@ -1064,6 +1064,15 @@ func (s openAPIServer) FocusSessionRecording(ctx context.Context, _ generated.Fo
 	return openAPIPassthroughResponse{}, nil
 }
 
+func (s openAPIServer) ResetFocusSessionRecording(ctx context.Context, _ generated.ResetFocusSessionRecordingRequestObject) (generated.ResetFocusSessionRecordingResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.resetFocusSessionRecording(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
 func (s openAPIServer) AttentionSessionRecording(ctx context.Context, _ generated.AttentionSessionRecordingRequestObject) (generated.AttentionSessionRecordingResponseObject, error) {
 	c, ok := ctx.(*gin.Context)
 	if !ok {
@@ -1077,6 +1086,9 @@ func (openAPIPassthroughResponse) VisitCaptionSessionRecordingResponse(http.Resp
 	return nil
 }
 func (openAPIPassthroughResponse) VisitFocusSessionRecordingResponse(http.ResponseWriter) error {
+	return nil
+}
+func (openAPIPassthroughResponse) VisitResetFocusSessionRecordingResponse(http.ResponseWriter) error {
 	return nil
 }
 func (openAPIPassthroughResponse) VisitAttentionSessionRecordingResponse(http.ResponseWriter) error {

@@ -222,6 +222,10 @@ func (p *recordingPlan) focusAt(e journalEntry, segment timelineSegment, at span
 			right, bottom := min(x+width, viewportWidth), min(y+height, viewportHeight)
 			x, y, width, height = left, top, right-left, bottom-top
 		}
+		if width == 0 && height == 0 { // the pointer
+			inside := viewportWidth <= 0 || viewportHeight <= 0 || (x >= 0 && y >= 0 && x <= viewportWidth && y <= viewportHeight)
+			return recording.Rect{X: x, Y: y}, inside
+		}
 		return recording.Rect{X: x, Y: y, Width: width, Height: height}, width > 0 && height > 0
 	}
 	type sample struct {
@@ -244,14 +248,39 @@ func (p *recordingPlan) focusAt(e journalEntry, segment timelineSegment, at span
 		t := mapTime(p.pieces, s.at)
 		if len(f.path) == 0 {
 			f.start, f.zoom = t, e.num("zoom")
-			if viewportWidth > 0 && viewportHeight > 0 {
+			if viewportWidth > 0 && viewportHeight > 0 && rect.Width > 0 && rect.Height > 0 {
 				f.zoom = max(1, min(f.zoom, viewportWidth/rect.Width, viewportHeight/rect.Height))
 			}
 		}
 		x, y := p.framePoint(segment, rect.X+rect.Width/2, rect.Y+rect.Height/2)
 		f.path = append(f.path, focusPoint{t, x, y})
 	}
+	if follow, _ := e["follow"].(string); follow == "pointer" && len(f.path) > 0 {
+		f.path = deadZone(f.path, float64(p.segments[0].Width)/f.zoom, float64(p.segments[0].Height)/f.zoom)
+	}
 	return f, len(f.path) > 0 && f.end > f.start
+}
+
+// pointerDeadZone is the part of the zoomed view, centred, in which the pointer moves without
+// moving the view: a view that chased every move of the pointer would never hold still.
+const pointerDeadZone = 0.5
+
+// deadZone turns the pointer's path into the view's: the view moves only as far as keeps the
+// pointer inside the dead zone of a view of the given size.
+func deadZone(path []focusPoint, viewWidth, viewHeight float64) []focusPoint {
+	halfX, halfY := viewWidth*pointerDeadZone/2, viewHeight*pointerDeadZone/2
+	view := []focusPoint{path[0]}
+	at := path[0]
+	for _, point := range path[1:] {
+		x := max(point.x-halfX, min(at.x, point.x+halfX))
+		y := max(point.y-halfY, min(at.y, point.y+halfY))
+		if x == at.x && y == at.y {
+			continue
+		}
+		at = focusPoint{point.t, x, y}
+		view = append(view, at)
+	}
+	return view
 }
 
 // framePoint maps a point in a segment's viewport px to the edited frame, whose size is the first
@@ -422,6 +451,7 @@ type focusPoint struct {
 type focusKey struct {
 	t          int64
 	zoom, x, y float64
+	steady     bool // reached at a steady pace, not eased: a key of a followed path, so the view does not stop at every sample
 }
 
 // focusFilters zooms with perspective, which stretches a source rectangle to the whole frame. A zoom
@@ -437,15 +467,15 @@ func focusFilters(zooms []focus, width, height float64, fps int) []string {
 		}
 		group := zooms[i:j]
 		i = j
-		whole := focusKey{0, 1, width / 2, height / 2}
+		whole := focusKey{0, 1, width / 2, height / 2, false}
 		ease := min(focusEaseMS, (group[0].end-group[0].start)/3)
-		keys := []focusKey{{group[0].start, 1, whole.x, whole.y}}
+		keys := []focusKey{{group[0].start, 1, whole.x, whole.y, false}}
 		for k, f := range group {
 			// The view's centre keeps the zoomed view inside the frame.
 			key := func(t int64, point focusPoint) focusKey {
 				x := max(width/(2*f.zoom), min(point.x, width-width/(2*f.zoom)))
 				y := max(height/(2*f.zoom), min(point.y, height-height/(2*f.zoom)))
-				return focusKey{t, f.zoom, x, y}
+				return focusKey{t, f.zoom, x, y, false}
 			}
 			hold := f.end
 			if k == len(group)-1 {
@@ -463,18 +493,21 @@ func focusFilters(zooms []focus, width, height float64, fps int) []string {
 				if point.t >= hold {
 					break
 				}
-				keys = append(keys, key(point.t, point))
+				followed := key(point.t, point)
+				followed.steady = true
+				keys = append(keys, followed)
 				at = point
 			}
 			keys = append(keys, key(max(hold, keys[len(keys)-1].t), at))
 		}
-		keys = append(keys, focusKey{group[len(group)-1].end, 1, whole.x, whole.y})
+		keys = append(keys, focusKey{group[len(group)-1].end, 1, whole.x, whole.y, false})
 		filters = append(filters, focusFilter(keys, width, height, fps))
 	}
 	return filters
 }
 
-// focusFilter plays keys, each a view the picture eases to from the previous one. perspective
+// focusFilter plays keys, each a view the picture eases to from the previous one, or moves to at a
+// steady pace when the key is steady. perspective
 // counts input frames from one, so key times become frame numbers, whole frames apart.
 func focusFilter(keys []focusKey, width, height float64, fps int) string {
 	frames := make([]int64, len(keys))
@@ -489,6 +522,10 @@ func focusFilter(keys []focusKey, width, height float64, fps int) string {
 		for i := 0; i+1 < len(keys); i++ {
 			delta := value(keys[i+1]) - value(keys[i])
 			if math.Abs(delta) < 0.005 {
+				continue
+			}
+			if keys[i+1].steady {
+				expr += fmt.Sprintf("%+.2f*clip((in-%d)/%d,0,1)", delta, frames[i]+1, frames[i+1]-frames[i])
 				continue
 			}
 			expr += fmt.Sprintf("%+.2f*(1-cos(PI*clip((in-%d)/%d,0,1)))/2", delta, frames[i]+1, frames[i+1]-frames[i])

@@ -134,7 +134,7 @@ func TestAnnotationsTargetTheOneRunningRecordingAndLeaveTheGateFree(t *testing.T
 		t.Fatalf("err = %v, journal = %q", err, readJournal(t, second))
 	}
 	// A bad request fails before it waits for the gate; an unknown field is one.
-	for _, body := range []string{`{"zoom":1,"rect":{"width":10,"height":10}}`, `{"zoom":2,"durationMs":200}`, `{"zoom":2,"rect":{},"colour":"red"}`} {
+	for _, body := range []string{`{"zoom":1,"target":{"rect":{"width":10,"height":10}}}`, `{"zoom":2,"durationMs":200}`, `{"zoom":2,"target":{"rect":{}},"colour":"red"}`} {
 		if _, err := decodeAnnotation("focus", json.RawMessage(body)); !errors.Is(err, recording.ErrInvalid) {
 			t.Errorf("focus %s: err = %v", body, err)
 		}
@@ -143,7 +143,7 @@ func TestAnnotationsTargetTheOneRunningRecordingAndLeaveTheGateFree(t *testing.T
 		t.Errorf("unknown kind: err = %v", err)
 	}
 	// Focus blocks its caller for its duration but leaves the gate free, so a browser call acts during the zoom.
-	focus, err := decodeAnnotation("focus", json.RawMessage(`{"recordingId":"second","zoom":2,"durationMs":200,"rect":{"x":1,"y":2,"width":30,"height":40}}`))
+	focus, err := decodeAnnotation("focus", json.RawMessage(`{"recordingId":"second","zoom":2,"durationMs":200,"target":{"rect":{"x":1,"y":2,"width":30,"height":40}}}`))
 	if err != nil {
 		t.Fatal(err)
 	}

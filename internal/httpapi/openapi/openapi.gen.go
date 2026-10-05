@@ -1996,13 +1996,22 @@ type RecordingEditErrorCode string
 
 // RecordingFocusInput defines model for RecordingFocusInput.
 type RecordingFocusInput struct {
-	// DurationMs Hold duration in milliseconds. Zero or omitted means 2000; other values must be at least 200.
-	DurationMs *int           `json:"durationMs,omitempty"`
-	Rect       *RecordingRect `json:"rect,omitempty"`
+	// DurationMs Zoom out after this many milliseconds; at least 200. Zero or omitted keeps the focus until reset-focus.
+	DurationMs *int `json:"durationMs,omitempty"`
 
-	// Selector CSS selector in the top-level document; pass instead of rect.
+	// Target What a focus zooms on. Name exactly one of rect, selector and pointer.
+	Target RecordingFocusTarget `json:"target"`
+	Zoom   float32              `json:"zoom"`
+}
+
+// RecordingFocusTarget What a focus zooms on. Name exactly one of rect, selector and pointer.
+type RecordingFocusTarget struct {
+	// Pointer Follow the pointer, so clicks and hovers stay in view.
+	Pointer *bool          `json:"pointer,omitempty"`
+	Rect    *RecordingRect `json:"rect,omitempty"`
+
+	// Selector CSS selector of an element in the top-level document; the zoom follows it.
 	Selector *string `json:"selector,omitempty"`
-	Zoom     float32 `json:"zoom"`
 }
 
 // RecordingPoint defines model for RecordingPoint.
@@ -2971,6 +2980,12 @@ type CaptionSessionRecordingParams struct {
 
 // FocusSessionRecordingParams defines parameters for FocusSessionRecording.
 type FocusSessionRecordingParams struct {
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
+}
+
+// ResetFocusSessionRecordingParams defines parameters for ResetFocusSessionRecording.
+type ResetFocusSessionRecordingParams struct {
 	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
@@ -4030,7 +4045,7 @@ type ClientInterface interface {
 
 	// FocusSessionRecordingWithBody Focus a recording on an area
 	//
-	// Zooms the edited video on a rect or an element in the recorded tab. Pass exactly one of rect and selector. Blocks for durationMs while browser automation waits. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+	// Zooms the edited video in on a target and holds it while automation acts. target names exactly one of pointer (follows the pointer), selector (follows an element as the page moves) and rect (a fixed area). A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -4039,12 +4054,19 @@ type ClientInterface interface {
 
 	// FocusSessionRecording Focus a recording on an area
 	//
-	// Zooms the edited video on a rect or an element in the recorded tab. Pass exactly one of rect and selector. Blocks for durationMs while browser automation waits. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+	// Zooms the edited video in on a target and holds it while automation acts. target names exactly one of pointer (follows the pointer), selector (follows an element as the page moves) and rect (a fixed area). A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
 	//
 	// Takes a body of the `application/json` content type.
 	//
 	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/focus (the `FocusSessionRecording` operationId).
 	FocusSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *FocusSessionRecordingParams, body FocusSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ResetFocusSessionRecording Zoom a recording out of its focus
+	//
+	// Ends the recording's focus, so the edited video zooms out. Does nothing without one. Requires a running recording; never wakes a suspended session.
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/reset-focus (the `ResetFocusSessionRecording` operationId).
+	ResetFocusSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *ResetFocusSessionRecordingParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// RetargetSessionRecordingWithBody Retarget a session recording
 	//
@@ -5391,7 +5413,7 @@ func (c *Client) CaptionSessionRecording(ctx context.Context, sessionId SessionI
 
 // FocusSessionRecordingWithBody Focus a recording on an area
 //
-// Zooms the edited video on a rect or an element in the recorded tab. Pass exactly one of rect and selector. Blocks for durationMs while browser automation waits. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+// Zooms the edited video in on a target and holds it while automation acts. target names exactly one of pointer (follows the pointer), selector (follows an element as the page moves) and rect (a fixed area). A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
 //
 // Takes any type of body and a specified content type.
 //
@@ -5410,13 +5432,30 @@ func (c *Client) FocusSessionRecordingWithBody(ctx context.Context, sessionId Se
 
 // FocusSessionRecording Focus a recording on an area
 //
-// Zooms the edited video on a rect or an element in the recorded tab. Pass exactly one of rect and selector. Blocks for durationMs while browser automation waits. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+// Zooms the edited video in on a target and holds it while automation acts. target names exactly one of pointer (follows the pointer), selector (follows an element as the page moves) and rect (a fixed area). A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
 //
 // Takes a body of the `application/json` content type.
 //
 // Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/focus (the `FocusSessionRecording` operationId).
 func (c *Client) FocusSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *FocusSessionRecordingParams, body FocusSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewFocusSessionRecordingRequest(c.Server, sessionId, recordingId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ResetFocusSessionRecording Zoom a recording out of its focus
+//
+// Ends the recording's focus, so the edited video zooms out. Does nothing without one. Requires a running recording; never wakes a suspended session.
+//
+// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/reset-focus (the `ResetFocusSessionRecording` operationId).
+func (c *Client) ResetFocusSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *ResetFocusSessionRecordingParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResetFocusSessionRecordingRequest(c.Server, sessionId, recordingId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -8653,6 +8692,62 @@ func NewFocusSessionRecordingRequestWithBody(server string, sessionId SessionId,
 	return req, nil
 }
 
+// NewResetFocusSessionRecordingRequest constructs an http.Request for the ResetFocusSessionRecording method
+func NewResetFocusSessionRecordingRequest(server string, sessionId SessionId, recordingId RecordingId, params *ResetFocusSessionRecordingParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionId", sessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "recordingId", recordingId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/sessions/%s/recordings/%s/reset-focus", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.XApertureTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Aperture-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewRetargetSessionRecordingRequest calls the generic RetargetSessionRecording builder with application/json body
 func NewRetargetSessionRecordingRequest(server string, sessionId SessionId, recordingId RecordingId, params *RetargetSessionRecordingParams, body RetargetSessionRecordingJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -10350,7 +10445,7 @@ type ClientWithResponsesInterface interface {
 
 	// FocusSessionRecordingWithBodyWithResponse Focus a recording on an area
 	//
-	// Zooms the edited video on a rect or an element in the recorded tab. Pass exactly one of rect and selector. Blocks for durationMs while browser automation waits. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+	// Zooms the edited video in on a target and holds it while automation acts. target names exactly one of pointer (follows the pointer), selector (follows an element as the page moves) and rect (a fixed area). A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -10359,12 +10454,21 @@ type ClientWithResponsesInterface interface {
 
 	// FocusSessionRecordingWithResponse Focus a recording on an area
 	//
-	// Zooms the edited video on a rect or an element in the recorded tab. Pass exactly one of rect and selector. Blocks for durationMs while browser automation waits. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+	// Zooms the edited video in on a target and holds it while automation acts. target names exactly one of pointer (follows the pointer), selector (follows an element as the page moves) and rect (a fixed area). A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/focus (the `FocusSessionRecording` operationId).
 	FocusSessionRecordingWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *FocusSessionRecordingParams, body FocusSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*FocusSessionRecordingResponse, error)
+
+	// ResetFocusSessionRecordingWithResponse Zoom a recording out of its focus
+	//
+	// Ends the recording's focus, so the edited video zooms out. Does nothing without one. Requires a running recording; never wakes a suspended session.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/reset-focus (the `ResetFocusSessionRecording` operationId).
+	ResetFocusSessionRecordingWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *ResetFocusSessionRecordingParams, reqEditors ...RequestEditorFn) (*ResetFocusSessionRecordingResponse, error)
 
 	// RetargetSessionRecordingWithBodyWithResponse Retarget a session recording
 	//
@@ -12794,6 +12898,47 @@ func (r FocusSessionRecordingResponse) ContentType() string {
 	return ""
 }
 
+type ResetFocusSessionRecordingResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ResetFocusSessionRecordingResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ResetFocusSessionRecordingResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ResetFocusSessionRecordingResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ResetFocusSessionRecordingResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ResetFocusSessionRecordingResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type RetargetSessionRecordingResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -14612,7 +14757,7 @@ func (c *ClientWithResponses) CaptionSessionRecordingWithResponse(ctx context.Co
 
 // FocusSessionRecordingWithBodyWithResponse Focus a recording on an area
 //
-// Zooms the edited video on a rect or an element in the recorded tab. Pass exactly one of rect and selector. Blocks for durationMs while browser automation waits. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+// Zooms the edited video in on a target and holds it while automation acts. target names exactly one of pointer (follows the pointer), selector (follows an element as the page moves) and rect (a fixed area). A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -14627,7 +14772,7 @@ func (c *ClientWithResponses) FocusSessionRecordingWithBodyWithResponse(ctx cont
 
 // FocusSessionRecordingWithResponse Focus a recording on an area
 //
-// Zooms the edited video on a rect or an element in the recorded tab. Pass exactly one of rect and selector. Blocks for durationMs while browser automation waits. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+// Zooms the edited video in on a target and holds it while automation acts. target names exactly one of pointer (follows the pointer), selector (follows an element as the page moves) and rect (a fixed area). A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -14638,6 +14783,21 @@ func (c *ClientWithResponses) FocusSessionRecordingWithResponse(ctx context.Cont
 		return nil, err
 	}
 	return ParseFocusSessionRecordingResponse(rsp)
+}
+
+// ResetFocusSessionRecordingWithResponse Zoom a recording out of its focus
+//
+// Ends the recording's focus, so the edited video zooms out. Does nothing without one. Requires a running recording; never wakes a suspended session.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/reset-focus (the `ResetFocusSessionRecording` operationId).
+func (c *ClientWithResponses) ResetFocusSessionRecordingWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *ResetFocusSessionRecordingParams, reqEditors ...RequestEditorFn) (*ResetFocusSessionRecordingResponse, error) {
+	rsp, err := c.ResetFocusSessionRecording(ctx, sessionId, recordingId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResetFocusSessionRecordingResponse(rsp)
 }
 
 // RetargetSessionRecordingWithBodyWithResponse Retarget a session recording
@@ -16551,6 +16711,35 @@ func ParseFocusSessionRecordingResponse(rsp *http.Response) (*FocusSessionRecord
 	return response, nil
 }
 
+// ParseResetFocusSessionRecordingResponse parses an HTTP response from a ResetFocusSessionRecordingWithResponse call
+func ParseResetFocusSessionRecordingResponse(rsp *http.Response) (*ResetFocusSessionRecordingResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ResetFocusSessionRecordingResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseRetargetSessionRecordingResponse parses an HTTP response from a RetargetSessionRecordingWithResponse call
 func ParseRetargetSessionRecordingResponse(rsp *http.Response) (*RetargetSessionRecordingResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -17339,6 +17528,9 @@ type ServerInterface interface {
 	// FocusSessionRecording Focus a recording on an area
 	// (POST /api/sessions/{sessionId}/recordings/{recordingId}/focus)
 	FocusSessionRecording(c *gin.Context, sessionId SessionId, recordingId RecordingId, params FocusSessionRecordingParams)
+	// ResetFocusSessionRecording Zoom a recording out of its focus
+	// (POST /api/sessions/{sessionId}/recordings/{recordingId}/reset-focus)
+	ResetFocusSessionRecording(c *gin.Context, sessionId SessionId, recordingId RecordingId, params ResetFocusSessionRecordingParams)
 	// RetargetSessionRecording Retarget a session recording
 	// (POST /api/sessions/{sessionId}/recordings/{recordingId}/retarget)
 	RetargetSessionRecording(c *gin.Context, sessionId SessionId, recordingId RecordingId, params RetargetSessionRecordingParams)
@@ -19387,6 +19579,64 @@ func (siw *ServerInterfaceWrapper) FocusSessionRecording(c *gin.Context) {
 	siw.Handler.FocusSessionRecording(c, sessionId, recordingId, params)
 }
 
+// ResetFocusSessionRecording operation middleware
+func (siw *ServerInterfaceWrapper) ResetFocusSessionRecording(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", c.Param("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter sessionId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Path parameter "recordingId" -------------
+	var recordingId RecordingId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "recordingId", c.Param("recordingId"), &recordingId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter recordingId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ResetFocusSessionRecordingParams
+
+	headers := c.Request.Header
+
+	// ------------- Optional header parameter "X-Aperture-Tenant-Id" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Aperture-Tenant-Id")]; found {
+		var XApertureTenantId SelectedTenantId
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Aperture-Tenant-Id, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.XApertureTenantId = &XApertureTenantId
+
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ResetFocusSessionRecording(c, sessionId, recordingId, params)
+}
+
 // RetargetSessionRecording operation middleware
 func (siw *ServerInterfaceWrapper) RetargetSessionRecording(c *gin.Context) {
 
@@ -20355,6 +20605,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/recordings/:recordingId/retarget", wrapper.RetargetSessionRecording)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/recordings/:recordingId/caption", wrapper.CaptionSessionRecording)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/recordings/:recordingId/focus", wrapper.FocusSessionRecording)
+	router.POST(options.BaseURL+"/api/sessions/:sessionId/recordings/:recordingId/reset-focus", wrapper.ResetFocusSessionRecording)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/recordings/:recordingId/attention", wrapper.AttentionSessionRecording)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/recordings/:recordingId/stop", wrapper.StopSessionRecording)
 	router.DELETE(options.BaseURL+"/api/sessions/:sessionId/files", wrapper.DeleteSessionFile)
@@ -22179,6 +22430,41 @@ func (response FocusSessionRecordingdefaultJSONResponse) VisitFocusSessionRecord
 	return err
 }
 
+type ResetFocusSessionRecordingRequestObject struct {
+	SessionId   SessionId   `json:"sessionId"`
+	RecordingId RecordingId `json:"recordingId"`
+	Params      ResetFocusSessionRecordingParams
+}
+
+type ResetFocusSessionRecordingResponseObject interface {
+	VisitResetFocusSessionRecordingResponse(w http.ResponseWriter) error
+}
+
+type ResetFocusSessionRecording204Response struct {
+}
+
+func (response ResetFocusSessionRecording204Response) VisitResetFocusSessionRecordingResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type ResetFocusSessionRecordingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ResetFocusSessionRecordingdefaultJSONResponse) VisitResetFocusSessionRecordingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RetargetSessionRecordingRequestObject struct {
 	SessionId   SessionId   `json:"sessionId"`
 	RecordingId RecordingId `json:"recordingId"`
@@ -23112,6 +23398,9 @@ type StrictServerInterface interface {
 	// FocusSessionRecording Focus a recording on an area
 	// (POST /api/sessions/{sessionId}/recordings/{recordingId}/focus)
 	FocusSessionRecording(ctx context.Context, request FocusSessionRecordingRequestObject) (FocusSessionRecordingResponseObject, error)
+	// ResetFocusSessionRecording Zoom a recording out of its focus
+	// (POST /api/sessions/{sessionId}/recordings/{recordingId}/reset-focus)
+	ResetFocusSessionRecording(ctx context.Context, request ResetFocusSessionRecordingRequestObject) (ResetFocusSessionRecordingResponseObject, error)
 	// RetargetSessionRecording Retarget a session recording
 	// (POST /api/sessions/{sessionId}/recordings/{recordingId}/retarget)
 	RetargetSessionRecording(ctx context.Context, request RetargetSessionRecordingRequestObject) (RetargetSessionRecordingResponseObject, error)
@@ -24566,6 +24855,34 @@ func (sh *strictHandler) FocusSessionRecording(ctx *gin.Context, sessionId Sessi
 		sh.options.HandlerErrorFunc(ctx, err)
 	} else if validResponse, ok := response.(FocusSessionRecordingResponseObject); ok {
 		if err := validResponse.VisitFocusSessionRecordingResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResetFocusSessionRecording operation middleware
+func (sh *strictHandler) ResetFocusSessionRecording(ctx *gin.Context, sessionId SessionId, recordingId RecordingId, params ResetFocusSessionRecordingParams) {
+	var request ResetFocusSessionRecordingRequestObject
+
+	request.SessionId = sessionId
+	request.RecordingId = recordingId
+	request.Params = params
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ResetFocusSessionRecording(ctx, request.(ResetFocusSessionRecordingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResetFocusSessionRecording")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(ResetFocusSessionRecordingResponseObject); ok {
+		if err := validResponse.VisitResetFocusSessionRecordingResponse(ctx.Writer); err != nil {
 			sh.options.ResponseErrorHandlerFunc(ctx, err)
 		}
 	} else if response != nil {

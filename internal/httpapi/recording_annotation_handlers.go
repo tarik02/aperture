@@ -31,6 +31,11 @@ func (s *Server) focusSessionRecording(c *gin.Context) {
 	s.writeRecordingAnnotation(c, "focus", input)
 }
 
+// resetFocusSessionRecording takes no body: the path names everything a reset needs.
+func (s *Server) resetFocusSessionRecording(c *gin.Context) {
+	s.writeRecordingAnnotation(c, "reset_focus", recording.ResetFocus{RecordingID: c.Param("recordingId")})
+}
+
 func (s *Server) attentionSessionRecording(c *gin.Context) {
 	var input recording.Attention
 	if err := bindJSON(c, &input); err != nil {
