@@ -177,8 +177,9 @@ func (p *recordingPlan) frameFilters(width, height int) []string {
 }
 
 // effects places the journal's captions, clicks and focuses on the edited video: at edited times,
-// in frame px, and only those that fall in a kept piece. A caption ends with the piece it starts
-// in, so it does not run on across a cut.
+// in frame px, and only those that fall in a kept piece. A caption set in a cut stretch, such as
+// just before the first call, is shown from the start of the next kept piece instead, since it
+// was never seen. A caption ends with the piece it is shown in, so it does not run on across a cut.
 func (p *recordingPlan) effects(markClicks bool) (cues []cue, ripples []ripple, zooms []focus) {
 	for _, e := range p.events {
 		at := e.span()
@@ -186,10 +187,17 @@ func (p *recordingPlan) effects(markClicks bool) (cues []cue, ripples []ripple, 
 		start := mapTime(p.pieces, at.start)
 		switch e.kind() {
 		case "caption":
-			if pc, kept := pieceAt(p.pieces, at.start); kept {
-				end := min(start+int64(e.num("durationMs")), mapTime(p.pieces, pc.end))
-				cues = append(cues, cue{start, end, sanitizeCaption(e)})
+			pc, kept := pieceAt(p.pieces, at.start)
+			if !kept {
+				next := slices.IndexFunc(p.pieces, func(pc piece) bool { return pc.start > at.start })
+				if next < 0 {
+					continue
+				}
+				pc = p.pieces[next]
+				start = mapTime(p.pieces, pc.start)
 			}
+			end := min(start+int64(e.num("durationMs")), mapTime(p.pieces, pc.end))
+			cues = append(cues, cue{start, end, sanitizeCaption(e)})
 		case "press":
 			if _, kept := pieceAt(p.pieces, at.start); markClicks && kept {
 				x, y := p.framePoint(segment, e.num("x"), e.num("y"))
@@ -358,29 +366,67 @@ func mergeSpans(spans []span, pad, total int64) []span {
 
 // burstPieces keeps the stretch around every browser tool call and every explicit focus or
 // attention: from lead before it to the end of its tail, which lasts until the screen has settled
-// (no change for the settle time) but not longer than maxTail.
+// (no change for the settle time) but not longer than maxTail. A call's tail starts after its last
+// pointer input rather than when the call returns: a call goes on waiting for the page to settle,
+// and that wait is shown only while the picture changes. A call without pointer input that did not
+// change the picture, during it or within the settle time after, such as a script that only reads
+// the page, is not kept, unless nothing else would be.
 func burstPieces(b recording.Burst, events []journalEntry, active []span, total int64) []piece {
 	active = mergeSpans(active, 0, total)
-	var keep []span
+	var keep, quiet []span
 	for _, e := range events {
-		if kind := e.kind(); kind != "call" && kind != "focus" && kind != "attention" {
+		kind := e.kind()
+		if kind != "call" && kind != "focus" && kind != "attention" {
 			continue
 		}
 		at := e.span()
-		still := at.end // until when the picture changes, with pauses shorter than the settle time
+		acted := at.end
+		isQuiet := false
+		if kind == "call" {
+			if lastInput, ok := lastInputEnd(events, at); ok {
+				acted = lastInput
+			} else {
+				isQuiet = !slices.ContainsFunc(active, func(a span) bool { return a.end >= at.start && a.start <= at.end+b.SettleMS })
+			}
+		}
+		still := acted // until when the picture changes, with pauses shorter than the settle time
 		for _, a := range active {
-			if a.end > at.end && a.start-still < b.SettleMS {
+			if a.end > still && a.start-still < b.SettleMS {
 				still = max(still, a.end)
 			}
 		}
-		end := min(max(at.end+b.TailMS, still+b.SettleMS), at.end+b.MaxTailMS)
+		end := min(max(acted+b.TailMS, still+b.SettleMS), acted+b.MaxTailMS)
+		if isQuiet {
+			quiet = append(quiet, span{at.start - b.LeadMS, end})
+			continue
+		}
 		keep = append(keep, span{at.start - b.LeadMS, end})
+	}
+	if len(keep) == 0 {
+		keep = quiet
 	}
 	var pieces []piece
 	for _, s := range mergeSpans(keep, 0, total) {
 		pieces = append(pieces, piece{s.start, s.end, 1})
 	}
 	return pieces
+}
+
+// lastInputEnd is when the last pointer input that happened during a call ended.
+func lastInputEnd(events []journalEntry, call span) (int64, bool) {
+	var end int64
+	found := false
+	for _, e := range events {
+		switch e.kind() {
+		case "glide", "press", "wheel", "reveal":
+		default:
+			continue
+		}
+		if at := e.span(); at.start >= call.start && at.start <= call.end {
+			end, found = max(end, at.end), true
+		}
+	}
+	return end, found
 }
 
 // idlePieces cuts, or speeds up, the stretches in which nothing happens: no change in the picture

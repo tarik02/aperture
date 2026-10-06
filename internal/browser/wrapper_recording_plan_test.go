@@ -83,7 +83,8 @@ func TestPlanLowersEffectsOntoEditedTime(t *testing.T) {
 		entry("focus", 4500, 5000, map[string]any{"zoom": 2.0, "rect": map[string]any{"x": 10.0, "y": 10.0, "width": 100.0, "height": 40.0}}),
 		entry("call", 13_000, 14_000, nil),
 	})
-	if err := plan.plan(cfg, 30, nil); err != nil {
+	// The second call has no pointer input, so it is kept for the picture it changed.
+	if err := plan.plan(cfg, 30, []span{{11_000, 12_000}}); err != nil {
 		t.Fatal(err)
 	}
 	for _, part := range []string{"select='", "setpts='", "scale=1280:720", "perspective=", "enable='between(t,", "ass=captions.ass"} {
