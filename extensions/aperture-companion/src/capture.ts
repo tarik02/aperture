@@ -90,13 +90,7 @@ export const captureBrowserState = Effect.fn("captureBrowserState")(function* (
   yield* captureProfileStorage(pages);
   yield* Effect.forEach(pages, ensureNotNavigated, { concurrency: "unbounded", discard: true });
 
-  const selectedHosts = new Set(
-    pages.flatMap(({ frames }) => frames.map(({ href }) => new URL(href).hostname.toLowerCase())),
-  );
-  const selectedTopLevelSites = pages.map(({ top }) => new URL(top.href));
-  const cookies = (yield* chromeCall("cookies.getAll", () => chrome.cookies.getAll({})))
-    .filter((cookie) => cookieMatchesSelectedContext(cookie, selectedHosts, selectedTopLevelSites))
-    .map(toInitialCookie);
+  const cookies = yield* captureCookies(pages);
   const origins = yield* mergeOrigins(pages);
 
   const targetIndexByTabId = new Map(pages.map(({ tab }, index) => [tab.id, index]));
@@ -370,29 +364,81 @@ function storagePartitionKey(page: CapturedPageState): string {
   return [page.origin, ...page.ancestorOrigins].join("\u0000");
 }
 
-/** Cookies a selected frame could send, including partitioned ones of a selected site. */
-function cookieMatchesSelectedContext(
-  cookie: chrome.cookies.Cookie,
-  selectedHosts: Set<string>,
-  selectedTopLevelSites: URL[],
-): boolean {
+/** Cookies a selected frame could send. */
+function cookieMatchesHosts(cookie: chrome.cookies.Cookie, selectedHosts: Set<string>): boolean {
   const cookieDomain = cookie.domain.replace(/^\./, "").toLowerCase();
-  const domainMatches = [...selectedHosts].some(
+  return [...selectedHosts].some(
     (hostname) => hostname === cookieDomain || hostname.endsWith(`.${cookieDomain}`),
   );
-  if (!domainMatches) return false;
-
-  if (cookie.partitionKey === undefined) return true;
-  if (cookie.partitionKey.topLevelSite === undefined) return false;
-
-  const partitionSite = new URL(cookie.partitionKey.topLevelSite);
-  return selectedTopLevelSites.some(
-    (selectedSite) =>
-      selectedSite.protocol === partitionSite.protocol &&
-      (selectedSite.hostname === partitionSite.hostname ||
-        selectedSite.hostname.endsWith(`.${partitionSite.hostname}`)),
-  );
 }
+
+const CookiePartitionKey = Schema.Struct({
+  topLevelSite: Schema.String,
+  hasCrossSiteAncestor: Schema.Boolean,
+});
+
+const captureCookies = Effect.fnUntraced(function* (pages: readonly CapturedTab[]) {
+  const stores = yield* chromeCall("cookies.getAllCookieStores", () =>
+    chrome.cookies.getAllCookieStores(),
+  );
+  const queries = new Map<string, { details: chrome.cookies.GetAllDetails; hosts: Set<string> }>();
+  for (const { tab, frames } of pages) {
+    const store = stores.find(({ tabIds }) => tabIds.includes(tab.id));
+    if (store === undefined) {
+      return yield* new CompanionError({ message: "A selected tab's cookie store is unavailable" });
+    }
+    for (const frame of frames) {
+      const host = new URL(frame.href).hostname.toLowerCase();
+      const { partitionKey } = yield* chromeCall("cookies.getPartitionKey", () =>
+        chrome.cookies.getPartitionKey({ tabId: tab.id, frameId: frame.frameId }),
+      );
+      const partition = yield* Schema.decodeUnknownEffect(CookiePartitionKey)(partitionKey).pipe(
+        Effect.catchTag("SchemaError", () =>
+          Effect.fail(
+            new CompanionError({ message: "Chrome returned an invalid cookie partition" }),
+          ),
+        ),
+      );
+      for (const details of [
+        { storeId: store.id },
+        { storeId: store.id, partitionKey: partition },
+      ]) {
+        const key = JSON.stringify(details);
+        const query = queries.get(key) ?? { details, hosts: new Set<string>() };
+        query.hosts.add(host);
+        queries.set(key, query);
+      }
+    }
+  }
+  const results = yield* Effect.forEach(
+    queries.values(),
+    ({ details, hosts }) =>
+      chromeCall("cookies.getAll", () => chrome.cookies.getAll(details)).pipe(
+        Effect.map((cookies) => cookies.filter((cookie) => cookieMatchesHosts(cookie, hosts))),
+      ),
+    { concurrency: "unbounded" },
+  );
+  const captured = new Map<string, InitialBrowserCookie>();
+  for (const cookie of results.flat()) {
+    const key = JSON.stringify([
+      cookie.name,
+      cookie.domain,
+      cookie.path,
+      cookie.partitionKey?.topLevelSite,
+      cookie.partitionKey?.hasCrossSiteAncestor,
+    ]);
+    const initial = toInitialCookie(cookie);
+    const existing = captured.get(key);
+    if (existing !== undefined && JSON.stringify(existing) !== JSON.stringify(initial)) {
+      return yield* new CompanionError({
+        message:
+          "The selected tabs have conflicting cookies. Teleport regular and incognito tabs separately.",
+      });
+    }
+    captured.set(key, initial);
+  }
+  return [...captured.values()];
+});
 
 function toInitialCookie(cookie: chrome.cookies.Cookie): InitialBrowserCookie {
   const cookieSameSite = sameSite(cookie.sameSite);
