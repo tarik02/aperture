@@ -9,7 +9,15 @@
     "48": "icon-48.png",
     "128": "icon-128.png"
   },
-  "permissions": ["activeTab", "contextMenus", "cookies", "scripting", "storage", "tabs"],
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "cookies",
+    "identity",
+    "scripting",
+    "storage",
+    "tabs"
+  ],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "action": {
     "default_icon": {

@@ -1,5 +1,10 @@
 import { Button } from "@aperture-browser/ui/components/button";
-import { Field, FieldGroup, FieldLabel } from "@aperture-browser/ui/components/field";
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@aperture-browser/ui/components/field";
 import { Input } from "@aperture-browser/ui/components/input";
 import { Spinner } from "@aperture-browser/ui/components/spinner";
 import { ArrowLeftIcon } from "lucide-react";
@@ -38,7 +43,7 @@ export function AddConnectionScreen({ popup }: { popup: Popup }) {
         onSubmit={(event) => void actions.connect(event)}
       >
         <FieldGroup className="aperture:flex-1 aperture:gap-3">
-          <Field>
+          <Field data-disabled={busy}>
             <FieldLabel htmlFor="origin">Aperture URL</FieldLabel>
             <Input
               id="origin"
@@ -52,25 +57,48 @@ export function AddConnectionScreen({ popup }: { popup: Popup }) {
               }
             />
           </Field>
-          <Field>
-            <FieldLabel htmlFor="token">API token</FieldLabel>
-            <Input
-              id="token"
-              type="password"
-              value={draft.token}
-              autoComplete="off"
-              placeholder="apt_…"
-              required
-              disabled={busy}
-              onChange={(event) =>
-                actions.updateConnectionDraft({ ...draft, token: event.target.value })
-              }
-            />
-          </Field>
+          {draft.method === "token" ? (
+            <Field data-disabled={busy}>
+              <FieldLabel htmlFor="token">API token</FieldLabel>
+              <Input
+                id="token"
+                type="password"
+                value={draft.token}
+                autoComplete="off"
+                placeholder="apt_…"
+                required
+                disabled={busy}
+                onChange={(event) =>
+                  actions.updateConnectionDraft({ ...draft, token: event.target.value })
+                }
+              />
+            </Field>
+          ) : (
+            <FieldDescription>
+              Sign in on Aperture and approve access. Manage or revoke it later in Connected apps.
+            </FieldDescription>
+          )}
           <StatusAlert status={popup.status} />
           <Button className="aperture:mt-auto" type="submit" disabled={busy}>
             {connecting ? <Spinner data-icon="inline-start" /> : null}
-            {connecting ? "Connecting…" : "Add connection"}
+            {connecting
+              ? "Connecting…"
+              : draft.method === "oauth"
+                ? "Connect with Aperture"
+                : "Connect with API token"}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={busy}
+            onClick={() =>
+              actions.updateConnectionDraft({
+                ...draft,
+                method: draft.method === "oauth" ? "token" : "oauth",
+              })
+            }
+          >
+            {draft.method === "oauth" ? "Use API token instead" : "Use site login instead"}
           </Button>
         </FieldGroup>
       </form>

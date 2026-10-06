@@ -10,20 +10,28 @@ import {
 } from "./capture.ts";
 import { chromeCall, CompanionError, getTab, hasOrigins, isWebURL } from "./chrome.ts";
 import {
-  CompanionCommand,
+  CompanionMessage,
+  type CompanionCommand,
   ConnectResult,
+  DisconnectResult,
+  ListSnapshotsResult,
   TeleportTabsResult,
   type TeleportTabsCommand,
 } from "./commands.ts";
 import {
   connect,
+  connectWithOAuth,
   connectionOriginPattern,
   createSession,
+  freshConnection,
+  listSnapshots,
   openSnapshots,
   openWorkbench,
   promoteSession,
+  removeConnection,
   requireActiveConnection,
 } from "./connection.ts";
+import { connectionOperation } from "./connection-operation.ts";
 import { commandError, failureMessage } from "./errors.ts";
 import {
   listPendingCommands,
@@ -37,12 +45,13 @@ import { teleportOperation, type TeleportStage } from "./teleport-operation.ts";
 
 const menuId = "teleport-page-to-aperture";
 
-const decodeCommand = Schema.decodeUnknownOption(CompanionCommand);
+const decodeCommand = Schema.decodeUnknownOption(CompanionMessage);
 
 // Popup callbacks waiting for their command's result. They are gone once the popup
 // closes or the worker restarts; the stored teleport operation still reports the outcome.
 const responders = new Map<string, (response: unknown) => void>();
 const runningCommandIds = new Set<string>();
+const requestedCommandIds = new Set<string>();
 
 // Results are encoded, since messages lose the prototype of error classes.
 const respond = <A, I>(id: string, schema: Schema.Codec<A, I>, response: A) =>
@@ -183,7 +192,7 @@ const teleportTabs = (command: TeleportTabsCommand, startedAt: number) =>
   );
 
 const requiredOrigins = (command: CompanionCommand) =>
-  command.type === "connect"
+  command.type !== "teleport-tabs"
     ? connectionOriginPattern(command.origin).pipe(Effect.map((pattern) => [pattern]))
     : Effect.forEach(command.tabIds, getTab).pipe(Effect.flatMap(capturePermissionOrigins));
 
@@ -207,13 +216,31 @@ const failCommand = Effect.fnUntraced(function* (
     yield* showFailureBadge;
     yield* respond(command.id, TeleportTabsResult, { ok: false, error });
   } else {
+    yield* Effect.ignore(
+      connectionOperation.set({
+        id: command.id,
+        method: command.type === "connect-oauth" ? "oauth" : "token",
+        startedAt,
+        status: "failed",
+        error: error.message,
+      }),
+    );
     yield* respond(command.id, ConnectResult, { ok: false, error });
   }
 });
 
 const runPendingCommand = Effect.fnUntraced(function* ({ command, createdAt }: PendingCommand) {
-  if (command.type === "connect") {
-    const connection = yield* connect(command.origin, command.token);
+  if (command.type !== "teleport-tabs") {
+    const connection = yield* command.type === "connect-oauth"
+      ? connectWithOAuth(command.origin)
+      : connect(command.origin, command.token);
+    yield* connectionOperation.set({
+      id: command.id,
+      method: command.type === "connect-oauth" ? "oauth" : "token",
+      startedAt: createdAt,
+      status: "succeeded",
+      connectionId: connection.id,
+    });
     yield* respond(command.id, ConnectResult, { ok: true, connectionId: connection.id });
   } else {
     const warnings = yield* teleportTabs(command, createdAt);
@@ -242,11 +269,23 @@ const resume = Effect.fnUntraced(function* (id: string) {
 // Several events resume a command; it runs once at a time.
 const resumePendingCommand = (id: string) =>
   Effect.suspend(() => {
+    requestedCommandIds.add(id);
     if (runningCommandIds.has(id)) return Effect.void;
     runningCommandIds.add(id);
-    return resume(id).pipe(
-      Effect.ignore,
-      Effect.ensuring(Effect.sync(() => runningCommandIds.delete(id))),
+    return Effect.gen(function* () {
+      // Permission approval can arrive while permissions.contains is still resolving.
+      // Keep that wakeup so an earlier negative result cannot strand the command.
+      do {
+        requestedCommandIds.delete(id);
+        yield* resume(id).pipe(Effect.ignore);
+      } while (requestedCommandIds.has(id));
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          runningCommandIds.delete(id);
+          requestedCommandIds.delete(id);
+        }),
+      ),
     );
   });
 
@@ -281,6 +320,13 @@ const queueCommand = Effect.fnUntraced(function* (command: CompanionCommand) {
         startedAt: createdAt,
         status: "running",
         stage: "requesting-access",
+      });
+    } else {
+      yield* connectionOperation.set({
+        id: command.id,
+        method: command.type === "connect-oauth" ? "oauth" : "token",
+        startedAt: createdAt,
+        status: "running",
       });
     }
     yield* pendingCommand(command.id).set({ command, origins, createdAt });
@@ -330,7 +376,33 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const command = decodeCommand(message);
   if (Option.isNone(command)) return false;
   responders.set(command.value.id, sendResponse);
-  run(queueCommand(command.value));
+  if (command.value.type === "list-snapshots") {
+    const { id, connectionId } = command.value;
+    // Refresh happens in the worker so closing the popup cannot lose rotated credentials.
+    run(
+      Effect.gen(function* () {
+        const connection = yield* freshConnection(connectionId);
+        const snapshots = yield* listSnapshots(connection);
+        yield* respond(id, ListSnapshotsResult, { ok: true, snapshots });
+      }).pipe(
+        Effect.catchCause((cause) =>
+          respond(id, ListSnapshotsResult, { ok: false, error: commandError(cause) }),
+        ),
+      ),
+    );
+  } else if (command.value.type === "disconnect") {
+    const { id, connectionId } = command.value;
+    run(
+      removeConnection(connectionId).pipe(
+        Effect.andThen(respond(id, DisconnectResult, { ok: true })),
+        Effect.catchCause((cause) =>
+          respond(id, DisconnectResult, { ok: false, error: commandError(cause) }),
+        ),
+      ),
+    );
+  } else {
+    run(queueCommand(command.value));
+  }
   // Keeps sendResponse valid until the command finishes.
   return true;
 });

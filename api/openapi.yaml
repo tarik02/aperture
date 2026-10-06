@@ -2050,7 +2050,7 @@ components:
         authMethod:
           type: string
           description: Authentication mechanism used for this request.
-          enum: [api_token, oidc, passkey, password]
+          enum: [api_token, oauth, oidc, passkey, password]
         tokenId:
           oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
           description: Identifier of the API token used for authentication, or `null` for account-backed sessions.

@@ -12,7 +12,17 @@ The build generates every PNG extension icon from `public/icon.svg`.
 GitHub releases include an `aperture-companion-<version>.zip`. Extract it before selecting the
 resulting directory with **Load unpacked**.
 
-Connect it with a regular Aperture tenant API token. The extension requires `sessions:read` and
+The Aperture URL defaults to the current tab's HTTP or HTTPS origin unless you have entered a URL.
+Click **Connect with Aperture** to use site login. Sign in on
+Aperture and approve the tenants and permissions the companion needs. The connection appears
+under **Connected apps**, where you can revoke it. Disconnecting it in the extension also revokes
+the grant. Site login requires an Aperture instance with browser login and MCP enabled.
+
+Site login uses an authorization code with PKCE and refreshes expiring access tokens automatically.
+Credentials stay in `chrome.storage.local` and are never synchronized. If you approve multiple
+tenants, the connection uses the first available tenant.
+
+Alternatively, click **Use API token instead** and use a regular Aperture tenant API token. The extension requires `sessions:read` and
 `sessions:write`; add `snapshots:read` to start from existing snapshots and `snapshots:write` to
 teleport directly into a snapshot. Tokens stay in `chrome.storage.local` and are never
 synchronized.

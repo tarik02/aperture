@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Schema from "effect/Schema";
 
 /** A Chromium extension API call that rejected. */
@@ -14,6 +15,17 @@ export class CompanionError extends Schema.TaggedError<CompanionError>()("Compan
 
 export const chromeCall = <A>(operation: string, call: () => Promise<A>) =>
   Effect.tryPromise({ try: call, catch: (cause) => new ChromeError({ operation, cause }) });
+
+/** Serializes shared storage updates across the popup and service worker. */
+export const withExtensionLock = <A, E>(name: string, effect: Effect.Effect<A, E>) =>
+  Effect.tryPromise({
+    try: (signal) => navigator.locks.request(name, { signal }, () => Effect.runPromiseExit(effect)),
+    catch: () => new CompanionError({ message: "Could not update the Aperture connection" }),
+  }).pipe(
+    Effect.flatMap((exit) =>
+      Exit.isSuccess(exit) ? Effect.succeed(exit.value) : Effect.failCause(exit.cause),
+    ),
+  );
 
 /** A tab the extension can address. */
 export interface IdentifiedTab extends chrome.tabs.Tab {

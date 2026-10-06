@@ -1,14 +1,8 @@
-import {
-  apiClientLayer,
-  baseUrlLayer,
-  type ApiCredentials,
-  type ApiServices,
-} from "@aperture-browser/api-client";
+import { apiClientLayer, baseUrlLayer, type ApiServices } from "@aperture-browser/api-client";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as HttpClient from "effect/http/HttpClient";
-import type { Connection } from "./connection.ts";
 
 const apiLayer = (origin: string) =>
   Layer.mergeAll(
@@ -21,11 +15,3 @@ export const withApi =
   (origin: string) =>
   <A, E>(self: Effect.Effect<A, E, ApiServices>): Effect.Effect<A, E> =>
     Effect.provide(self, apiLayer(origin));
-
-export const credentials = (connection: Connection): ApiCredentials => ({
-  kind: "bearer",
-  token: connection.token,
-  authorityType: connection.authorityType,
-  tenantId: connection.tenantId,
-  selectedTenantId: connection.selectedTenantId,
-});

@@ -15,6 +15,12 @@ export const ConnectCommand = Schema.Struct({
 });
 export type ConnectCommand = typeof ConnectCommand.Type;
 
+export const ConnectOAuthCommand = Schema.Struct({
+  type: Schema.Literal("connect-oauth"),
+  id: NonEmptyString,
+  origin: Schema.String,
+});
+
 export const TeleportTabsCommand = Schema.Struct({
   type: Schema.Literal("teleport-tabs"),
   id: NonEmptyString,
@@ -40,8 +46,28 @@ export const TeleportTabsCommand = Schema.Struct({
 );
 export type TeleportTabsCommand = typeof TeleportTabsCommand.Type;
 
-export const CompanionCommand = Schema.Union([ConnectCommand, TeleportTabsCommand]);
+export const CompanionCommand = Schema.Union([
+  ConnectCommand,
+  ConnectOAuthCommand,
+  TeleportTabsCommand,
+]);
 export type CompanionCommand = typeof CompanionCommand.Type;
+
+export const ListSnapshotsCommand = Schema.Struct({
+  type: Schema.Literal("list-snapshots"),
+  id: NonEmptyString,
+  connectionId: NonEmptyString,
+});
+export const DisconnectCommand = Schema.Struct({
+  type: Schema.Literal("disconnect"),
+  id: NonEmptyString,
+  connectionId: NonEmptyString,
+});
+export const CompanionMessage = Schema.Union([
+  CompanionCommand,
+  ListSnapshotsCommand,
+  DisconnectCommand,
+]);
 
 /** Why a command failed, as a tagged error the popup decodes back into its class. */
 export const CommandError = Schema.Union([CompanionError, ApiRequestError]);
@@ -55,6 +81,16 @@ export const ConnectResult = Schema.Union([
   CommandFailed,
 ]);
 export type ConnectResult = typeof ConnectResult.Type;
+
+export const ListSnapshotsResult = Schema.Union([
+  Schema.Struct({ ok: Schema.Literal(true), snapshots: Schema.Array(Schema.String) }),
+  CommandFailed,
+]);
+
+export const DisconnectResult = Schema.Union([
+  Schema.Struct({ ok: Schema.Literal(true) }),
+  CommandFailed,
+]);
 
 export const TeleportTabsResult = Schema.Union([
   Schema.Struct({ ok: Schema.Literal(true), warnings: Schema.Array(Schema.String) }),

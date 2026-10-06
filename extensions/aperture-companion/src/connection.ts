@@ -10,17 +10,19 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import { credentials, withApi } from "./api.ts";
-import { CompanionError, openTab, requestOrigins } from "./chrome.ts";
+import { withApi } from "./api.ts";
+import { CompanionError, openTab, requestOrigins, withExtensionLock } from "./chrome.ts";
+import { AuthenticationMethod, OAuthSession, authorize, refresh, revoke } from "./oauth.ts";
 import { NonEmptyString, type Tags } from "./schema.ts";
 import { storedValue } from "./storage.ts";
 import * as UrlPath from "./url-path.ts";
 
-/** An Aperture instance and the API token the extension uses there. */
+/** An Aperture instance and its locally stored credentials. */
 export const Connection = Schema.Struct({
   id: NonEmptyString,
   origin: NonEmptyString,
   token: Schema.RedactedFromValue(NonEmptyString),
+  oauth: Schema.optionalKey(OAuthSession),
   authorityType: Schema.Literals(["system_admin", "tenant"]),
   tenantId: Schema.NullOr(Schema.String),
   selectedTenantId: Schema.NullOr(Schema.String),
@@ -31,7 +33,11 @@ export const Connection = Schema.Struct({
 });
 export type Connection = typeof Connection.Type;
 
-export const ConnectionDraft = Schema.Struct({ origin: Schema.String, token: Schema.String });
+export const ConnectionDraft = Schema.Struct({
+  origin: Schema.String,
+  token: Schema.String,
+  method: AuthenticationMethod,
+});
 export type ConnectionDraft = typeof ConnectionDraft.Type;
 
 const ConnectionStore = Schema.Struct({
@@ -45,7 +51,7 @@ const connectionStore = storedValue("local", "apertureConnections", ConnectionSt
 /** The add-connection form, kept while the popup closes for the permission prompt. */
 export const connectionDraft = storedValue("session", "apertureConnectionDraft", ConnectionDraft);
 
-export const emptyConnectionDraft: ConnectionDraft = { origin: "", token: "" };
+export const emptyConnectionDraft: ConnectionDraft = { origin: "", token: "", method: "oauth" };
 
 const loadStore = connectionStore.get.pipe(
   Effect.map(Option.getOrElse(() => ({ connections: [], activeConnectionId: null }))),
@@ -72,15 +78,11 @@ export const requestConnectionPermission = (input: string) =>
     ),
   );
 
-/** Checks the token against the instance, then stores the connection and makes it active. */
-export const connect = Effect.fn("connect")(function* (originInput: string, tokenInput: string) {
-  const origin = yield* normalizeConnectionOrigin(originInput);
-  const trimmedToken = tokenInput.trim();
-  if (trimmedToken === "") {
-    return yield* new CompanionError({ message: "API token is required" });
-  }
-  const token = Redacted.make(trimmedToken);
-
+const verifyConnection = Effect.fn("verifyConnection")(function* (
+  origin: string,
+  token: Redacted.Redacted<string>,
+  oauth?: OAuthSession,
+) {
   const provisional: ApiCredentials = {
     kind: "bearer",
     token,
@@ -89,16 +91,34 @@ export const connect = Effect.fn("connect")(function* (originInput: string, toke
     selectedTenantId: null,
   };
   const verified = yield* Effect.gen(function* () {
-    const auth = yield* AuthApi.use((api) => api.getAuthMe(null, provisional));
+    let auth = yield* AuthApi.use((api) => api.getAuthMe(null, provisional));
+    if (auth.selectedTenant === null && oauth !== undefined) {
+      const tenant = auth.availableTenants[0];
+      if (tenant !== undefined) {
+        auth = yield* AuthApi.use((api) => api.getAuthMe(tenant.id, provisional));
+      }
+    }
     if (auth.selectedTenant === null) {
-      return yield* new CompanionError({ message: "The Aperture token has no active tenant" });
+      return yield* new CompanionError({ message: "The Aperture connection has no active tenant" });
+    }
+    if (
+      oauth !== undefined &&
+      auth.principal.authorityType !== "system_admin" &&
+      (!auth.principal.scopes.includes("sessions:read") ||
+        !auth.principal.scopes.includes("sessions:write"))
+    ) {
+      return yield* new CompanionError({
+        message: "Approve sessions:read and sessions:write to connect Aperture Companion",
+      });
     }
     const authenticated = {
       ...provisional,
       authorityType: auth.principal.authorityType,
       tenantId: auth.principal.tenantId ?? null,
       selectedTenantId:
-        auth.principal.authorityType === "system_admin" ? auth.selectedTenant.id : null,
+        auth.principal.authorityType === "system_admin" || oauth !== undefined
+          ? auth.selectedTenant.id
+          : null,
     } satisfies ApiCredentials;
     const { channels } = yield* SessionsApi.use((api) => api.getBrowserChannels(authenticated));
     return {
@@ -118,6 +138,7 @@ export const connect = Effect.fn("connect")(function* (originInput: string, toke
     id: crypto.randomUUID(),
     origin,
     token,
+    ...(oauth === undefined ? {} : { oauth }),
     authorityType: authenticated.authorityType,
     tenantId: authenticated.tenantId,
     selectedTenantId: authenticated.selectedTenantId,
@@ -126,16 +147,68 @@ export const connect = Effect.fn("connect")(function* (originInput: string, toke
     channels,
     scopes: verified.scopes,
   };
-  const store = yield* loadStore;
-  yield* connectionStore.set({
-    connections: [...store.connections, connection],
-    activeConnectionId: connection.id,
-  });
+  yield* withExtensionLock(
+    "apertureConnections",
+    Effect.gen(function* () {
+      const store = yield* loadStore;
+      yield* connectionStore.set({
+        connections: [...store.connections, connection],
+        activeConnectionId: connection.id,
+      });
+    }),
+  );
   yield* connectionDraft.remove;
   return connection;
 });
 
+/** Checks a manually supplied API token before saving it. */
+export const connect = Effect.fn("connect")(function* (originInput: string, tokenInput: string) {
+  const origin = yield* normalizeConnectionOrigin(originInput);
+  const trimmedToken = tokenInput.trim();
+  if (trimmedToken === "") return yield* new CompanionError({ message: "API token is required" });
+  return yield* verifyConnection(origin, Redacted.make(trimmedToken));
+});
+
+export const connectWithOAuth = Effect.fn("connectWithOAuth")(function* (originInput: string) {
+  const origin = yield* normalizeConnectionOrigin(originInput);
+  const authorization = yield* authorize(origin);
+  return yield* verifyConnection(origin, authorization.token, authorization.oauth).pipe(
+    Effect.tapCause(() => Effect.ignore(revoke(authorization.oauth))),
+  );
+});
+
+/** Reloads credentials under the shared lock before rotating an expiring refresh token. */
+export const freshConnection = (id: string) =>
+  withExtensionLock(
+    "apertureConnections",
+    Effect.gen(function* () {
+      const store = yield* loadStore;
+      const connection = store.connections.find((candidate) => candidate.id === id);
+      if (connection === undefined)
+        return yield* new CompanionError({ message: "The Aperture connection is unavailable" });
+      if (connection.oauth === undefined || Date.now() + 60_000 < connection.oauth.expiresAt)
+        return connection;
+      const refreshed = { ...connection, ...(yield* refresh(connection.oauth)) };
+      yield* connectionStore.set({
+        ...store,
+        connections: store.connections.map((current) => (current.id === id ? refreshed : current)),
+      });
+      return refreshed;
+    }),
+  );
+
 export const listConnections = loadStore.pipe(Effect.map((store) => store.connections));
+
+const credentials = Effect.fn("credentials")(function* (stored: Connection) {
+  const connection = yield* freshConnection(stored.id);
+  return {
+    kind: "bearer",
+    token: connection.token,
+    authorityType: connection.authorityType,
+    tenantId: connection.tenantId,
+    selectedTenantId: connection.selectedTenantId,
+  } satisfies ApiCredentials;
+});
 
 export const activeConnection = loadStore.pipe(
   Effect.map(
@@ -152,60 +225,86 @@ export const requireActiveConnection = activeConnection.pipe(
   ),
 );
 
-export const selectConnection = Effect.fnUntraced(function* (id: string) {
-  const store = yield* loadStore;
-  if (!store.connections.some((connection) => connection.id === id)) {
-    return yield* new CompanionError({ message: "The Aperture connection is unavailable" });
-  }
-  yield* connectionStore.set({ ...store, activeConnectionId: id });
+export const selectConnection = Effect.fn("selectConnection")(function* (id: string) {
+  yield* withExtensionLock(
+    "apertureConnections",
+    Effect.gen(function* () {
+      const store = yield* loadStore;
+      if (!store.connections.some((connection) => connection.id === id)) {
+        return yield* new CompanionError({ message: "The Aperture connection is unavailable" });
+      }
+      yield* connectionStore.set({ ...store, activeConnectionId: id });
+    }),
+  );
 });
 
-export const saveConnection = Effect.fnUntraced(function* (connection: Connection) {
-  const store = yield* loadStore;
-  if (!store.connections.some(({ id }) => id === connection.id)) {
-    return yield* new CompanionError({ message: "The Aperture connection is unavailable" });
-  }
-  yield* connectionStore.set({
-    ...store,
-    connections: store.connections.map((current) =>
-      current.id === connection.id ? connection : current,
-    ),
-  });
+export const saveChannel = Effect.fn("saveChannel")(function* (id: string, channel: string) {
+  yield* withExtensionLock(
+    "apertureConnections",
+    Effect.gen(function* () {
+      const store = yield* loadStore;
+      if (
+        !store.connections.some(
+          (connection) => connection.id === id && connection.channels.includes(channel),
+        )
+      ) {
+        return yield* new CompanionError({ message: "The Aperture connection is unavailable" });
+      }
+      yield* connectionStore.set({
+        ...store,
+        connections: store.connections.map((current) =>
+          current.id === id ? { ...current, channel } : current,
+        ),
+      });
+    }),
+  );
 });
 
 /** Removes a connection; the first remaining one becomes active if it was. */
-export const removeConnection = Effect.fnUntraced(function* (id: string) {
-  const store = yield* loadStore;
-  const connections = store.connections.filter((connection) => connection.id !== id);
-  yield* connectionStore.set({
-    connections,
-    activeConnectionId:
-      store.activeConnectionId === id ? (connections[0]?.id ?? null) : store.activeConnectionId,
-  });
+export const removeConnection = Effect.fn("removeConnection")(function* (id: string) {
+  yield* withExtensionLock(
+    "apertureConnections",
+    Effect.gen(function* () {
+      const store = yield* loadStore;
+      const removed = store.connections.find((connection) => connection.id === id);
+      if (removed?.oauth !== undefined) yield* revoke(removed.oauth);
+      const connections = store.connections.filter((connection) => connection.id !== id);
+      yield* connectionStore.set({
+        connections,
+        activeConnectionId:
+          store.activeConnectionId === id ? (connections[0]?.id ?? null) : store.activeConnectionId,
+      });
+    }),
+  );
 });
 
 export type Placement = "before" | "after";
 
 /** Moves a connection before or after another one and returns the new order. */
-export const reorderConnection = Effect.fnUntraced(function* (
+export const reorderConnection = Effect.fn("reorderConnection")(function* (
   sourceId: string,
   destinationId: string,
   placement: Placement,
 ) {
-  const store = yield* loadStore;
-  const moved = store.connections.find(({ id }) => id === sourceId);
-  if (moved === undefined || sourceId === destinationId) return store.connections;
+  return yield* withExtensionLock(
+    "apertureConnections",
+    Effect.gen(function* () {
+      const store = yield* loadStore;
+      const moved = store.connections.find(({ id }) => id === sourceId);
+      if (moved === undefined || sourceId === destinationId) return store.connections;
 
-  const connections = store.connections.filter(({ id }) => id !== sourceId);
-  const destinationIndex = connections.findIndex(({ id }) => id === destinationId);
-  if (destinationIndex === -1) return store.connections;
-  connections.splice(destinationIndex + (placement === "after" ? 1 : 0), 0, moved);
+      const connections = store.connections.filter(({ id }) => id !== sourceId);
+      const destinationIndex = connections.findIndex(({ id }) => id === destinationId);
+      if (destinationIndex === -1) return store.connections;
+      connections.splice(destinationIndex + (placement === "after" ? 1 : 0), 0, moved);
 
-  if (connections.every(({ id }, index) => id === store.connections[index]?.id)) {
-    return store.connections;
-  }
-  yield* connectionStore.set({ ...store, connections });
-  return connections;
+      if (connections.every(({ id }, index) => id === store.connections[index]?.id)) {
+        return store.connections;
+      }
+      yield* connectionStore.set({ ...store, connections });
+      return connections;
+    }),
+  );
 });
 
 export function hasScope(connection: Connection, scope: string): boolean {
@@ -220,7 +319,8 @@ export function connectionLabel(connection: Connection): string {
 export const listSnapshots = Effect.fn("listSnapshots")(
   function* (connection: Connection) {
     const api = yield* SnapshotsApi;
-    const snapshots = yield* api.listAllSnapshots(credentials(connection), { limit: 100 });
+    const authenticated = yield* credentials(connection);
+    const snapshots = yield* api.listAllSnapshots(authenticated, { limit: 100 });
     return snapshots.map(({ name }) => name);
   },
   (effect, connection) => withApi(connection.origin)(effect),
@@ -239,9 +339,10 @@ export interface CreateSessionOptions {
 export const createSession = Effect.fn("createSession")(
   function* (connection: Connection, options: CreateSessionOptions) {
     const api = yield* SessionsApi;
+    const authenticated = yield* credentials(connection);
     const label = options.label?.trim();
     const result = yield* api.createSession(
-      credentials(connection),
+      authenticated,
       {
         browser: { channel: connection.channel, args: [] },
         initialTargets: options.targets,
@@ -267,8 +368,8 @@ export interface PromoteSessionOptions {
 export const promoteSession = Effect.fn("promoteSession")(
   function* (connection: Connection, sessionId: string, options: PromoteSessionOptions) {
     const api = yield* SessionsApi;
-    yield* api.deleteSession(credentials(connection), sessionId);
-    yield* api.promoteSession(credentials(connection), sessionId, {
+    yield* api.deleteSession(yield* credentials(connection), sessionId);
+    yield* api.promoteSession(yield* credentials(connection), sessionId, {
       name: options.name.trim(),
       description: options.description.trim() || null,
       force: true,

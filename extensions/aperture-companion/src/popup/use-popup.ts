@@ -14,6 +14,8 @@ import { requestCapturePermissions } from "../capture.ts";
 import { chromeCall, CompanionError, isWebURL, type ChromeError } from "../chrome.ts";
 import {
   ConnectResult,
+  DisconnectResult,
+  ListSnapshotsResult,
   TeleportTabsResult,
   type CommandFailed,
   type CompanionCommand,
@@ -25,17 +27,21 @@ import {
   emptyConnectionDraft,
   hasScope,
   listConnections,
-  listSnapshots,
   normalizeConnectionOrigin,
-  removeConnection,
   reorderConnection,
   requestConnectionPermission,
-  saveConnection,
+  saveChannel,
   selectConnection,
   type Connection,
   type ConnectionDraft,
   type Placement,
 } from "../connection.ts";
+import {
+  clearCompletedConnectionOperation,
+  isConnectionRunning,
+  connectionOperation as storedConnectionOperation,
+  type ConnectionOperation,
+} from "../connection-operation.ts";
 import { popupState, type PopupScreen, type PopupState } from "../popup-state.ts";
 import { defaultTeleportTags, type TeleportDestination } from "../schema.ts";
 import {
@@ -61,6 +67,15 @@ import {
 } from "./tabs.ts";
 
 export const blankSnapshot = "__blank__";
+
+const loadSnapshots = Effect.fn("loadSnapshots")(function* (connectionId: string) {
+  const response = yield* chromeCall("runtime.sendMessage", () =>
+    chrome.runtime.sendMessage({ type: "list-snapshots", id: crypto.randomUUID(), connectionId }),
+  );
+  const result = yield* Schema.decodeUnknownEffect(ListSnapshotsResult)(response);
+  if (!result.ok) return yield* result.error;
+  return result.snapshots;
+});
 
 type PendingAction = "connect" | "connection" | "remove" | "reorder" | "channel" | "teleport";
 
@@ -122,11 +137,13 @@ export function usePopup() {
   const [snapshots, setSnapshots] = useState<string[] | null>(null);
   const [draft, setDraft] = useState<TeleportDraft>(() => initialDraft(null));
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [connectionOperation, setConnectionOperation] = useState<ConnectionOperation | null>(null);
   const [teleportOperation, setTeleportOperation] = useState<TeleportOperation | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
 
   const teleportRunning = isTeleportRunning(teleportOperation);
-  const busy = pendingAction !== null || teleportRunning;
+  const connectionRunning = isConnectionRunning(connectionOperation);
+  const busy = pendingAction !== null || teleportRunning || connectionRunning;
   const canCreateSnapshot = connection !== null && hasScope(connection, "snapshots:write");
 
   // The service worker reports teleport progress through storage, also for teleports that
@@ -146,12 +163,20 @@ export function usePopup() {
         Effect.sync(() => showTeleportOperation(Option.getOrNull(operation))),
       ),
     );
+    const connectionUpdates = Effect.runFork(
+      Stream.runForEach(storedConnectionOperation.changes, (operation) =>
+        showConnectionOperation(Option.getOrNull(operation)).pipe(
+          Effect.catchCause((cause) => Effect.sync(() => setStatus(failureStatus(cause)))),
+        ),
+      ),
+    );
     void Effect.runPromiseExit(initialize).then((exit) => {
       if (Exit.isFailure(exit)) setStatus(failureStatus(exit.cause));
       setInitialized(true);
     });
     return () => {
       Effect.runFork(Fiber.interrupt(updates));
+      Effect.runFork(Fiber.interrupt(connectionUpdates));
     };
   }, []);
 
@@ -165,27 +190,79 @@ export function usePopup() {
   }, [initialized, connection?.id, screen, draft]);
 
   const initialize = Effect.gen(function* () {
-    const [stored, storedConnection, storedDraft, active, restored, operation] = yield* Effect.all(
-      [
-        listConnections,
-        activeConnection,
-        storedConnectionDraft.get,
-        activeTab,
-        popupState.get,
-        storedTeleportOperation.get,
-      ],
-      { concurrency: "unbounded" },
-    );
+    const [stored, storedConnection, storedDraft, active, restored, operation, login] =
+      yield* Effect.all(
+        [
+          listConnections,
+          activeConnection,
+          storedConnectionDraft.get,
+          activeTab,
+          popupState.get,
+          storedTeleportOperation.get,
+          storedConnectionOperation.get,
+        ],
+        { concurrency: "unbounded" },
+      );
     setConnections(stored);
-    setConnectionDraft(Option.getOrElse(storedDraft, () => emptyConnectionDraft));
+    const restoredConnectionDraft = Option.getOrElse(storedDraft, () => emptyConnectionDraft);
+    setConnectionDraft({
+      ...restoredConnectionDraft,
+      origin:
+        restoredConnectionDraft.origin.trim() === "" && isWebURL(active?.url)
+          ? new URL(active.url).origin
+          : restoredConnectionDraft.origin,
+    });
     setCurrentTab(active);
     showTeleportOperation(Option.getOrNull(operation));
     if (storedConnection === null) {
       setScreen("add-connection");
+      yield* showConnectionOperation(Option.getOrNull(login));
       return;
     }
     setConnection(storedConnection);
     yield* loadBrowserContext(storedConnection, active, Option.getOrNull(restored));
+    yield* showConnectionOperation(Option.getOrNull(login));
+  });
+
+  const showConnectionOperation = Effect.fn("showConnectionOperation")(function* (
+    operation: ConnectionOperation | null,
+  ) {
+    setConnectionOperation(operation);
+    if (operation === null) return;
+    if (isConnectionRunning(operation)) {
+      setStatus({
+        message:
+          operation.method === "oauth"
+            ? "Complete login and approve access in the Aperture window."
+            : "Connecting to Aperture…",
+        kind: "neutral",
+      });
+      return;
+    }
+    switch (operation.status) {
+      case "running":
+        setStatus({
+          message: "The previous login did not complete. Try connecting again.",
+          kind: "error",
+        });
+        break;
+      case "failed":
+        setStatus({ message: operation.error, kind: "error" });
+        break;
+      case "succeeded": {
+        const [stored, active] = yield* Effect.all([listConnections, activeTab]);
+        const connected = stored.find(({ id }) => id === operation.connectionId);
+        if (connected === undefined) break;
+        setConnections(stored);
+        setConnection(connected);
+        setCurrentTab(active);
+        setConnectionDraft((current) => ({ ...current, token: "" }));
+        yield* loadBrowserContext(connected, active);
+        setStatus({ message: "Connected.", kind: "neutral" });
+        break;
+      }
+    }
+    yield* clearCompletedConnectionOperation(operation.id);
   });
 
   // Loads tabs and snapshots for a connection, restoring the saved draft when it belongs to it.
@@ -198,14 +275,14 @@ export function usePopup() {
       [
         loadBrowserWindows(active?.windowId),
         hasScope(activeConnection, "snapshots:read")
-          ? listSnapshots(activeConnection).pipe(Effect.orElseSucceed(() => null))
+          ? loadSnapshots(activeConnection.id).pipe(Effect.orElseSucceed(() => null))
           : Effect.succeed(null),
       ],
       { concurrency: "unbounded" },
     );
 
     setBrowserWindows(windows);
-    setSnapshots(loadedSnapshots);
+    setSnapshots(loadedSnapshots === null ? null : [...loadedSnapshots]);
     if (restored?.connectionId !== activeConnection.id) {
       setDraft(initialDraft(active));
       setScreen("home");
@@ -283,30 +360,21 @@ export function usePopup() {
 
     connect: async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      const { origin, token } = connectionDraft;
+      const { origin, token, method } = connectionDraft;
       await run(
         "connect",
         Effect.gen(function* () {
           yield* normalizeConnectionOrigin(origin);
-          if (token.trim() === "") {
+          if (method === "token" && token.trim() === "") {
             return yield* new CompanionError({ message: "API token is required" });
           }
-          const result = yield* sendCommand(
-            { type: "connect", id: crypto.randomUUID(), origin, token },
+          yield* sendCommand(
+            method === "oauth"
+              ? { type: "connect-oauth", id: crypto.randomUUID(), origin }
+              : { type: "connect", id: crypto.randomUUID(), origin, token },
             ConnectResult,
             requestConnectionPermission(origin),
           );
-          const stored = yield* listConnections;
-          const connected = stored.find(({ id }) => id === result.connectionId);
-          if (connected === undefined) {
-            return yield* new CompanionError({ message: "The Aperture connection is unavailable" });
-          }
-          setConnections(stored);
-          setConnection(connected);
-          setConnectionDraft((current) => ({ ...current, token: "" }));
-          setScreen("home");
-          yield* loadBrowserContext(connected, currentTab);
-          setStatus({ message: "Connected.", kind: "neutral" });
         }),
       );
     },
@@ -331,7 +399,15 @@ export function usePopup() {
       return run(
         "remove",
         Effect.gen(function* () {
-          yield* removeConnection(id);
+          const response = yield* chromeCall("runtime.sendMessage", () =>
+            chrome.runtime.sendMessage({
+              type: "disconnect",
+              id: crypto.randomUUID(),
+              connectionId: id,
+            }),
+          );
+          const result = yield* Schema.decodeUnknownEffect(DisconnectResult)(response);
+          if (!result.ok) return yield* result.error;
           const [remaining, active] = yield* Effect.all([listConnections, activeConnection]);
           setConnections(remaining);
           setConnection(active);
@@ -361,7 +437,7 @@ export function usePopup() {
       await run(
         "channel",
         Effect.gen(function* () {
-          yield* saveConnection(updated);
+          yield* saveChannel(updated.id, channel);
           setConnection(updated);
           setConnections((current) =>
             current.map((candidate) => (candidate.id === updated.id ? updated : candidate)),
@@ -495,7 +571,7 @@ export function usePopup() {
     busy,
     canCreateSnapshot,
     selectedTabIds: selectedOrCurrentTabIds(),
-    connecting: pendingAction === "connect",
+    connecting: pendingAction === "connect" || connectionRunning,
     managingConnection:
       pendingAction === "connection" || pendingAction === "remove" || pendingAction === "reorder",
     teleporting: pendingAction === "teleport" || teleportRunning,

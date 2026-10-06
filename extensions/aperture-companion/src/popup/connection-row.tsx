@@ -138,8 +138,8 @@ export function ConnectionRow({
           type="button"
           variant="ghost"
           size="icon-xs"
-          aria-label={`Remove ${label}`}
-          title="Remove"
+          aria-label={`${connection.oauth === undefined ? "Remove" : "Disconnect"} ${label}`}
+          title={connection.oauth === undefined ? "Remove" : "Disconnect"}
           disabled={disabled}
           onClick={() => onRequestRemoval(connection.id)}
         >
@@ -153,7 +153,9 @@ export function ConnectionRow({
           className="aperture:flex aperture:items-center aperture:justify-between aperture:gap-2 aperture:px-2 aperture:py-1"
         >
           <p className="aperture:truncate aperture:text-xs aperture:text-muted-foreground">
-            Remove this connection?
+            {connection.oauth === undefined
+              ? "Remove this connection?"
+              : "Disconnect and revoke access?"}
           </p>
           <div className="aperture:flex aperture:gap-1">
             <Button
@@ -172,7 +174,7 @@ export function ConnectionRow({
               disabled={disabled}
               onClick={() => onRemove(connection.id)}
             >
-              Remove
+              {connection.oauth === undefined ? "Remove" : "Disconnect"}
             </Button>
           </div>
         </div>

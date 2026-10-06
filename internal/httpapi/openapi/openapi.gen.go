@@ -522,6 +522,7 @@ func (e InitialIndexedDBKeyPathKind) Valid() bool {
 // Defines values for PrincipalAuthMethod.
 const (
 	PrincipalAuthMethodApiToken PrincipalAuthMethod = "api_token"
+	PrincipalAuthMethodOauth    PrincipalAuthMethod = "oauth"
 	PrincipalAuthMethodOidc     PrincipalAuthMethod = "oidc"
 	PrincipalAuthMethodPasskey  PrincipalAuthMethod = "passkey"
 	PrincipalAuthMethodPassword PrincipalAuthMethod = "password"
@@ -531,6 +532,8 @@ const (
 func (e PrincipalAuthMethod) Valid() bool {
 	switch e {
 	case PrincipalAuthMethodApiToken:
+		return true
+	case PrincipalAuthMethodOauth:
 		return true
 	case PrincipalAuthMethodOidc:
 		return true
