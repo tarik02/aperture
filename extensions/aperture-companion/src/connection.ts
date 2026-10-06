@@ -358,6 +358,56 @@ export const createSession = Effect.fn("createSession")(
   (effect, connection) => withApi(connection.origin)(effect),
 );
 
+export const waitForSessionReady = Effect.fn("waitForSessionReady")(
+  function* (connection: Connection, sessionId: string, deadline: number) {
+    const api = yield* SessionsApi;
+    while (Date.now() < deadline) {
+      const session = yield* api.getSession(yield* credentials(connection), sessionId).pipe(
+        Effect.timeout("20 seconds"),
+        Effect.catchTag("TimeoutError", () =>
+          Effect.fail(
+            new CompanionError({ message: "Aperture did not respond while checking restoration" }),
+          ),
+        ),
+      );
+      switch (session.status) {
+        case "running":
+          return;
+        case "creating":
+          yield* Effect.sleep("2 seconds");
+          break;
+        case "failed":
+        case "deleted":
+        case "expired":
+        case "suspended":
+          return yield* new CompanionError({
+            message: `The session could not finish restoring (${session.status}). Check it in Aperture.`,
+          });
+      }
+    }
+    return yield* new CompanionError({
+      message: "Restoring the session took longer than 10 minutes. Check it in Aperture.",
+    });
+  },
+  (effect, connection) => withApi(connection.origin)(effect),
+);
+
+/** Recovers a promotion whose response was lost when the worker stopped. */
+export const wasSessionPromoted = Effect.fn("wasSessionPromoted")(
+  function* (connection: Connection, sessionId: string, name: string) {
+    if (!hasScope(connection, "snapshots:read")) {
+      return yield* new CompanionError({
+        message:
+          "The previous snapshot request was interrupted. Check its result in Aperture before trying again.",
+      });
+    }
+    const api = yield* SnapshotsApi;
+    const snapshot = yield* api.getSnapshotByName(yield* credentials(connection), name.trim());
+    return Option.isSome(snapshot) && snapshot.value.promotedFromSessionId === sessionId;
+  },
+  (effect, connection) => withApi(connection.origin)(effect),
+);
+
 export interface PromoteSessionOptions {
   readonly name: string;
   readonly description: string;

@@ -31,6 +31,13 @@ Teleport imports available cookies (including HTTP-only and partitioned cookies)
 session storage, IndexedDB, Cache Storage, OPFS, scroll positions, `window.name`, `history.state`,
 and mutable document state such as form values, contenteditable markup, focus, and selection.
 Selected popup tabs retain their opener relationship when their parent tab is also selected.
+Cookies are captured from each selected tab's cookie store and each captured frame's exact
+partition, including its cross-site ancestor setting.
 Extractable Web Crypto keys stored in IndexedDB are preserved. File inputs, non-extractable
 cryptographic keys, closed shadow roots, iframe document state, and in-memory JavaScript state
 cannot be transferred.
+
+Snapshot teleports create a session asynchronously and wait for restoration before promotion.
+The companion saves the session ID and resumes progress when its background worker restarts.
+If creation was interrupted before its ID could be saved, check Aperture before retrying.
+An existing snapshot with the same name is preserved and the teleport reports a conflict.

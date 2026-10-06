@@ -30,6 +30,8 @@ import {
   promoteSession,
   removeConnection,
   requireActiveConnection,
+  waitForSessionReady,
+  wasSessionPromoted,
 } from "./connection.ts";
 import { connectionOperation } from "./connection-operation.ts";
 import { commandError, failureMessage } from "./errors.ts";
@@ -37,13 +39,17 @@ import {
   listPendingCommands,
   pendingCommand,
   pendingCommandLifetime,
+  saveTeleportCheckpoint,
   type PendingCommand,
+  type TeleportCheckpoint,
 } from "./pending-command.ts";
 import { popupState } from "./popup-state.ts";
 import { defaultTeleportTags, type TeleportDestination } from "./schema.ts";
 import { teleportOperation, type TeleportStage } from "./teleport-operation.ts";
 
 const menuId = "teleport-page-to-aperture";
+const pendingCommandsAlarm = "aperture-companion-pending-commands";
+const teleportLifetime = Duration.minutes(10);
 
 const decodeCommand = Schema.decodeUnknownOption(CompanionMessage);
 
@@ -100,7 +106,7 @@ const runTeleport = Effect.fnUntraced(function* (
   startedAt: number,
   teleport: (
     setStage: (stage: TeleportStage) => Effect.Effect<void, unknown>,
-  ) => Effect.Effect<string[], unknown>,
+  ) => Effect.Effect<readonly string[], unknown>,
 ) {
   const operation = { id, destination, startedAt };
   const setStage = (stage: TeleportStage) =>
@@ -154,40 +160,78 @@ const teleportPage = (tab: chrome.tabs.Tab) =>
   );
 
 /** Teleports the tabs the popup selected into a new session or snapshot. */
-const teleportTabs = (command: TeleportTabsCommand, startedAt: number) =>
+const teleportTabs = (
+  command: TeleportTabsCommand,
+  startedAt: number,
+  checkpoint?: TeleportCheckpoint,
+) =>
   runTeleport(command.id, command.destination, startedAt, (setStage) =>
     Effect.gen(function* () {
-      const connection = yield* requireActiveConnection;
-      const tabs = yield* Effect.forEach(command.tabIds, getTab);
-      if (!tabs.some(({ id }) => id === command.activeTabId)) {
-        return yield* new CompanionError({ message: "The active tab is unavailable" });
-      }
-      const captured = yield* captureBrowserState(tabs, command.activeTabId);
-      const snapshot = command.destination === "snapshot";
-      yield* setStage("creating-session");
-      const sessionId = yield* createSession(connection, {
-        targets: captured.targets,
-        storageState: captured.storageState,
-        baseSnapshotName: command.baseSnapshotName,
-        label: command.label,
-        tags: command.tags,
-        // A snapshot is taken from a session that finished restoring.
-        waitForReady: snapshot,
-      });
-      if (snapshot) {
-        yield* setStage("creating-snapshot");
-        yield* promoteSession(connection, sessionId, {
-          name: command.snapshotName ?? "",
-          description: command.description ?? "",
-          tags: command.tags,
+      const connection = yield* checkpoint === undefined
+        ? requireActiveConnection
+        : freshConnection(checkpoint.connectionId);
+      if (checkpoint?.stage === "creating") {
+        return yield* new CompanionError({
+          message:
+            "Session creation was interrupted. Check Aperture for the session before trying again.",
         });
-        yield* setStage("opening");
+      }
+      const snapshot = command.destination === "snapshot";
+      let progress = checkpoint;
+      if (progress === undefined) {
+        const tabs = yield* Effect.forEach(command.tabIds, getTab);
+        if (!tabs.some(({ id }) => id === command.activeTabId)) {
+          return yield* new CompanionError({ message: "The active tab is unavailable" });
+        }
+        const captured = yield* captureBrowserState(tabs, command.activeTabId);
+        yield* setStage("creating-session");
+        const base = { connectionId: connection.id, warnings: captured.warnings };
+        // An interrupted POST must not be replayed when its result is unknown.
+        yield* saveTeleportCheckpoint(command.id, { ...base, stage: "creating" });
+        const sessionId = yield* createSession(connection, {
+          targets: captured.targets,
+          storageState: captured.storageState,
+          baseSnapshotName: command.baseSnapshotName,
+          label: command.label,
+          tags: command.tags,
+          waitForReady: false,
+        });
+        progress = { ...base, sessionId, stage: snapshot ? "restoring" : "opening" };
+        yield* saveTeleportCheckpoint(command.id, progress);
+      }
+      const { sessionId, warnings } = progress;
+      if (progress.stage === "restoring") {
+        yield* setStage("restoring");
+        yield* waitForSessionReady(
+          connection,
+          sessionId,
+          startedAt + Duration.toMillis(teleportLifetime),
+        );
+        progress = { ...progress, stage: "promoting" };
+        yield* saveTeleportCheckpoint(command.id, progress);
+      }
+      if (progress.stage === "promoting") {
+        yield* setStage("creating-snapshot");
+        const alreadyPromoted =
+          checkpoint?.stage === "promoting"
+            ? yield* wasSessionPromoted(connection, sessionId, command.snapshotName ?? "")
+            : false;
+        if (!alreadyPromoted) {
+          yield* promoteSession(connection, sessionId, {
+            name: command.snapshotName ?? "",
+            description: command.description ?? "",
+            tags: command.tags,
+          });
+        }
+        yield* saveTeleportCheckpoint(command.id, { ...progress, stage: "opening" });
+      }
+      yield* setStage("opening");
+      if (snapshot) {
         yield* openSnapshots(connection);
       } else {
-        yield* setStage("opening");
         yield* openWorkbench(connection, sessionId);
       }
-      return captured.warnings;
+      return warnings;
     }),
   );
 
@@ -229,7 +273,11 @@ const failCommand = Effect.fnUntraced(function* (
   }
 });
 
-const runPendingCommand = Effect.fnUntraced(function* ({ command, createdAt }: PendingCommand) {
+const runPendingCommand = Effect.fnUntraced(function* ({
+  command,
+  createdAt,
+  teleport,
+}: PendingCommand) {
   if (command.type !== "teleport-tabs") {
     const connection = yield* command.type === "connect-oauth"
       ? connectWithOAuth(command.origin)
@@ -243,7 +291,7 @@ const runPendingCommand = Effect.fnUntraced(function* ({ command, createdAt }: P
     });
     yield* respond(command.id, ConnectResult, { ok: true, connectionId: connection.id });
   } else {
-    const warnings = yield* teleportTabs(command, createdAt);
+    const warnings = yield* teleportTabs(command, createdAt, teleport);
     yield* respond(command.id, TeleportTabsResult, { ok: true, warnings });
   }
 });
@@ -253,12 +301,21 @@ const resume = Effect.fnUntraced(function* (id: string) {
   const stored = pendingCommand(id);
   const pending = Option.getOrNull(yield* stored.get);
   if (pending === null) return;
-  const expired = Date.now() - pending.createdAt >= Duration.toMillis(pendingCommandLifetime);
-  if (!expired && !(yield* hasOrigins(pending.origins))) return;
+  const expired =
+    Date.now() - pending.createdAt >=
+    Duration.toMillis(pending.teleport === undefined ? pendingCommandLifetime : teleportLifetime);
+  if (!expired && pending.teleport === undefined && !(yield* hasOrigins(pending.origins))) return;
 
   yield* (
     expired
-      ? Effect.fail(new CompanionError({ message: "Access was not granted" }))
+      ? Effect.fail(
+          new CompanionError({
+            message:
+              pending.teleport === undefined
+                ? "Access was not granted"
+                : "The teleport took longer than 10 minutes. Check its session in Aperture.",
+          }),
+        )
       : runPendingCommand(pending)
   ).pipe(
     Effect.catchCause((cause) => failCommand(pending.command, pending.createdAt, cause)),
@@ -296,6 +353,14 @@ const resumePendingCommands = listPendingCommands.pipe(
       discard: true,
     }),
   ),
+  Effect.andThen(listPendingCommands),
+  Effect.flatMap((pending) =>
+    pending.length === 0
+      ? chromeCall("alarms.clear", () => chrome.alarms.clear(pendingCommandsAlarm))
+      : chromeCall("alarms.create", () =>
+          chrome.alarms.create(pendingCommandsAlarm, { periodInMinutes: 0.5 }),
+        ),
+  ),
 );
 
 /**
@@ -330,6 +395,9 @@ const queueCommand = Effect.fnUntraced(function* (command: CompanionCommand) {
       });
     }
     yield* pendingCommand(command.id).set({ command, origins, createdAt });
+    yield* chromeCall("alarms.create", () =>
+      chrome.alarms.create(pendingCommandsAlarm, { periodInMinutes: 0.5 }),
+    );
     yield* resumePendingCommand(command.id);
     yield* resumePendingCommand(command.id).pipe(
       Effect.delay(pendingCommandLifetime),
@@ -370,6 +438,10 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
 chrome.permissions.onAdded.addListener(() => {
   run(resumePendingCommands);
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === pendingCommandsAlarm) run(resumePendingCommands);
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

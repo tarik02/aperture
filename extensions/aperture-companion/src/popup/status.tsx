@@ -61,6 +61,8 @@ export function teleportProgressLabel(
       case "capturing":
         return "Capturing state…";
       case "creating-session":
+        return "Creating session…";
+      case "restoring":
         return "Restoring in Aperture…";
       case "creating-snapshot":
         return "Creating snapshot…";
