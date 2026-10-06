@@ -110,8 +110,11 @@ func wrapperCDPDiscoveryRoute(path, forwardedURI string) (string, string) {
 }
 
 func isWrapperCDPDiscoveryPath(path string) bool {
-	switch path {
-	case "/", "/json", "/json/list", "/json/version", "/json/new":
+	if path == "/" {
+		return true
+	}
+	switch strings.TrimSuffix(path, "/") {
+	case "/json", "/json/list", "/json/version", "/json/new":
 		return true
 	default:
 		return strings.HasPrefix(path, "/json/new?")
