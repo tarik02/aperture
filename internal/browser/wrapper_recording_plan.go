@@ -376,6 +376,14 @@ func burstPieces(b recording.Burst, events []journalEntry, active []span, total 
 	var keep, quiet []span
 	for _, e := range events {
 		kind := e.kind()
+		if kind == "caption" {
+			// A caption keeps the picture under it for as long as it asked to be read: a burst
+			// is often shorter than that, and a caption ends with its piece.
+			if duration := int64(e.num("durationMs")); duration > 0 {
+				keep = append(keep, span{e.span().start, e.span().start + duration})
+			}
+			continue
+		}
 		if kind != "call" && kind != "focus" && kind != "attention" {
 			continue
 		}
