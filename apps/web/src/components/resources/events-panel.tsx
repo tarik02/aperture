@@ -4,7 +4,6 @@ import type { ResourceEvent } from "@aperture-browser/api-client";
 import { useEventsInfiniteQuery } from "#/features/event/event.queries.ts";
 import { Button } from "@aperture-browser/ui/components/button";
 import { Empty, EmptyHeader, EmptyTitle } from "@aperture-browser/ui/components/empty";
-import { ScrollArea } from "@aperture-browser/ui/components/scroll-area";
 import { Skeleton } from "@aperture-browser/ui/components/skeleton";
 import {
   Table,
@@ -43,28 +42,23 @@ export function EventsPanel({ resourceType, resourceId, className }: EventsPanel
           </EmptyHeader>
         </Empty>
       ) : (
-        <ScrollArea
-          className="aperture:min-h-0 aperture:max-h-[min(52svh,22rem)] aperture:flex-1"
-          viewportClassName="aperture:pb-2 aperture:data-[has-overflow-y]:pr-3"
-          scrollbars="both"
+        <Table
+          className="aperture:min-w-[36rem]"
+          containerClassName="aperture:max-h-[min(52svh,22rem)] aperture:flex-1"
         >
-          <Table className="aperture:min-w-[36rem]">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="aperture:h-7 aperture:px-1">Event</TableHead>
-                <TableHead className="aperture:h-7 aperture:px-1">Message</TableHead>
-                <TableHead className="aperture:h-7 aperture:px-1 aperture:text-right">
-                  Time
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {events.map((event) => (
-                <EventRow key={event.id} event={event} />
-              ))}
-            </TableBody>
-          </Table>
-        </ScrollArea>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="aperture:h-7 aperture:px-1">Event</TableHead>
+              <TableHead className="aperture:h-7 aperture:px-1">Message</TableHead>
+              <TableHead className="aperture:h-7 aperture:px-1 aperture:text-right">Time</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {events.map((event) => (
+              <EventRow key={event.id} event={event} />
+            ))}
+          </TableBody>
+        </Table>
       )}
       {query.hasNextPage ? (
         <div className="aperture:flex aperture:justify-center">

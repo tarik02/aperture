@@ -10,7 +10,7 @@ import {
 } from "./use-live-session.ts";
 import type * as HttpClient from "effect/http/HttpClient";
 import type { ApiRequestError, IceServer } from "@aperture-browser/api-client";
-import type { Recording } from "@aperture-browser/api-client";
+import type { Recording, RecordingSettings } from "@aperture-browser/api-client";
 import {
   downloadSessionRecording,
   getTargetThumbnail,
@@ -103,6 +103,8 @@ export interface UseBrowserControlResult {
   canRecord: boolean;
   recordingBusy: boolean;
   remoteCursorEnabled: boolean;
+  /** Whether agent actions are slowed down so this client can follow them. */
+  watchableAutomation: boolean;
   collaboration: CollaborationControl;
   commands: BrowserCommands;
   setCaptured: (captured: boolean) => void;
@@ -130,10 +132,11 @@ export interface UseBrowserControlResult {
   stopLoading: () => void;
   historyBack: () => void;
   historyForward: () => void;
-  startRecording: (mode: "tab" | "viewer") => void;
+  startRecording: (mode: "tab" | "viewer", settings: RecordingSettings) => void;
   stopRecording: (recordingId: string) => void;
   cancelRecording: (recordingId: string) => void;
   setRemoteCursorEnabled: (enabled: boolean) => void;
+  setWatchableAutomation: (enabled: boolean) => void;
   reconnect: () => void;
 }
 
@@ -472,21 +475,21 @@ export function useBrowserControl({
     );
 
   const runStartRecording = useEffectCallback(
-    (mode: "tab" | "viewer", targetId: string) =>
+    (mode: "tab" | "viewer", targetId: string, settings: RecordingSettings) =>
       settleRecording(
-        live.request("recording.start", { mode, targetId }),
+        live.request("recording.start", { mode, targetId, ...settings }),
         "Recording failed to start",
       ),
     [live],
   );
   const startRecording = useCallback(
-    (mode: "tab" | "viewer") => {
+    (mode: "tab" | "viewer", settings: RecordingSettings) => {
       const targetId = activeTargetIdRef.current;
       if (!targetId || !canRecord || recordingBusy) {
         return;
       }
       setRecordingBusy(true);
-      runStartRecording(mode, targetId);
+      runStartRecording(mode, targetId, settings);
     },
     [canRecord, recordingBusy, runStartRecording],
   );
@@ -563,6 +566,18 @@ export function useBrowserControl({
     },
     [access, runSetRemoteCursor],
   );
+
+  // Pacing is per session client and ephemeral, so every new connection announces the preference.
+  const [watchableAutomation, setWatchableAutomation] = useState(false);
+  const commandRef = useRef(live.command);
+  commandRef.current = live.command;
+  useEffect(() => {
+    if (live.phase === "connected" && canRecord) {
+      commandRef.current("automation.pacing.set", {
+        pacing: watchableAutomation ? "watchable" : "normal",
+      });
+    }
+  }, [live.phase, canRecord, watchableAutomation]);
 
   const runSelectPresentation = useEffectCallback(
     (selection: LiveSessionMediaSelection) =>
@@ -667,6 +682,7 @@ export function useBrowserControl({
     loadTargetThumbnail,
     recordingBusy,
     remoteCursorEnabled: live.presentation?.cursorVisible ?? true,
+    watchableAutomation,
     collaboration: live.collaboration,
     commands,
     setCaptured,
@@ -696,6 +712,7 @@ export function useBrowserControl({
     stopRecording,
     cancelRecording,
     setRemoteCursorEnabled,
+    setWatchableAutomation,
     reconnect: live.reconnect,
   };
 }

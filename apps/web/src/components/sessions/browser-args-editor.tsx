@@ -47,7 +47,7 @@ export function BrowserArgsEditor({ args, onChange, disabled }: BrowserArgsEdito
     <FieldGroup>
       <Field>
         <FieldLabel>Browser args</FieldLabel>
-        <Table>
+        <Table scrollable={false}>
           <TableHeader>
             <TableRow className="aperture:hover:bg-transparent">
               <TableHead className="aperture:h-7 aperture:px-1">Argument</TableHead>

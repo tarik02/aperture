@@ -18,7 +18,6 @@
     "@aperture-browser/session-react": "workspace:*",
     "@aperture-browser/ui": "workspace:*",
     "@atlaskit/pragmatic-drag-and-drop": "catalog:",
-    "@floating-ui/dom": "catalog:",
     "@simplewebauthn/browser": "catalog:",
     "@tailwindcss/vite": "catalog:",
     "@tanstack/react-hotkeys": "catalog:",

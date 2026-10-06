@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -26,6 +27,7 @@ const (
 	backendContainerPort  = 8080
 	defaultUDPPortRange   = "50000-50010"
 	defaultRenderNode     = "/dev/dri/renderD128"
+	defaultSeedSessions   = 15
 )
 
 var imageDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
@@ -38,6 +40,7 @@ type options struct {
 	udpPortMax    int
 	envFile       string
 	configFile    string
+	publicBaseURL string // where clients reach the instance; the loopback bind by default, a tunnel when exposed
 	renderNode    string
 	gpu           bool
 	projectDir    string
@@ -45,6 +48,8 @@ type options struct {
 	imageArchive  string
 	imageRef      string
 	traefikConfig string
+	seed          bool
+	seedSessions  int
 }
 
 type commandRunner struct {
@@ -105,7 +110,10 @@ Options:
   --udp-port-range RANGE   WebRTC UDP range (default: 50000-50010)
   --env-file PATH          Pass an environment file to the container
   --config PATH            Mount an Aperture TOML config
+  --public-url URL         Base URL clients use, such as a tunnel (default: the loopback address)
   --render-node PATH       DRM render node for .#dev-gpu
+  --seed                   Fill a freshly provisioned instance with fake data
+  --seed-sessions COUNT    Browser sessions --seed creates (default: 15)
   -h, --help               Show this help
 
 Vite runs in the foreground. State persists in a worktree-specific Podman
@@ -117,7 +125,10 @@ volume, and the initial system-admin token persists under .data/.`)
 	flags.StringVar(&udpRangeText, "udp-port-range", udpRangeText, "")
 	flags.StringVar(&opts.envFile, "env-file", "", "")
 	flags.StringVar(&opts.configFile, "config", "", "")
+	flags.StringVar(&opts.publicBaseURL, "public-url", "", "")
 	flags.StringVar(&renderNode, "render-node", renderNode, "")
+	flags.BoolVar(&opts.seed, "seed", false, "")
+	flags.IntVar(&opts.seedSessions, "seed-sessions", defaultSeedSessions, "")
 
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -139,6 +150,13 @@ volume, and the initial system-admin token persists under .data/.`)
 	if err := validateLoopbackAddress(opts.bindAddress); err != nil {
 		return options{}, false, err
 	}
+	if opts.publicBaseURL == "" {
+		opts.publicBaseURL = fmt.Sprintf("http://%s:%d", opts.bindAddress, opts.port)
+	} else if parsed, err := url.Parse(opts.publicBaseURL); err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return options{}, false, errors.New("--public-url must be an absolute http or https URL")
+	} else {
+		opts.publicBaseURL = strings.TrimRight(opts.publicBaseURL, "/")
+	}
 	opts.udpPortMin, opts.udpPortMax, err = parseUDPPortRange(udpRangeText)
 	if err != nil {
 		return options{}, false, err
@@ -157,13 +175,23 @@ volume, and the initial system-admin token persists under .data/.`)
 	}
 
 	renderNodeSet := false
+	seedSessionsSet := false
 	flags.Visit(func(visited *flag.Flag) {
-		if visited.Name == "render-node" {
+		switch visited.Name {
+		case "render-node":
 			renderNodeSet = true
+		case "seed-sessions":
+			seedSessionsSet = true
 		}
 	})
 	if !opts.gpu && renderNodeSet {
 		return options{}, false, errors.New("--render-node requires nix run .#dev-gpu")
+	}
+	if seedSessionsSet && !opts.seed {
+		return options{}, false, errors.New("--seed-sessions requires --seed")
+	}
+	if opts.seedSessions < 0 {
+		return options{}, false, errors.New("--seed-sessions must not be negative")
 	}
 	if opts.gpu {
 		opts.renderNode, err = characterDevicePath(renderNode)
@@ -243,12 +271,19 @@ func (runner commandRunner) run(opts options) error {
 	writef(runner.stdout, "WebRTC UDP ports: %d-%d\n", opts.udpPortMin, opts.udpPortMax)
 	writef(runner.stdout, "System-admin token: %s\n", adminTokenPath)
 
-	url := fmt.Sprintf("http://%s:%d", opts.bindAddress, opts.port)
-	writef(runner.stdout, "Starting Aperture at %s through containerized Vite...\n", url)
+	localURL := fmt.Sprintf("http://%s:%d", opts.bindAddress, opts.port)
+	writef(runner.stdout, "Starting Aperture at %s through containerized Vite...\n", localURL)
+	if opts.publicBaseURL != localURL {
+		writef(runner.stdout, "External URL: %s\n", opts.publicBaseURL)
+	}
 
 	readinessContext, cancelReadiness := context.WithCancel(context.Background())
 	defer cancelReadiness()
-	go runner.waitUntilReady(readinessContext, url)
+	go func() {
+		if runner.waitUntilReady(readinessContext, localURL) && opts.seed {
+			runner.seed(opts)
+		}
+	}()
 
 	return runner.runContainer(opts, traefikPath)
 }
@@ -353,7 +388,7 @@ func (runner commandRunner) prepareState(opts options, dataDir string) error {
 	if opts.envFile != "" {
 		provisionArgs = append(provisionArgs, "--env-file", opts.envFile)
 	}
-	provisionArgs = append(provisionArgs, "--env", fmt.Sprintf("APERTURE_EXTERNAL_BASE_URL=http://%s:%d", opts.bindAddress, opts.port))
+	provisionArgs = append(provisionArgs, "--env", "APERTURE_EXTERNAL_BASE_URL="+opts.publicBaseURL)
 	if opts.configFile != "" {
 		provisionArgs = append(provisionArgs, "--volume", opts.configFile+":/etc/aperture/aperture.toml:ro")
 	}
@@ -391,6 +426,10 @@ func (runner commandRunner) prepareState(opts options, dataDir string) error {
 }
 
 func (runner commandRunner) runContainer(opts options, traefikPath string) error {
+	dependencyVolumes, err := containerDependencyVolumes(opts.projectDir, opts.containerName)
+	if err != nil {
+		return err
+	}
 	args := []string{
 		"run", "--rm",
 		"--name", opts.containerName,
@@ -416,6 +455,7 @@ func (runner commandRunner) runContainer(opts options, traefikPath string) error
 		"--volume", traefikPath + ":/etc/aperture/traefik.yaml:ro",
 		"--health-cmd", fmt.Sprintf("curl -fsS http://127.0.0.1:%d/api/health", frontendContainerPort),
 	}
+	args = append(args, dependencyVolumes...)
 	if opts.envFile != "" {
 		args = append(args, "--env-file", opts.envFile)
 	}
@@ -423,7 +463,8 @@ func (runner commandRunner) runContainer(opts options, traefikPath string) error
 		args,
 		"--env", "APERTURE_CONFIG_SOURCE=",
 		"--env", fmt.Sprintf("APERTURE_DEV_PROXY_TARGET=http://127.0.0.1:%d", backendContainerPort),
-		"--env", fmt.Sprintf("APERTURE_EXTERNAL_BASE_URL=http://%s:%d", opts.bindAddress, opts.port),
+		"--env", "APERTURE_EXTERNAL_BASE_URL="+opts.publicBaseURL,
+		"--env", "APERTURE_DEV_PUBLIC_HOST="+publicHost(opts.publicBaseURL),
 		"--env", "APERTURE_WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP="+opts.bindAddress,
 		"--env", fmt.Sprintf("APERTURE_WEBRTC_MEDIA_PRODUCER_UDP_PORT_MIN=%d", opts.udpPortMin),
 		"--env", fmt.Sprintf("APERTURE_WEBRTC_MEDIA_PRODUCER_UDP_PORT_MAX=%d", opts.udpPortMax),
@@ -486,20 +527,66 @@ func (runner commandRunner) runContainer(opts options, traefikPath string) error
 	}
 }
 
-func (runner commandRunner) waitUntilReady(ctx context.Context, baseURL string) {
+// Each workspace has pnpm links as well as the root virtual store. Mask them all in the
+// container so an install cannot rewrite the host's store location or dependency links.
+func containerDependencyVolumes(projectDir, containerName string) ([]string, error) {
+	paths := []string{"node_modules"}
+	for _, directory := range []string{"apps", "extensions", "packages"} {
+		manifests, err := filepath.Glob(filepath.Join(projectDir, directory, "*", "package.json"))
+		if err != nil {
+			return nil, fmt.Errorf("find workspace dependencies: %w", err)
+		}
+		for _, manifest := range manifests {
+			relative, err := filepath.Rel(projectDir, filepath.Dir(manifest))
+			if err != nil {
+				return nil, err
+			}
+			paths = append(paths, filepath.Join(relative, "node_modules"))
+		}
+	}
+	var args []string
+	for _, path := range paths {
+		digest := sha256.Sum256([]byte(path))
+		name := fmt.Sprintf("%s-deps-%x", containerName, digest[:6])
+		args = append(args, "--volume", name+":/workspace/"+filepath.ToSlash(path)+":nocopy")
+	}
+	return args, nil
+}
+
+func (runner commandRunner) waitUntilReady(ctx context.Context, baseURL string) bool {
 	for {
 		if endpointReady(ctx, baseURL+"/", 2*time.Second) &&
 			endpointReady(ctx, baseURL+"/@id/virtual:tanstack-start-dev-client-entry", 10*time.Second) &&
 			endpointReady(ctx, baseURL+"/api/health", 2*time.Second) {
 			writef(runner.stdout, "\nAperture is ready: %s/\n\n", baseURL)
-			return
+			return true
 		}
 
 		select {
 		case <-ctx.Done():
-			return
+			return false
 		case <-time.After(time.Second):
 		}
+	}
+}
+
+// seed fills the instance through its API from inside the container, where Node and the
+// workspace dependencies already are. A failed seed leaves the instance running.
+func (runner commandRunner) seed(opts options) {
+	writeln(runner.stdout, "Seeding fake data...")
+	cmd := exec.Command(
+		"podman", "exec",
+		"--workdir", "/workspace",
+		opts.containerName,
+		"node", "scripts/seed-dev.ts",
+		"--url", fmt.Sprintf("http://127.0.0.1:%d", backendContainerPort),
+		"--token-file", "/workspace/.data/admin-token",
+		"--sessions", strconv.Itoa(opts.seedSessions),
+	)
+	cmd.Stdout = runner.stdout
+	cmd.Stderr = runner.stderr
+	if err := cmd.Run(); err != nil {
+		writef(runner.stderr, "Seeding failed: %v\n", err)
 	}
 }
 
@@ -776,4 +863,13 @@ func writef(writer io.Writer, format string, args ...any) {
 
 func writeln(writer io.Writer, args ...any) {
 	_, _ = fmt.Fprintln(writer, args...)
+}
+
+// publicHost is the host part of the public base URL, which Vite must be told to serve.
+func publicHost(baseURL string) string {
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return ""
+	}
+	return parsed.Host
 }

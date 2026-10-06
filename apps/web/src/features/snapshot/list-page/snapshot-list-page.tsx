@@ -8,7 +8,7 @@ import {
   Tags as TagsIcon,
   Trash2,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { SnapshotDetailModals } from "#/components/snapshots/snapshot-detail-modals.tsx";
 import { BatchActionBar } from "#/components/resources/batch-action-bar.tsx";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
@@ -27,6 +27,7 @@ import {
 } from "#/components/resources/infinite-table-shell.tsx";
 import { DeletedBadge } from "#/components/resources/status-badge.tsx";
 import { TagBadges } from "#/components/resources/tag-badges.tsx";
+import { SearchInput } from "#/components/resources/search-input.tsx";
 import { TagFilter } from "#/components/resources/tag-filter.tsx";
 import { TenantRequiredNotice } from "#/components/resources/tenant-required.tsx";
 import { Button } from "@aperture-browser/ui/components/button";
@@ -53,10 +54,6 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  stickyTableEndCellClassName,
-  stickyTableEndHeaderClassName,
-  stickyTableStartCellClassName,
-  stickyTableStartHeaderClassName,
 } from "@aperture-browser/ui/components/table";
 import {
   useDeleteSnapshotMutation,
@@ -81,9 +78,7 @@ import { useTagFormStore } from "#/features/tag/form/tag-form.store.ts";
 
 const SNAPSHOT_SKELETON_COLUMNS = [
   {
-    cellClassName: stickyTableStartCellClassName,
     skeletonClassName: "aperture:size-4 aperture:rounded-sm",
-    sticky: "start",
   },
   { skeletonClassName: "aperture:h-4 aperture:w-44" },
   { skeletonClassName: "aperture:h-4 aperture:w-64" },
@@ -91,9 +86,7 @@ const SNAPSHOT_SKELETON_COLUMNS = [
   { skeletonClassName: "aperture:h-4 aperture:w-36" },
   { skeletonClassName: "aperture:h-4 aperture:w-36" },
   {
-    cellClassName: stickyTableEndCellClassName,
     skeletonClassName: "aperture:ml-auto aperture:size-7",
-    sticky: "end",
   },
 ] as const;
 
@@ -115,10 +108,18 @@ export function SnapshotListPage() {
   const tags = useSnapshotListPageStore((state) => state.tags);
   const setDeleted = useSnapshotListPageStore((state) => state.setDeleted);
   const setTags = useSnapshotListPageStore((state) => state.setTags);
+  const search = useSnapshotListPageStore((state) => state.search);
+  const setSearch = useSnapshotListPageStore((state) => state.setSearch);
+  const deferredSearch = useDeferredValue(search.trim());
 
   const filters = useMemo(
-    () => ({ includeDeleted: deleted !== "active", deleted, tags }),
-    [deleted, tags],
+    () => ({
+      includeDeleted: deleted !== "active",
+      deleted,
+      tags,
+      name: deferredSearch || undefined,
+    }),
+    [deleted, tags, deferredSearch],
   );
 
   const query = useSnapshotsInfiniteQuery(filters);
@@ -272,6 +273,7 @@ export function SnapshotListPage() {
         <TenantRequiredNotice />
         {tenantReady ? (
           <div className="aperture:flex aperture:flex-wrap aperture:items-center aperture:gap-2">
+            <SearchInput value={search} onChange={setSearch} placeholder="Search snapshots" />
             <DeletedStatusSelect value={deleted} onChange={setDeleted} />
             <TagFilter
               value={tags}
@@ -337,9 +339,9 @@ export function SnapshotListPage() {
 
           <InfiniteTableShell
             query={query}
-            emptyTitle="No snapshots"
+            emptyTitle={deferredSearch ? "No matching snapshots" : "No snapshots"}
             loading={
-              <Table>
+              <Table stickyFirstColumn stickyLastColumn>
                 <TableHeader>
                   <SnapshotTableHeader />
                 </TableHeader>
@@ -350,7 +352,7 @@ export function SnapshotListPage() {
             }
           >
             {(items) => (
-              <Table>
+              <Table stickyFirstColumn stickyLastColumn>
                 <TableHeader>
                   <SnapshotTableHeader />
                 </TableHeader>
@@ -445,13 +447,13 @@ export function SnapshotListPage() {
 function SnapshotTableHeader() {
   return (
     <TableRow>
-      <TableHead data-table-sticky="start" className={stickyTableStartHeaderClassName} />
+      <TableHead className="aperture:w-8" />
       <TableHead>Name</TableHead>
       <TableHead>Description</TableHead>
       <TableHead>Tags</TableHead>
       <TableHead>Created</TableHead>
       <TableHead>Expires</TableHead>
-      <TableHead data-table-sticky="end" className={stickyTableEndHeaderClassName} />
+      <TableHead className="aperture:w-10" />
     </TableRow>
   );
 }
@@ -488,8 +490,7 @@ function SnapshotRow({
       onClick={onDetails}
     >
       <TableCell
-        data-table-sticky="start"
-        className={`${stickyTableStartCellClassName} ${canWrite ? "aperture:cursor-pointer" : ""}`}
+        className={canWrite ? "aperture:cursor-pointer" : undefined}
         onClick={(event) => {
           event.stopPropagation();
           if (canWrite) {
@@ -523,11 +524,7 @@ function SnapshotRow({
       <TableCell className="aperture:text-muted-foreground">
         {formatTimestamp(snapshot.expiresAt)}
       </TableCell>
-      <TableCell
-        data-table-sticky="end"
-        className={stickyTableEndCellClassName}
-        onClick={(event) => event.stopPropagation()}
-      >
+      <TableCell onClick={(event) => event.stopPropagation()}>
         <SnapshotActionsMenu
           snapshot={snapshot}
           canWrite={canWrite}

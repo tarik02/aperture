@@ -12,6 +12,10 @@ import {
 } from "../authorization/service.ts";
 import {
   LoginMethods,
+  OAuthAuthorizationRequest,
+  type OAuthApproval,
+  OAuthGrants,
+  OAuthRedirect,
   PasskeyLoginOptions,
   PasskeyMutation,
   PasskeyRegistrationOptions,
@@ -168,6 +172,43 @@ export const makeAuthApi = Effect.gen(function* () {
     yield* http.post("/auth/totp/disable", jsonBody({ code })).pipe(webSession);
   });
 
+  const getOAuthAuthorization = Effect.fn("AuthApi.getOAuthAuthorization")(function* (
+    query: string,
+  ) {
+    return yield* http
+      .get(`/auth/oauth/authorization?${query}`)
+      .pipe(
+        Effect.flatMap(HttpClientResponse.schemaBodyJson(OAuthAuthorizationRequest)),
+        webSession,
+      );
+  });
+
+  const approveOAuthAuthorization = Effect.fn("AuthApi.approveOAuthAuthorization")(function* (
+    approval: OAuthApproval,
+  ) {
+    return yield* http
+      .post("/auth/oauth/authorization/approve", jsonBody(approval))
+      .pipe(Effect.flatMap(HttpClientResponse.schemaBodyJson(OAuthRedirect)), webSession);
+  });
+
+  const denyOAuthAuthorization = Effect.fn("AuthApi.denyOAuthAuthorization")(function* (
+    query: string,
+  ) {
+    return yield* http
+      .post("/auth/oauth/authorization/deny", jsonBody({ query }))
+      .pipe(Effect.flatMap(HttpClientResponse.schemaBodyJson(OAuthRedirect)), webSession);
+  });
+
+  const listOAuthGrants = Effect.fn("AuthApi.listOAuthGrants")(function* () {
+    return yield* http
+      .get("/auth/oauth/grants")
+      .pipe(Effect.flatMap(HttpClientResponse.schemaBodyJson(OAuthGrants)), webSession);
+  });
+
+  const revokeOAuthGrant = Effect.fn("AuthApi.revokeOAuthGrant")(function* (grantId: string) {
+    yield* http.del(`/auth/oauth/grants/${encodeURIComponent(grantId)}`).pipe(webSession);
+  });
+
   return AuthApi.of({
     listLoginMethods,
     loginWithPassword,
@@ -189,6 +230,11 @@ export const makeAuthApi = Effect.gen(function* () {
     completeTOTPEnrollment,
     regenerateRecoveryCodes,
     disableTOTP,
+    getOAuthAuthorization,
+    approveOAuthAuthorization,
+    denyOAuthAuthorization,
+    listOAuthGrants,
+    revokeOAuthGrant,
   });
 });
 

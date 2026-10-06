@@ -69,6 +69,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().Int("webrtc-media-producer-keyframe-interval", 0, "media producer keyframe interval")
 	cmd.PersistentFlags().Int("webrtc-media-producer-udp-port-min", 0, "media producer ICE UDP port range minimum")
 	cmd.PersistentFlags().Int("webrtc-media-producer-udp-port-max", 0, "media producer ICE UDP port range maximum")
+	cmd.PersistentFlags().String("recording-ffmpeg-executable", "", "ffmpeg executable path for recording edits")
 
 	if err := rootFlags.BindPFlags(cmd.PersistentFlags()); err != nil {
 		panic(err)

@@ -405,6 +405,50 @@
               fi
             '';
 
+        # ffmpeg for the recording edits. The headless package has libx264 and libass; fontconfig is
+        # pointed at the session's fonts for the captions.
+        runtimeFfmpeg =
+          pkgs.runCommand "aperture-ffmpeg-${pkgs.ffmpeg-headless.version}"
+            {
+              nativeBuildInputs = [ pkgs.makeWrapper ];
+            }
+            ''
+              mkdir -p $out/bin
+              makeWrapper ${lib.getBin pkgs.ffmpeg-headless}/bin/ffmpeg $out/bin/ffmpeg \
+                --set FONTCONFIG_FILE ${browserFontsConf}
+            '';
+
+        # Fails the build when the packaged ffmpeg cannot do what the recording edits ask of it.
+        ffmpegFeatureCheck =
+          pkgs.runCommand "aperture-ffmpeg-features"
+            {
+              nativeBuildInputs = [ runtimeFfmpeg pkgs.fontconfig ];
+            }
+            ''
+              export HOME=$TMPDIR
+              encoders=$(ffmpeg -hide_banner -encoders)
+              grep -qw libx264 <<<"$encoders" || { echo "ffmpeg lacks libx264" >&2; exit 1; }
+              filters=$(ffmpeg -hide_banner -filters)
+              for filter in ass mpdecimate showinfo perspective select setpts fps; do
+                grep -Eq "^ [A-Z.]+ +$filter +" <<<"$filters" || { echo "ffmpeg lacks the $filter filter" >&2; exit 1; }
+              done
+              export FONTCONFIG_FILE=${browserFontsConf}
+              font=$(fc-match -f '%{file}' 'Noto Sans')
+              case "$font" in
+                ${pkgs.noto-fonts}/*) ;;
+                *) echo "Noto Sans is not a bundled font: $font" >&2; exit 1 ;;
+              esac
+              # White caption pixels on a black frame prove the ASS filter actually renders text.
+              printf '[Script Info]\nPlayResX: 320\nPlayResY: 240\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, Alignment\nStyle: Default,Noto Sans,20,&H00FFFFFF,2\n\n[Events]\nFormat: Layer, Start, End, Style, Text\nDialogue: 0,0:00:00.00,0:00:01.00,Default,Hello\n' > c.ass
+              ffmpeg -hide_banner -loglevel error -f lavfi -i color=black:s=320x240:r=10:d=1 -vf ass=c.ass -c:v libx264 out.mp4
+              [ -s out.mp4 ]
+              ffmpeg -hide_banner -loglevel error -i out.mp4 -frames:v 1 -pix_fmt rgb24 -f rawvideo caption.rgb
+              [ "$(wc -c < caption.rgb)" -eq 230400 ]
+              pixels=$(od -An -tu1 -v caption.rgb | awk '{ for (i=1; i<=NF; i++) if ($i > 128) n++ } END { print n+0 }')
+              [ "$pixels" -gt 100 ] || { echo "the caption did not produce visible text" >&2; exit 1; }
+              touch $out
+            '';
+
         patchedWeston =
           (pkgs.weston.override {
             demoSupport = false;
@@ -628,6 +672,8 @@
             };
 
             doCheck = true;
+            # The recording edit test renders with the packaged ffmpeg.
+            nativeCheckInputs = [ runtimeFfmpeg ];
 
             postInstall = ''
               # Node runtime: the restore worker bundle plus the Playwright packages it
@@ -821,7 +867,8 @@
                 --replace-fail '@COMPOSITOR_RENDERER@' '${compositorRenderer}' \
                 --replace-fail '@GSTREAMER@' '${runtimeGstreamer}' \
                 --replace-fail '@GSTREAMER_PLUGIN_PATH@' '${gstreamerPluginPath}' \
-                --replace-fail '@CHROMIUM@' '${runtimeChromium}'
+                --replace-fail '@CHROMIUM@' '${runtimeChromium}' \
+                --replace-fail '@FFMPEG@' '${runtimeFfmpeg}'
               substitute ${./packaging/traefik/static.yaml.template} $out/etc/aperture/traefik.yaml \
                 --replace-fail '@ENTRYPOINT_ADDRESS@' ':8080' \
                 --replace-fail '@DYNAMIC_CONFIG_DIR@' '/run/aperture/traefik/dynamic'
@@ -1145,7 +1192,7 @@
             pkgs.sqlite
             pkgs.traefik
             pkgs.chromium
-            pkgs.ffmpeg
+            runtimeFfmpeg
             runtimeGstreamer
             pkgs.gst_all_1.gst-plugins-base
             pkgs.bubblewrap
@@ -1164,6 +1211,7 @@
         }
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
           aperture-chromium = runtimeChromium;
+          aperture-ffmpeg = runtimeFfmpeg;
           aperture-docker = defaultDockerImage;
           aperture-docker-gpu = gpuDockerImage;
           # The custom builds the Docker images need, which cache.nixos.org doesn't have.
@@ -1199,6 +1247,9 @@
           default = aperture;
           aperture-companion = apertureCompanion;
           aperture-dev = apertureDev;
+        }
+        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          aperture-ffmpeg-features = ffmpegFeatureCheck;
         };
       }
     )

@@ -7,6 +7,7 @@ import (
 	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/jobtoken"
+	"github.com/aperture/aperture/internal/recording"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/sessionfiles"
 	"github.com/aperture/aperture/internal/snapshot"
@@ -74,6 +75,12 @@ func mapError(err error) (int, string, string) {
 		return http.StatusUnauthorized, "authentication_token_expired", "authentication token expired"
 	case errors.Is(err, auth.ErrTokenRevoked):
 		return http.StatusUnauthorized, "authentication_token_revoked", "authentication token revoked"
+	case errors.Is(err, auth.ErrOAuthGrantInvalid):
+		return http.StatusUnauthorized, "oauth_grant_invalid", "the user no longer has the access this authorization granted"
+	case errors.Is(err, auth.ErrUserAccountRequired):
+		return http.StatusForbidden, "user_account_required", "sign in with a user account to connect apps"
+	case errors.Is(err, auth.ErrOAuthGrantNotFound):
+		return http.StatusNotFound, "oauth_grant_not_found", "connected app not found"
 	case errors.Is(err, auth.ErrScopeDenied):
 		return http.StatusForbidden, "insufficient_scope", "insufficient scope"
 	case errors.Is(err, auth.ErrTenantForbidden):
@@ -87,7 +94,7 @@ func mapError(err error) (int, string, string) {
 	case errors.Is(err, auth.ErrTenantDeleted):
 		return http.StatusConflict, "tenant_deactivated", "tenant is deactivated"
 	case errors.Is(err, auth.ErrTokenNameConflict):
-		return http.StatusConflict, "token_name_conflict", "api token name already exists"
+		return http.StatusConflict, "token_name_conflict", "an active api token with this name already exists"
 	case errors.Is(err, auth.ErrTokenDelegation):
 		return http.StatusForbidden, "token_delegation_exceeded", "token delegation exceeds caller authority"
 	case errors.Is(err, auth.ErrResourceAccessDenied):
@@ -146,7 +153,7 @@ func mapError(err error) (int, string, string) {
 		return http.StatusBadRequest, "validation_failed", err.Error()
 	case errors.Is(err, errRequestDecode):
 		return http.StatusBadRequest, "invalid_request_body", "invalid request body"
-	case errors.Is(err, errValidation):
+	case errors.Is(err, errValidation), errors.Is(err, recording.ErrInvalid):
 		return http.StatusBadRequest, "validation_failed", err.Error()
 	case errors.Is(err, jobtoken.ErrMissing), errors.Is(err, jobtoken.ErrInvalid):
 		return http.StatusUnauthorized, "invalid_job_token", "invalid job token"

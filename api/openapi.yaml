@@ -121,6 +121,10 @@ paths:
         - {$ref: '#/components/parameters/Cursor'}
         - {$ref: '#/components/parameters/Deleted'}
         - {$ref: '#/components/parameters/LegacyIncludeDeleted'}
+        - name: query
+          in: query
+          description: ASCII case-insensitive substring matched against the display name or ID.
+          schema: {type: string}
       responses:
         '200': {description: Tenant page, content: {application/json: {schema: {$ref: '#/components/schemas/TenantPage'}}}}
         default: {$ref: '#/components/responses/Error'}
@@ -369,7 +373,7 @@ paths:
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
       x-aperture-errors: [invalid_request_body, validation_failed, tenant_selection_required, tenant_not_found, tenant_deactivated, token_name_conflict, token_delegation_exceeded]
-      description: Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
+      description: Creates an administrator or tenant token within the caller's authority. Names must be unique among active tokens in the same scope; revoked and expired tokens release their name. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
       requestBody: {$ref: '#/components/requestBodies/CreateAdminToken'}
       responses:
         '201': {description: Created token, content: {application/json: {schema: {$ref: '#/components/schemas/CreateTokenResponse'}}}}
@@ -462,7 +466,7 @@ paths:
         requiredScopes: [tenant:write]
         tenantResolution: token_tenant
       x-aperture-errors: [invalid_request_body, validation_failed, tenant_not_found, tenant_deactivated, token_name_conflict, token_delegation_exceeded]
-      description: Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+      description: Creates a token bound to the caller's tenant. Names must be unique among the tenant's active tokens; revoked and expired tokens release their name. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
       requestBody: {$ref: '#/components/requestBodies/CreateTenantToken'}
       responses:
         '201': {description: Created token, content: {application/json: {schema: {$ref: '#/components/schemas/CreateTokenResponse'}}}}
@@ -530,6 +534,10 @@ paths:
           in: query
           description: Exact session lifecycle status.
           schema: {$ref: '#/components/schemas/SessionStatus'}
+        - name: query
+          in: query
+          description: ASCII case-insensitive substring matched against the label, ID, or base snapshot name.
+          schema: {type: string}
         - {$ref: '#/components/parameters/TagKey'}
         - {$ref: '#/components/parameters/TagValue'}
         - {$ref: '#/components/parameters/TagOperator'}
@@ -882,7 +890,7 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_running, recording_invalid_state, recording_codec_unavailable, session_service_unavailable, browser_control_failed]
-      description: Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
+      description: Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The edit settings are checked before the session is woken and rejected with `validation_failed` when they contradict each other (`idle` with `capture` `bursts`, `burst` without `capture` `bursts`, `tailMs` above `maxTailMs`), and `capture` `bursts`, `idle` and `ripple` are rejected the same way on an instance without `recording_ffmpeg_executable`; `presentation` alone needs nothing.
       requestBody: {$ref: '#/components/requestBodies/CreateSessionRecording'}
       responses:
         '201': {description: Started recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
@@ -924,6 +932,93 @@ paths:
       responses:
         '200': {description: Retargeted recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
         default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/recordings/{recordingId}/caption:
+    post:
+      operationId: captionSessionRecording
+      tags: [sessions]
+      summary: Add a recording caption
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
+      description: Shows text in the edited video from now on. Returns immediately. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/RecordingId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RecordingCaptionInput'}
+      responses:
+        '204': {description: Caption added}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/recordings/{recordingId}/focus:
+    post:
+      operationId: focusSessionRecording
+      tags: [sessions]
+      summary: Focus a recording on an area
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
+      description: Zooms the edited video in on a target and holds it while automation acts. target names exactly one of pointer (follows the pointer), selector (follows an element as the page moves) and rect (a fixed area). A recording holds one focus; a new one moves the view from the previous one. The focus holds until reset-focus, the next focus or the recording's end, at most 60 s; with durationMs it zooms out after that and the call returns then. Browser automation is not held. Requires a running recording and recording_ffmpeg_executable; never wakes a suspended session.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/RecordingId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RecordingFocusInput'}
+      responses:
+        '204': {description: 'Focus set; with durationMs, ended'}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/recordings/{recordingId}/reset-focus:
+    post:
+      operationId: resetFocusSessionRecording
+      tags: [sessions]
+      summary: Zoom a recording out of its focus
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
+      description: Ends the recording's focus, so the edited video zooms out. Does nothing without one. Requires a running recording; never wakes a suspended session.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/RecordingId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '204': {description: Focus ended}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/recordings/{recordingId}/attention:
+    post:
+      operationId: attentionSessionRecording
+      tags: [sessions]
+      summary: Draw attention with the recording pointer
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
+      description: Circles the real pointer around a point or an element in the recorded tab. Pass exactly one of point and selector. Blocks for durationMs while browser automation waits. Requires a running recording and compositor; never wakes a suspended session.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/RecordingId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RecordingAttentionInput'}
+      responses:
+        '204': {description: Attention completed}
+        default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/recordings/{recordingId}/stop:
     post:
       operationId: stopSessionRecording
@@ -934,13 +1029,13 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
-      description: Stops the selected recording without transferring its media data and returns the resulting session file.
+      description: Stops the selected recording and returns it at once, without transferring its media data. The raw video is published at `relativePath` before the call returns. The recording is `stopped` with `editing` true while its edit runs, which takes about as long as the recording and at most 30 minutes; poll `GET` until `editing` is false, when `editedRelativePath`, `timelineRelativePath` or `editError` are filled. Stopping again meanwhile returns the current state. Cancelling the recording, or suspending, deleting or closing the session, ends the edit with `editError.code` `cancelled`.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/RecordingId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
       responses:
-        '200': {description: Completed recording file, content: {application/json: {schema: {$ref: '#/components/schemas/SessionFile'}}}}
+        '200': {description: Stopped recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
         default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/files:
     get:
@@ -2948,6 +3043,86 @@ components:
           enum: [vp8, h264-va]
           description: Video codec. Omit for the instance default.
           example: vp8
+        capture:
+          type: string
+          enum: [continuous, bursts]
+          description: With `bursts`, the edited video keeps only the stretches around browser tool calls, from `burst.leadMs` before a call to `burst.tailMs` after it, longer until the screen has stood still for `burst.settleMs` but at most `burst.maxTailMs`, and the recording follows the tab the automation acts on. The raw video is always the whole capture. Defaults to `continuous`. Cannot be combined with `idle`. Needs `recording_ffmpeg_executable` on the instance.
+        presentation:
+          type: boolean
+          description: Run browser automation at presentation pace while the recording runs. Needs nothing of the instance.
+        idle:
+          type: string
+          enum: [cut, speed]
+          description: Remove (`cut`) or fast-forward (`speed`) the stretches of a continuous recording in which neither the picture nor the automation changes, in the edited video. Needs `recording_ffmpeg_executable` on the instance.
+        ripple:
+          type: boolean
+          description: Mark clicks with a ripple in the edited video. Needs `recording_ffmpeg_executable` on the instance.
+        burst:
+          type: object
+          description: Burst sizes in milliseconds for `capture` `bursts`; rejected without it. Omitted or zero fields take the defaults. `tailMs` must not exceed `maxTailMs` (default 3000).
+          properties:
+            leadMs:
+              type: integer
+              minimum: 0
+              maximum: 60000
+              description: Kept before a tool call. Defaults to 500.
+            tailMs:
+              type: integer
+              minimum: 0
+              maximum: 60000
+              description: Kept after a tool call. Defaults to 800.
+            settleMs:
+              type: integer
+              minimum: 0
+              maximum: 60000
+              description: How long the screen must stand still to count as settled. Defaults to 400.
+            maxTailMs:
+              type: integer
+              minimum: 0
+              maximum: 60000
+              description: Longest wait for the screen to settle after a call. Defaults to 3000.
+    RecordingCaptionInput:
+      type: object
+      required: [text]
+      properties:
+        text: {type: string, minLength: 1, maxLength: 200, description: Caption text. Whitespace is trimmed.}
+        durationMs: {type: integer, minimum: 0, maximum: 30000, description: Display duration in milliseconds. Zero or omitted means 3000; other values must be at least 200.}
+    RecordingRect:
+      type: object
+      required: [x, y, width, height]
+      properties:
+        x: {type: number, description: Left edge in viewport CSS pixels.}
+        y: {type: number, description: Top edge in viewport CSS pixels.}
+        width: {type: number, minimum: 0}
+        height: {type: number, minimum: 0}
+    RecordingPoint:
+      type: object
+      required: [x, y]
+      properties:
+        x: {type: number, description: Horizontal position in viewport CSS pixels.}
+        y: {type: number, description: Vertical position in viewport CSS pixels.}
+    RecordingFocusInput:
+      type: object
+      required: [target, zoom]
+      properties:
+        target: {$ref: '#/components/schemas/RecordingFocusTarget'}
+        zoom: {type: number, minimum: 1, exclusiveMinimum: true, maximum: 4}
+        durationMs: {type: integer, minimum: 0, maximum: 10000, description: Zoom out after this many milliseconds; at least 200. Zero or omitted keeps the focus until reset-focus.}
+    RecordingFocusTarget:
+      type: object
+      description: What a focus zooms on. Name exactly one of rect, selector and pointer.
+      properties:
+        rect: {$ref: '#/components/schemas/RecordingRect'}
+        selector: {type: string, minLength: 1, description: CSS selector of an element in the top-level document; the zoom follows it.}
+        pointer: {type: boolean, description: 'Follow the pointer, so clicks and hovers stay in view.'}
+    RecordingAttentionInput:
+      type: object
+      properties:
+        point: {$ref: '#/components/schemas/RecordingPoint'}
+        selector: {type: string, minLength: 1, description: CSS selector in the top-level document; pass instead of point.}
+        radius: {type: number, minimum: 0, maximum: 300, description: Circle radius in CSS pixels. Zero or omitted means 40; other values must be at least 8.}
+        loops: {type: integer, minimum: 0, maximum: 5, description: Number of circles. Zero or omitted means 2.}
+        durationMs: {type: integer, minimum: 0, maximum: 5000, description: Circle duration in milliseconds. Zero or omitted means 1200; other values must be at least 300.}
     RetargetSessionRecordingInput:
       type: object
       description: Destination for a running tab recording.
@@ -2960,7 +3135,7 @@ components:
     Recording:
       type: object
       description: One logical recording of a top-level target.
-      required: [recordingId, mode, targetId, captureGeneration, status, relativePath, startedAt, fps, bitrateKbps, codec]
+      required: [recordingId, mode, targetId, captureGeneration, status, relativePath, startedAt, fps, bitrateKbps, codec, editing]
       properties:
         recordingId:
           type: string
@@ -3007,6 +3182,26 @@ components:
         codec:
           type: string
           enum: [vp8, h264-va]
+        editing:
+          type: boolean
+          description: Whether the edit a requested stop makes is still running. The raw video is already published; `editedRelativePath`, `timelineRelativePath` and `editError` are filled once this is false.
+        editedRelativePath:
+          type: string
+          description: The edited H.264 video, published next to the raw one as `<name>.edited.mp4`, once a stop made it.
+        timelineRelativePath:
+          type: string
+          description: What the recording's automation did and when, in the raw and edited video's time, published as `<name>.timeline.json`.
+        editError: {$ref: '#/components/schemas/RecordingEditError'}
+    RecordingEditError:
+      type: object
+      description: Why a recording has no edit although one was due or a timeline could not be written. The raw video is published regardless.
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [ffmpeg_unavailable, open_failed, nothing_kept, analysis_failed, plan_failed, render_failed, timeout, cancelled, timeline_failed]
+        message:
+          type: string
     SessionFile:
       type: object
       description: Regular file retained with a browser session.

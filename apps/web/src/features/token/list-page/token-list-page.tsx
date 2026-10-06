@@ -1,5 +1,5 @@
 import { Ban, MoreHorizontal, Plus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { TokenCreateModal } from "#/features/token/create-modal/token-create-modal.tsx";
 import { BatchActionBar } from "#/components/resources/batch-action-bar.tsx";
@@ -27,7 +27,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@aperture-browser/ui/components/dropdown-menu";
-import { Input } from "@aperture-browser/ui/components/input";
+import { SearchInput } from "#/components/resources/search-input.tsx";
 import { ScrollArea } from "@aperture-browser/ui/components/scroll-area";
 import {
   Select,
@@ -44,10 +44,6 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  stickyTableEndCellClassName,
-  stickyTableEndHeaderClassName,
-  stickyTableStartCellClassName,
-  stickyTableStartHeaderClassName,
 } from "@aperture-browser/ui/components/table";
 import { useRevokeTokenMutation } from "#/features/token/token.mutations.ts";
 import { useTokensInfiniteQuery } from "#/features/token/token.queries.ts";
@@ -81,9 +77,7 @@ const authorityFilterOptions = [
 
 const TOKEN_SKELETON_COLUMNS = [
   {
-    cellClassName: stickyTableStartCellClassName,
     skeletonClassName: "aperture:size-4 aperture:rounded-sm",
-    sticky: "start",
   },
   { skeletonClassName: "aperture:h-4 aperture:w-40" },
   { skeletonClassName: "aperture:h-4 aperture:w-72" },
@@ -93,9 +87,7 @@ const TOKEN_SKELETON_COLUMNS = [
   { skeletonClassName: "aperture:h-4 aperture:w-36" },
   { skeletonClassName: "aperture:h-4 aperture:w-36" },
   {
-    cellClassName: stickyTableEndCellClassName,
     skeletonClassName: "aperture:ml-auto aperture:size-7",
-    sticky: "end",
   },
 ] as const;
 
@@ -114,10 +106,11 @@ export function TokenListPage() {
   const setRevoked = useTokenListPageStore((state) => state.setRevoked);
   const setAuthorityType = useTokenListPageStore((state) => state.setAuthorityType);
   const setScope = useTokenListPageStore((state) => state.setScope);
+  const deferredName = useDeferredValue(name.trim());
   const scopeFilterOptions = isAdmin ? adminScopeOptions : tenantScopeOptions;
   const filters = useMemo<TokensFilters>(
     () => ({
-      name: name.trim() || undefined,
+      name: deferredName || undefined,
       revoked,
       authorityType:
         isAdmin && (authorityType === "system_admin" || authorityType === "tenant")
@@ -125,7 +118,7 @@ export function TokenListPage() {
           : undefined,
       scope: scope === ALL_SCOPES ? undefined : scope,
     }),
-    [authorityType, isAdmin, name, revoked, scope],
+    [authorityType, isAdmin, deferredName, revoked, scope],
   );
 
   const query = useTokensInfiniteQuery(filters);
@@ -225,6 +218,7 @@ export function TokenListPage() {
       ) : null}
 
       <div className="aperture:flex aperture:shrink-0 aperture:flex-wrap aperture:items-center aperture:gap-2 aperture:p-3">
+        <SearchInput value={name} onChange={setName} placeholder="Search tokens" />
         <Select
           items={revokedFilterOptions}
           value={revoked}
@@ -252,12 +246,6 @@ export function TokenListPage() {
             </SelectGroup>
           </SelectContent>
         </Select>
-        <Input
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder="Token name"
-          className="aperture:h-7 aperture:w-44"
-        />
         {isAdmin ? (
           <Select
             items={authorityFilterOptions}
@@ -338,12 +326,12 @@ export function TokenListPage() {
 
       <InfiniteTableShell
         query={query}
-        emptyTitle="No tokens"
+        emptyTitle={deferredName ? "No matching tokens" : "No tokens"}
         loading={
-          <Table>
+          <Table stickyFirstColumn stickyLastColumn>
             <TableHeader>
               <TableRow>
-                <TableHead data-table-sticky="start" className={stickyTableStartHeaderClassName} />
+                <TableHead className="aperture:w-8" />
                 <TableHead>Name</TableHead>
                 <TableHead>ID</TableHead>
                 <TableHead>Authority</TableHead>
@@ -351,7 +339,7 @@ export function TokenListPage() {
                 <TableHead>Resources</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead>Expires</TableHead>
-                <TableHead data-table-sticky="end" className={stickyTableEndHeaderClassName} />
+                <TableHead className="aperture:w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -361,10 +349,10 @@ export function TokenListPage() {
         }
       >
         {(items) => (
-          <Table>
+          <Table stickyFirstColumn stickyLastColumn>
             <TableHeader>
               <TableRow>
-                <TableHead data-table-sticky="start" className={stickyTableStartHeaderClassName} />
+                <TableHead className="aperture:w-8" />
                 <TableHead>Name</TableHead>
                 <TableHead>ID</TableHead>
                 <TableHead>Authority</TableHead>
@@ -372,7 +360,7 @@ export function TokenListPage() {
                 <TableHead>Resources</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead>Expires</TableHead>
-                <TableHead data-table-sticky="end" className={stickyTableEndHeaderClassName} />
+                <TableHead className="aperture:w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -442,8 +430,7 @@ function TokenRow({
       onClick={onView}
     >
       <TableCell
-        data-table-sticky="start"
-        className={`${stickyTableStartCellClassName} ${canRevoke && !token.revokedAt ? "aperture:cursor-pointer" : ""}`}
+        className={canRevoke && !token.revokedAt ? "aperture:cursor-pointer" : undefined}
         onClick={(event) => {
           event.stopPropagation();
           if (canRevoke && !token.revokedAt) {
@@ -481,11 +468,7 @@ function TokenRow({
       <TableCell className="aperture:text-muted-foreground">
         {formatTimestamp(token.expiresAt)}
       </TableCell>
-      <TableCell
-        data-table-sticky="end"
-        className={stickyTableEndCellClassName}
-        onClick={(event) => event.stopPropagation()}
-      >
+      <TableCell onClick={(event) => event.stopPropagation()}>
         <DropdownMenu>
           <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" />}>
             <MoreHorizontal />

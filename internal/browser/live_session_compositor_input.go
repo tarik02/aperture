@@ -14,6 +14,7 @@ const liveSessionInputTargetReadyTimeout = 5 * time.Second
 type liveSessionCompositorInput struct {
 	runtime    *wrapperRuntime
 	controller *remoteinput.Controller
+	pointer    *compositorPointer // shared with automation, so both move the pointer from where it is
 	sender     *compositorInputSender
 
 	surfaceID  uint64
@@ -34,7 +35,8 @@ func newLiveSessionCompositorInput(runtime *wrapperRuntime) (*liveSessionComposi
 	if err != nil {
 		return nil, err
 	}
-	sender := newCompositorInputSender(runtime.controlSocket, runtime.values.CompositorWidth, runtime.values.CompositorHeight)
+	pointer := newCompositorPointer(runtime.controlSocket)
+	sender := newCompositorInputSender(pointer, runtime.values.CompositorWidth, runtime.values.CompositorHeight)
 	if err := controller.Attach(remoteinput.Authorization{Pointer: true, Keyboard: true}, sender); err != nil {
 		_ = controller.Close()
 		return nil, err
@@ -42,6 +44,7 @@ func newLiveSessionCompositorInput(runtime *wrapperRuntime) (*liveSessionComposi
 	return &liveSessionCompositorInput{
 		runtime:    runtime,
 		controller: controller,
+		pointer:    pointer,
 		sender:     sender,
 		textKeys:   make(map[uint32]struct{}),
 	}, nil
@@ -162,18 +165,8 @@ func (input *liveSessionCompositorInput) close() error {
 	return input.controller.Close()
 }
 
-func (input *liveSessionCompositorInput) readyTarget(targetID string) (wrapperTargetSnapshot, bool) {
-	input.runtime.mu.Lock()
-	registry := input.runtime.targets
-	input.runtime.mu.Unlock()
-	if registry == nil || strings.TrimSpace(targetID) == "" {
-		return wrapperTargetSnapshot{}, false
-	}
-	return registry.readyTarget(targetID)
-}
-
 func (input *liveSessionCompositorInput) waitForReadyTarget(targetID string) (wrapperTargetSnapshot, bool) {
-	if target, ready := input.readyTarget(targetID); ready {
+	if target, ready := input.runtime.readyTarget(targetID); ready {
 		return target, true
 	}
 	input.runtime.mu.Lock()

@@ -81,6 +81,8 @@ const Target = Schema.Struct({
   title: Schema.String,
   url: Schema.String,
   loading: Schema.Boolean,
+  canGoBack: Schema.optionalKey(Schema.Boolean),
+  canGoForward: Schema.optionalKey(Schema.Boolean),
   viewport: Schema.optionalKey(
     Schema.Struct({
       width: positive,
@@ -205,6 +207,7 @@ const CommandResult = Schema.Struct({
     "viewport.owner.claim.result",
     "presentation.quality.set.result",
     "presentation.cursor.set.result",
+    "automation.pacing.set.result",
     "recording.start.result",
     "recording.stop.result",
     "recording.cancel.result",

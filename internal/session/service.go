@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -53,6 +52,7 @@ type Service struct {
 	inhibitors      map[string]int
 	wakes           map[string]*wakeCall
 	metrics         *metrics.Metrics
+	ports           *portAllocator
 }
 
 // NewService constructs a session service.
@@ -68,6 +68,7 @@ func NewService(
 		traefikReconciler = traefik.NoopReconciler{}
 	}
 	return &Service{
+		ports:           newPortAllocator(),
 		cfg:             cfg,
 		repo:            repo,
 		overlay:         overlayClient,
@@ -267,14 +268,9 @@ func (s *Service) create(
 		return nil, &OverlayMountError{SessionID: sessionID, Err: err}
 	}
 
-	port, err := AllocateCDPPort()
+	port, wrapperPort, err := s.allocatePorts(ctx, sessionID)
 	if err != nil {
-		_ = s.markFailed(ctx, sessionRow, "cdp port allocation failed", err)
-		return nil, err
-	}
-	wrapperPort, err := AllocateCDPPort(port)
-	if err != nil {
-		_ = s.markFailed(ctx, sessionRow, "wrapper port allocation failed", err)
+		_ = s.markFailed(ctx, sessionRow, "port allocation failed", err)
 		return nil, err
 	}
 	wrapperControlToken, err := GenerateWrapperControlToken()
@@ -283,56 +279,7 @@ func (s *Service) create(
 		return nil, err
 	}
 
-	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
-	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
-	internalAPIURL := s.cfg.DeployBlueURL
-	if strings.EqualFold(s.cfg.DeployColor, config.DeployColorGreen) {
-		internalAPIURL = s.cfg.DeployGreenURL
-	}
-
-	runtimeEnv := browser.RuntimeEnvValues{
-		SessionID:           sessionID,
-		ExternalBaseURL:     s.cfg.ExternalBaseURL,
-		EmbedAllowedOrigins: s.cfg.EmbedAllowedOrigins,
-		SessionToken:        rawSessionToken,
-		SessionTokenPath:    filepath.Join(layout.Metadata, "session-token"),
-		InternalAPIURL:      internalAPIURL,
-
-		MergedUserDataDir:          layout.Merged,
-		UpperDir:                   layout.Upper,
-		FilesDir:                   layout.Files.Root,
-		CacheDir:                   layout.Cache,
-		SessionUploadMaxFileBytes:  s.cfg.SessionUploadMaxFileBytes,
-		SessionStorageQuotaBytes:   s.cfg.SessionStorageQuotaBytes,
-		CDPPort:                    port,
-		WrapperPort:                wrapperPort,
-		WrapperControlToken:        wrapperControlToken,
-		BrowserExecutable:          channel.Executable,
-		BrowserDefaultArgs:         channel.DefaultArgs,
-		BrowserExtraArgs:           input.BrowserArgs,
-		ProxyConfig:                input.Proxy,
-		CaptureProofExtensionDir:   s.cfg.WebRTCCaptureProofExtensionDir,
-		GPUMode:                    s.cfg.GPUMode,
-		CompositorEnabled:          compositorEnabled,
-		CompositorExecutable:       s.cfg.WebRTCCompositorExecutable,
-		CompositorBackend:          s.cfg.WebRTCCompositorBackend,
-		CompositorRenderer:         s.cfg.WebRTCCompositorRenderer,
-		CompositorShell:            s.cfg.WebRTCCompositorShell,
-		CompositorWidth:            s.cfg.WebRTCCompositorWidth,
-		CompositorHeight:           s.cfg.WebRTCCompositorHeight,
-		MediaProducerEnabled:       mediaProducerEnabled,
-		MediaProducerGSTExecutable: s.cfg.WebRTCMediaProducerGSTExecutable,
-		MediaProducerPluginPath:    s.cfg.WebRTCMediaProducerPluginPath,
-		MediaProducerTarget:        s.cfg.WebRTCMediaProducerTarget,
-		MediaProducerICEServers:    mediaProducerICEServers(s.cfg),
-		MediaProducerAdvertisedIP:  s.cfg.WebRTCMediaProducerAdvertisedIP,
-		MediaProducerCodec:         s.cfg.WebRTCMediaProducerCodec,
-		MediaProducerFPS:           s.cfg.WebRTCMediaProducerFPS,
-		MediaProducerBitrateKbps:   s.cfg.WebRTCMediaProducerBitrateKbps,
-		MediaProducerKeyframe:      s.cfg.WebRTCMediaProducerKeyframe,
-		MediaProducerUDPPortMin:    s.cfg.WebRTCMediaProducerUDPPortMin,
-		MediaProducerUDPPortMax:    s.cfg.WebRTCMediaProducerUDPPortMax,
-	}
+	runtimeEnv := s.runtimeEnvValues(sessionRow, layout, channel, input.BrowserArgs, input.Proxy, port, wrapperPort, rawSessionToken, wrapperControlToken)
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
 		_ = s.markFailed(ctx, sessionRow, "runtime preparation failed", err)
 		return nil, err
@@ -625,12 +572,7 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		return nil, fmt.Errorf("parse browser args: %w", err)
 	}
 
-	port, err := AllocateCDPPort()
-	if err != nil {
-		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
-		return nil, err
-	}
-	wrapperPort, err := AllocateCDPPort(port)
+	port, wrapperPort, err := s.allocatePorts(ctx, sessionID)
 	if err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return nil, err
@@ -641,63 +583,13 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		return nil, err
 	}
 
-	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
-	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
-	internalAPIURL := s.cfg.DeployBlueURL
-	if strings.EqualFold(s.cfg.DeployColor, config.DeployColorGreen) {
-		internalAPIURL = s.cfg.DeployGreenURL
-	}
 	rawSessionToken, err := s.ensureSessionToken(ctx, sessionRow)
-
 	if err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return nil, err
 	}
-	proxyConfig := ProxyConfigFromRow(sessionRow)
 
-	runtimeEnv := browser.RuntimeEnvValues{
-		SessionID:           sessionID,
-		ExternalBaseURL:     s.cfg.ExternalBaseURL,
-		EmbedAllowedOrigins: s.cfg.EmbedAllowedOrigins,
-		SessionToken:        rawSessionToken,
-		SessionTokenPath:    filepath.Join(layout.Metadata, "session-token"),
-		InternalAPIURL:      internalAPIURL,
-
-		MergedUserDataDir:          layout.Merged,
-		UpperDir:                   layout.Upper,
-		FilesDir:                   layout.Files.Root,
-		CacheDir:                   layout.Cache,
-		SessionUploadMaxFileBytes:  s.cfg.SessionUploadMaxFileBytes,
-		SessionStorageQuotaBytes:   s.cfg.SessionStorageQuotaBytes,
-		CDPPort:                    port,
-		WrapperPort:                wrapperPort,
-		WrapperControlToken:        wrapperControlToken,
-		BrowserExecutable:          channel.Executable,
-		BrowserDefaultArgs:         channel.DefaultArgs,
-		BrowserExtraArgs:           browserArgs,
-		ProxyConfig:                proxyConfig,
-		CaptureProofExtensionDir:   s.cfg.WebRTCCaptureProofExtensionDir,
-		GPUMode:                    s.cfg.GPUMode,
-		CompositorEnabled:          compositorEnabled,
-		CompositorExecutable:       s.cfg.WebRTCCompositorExecutable,
-		CompositorBackend:          s.cfg.WebRTCCompositorBackend,
-		CompositorRenderer:         s.cfg.WebRTCCompositorRenderer,
-		CompositorShell:            s.cfg.WebRTCCompositorShell,
-		CompositorWidth:            s.cfg.WebRTCCompositorWidth,
-		CompositorHeight:           s.cfg.WebRTCCompositorHeight,
-		MediaProducerEnabled:       mediaProducerEnabled,
-		MediaProducerGSTExecutable: s.cfg.WebRTCMediaProducerGSTExecutable,
-		MediaProducerPluginPath:    s.cfg.WebRTCMediaProducerPluginPath,
-		MediaProducerTarget:        s.cfg.WebRTCMediaProducerTarget,
-		MediaProducerICEServers:    mediaProducerICEServers(s.cfg),
-		MediaProducerAdvertisedIP:  s.cfg.WebRTCMediaProducerAdvertisedIP,
-		MediaProducerCodec:         s.cfg.WebRTCMediaProducerCodec,
-		MediaProducerFPS:           s.cfg.WebRTCMediaProducerFPS,
-		MediaProducerBitrateKbps:   s.cfg.WebRTCMediaProducerBitrateKbps,
-		MediaProducerKeyframe:      s.cfg.WebRTCMediaProducerKeyframe,
-		MediaProducerUDPPortMin:    s.cfg.WebRTCMediaProducerUDPPortMin,
-		MediaProducerUDPPortMax:    s.cfg.WebRTCMediaProducerUDPPortMax,
-	}
+	runtimeEnv := s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, ProxyConfigFromRow(sessionRow), port, wrapperPort, rawSessionToken, wrapperControlToken)
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return nil, err
@@ -976,6 +868,7 @@ func (s *Service) ReplaceTags(ctx context.Context, tenantID, sessionID string, t
 type ListFilter struct {
 	IncludeDeleted bool
 	Status         *string
+	Query          string
 	Tags           []db.TagFilter
 	Resources      db.ResourceIDFilter
 }
@@ -986,6 +879,7 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 		TenantID:       tenantID,
 		IncludeDeleted: filter.IncludeDeleted,
 		Status:         filter.Status,
+		Query:          filter.Query,
 		Tags:           filter.Tags,
 		Resources:      filter.Resources,
 	}, params)

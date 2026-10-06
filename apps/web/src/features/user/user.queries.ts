@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import {
   defaultListLimit,
@@ -31,6 +31,8 @@ export function useUsersInfiniteQuery(filters: UsersFilters = {}) {
     initialPageParam: undefined as string | undefined,
     getNextPageParam,
     enabled,
+    // Keep rows on screen while a new search loads.
+    placeholderData: keepPreviousData,
     ...listQueryDefaults,
   });
 }

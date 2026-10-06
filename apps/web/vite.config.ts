@@ -7,6 +7,8 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 
 const devProxyTarget = process.env.APERTURE_DEV_PROXY_TARGET;
+// The host clients use when the dev instance is exposed through a tunnel; Vite refuses other hosts.
+const devPublicHost = process.env.APERTURE_DEV_PUBLIC_HOST;
 
 const scalarStandalone = path.join(
   path.dirname(createRequire(import.meta.url).resolve("@scalar/api-reference")),
@@ -35,6 +37,7 @@ const config = defineConfig({
   },
   server: devProxyTarget
     ? {
+        allowedHosts: devPublicHost ? [devPublicHost] : undefined,
         proxy: {
           "/api": {
             target: devProxyTarget,
@@ -47,6 +50,16 @@ const config = defineConfig({
           "/sessions": {
             target: devProxyTarget,
             ws: true,
+          },
+          "/mcp": {
+            target: devProxyTarget,
+          },
+          "/.well-known/oauth-": {
+            target: devProxyTarget,
+          },
+          // /oauth/consent is an SPA route; only the protocol endpoints go to the backend.
+          "^/oauth/(authorize|register|token|revoke)": {
+            target: devProxyTarget,
           },
         },
       }

@@ -17,7 +17,6 @@ catalog:
   "@effect/language-service": 0.87.2
   "@effect/openapi-generator": 4.0.0
   "@effect/platform-node": 4.0.0
-  "@floating-ui/dom": "^1.8.0"
   fumadocs-core: "^16.15.14"
   fumadocs-mdx: "^15.4.4"
   fumadocs-typescript: "^5.4.1"

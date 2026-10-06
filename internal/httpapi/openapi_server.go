@@ -162,12 +162,15 @@ var openAPIRoutesWithRequestBody = map[string]map[string]struct{}{
 		"/api/sessions":                       {},
 		"/api/sessions/bulk":                  {},
 		"/api/sessions/:sessionId/recordings": {},
-		"/api/sessions/:sessionId/recordings/:recordingId/retarget": {},
-		"/api/sessions/:sessionId/files/download-url":               {},
-		"/api/sessions/:sessionId/files/move":                       {},
-		"/api/sessions/:sessionId/files/directories":                {},
-		"/api/sessions/:sessionId/promote":                          {},
-		"/api/sessions/:sessionId/storage-state":                    {},
+		"/api/sessions/:sessionId/recordings/:recordingId/retarget":  {},
+		"/api/sessions/:sessionId/recordings/:recordingId/caption":   {},
+		"/api/sessions/:sessionId/recordings/:recordingId/focus":     {},
+		"/api/sessions/:sessionId/recordings/:recordingId/attention": {},
+		"/api/sessions/:sessionId/files/download-url":                {},
+		"/api/sessions/:sessionId/files/move":                        {},
+		"/api/sessions/:sessionId/files/directories":                 {},
+		"/api/sessions/:sessionId/promote":                           {},
+		"/api/sessions/:sessionId/storage-state":                     {},
 	},
 	http.MethodPatch: {
 		"/api/admin/tenants/:tenantId": {},
@@ -1040,5 +1043,54 @@ func (openAPIPassthroughResponse) VisitCreateTenantTokenResponse(http.ResponseWr
 }
 
 func (openAPIPassthroughResponse) VisitRevokeTenantTokenResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (s openAPIServer) CaptionSessionRecording(ctx context.Context, _ generated.CaptionSessionRecordingRequestObject) (generated.CaptionSessionRecordingResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.captionSessionRecording(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) FocusSessionRecording(ctx context.Context, _ generated.FocusSessionRecordingRequestObject) (generated.FocusSessionRecordingResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.focusSessionRecording(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) ResetFocusSessionRecording(ctx context.Context, _ generated.ResetFocusSessionRecordingRequestObject) (generated.ResetFocusSessionRecordingResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.resetFocusSessionRecording(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) AttentionSessionRecording(ctx context.Context, _ generated.AttentionSessionRecordingRequestObject) (generated.AttentionSessionRecordingResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.attentionSessionRecording(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (openAPIPassthroughResponse) VisitCaptionSessionRecordingResponse(http.ResponseWriter) error {
+	return nil
+}
+func (openAPIPassthroughResponse) VisitFocusSessionRecordingResponse(http.ResponseWriter) error {
+	return nil
+}
+func (openAPIPassthroughResponse) VisitResetFocusSessionRecordingResponse(http.ResponseWriter) error {
+	return nil
+}
+func (openAPIPassthroughResponse) VisitAttentionSessionRecordingResponse(http.ResponseWriter) error {
 	return nil
 }

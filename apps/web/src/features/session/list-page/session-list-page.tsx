@@ -14,7 +14,7 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
@@ -34,6 +34,7 @@ import {
 } from "#/components/resources/infinite-table-shell.tsx";
 import { SessionStatusBadge } from "#/components/resources/status-badge.tsx";
 import { TagBadges } from "#/components/resources/tag-badges.tsx";
+import { SearchInput } from "#/components/resources/search-input.tsx";
 import { TagFilter } from "#/components/resources/tag-filter.tsx";
 import { TenantRequiredNotice } from "#/components/resources/tenant-required.tsx";
 import { Button } from "@aperture-browser/ui/components/button";
@@ -72,10 +73,6 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  stickyTableEndCellClassName,
-  stickyTableEndHeaderClassName,
-  stickyTableStartCellClassName,
-  stickyTableStartHeaderClassName,
 } from "@aperture-browser/ui/components/table";
 import {
   useDeleteSessionMutation,
@@ -123,9 +120,7 @@ const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
 
 const SESSION_SKELETON_COLUMNS = [
   {
-    cellClassName: stickyTableStartCellClassName,
     skeletonClassName: "aperture:size-4 aperture:rounded-sm",
-    sticky: "start",
   },
   { skeletonClassName: "aperture:h-8 aperture:w-72" },
   { skeletonClassName: "aperture:h-5 aperture:w-16 aperture:rounded-full" },
@@ -134,9 +129,7 @@ const SESSION_SKELETON_COLUMNS = [
   { skeletonClassName: "aperture:h-5 aperture:w-40 aperture:rounded-full" },
   { skeletonClassName: "aperture:h-4 aperture:w-36" },
   {
-    cellClassName: stickyTableEndCellClassName,
     skeletonClassName: "aperture:ml-auto aperture:size-7",
-    sticky: "end",
   },
 ] as const;
 
@@ -158,9 +151,15 @@ export function SessionListPage() {
   const tags = useSessionListPageStore((state) => state.tags);
   const setStatus = useSessionListPageStore((state) => state.setStatus);
   const setTags = useSessionListPageStore((state) => state.setTags);
+  const search = useSessionListPageStore((state) => state.search);
+  const setSearch = useSessionListPageStore((state) => state.setSearch);
+  const deferredSearch = useDeferredValue(search.trim());
   const includeDeleted = status === "deleted";
 
-  const filters = useMemo(() => ({ includeDeleted, status, tags }), [includeDeleted, status, tags]);
+  const filters = useMemo(
+    () => ({ includeDeleted, status, tags, query: deferredSearch || undefined }),
+    [includeDeleted, status, tags, deferredSearch],
+  );
 
   const query = useSessionsInfiniteQuery(filters);
   const loadedSessions = useMemo(
@@ -388,6 +387,7 @@ export function SessionListPage() {
         <TenantRequiredNotice />
         {tenantReady ? (
           <div className="aperture:flex aperture:flex-wrap aperture:items-center aperture:gap-2">
+            <SearchInput value={search} onChange={setSearch} placeholder="Search sessions" />
             <Select
               items={STATUS_OPTIONS}
               value={status ?? ALL_STATUS}
@@ -483,22 +483,19 @@ export function SessionListPage() {
 
           <InfiniteTableShell
             query={query}
-            emptyTitle="No sessions"
+            emptyTitle={deferredSearch ? "No matching sessions" : "No sessions"}
             loading={
-              <Table>
+              <Table stickyFirstColumn stickyLastColumn>
                 <TableHeader>
                   <TableRow>
-                    <TableHead
-                      data-table-sticky="start"
-                      className={stickyTableStartHeaderClassName}
-                    />
+                    <TableHead className="aperture:w-8" />
                     <TableHead>Session</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Channel</TableHead>
                     <TableHead>Snapshot</TableHead>
                     <TableHead>Tags</TableHead>
                     <TableHead>Created</TableHead>
-                    <TableHead data-table-sticky="end" className={stickyTableEndHeaderClassName} />
+                    <TableHead className="aperture:w-10" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -508,20 +505,17 @@ export function SessionListPage() {
             }
           >
             {(items) => (
-              <Table>
+              <Table stickyFirstColumn stickyLastColumn>
                 <TableHeader>
                   <TableRow>
-                    <TableHead
-                      data-table-sticky="start"
-                      className={stickyTableStartHeaderClassName}
-                    />
+                    <TableHead className="aperture:w-8" />
                     <TableHead>Session</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Channel</TableHead>
                     <TableHead>Snapshot</TableHead>
                     <TableHead>Tags</TableHead>
                     <TableHead>Created</TableHead>
-                    <TableHead data-table-sticky="end" className={stickyTableEndHeaderClassName} />
+                    <TableHead className="aperture:w-10" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -533,8 +527,7 @@ export function SessionListPage() {
                       onClick={() => openDetail(session)}
                     >
                       <TableCell
-                        data-table-sticky="start"
-                        className={`${stickyTableStartCellClassName} ${canWrite ? "aperture:cursor-pointer" : ""}`}
+                        className={canWrite ? "aperture:cursor-pointer" : undefined}
                         onClick={(event) => {
                           event.stopPropagation();
                           if (canWrite) {
@@ -578,11 +571,7 @@ export function SessionListPage() {
                       <TableCell className="aperture:text-muted-foreground">
                         {formatTimestamp(session.createdAt)}
                       </TableCell>
-                      <TableCell
-                        data-table-sticky="end"
-                        className={stickyTableEndCellClassName}
-                        onClick={(event) => event.stopPropagation()}
-                      >
+                      <TableCell onClick={(event) => event.stopPropagation()}>
                         <SessionActionsMenu
                           session={session}
                           canWrite={canWrite}

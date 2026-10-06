@@ -15,6 +15,7 @@ import (
 	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/event"
 	"github.com/aperture/aperture/internal/playwrightmcp"
+	"github.com/aperture/aperture/internal/recording"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/snapshot"
 	"github.com/gin-gonic/gin"
@@ -33,6 +34,10 @@ type mcpAuth struct {
 }
 
 type mcpContextKey struct{}
+
+// mcpAuthTokenInfoKey carries each HTTP request's mcpAuth through the SDK's
+// TokenInfo, which it attaches to every message the request delivers.
+const mcpAuthTokenInfoKey = "aperture.mcpAuth"
 
 var errAutomationInputBusy = errors.New("browser input is already controlled")
 
@@ -63,11 +68,11 @@ func (s *Server) initMCPHandler() {
 		DisableLocalhostProtection: true,
 	})
 	s.mcpHandler = mcpauth.RequireBearerToken(func(ctx context.Context, _ string, r *http.Request) (*mcpauth.TokenInfo, error) {
-		authn, err := s.authenticateMCP(r)
-		if err != nil {
-			return nil, fmt.Errorf("invalid bearer token: %w", err)
+		authn, ok := r.Context().Value(mcpContextKey{}).(mcpAuth)
+		if !ok {
+			return nil, fmt.Errorf("%w: request was not authenticated", mcpauth.ErrInvalidToken)
 		}
-		return &mcpauth.TokenInfo{UserID: mcpIdentity(authn), Expiration: authn.expiration}, nil
+		return &mcpauth.TokenInfo{UserID: mcpIdentity(authn), Expiration: authn.expiration, Extra: map[string]any{mcpAuthTokenInfoKey: authn}}, nil
 	}, nil)(streamable)
 }
 
@@ -82,6 +87,9 @@ func (s *Server) mcp(c *gin.Context) {
 	}
 	authn, err := s.authenticateMCP(c.Request)
 	if err != nil {
+		if s.oauthEnabled() {
+			c.Header("WWW-Authenticate", s.oauthBearerChallenge(c.Request))
+		}
 		mcpHTTPError(c, http.StatusUnauthorized, err)
 		return
 	}
@@ -117,6 +125,10 @@ func mcpCredentialExpiration(raw *string) time.Time {
 
 func mcpIdentity(value mcpAuth) string {
 	if value.principal != nil {
+		// OAuth access tokens rotate hourly; the grant identifies the client session.
+		if value.principal.OAuthGrantID != "" {
+			return "oauth-grant:" + value.principal.OAuthGrantID
+		}
 		return "api-token:" + value.principal.TokenID
 	}
 	return "session-token:" + value.sessionID
@@ -162,6 +174,10 @@ func (s *Server) authenticateMCP(r *http.Request) (mcpAuth, error) {
 		}
 		if row == nil {
 			return mcpAuth{}, errors.New("session_not_found")
+		}
+		principal, err = auth.SelectTenant(principal, row.TenantID)
+		if err != nil {
+			return mcpAuth{}, errors.New("forbidden")
 		}
 		tenantID, err := auth.ResolveTenantID(principal, row.TenantID)
 		if err != nil {
@@ -338,12 +354,14 @@ type mcpRecordingStartInput struct {
 	FPS         int    `json:"fps,omitempty"`
 	BitrateKbps int    `json:"bitrateKbps,omitempty"`
 	Codec       string `json:"codec,omitempty"`
+	recording.Config
 }
 type mcpBoundRecordingStartInput struct {
 	TargetID    string `json:"targetId" jsonschema:"Identifier of the ready top-level target to record."`
 	FPS         int    `json:"fps,omitempty"`
 	BitrateKbps int    `json:"bitrateKbps,omitempty"`
 	Codec       string `json:"codec,omitempty"`
+	recording.Config
 }
 type mcpRecordingInput struct {
 	TenantID    string `json:"tenantId,omitempty"`
@@ -377,6 +395,7 @@ type mcpRecordingOutput struct {
 	FPS               int    `json:"fps,omitempty"`
 	BitrateKbps       int    `json:"bitrateKbps,omitempty"`
 	Codec             string `json:"codec,omitempty"`
+	recordingEdit
 }
 type mcpRecordingsOutput struct {
 	Recordings []mcpRecordingOutput `json:"recordings"`
@@ -543,6 +562,19 @@ type mcpConnectionOutput struct {
 
 func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "aperture", Version: s.DeployVersion}, nil)
+	// A session outlives the request that created it; authorize every message
+	// with the credentials of the request that carried it, so revocations and
+	// membership changes apply immediately.
+	server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if extra := req.GetExtra(); extra != nil && extra.TokenInfo != nil {
+				if current, ok := extra.TokenInfo.Extra[mcpAuthTokenInfoKey].(mcpAuth); ok {
+					ctx = withMCPAuth(ctx, current)
+				}
+			}
+			return next(ctx, method, req)
+		}
+	})
 	if a.pathBound {
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.list", Description: "List safe metadata for files in this session."}, s.mcpBoundSessionFilesList)
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.create_download_url", Description: "Create a signed URL for one file in this session."}, s.mcpBoundSessionFileURL)
@@ -552,12 +584,12 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "browser.targets", Description: "List browser targets and their readiness, waking this session if it is suspended."}, s.mcpBoundBrowserTargets)
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.get", Description: "Get remote cursor visibility for this session."}, s.mcpBoundCursorGet)
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.set", Description: "Set whether the remote cursor is included in this session's live stream and recordings."}, s.mcpBoundCursorSet)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a tab recording of one ready top-level target."}, s.mcpBoundRecordingStart)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a tab recording of one ready top-level target. Edit settings are checked here; capture bursts, idle and ripple need ffmpeg on the instance.", InputSchema: mcpBoundRecordingStartSchema()}, s.mcpBoundRecordingStart)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.list", Description: "List recordings and their current top-level targets for this session."}, s.mcpBoundRecordingsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.status", Description: "Get one recording and its current top-level target by recording ID."}, s.mcpBoundRecordingStatus)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.retarget", Description: "Move a running tab recording to another ready top-level target without starting a new logical recording."}, s.mcpBoundRecordingRetarget)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop and finalize one recording by ID."}, s.mcpBoundRecordingStop)
-		if !a.sessionOnly && auth.HasScope(a.principal.Scopes, auth.ScopeSessionsWrite) && auth.HasScope(a.principal.Scopes, auth.ScopeSnapshotsWrite) {
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop one recording by ID. Returns at once with the recording: its raw video is published, and editing is true while its edit runs, about as long as the recording. Poll recording.status until editing is false; editedRelativePath, timelineRelativePath or editError are filled then. Stopping again returns the current state."}, s.mcpBoundRecordingStop)
+		if !a.sessionOnly && auth.HasScopeInAnyTenant(*a.principal, auth.ScopeSessionsWrite) && auth.HasScopeInAnyTenant(*a.principal, auth.ScopeSnapshotsWrite) {
 			mcp.AddTool(server, &mcp.Tool{Name: "sessions.promote", Description: "Promote this stopped retained session into a snapshot."}, s.mcpBoundPromote)
 		}
 	} else {
@@ -585,15 +617,15 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.set", Description: "Set whether the remote cursor is included in a session's live stream and recordings."}, s.mcpCursorSet)
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.list", Description: "List safe metadata for files in a session."}, s.mcpSessionFilesList)
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.create_download_url", Description: "Create a signed URL for one file in a session."}, s.mcpSessionFileURL)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a tab recording of one ready top-level target."}, s.mcpRecordingStart)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a tab recording of one ready top-level target. Edit settings are checked here; capture bursts, idle and ripple need ffmpeg on the instance.", InputSchema: mcpRecordingStartSchema()}, s.mcpRecordingStart)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.list", Description: "List recordings and their current top-level targets for a session."}, s.mcpRecordingsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.status", Description: "Get one recording and its current top-level target by recording ID."}, s.mcpRecordingStatus)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.retarget", Description: "Move a running tab recording to another ready top-level target without starting a new logical recording."}, s.mcpRecordingRetarget)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop and finalize one recording by ID."}, s.mcpRecordingStop)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop one recording by ID. Returns at once with the recording: its raw video is published, and editing is true while its edit runs, about as long as the recording. Poll recording.status until editing is false; editedRelativePath, timelineRelativePath or editError are filled then. Stopping again returns the current state."}, s.mcpRecordingStop)
 		mcp.AddTool(server, &mcp.Tool{Name: "events.list", Description: "List tenant-scoped session and snapshot events."}, s.mcpEventsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "browser.channels", Description: "List configured browser channels."}, s.mcpBrowserChannels)
-		mcp.AddTool(server, &mcp.Tool{Name: "tenant.get", Description: "Get the tenant associated with this tenant-scoped token."}, s.mcpTenantGet)
-		mcp.AddTool(server, &mcp.Tool{Name: "tenant.update", Description: "Update the tenant associated with this tenant-scoped token."}, s.mcpTenantUpdate)
+		mcp.AddTool(server, &mcp.Tool{Name: "tenant.get", Description: "Get the tenant associated with this tenant-scoped token. Pass tenantId when the token covers several tenants."}, s.mcpTenantGet)
+		mcp.AddTool(server, &mcp.Tool{Name: "tenant.update", Description: "Update the tenant associated with this tenant-scoped token. Pass tenantId when the token covers several tenants."}, s.mcpTenantUpdate)
 		mcp.AddTool(server, &mcp.Tool{Name: "tenants.list", Description: "List tenants for system administration."}, s.mcpTenantsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "tenants.update", Description: "Update a tenant for system administration."}, s.mcpTenantsUpdate)
 		mcp.AddTool(server, &mcp.Tool{Name: "tenants.delete", Description: "Deactivate a tenant and revoke its tenant-scoped tokens."}, s.mcpTenantsDelete)
@@ -603,12 +635,13 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "tokens.create", Description: "Create an API bearer token for authorized Aperture access."}, s.mcpTokensCreate)
 		mcp.AddTool(server, &mcp.Tool{Name: "tokens.revoke", Description: "Revoke an API bearer token."}, s.mcpTokensRevoke)
 	}
-	canProxy := a.sessionOnly || (a.principal != nil && auth.HasScope(a.principal.Scopes, auth.ScopeSessionsWrite))
+	s.addRecordingAnnotationTools(server, a)
+	canProxy := a.sessionOnly || (a.principal != nil && auth.HasScopeInAnyTenant(*a.principal, auth.ScopeSessionsWrite))
 	tools, err := playwrightmcp.ToolsForProfilesMetadata(a.profiles)
 	if canProxy && err == nil {
 		for name, definition := range tools {
 			tool := adaptPlaywrightTool(definition, a.pathBound)
-			server.AddTool(tool, s.playwrightToolHandler(a, name, a.pathBound))
+			server.AddTool(tool, s.playwrightToolHandler(name, a.pathBound))
 		}
 	}
 	return server
@@ -665,8 +698,12 @@ func adaptPlaywrightTool(definition playwrightmcp.Tool, pathBound bool) *mcp.Too
 	return tool
 }
 
-func (s *Server) playwrightToolHandler(a mcpAuth, name string, pathBound bool) mcp.ToolHandler {
+func (s *Server) playwrightToolHandler(name string, pathBound bool) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		a, err := mcpAuthFromContext(ctx)
+		if err != nil {
+			return nil, err
+		}
 		arguments := map[string]any{}
 		if len(req.Params.Arguments) > 0 {
 			if err := json.Unmarshal(req.Params.Arguments, &arguments); err != nil {
@@ -818,21 +855,39 @@ func (s *Server) resolveProxySession(ctx context.Context, a mcpAuth, sessionID s
 	if err != nil || row == nil {
 		return nil, mcpToolError("session_not_found", err)
 	}
-	if a.principal == nil || !auth.HasScope(a.principal.Scopes, auth.ScopeSessionsWrite) {
+	if a.principal == nil {
 		return nil, mcpToolError("forbidden", nil)
 	}
-	if !auth.HasResourceAccess(*a.principal, auth.ResourceTypeSession, sessionID) {
+	principal, err := auth.SelectTenant(*a.principal, row.TenantID)
+	if err != nil {
+		return nil, mcpToolError("forbidden", err)
+	}
+	if !auth.HasScope(principal.Scopes, auth.ScopeSessionsWrite) {
+		return nil, mcpToolError("forbidden", nil)
+	}
+	if !auth.HasResourceAccess(principal, auth.ResourceTypeSession, sessionID) {
 		return nil, mcpToolError("forbidden", auth.ErrResourceAccessDenied)
 	}
-	if _, err := auth.ResolveTenantID(*a.principal, row.TenantID); err != nil {
+	if _, err := auth.ResolveTenantID(principal, row.TenantID); err != nil {
 		return nil, mcpToolError("forbidden", nil)
 	}
 	return s.Sessions.Get(ctx, row.TenantID, sessionID)
 }
 
-func (s *Server) mcpTenant(a mcpAuth, requested string, scope string) (string, error) {
+// mcpTenant resolves the tenant a tool call acts in. A multi-tenant principal
+// is narrowed in place to the requested tenant, so later checks in the same
+// call see that tenant's scopes.
+func (s *Server) mcpTenant(a *mcpAuth, requested string, scope string) (string, error) {
 	if a.principal == nil {
 		return "", mcpToolError("unauthorized", nil)
+	}
+	if len(a.principal.TenantGrants) > 0 {
+		narrowed, err := auth.SelectTenant(*a.principal, requested)
+		if err != nil {
+			return "", mcpToolError("tenant_not_found", err)
+		}
+		a.principal = &narrowed
+		requested = ""
 	}
 	if !auth.HasScope(a.principal.Scopes, scope) {
 		return "", mcpToolError("forbidden", nil)
@@ -852,7 +907,7 @@ func (s *Server) mcpSnapshotsList(ctx context.Context, _ *mcp.CallToolRequest, i
 	if err != nil {
 		return nil, mcpListSnapshotsOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(a, in.TenantID, auth.ScopeSnapshotsRead)
+	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSnapshotsRead)
 	if err != nil {
 		return nil, mcpListSnapshotsOutput{}, err
 	}
@@ -875,7 +930,7 @@ func (s *Server) mcpSnapshotsGet(ctx context.Context, _ *mcp.CallToolRequest, in
 	if err != nil {
 		return nil, mcpSnapshot{}, err
 	}
-	tenantID, err := s.mcpTenant(a, in.TenantID, auth.ScopeSnapshotsRead)
+	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSnapshotsRead)
 	if err != nil {
 		return nil, mcpSnapshot{}, err
 	}
@@ -894,7 +949,7 @@ func (s *Server) mcpSessionsCreate(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpCreateSessionOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(a, in.TenantID, auth.ScopeSessionsWrite)
+	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSessionsWrite)
 	if err != nil {
 		return nil, mcpCreateSessionOutput{}, err
 	}
@@ -927,7 +982,7 @@ func (s *Server) mcpSessionsList(ctx context.Context, _ *mcp.CallToolRequest, in
 	if err != nil {
 		return nil, mcpListSessionsOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(a, in.TenantID, auth.ScopeSessionsRead)
+	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSessionsRead)
 	if err != nil {
 		return nil, mcpListSessionsOutput{}, err
 	}
@@ -949,7 +1004,7 @@ func (s *Server) mcpSessionsGet(ctx context.Context, _ *mcp.CallToolRequest, in 
 	if err != nil {
 		return nil, mcpSession{}, err
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, false)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, false)
 	if err != nil {
 		return nil, mcpSession{}, mcpToolError("session_not_found", err)
 	}
@@ -960,7 +1015,7 @@ func (s *Server) mcpSessionsBulkGet(ctx context.Context, _ *mcp.CallToolRequest,
 	if err != nil {
 		return nil, mcpBulkSessionsOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(a, in.TenantID, auth.ScopeSessionsRead)
+	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSessionsRead)
 	if err != nil {
 		return nil, mcpBulkSessionsOutput{}, err
 	}
@@ -975,7 +1030,7 @@ func (s *Server) mcpSessionsBulkGet(ctx context.Context, _ *mcp.CallToolRequest,
 	return nil, out, nil
 }
 
-func (s *Server) sessionForMCP(ctx context.Context, a mcpAuth, requested, requestedTenant string, write bool) (*session.SessionView, error) {
+func (s *Server) sessionForMCP(ctx context.Context, a *mcpAuth, requested, requestedTenant string, write bool) (*session.SessionView, error) {
 	if a.sessionID != "" && requested != "" && requested != a.sessionID {
 		return nil, mcpToolError("forbidden", nil)
 	}
@@ -995,6 +1050,13 @@ func (s *Server) sessionForMCP(ctx context.Context, a mcpAuth, requested, reques
 	}
 	tenantID := a.tenantID
 	if tenantID == "" {
+		if a.principal != nil && len(a.principal.TenantGrants) > 0 && requestedTenant == "" {
+			row, err := s.Repository.GetSessionByID(ctx, id)
+			if err != nil || row == nil {
+				return nil, mcpToolError("session_not_found", err)
+			}
+			requestedTenant = row.TenantID
+		}
 		var err error
 		tenantID, err = s.mcpTenant(a, requestedTenant, scope)
 		if err != nil {
@@ -1014,7 +1076,7 @@ func (s *Server) mcpSessionStatus(ctx context.Context, _ *mcp.CallToolRequest, i
 	if err != nil {
 		return nil, mcpStatusOutput{}, err
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, false)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, false)
 	if err != nil {
 		return nil, mcpStatusOutput{}, err
 	}
@@ -1025,7 +1087,7 @@ func (s *Server) mcpSessionConnection(ctx context.Context, _ *mcp.CallToolReques
 	if err != nil {
 		return nil, mcpConnectionOutput{}, err
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, false)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, false)
 	if err != nil {
 		return nil, mcpConnectionOutput{}, err
 	}
@@ -1036,7 +1098,7 @@ func (s *Server) mcpSessionSuspend(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpStatusOutput{}, err
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, true)
 	if err != nil {
 		return nil, mcpStatusOutput{}, err
 	}
@@ -1051,7 +1113,7 @@ func (s *Server) mcpSessionDelete(ctx context.Context, _ *mcp.CallToolRequest, i
 	if err != nil {
 		return nil, mcpStatusOutput{}, err
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, true)
 	if err != nil {
 		return nil, mcpStatusOutput{}, err
 	}
@@ -1066,7 +1128,7 @@ func (s *Server) mcpSessionTokenRotate(ctx context.Context, _ *mcp.CallToolReque
 	if err != nil {
 		return nil, mcpStatusOutput{}, err
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, true)
 	if err != nil {
 		return nil, mcpStatusOutput{}, err
 	}
@@ -1081,7 +1143,7 @@ func (s *Server) mcpSessionsPromote(ctx context.Context, _ *mcp.CallToolRequest,
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, true)
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
@@ -1102,7 +1164,7 @@ func (s *Server) mcpEventsList(ctx context.Context, _ *mcp.CallToolRequest, in m
 	if err != nil {
 		return nil, mcpListEventsOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(a, in.TenantID, auth.ScopeSessionsRead)
+	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSessionsRead)
 	if err != nil {
 		return nil, mcpListEventsOutput{}, err
 	}

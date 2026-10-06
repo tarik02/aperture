@@ -8,6 +8,15 @@ import * as Api from "@aperture-browser/api-schema";
 const positiveInt = Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0));
 const emptyArray = Effect.succeed([]);
 
+export const RecordingSettings = Schema.Struct({
+  capture: Api.CreateSessionRecordingInput.fields.capture,
+  presentation: Api.CreateSessionRecordingInput.fields.presentation,
+  idle: Api.CreateSessionRecordingInput.fields.idle,
+  ripple: Api.CreateSessionRecordingInput.fields.ripple,
+  burst: Api.CreateSessionRecordingInput.fields.burst,
+});
+export type RecordingSettings = typeof RecordingSettings.Type;
+
 export const BrowserPage = Schema.Struct({
   targetId: Schema.String,
   state: Schema.Literals(["pending", "ready", "unavailable", "closed"]),
@@ -78,6 +87,11 @@ const recordingFields = {
   fps: positiveInt,
   bitrateKbps: positiveInt,
   codec: Schema.String,
+  /** The stop returned and the edit is still running; `editedRelativePath` or `editError` follows. */
+  editing: Schema.Boolean,
+  editedRelativePath: Schema.optionalKey(Schema.String),
+  timelineRelativePath: Schema.optionalKey(Schema.String),
+  editError: Schema.optionalKey(Api.RecordingEditError),
 };
 
 /**

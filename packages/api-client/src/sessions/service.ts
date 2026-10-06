@@ -33,6 +33,7 @@ export interface SessionsFilter {
   limit?: number;
   includeDeleted?: boolean;
   status?: Api.SessionStatus;
+  query?: string;
   tags?: TagFilterValue;
 }
 
@@ -68,6 +69,9 @@ export interface PromoteSessionInput {
 }
 
 export type CreateSessionRecordingInput = Api.CreateSessionRecordingInput;
+export type RecordingCaptionInput = Api.RecordingCaptionInput;
+export type RecordingFocusInput = Api.RecordingFocusInput;
+export type RecordingAttentionInput = Api.RecordingAttentionInput;
 export type SessionFileDownloadURLInput = Api.SessionFileDownloadURLInput;
 
 export interface DownloadedFile {
@@ -187,12 +191,39 @@ export class SessionsApi extends Context.Service<
       recordingId: string,
       targetId: string,
     ) => Call<SessionRecording>;
-    /** Stops a recording and returns the session file it was saved to. */
+    /**
+     * Stops a recording and returns it at once with its raw video published. The edit runs
+     * afterwards: the recording stays `editing` until `editedRelativePath` or `editError` is set,
+     * which `getSessionRecording` reports.
+     */
     readonly stopSessionRecording: (
       credentials: ApiCredentials,
       sessionId: string,
       recordingId: string,
-    ) => Call<SessionFile>;
+    ) => Call<SessionRecording>;
+    readonly captionSessionRecording: (
+      credentials: ApiCredentials,
+      sessionId: string,
+      recordingId: string,
+      input: RecordingCaptionInput,
+    ) => Call<void>;
+    readonly focusSessionRecording: (
+      credentials: ApiCredentials,
+      sessionId: string,
+      recordingId: string,
+      input: RecordingFocusInput,
+    ) => Call<void>;
+    readonly resetFocusSessionRecording: (
+      credentials: ApiCredentials,
+      sessionId: string,
+      recordingId: string,
+    ) => Call<void>;
+    readonly attentionSessionRecording: (
+      credentials: ApiCredentials,
+      sessionId: string,
+      recordingId: string,
+      input: RecordingAttentionInput,
+    ) => Call<void>;
     /**
      * Every file and directory of the session, also while it is not running. See
      * `sessionFileTree`.

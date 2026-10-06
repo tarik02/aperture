@@ -27,7 +27,7 @@ func (s *Server) mcpCursorGet(ctx context.Context, _ *mcp.CallToolRequest, in mc
 	if err != nil {
 		return nil, cursorVisibility{}, err
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, false)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, false)
 	if err != nil {
 		return nil, cursorVisibility{}, err
 	}
@@ -43,7 +43,7 @@ func (s *Server) mcpCursorSet(ctx context.Context, _ *mcp.CallToolRequest, in mc
 	if err != nil {
 		return nil, cursorVisibility{}, err
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, true)
 	if err != nil {
 		return nil, cursorVisibility{}, err
 	}

@@ -79,6 +79,9 @@ export function BrowserToolbar({
   const drawingAvailable =
     connected && control.collaboration.phase === "connected" && Boolean(control.activeTargetId);
   const loading = control.activeTarget?.loading ?? false;
+  // Peers that do not report history availability keep both buttons enabled.
+  const canGoBack = control.activeTarget?.canGoBack ?? true;
+  const canGoForward = control.activeTarget?.canGoForward ?? true;
   const runningRecordings = control.recordings.filter(
     (recording) => recording.status === "starting" || recording.status === "running",
   );
@@ -148,14 +151,14 @@ export function BrowserToolbar({
             <div className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-0.5">
               <ToolbarButton
                 label="Back"
-                disabled={!browserMutationEnabled}
+                disabled={!browserMutationEnabled || !canGoBack}
                 onClick={() => control.historyBack()}
               >
                 <ArrowLeft />
               </ToolbarButton>
               <ToolbarButton
                 label="Forward"
-                disabled={!browserMutationEnabled}
+                disabled={!browserMutationEnabled || !canGoForward}
                 onClick={() => control.historyForward()}
               >
                 <ArrowRight />
