@@ -48,7 +48,7 @@ export function resolveTenantHeader(
 
   if (credentials.authorityType === "tenant") {
     if (credentials.kind === "bearer") {
-      return undefined;
+      return credentials.selectedTenantId ?? undefined;
     }
     return credentials.tenantId ?? undefined;
   }

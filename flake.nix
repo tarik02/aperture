@@ -72,6 +72,10 @@
           || lib.hasPrefix "apps/restore-worker/node_modules/" rel
           || rel == "apps/restore-worker/dist"
           || lib.hasPrefix "apps/restore-worker/dist/" rel
+          || rel == "extensions/aperture-companion/node_modules"
+          || lib.hasPrefix "extensions/aperture-companion/node_modules/" rel
+          || rel == "extensions/aperture-companion/dist"
+          || lib.hasPrefix "extensions/aperture-companion/dist/" rel
           || rel == "extensions/tab-window-enforcer/node_modules"
           || lib.hasPrefix "extensions/tab-window-enforcer/node_modules/" rel
           || rel == "extensions/tab-window-enforcer/dist"
@@ -538,8 +542,74 @@
           else
             null;
 
+        # Workspace packages the aperture build installs.
+        apertureWorkspaces = [
+          "@aperture-browser/restore-worker"
+          "@aperture-browser/tab-window-enforcer"
+          "@aperture-browser/api-schema"
+          "@aperture-browser/browser-state"
+          "@aperture-browser/api-client"
+          "@aperture-browser/live-session"
+          "@aperture-browser/session-react"
+          "@aperture-browser/ui"
+          "@aperture-browser/web"
+        ];
+
+        # The companion and the workspace packages it imports.
+        companionWorkspaces = [
+          "@aperture-browser/companion"
+          "@aperture-browser/api-schema"
+          "@aperture-browser/browser-state"
+          "@aperture-browser/api-client"
+          "@aperture-browser/ui"
+        ];
+
+        # One fetch of the pnpm workspace, shared by every package built from it.
+        workspacePnpmDeps = pkgs.fetchPnpmDeps {
+          pname = "aperture-workspace";
+          version = deployVersion;
+          inherit src;
+          pnpm = pnpmLatest;
+          fetcherVersion = 4;
+          pnpmWorkspaces = lib.unique (apertureWorkspaces ++ companionWorkspaces);
+          hash = "sha256-3lP5S9VuyCaWyDUi+quxPJIirqqUD1a7Z4xe+VU1r1M=";
+        };
+
+        # The Aperture Companion browser extension, unpacked.
+        apertureCompanion = pkgs.stdenvNoCC.mkDerivation {
+          pname = "aperture-companion";
+          version = deployVersion;
+          inherit src;
+
+          pnpmWorkspaces = companionWorkspaces;
+          pnpmDeps = workspacePnpmDeps;
+
+          nativeBuildInputs = [
+            nodeRuntime
+            pnpmLatest
+            pkgs.pnpmConfigHook
+          ];
+
+          env.CI = "true";
+
+          buildPhase = ''
+            runHook preBuild
+            # pnpm 11.27.1 shims use `command -p`, which finds nothing in the sandbox.
+            find . -path '*/node_modules/.bin/*' -type f -exec sed -i 's/command -p //g' {} +
+            pnpm --filter @aperture-browser/companion build
+            runHook postBuild
+          '';
+
+          installPhase = ''
+            runHook preInstall
+            mkdir -p $out/share/aperture/aperture-companion
+            cp -R extensions/aperture-companion/dist/. $out/share/aperture/aperture-companion/
+            runHook postInstall
+          '';
+        };
+
         aperture =
-          (buildGoModule (finalAttrs: {
+          (buildGoModule {
             pname = "aperture";
             version = deployVersion;
             inherit src;
@@ -553,29 +623,8 @@
               "cmd/browser-session-wrapper"
             ];
 
-            pnpmWorkspaces = [
-              "@aperture-browser/restore-worker"
-              "@aperture-browser/tab-window-enforcer"
-              "@aperture-browser/api-schema"
-              "@aperture-browser/browser-state"
-              "@aperture-browser/api-client"
-              "@aperture-browser/live-session"
-              "@aperture-browser/session-react"
-              "@aperture-browser/ui"
-              "@aperture-browser/web"
-            ];
-
-            pnpmDeps = pkgs.fetchPnpmDeps {
-              inherit (finalAttrs)
-                pname
-                version
-                src
-                pnpmWorkspaces
-                ;
-              pnpm = pnpmLatest;
-              fetcherVersion = 4;
-              hash = "sha256-OdJZ2rOsOO7XbyDawIE4MbaOwhjj5rOdLJzT36GGQp0=";
-            };
+            pnpmWorkspaces = apertureWorkspaces;
+            pnpmDeps = workspacePnpmDeps;
 
             nativeBuildInputs = [
               pkgs.makeWrapper
@@ -741,7 +790,7 @@
               description = "chromium session supervisor";
               license = licenses.mit;
             };
-          })).overrideAttrs
+          }).overrideAttrs
             (oldAttrs: {
               checkPhase = ''
                 runHook preCheck
@@ -1157,6 +1206,7 @@
         packages = {
           default = aperture;
           aperture = aperture;
+          aperture-companion = apertureCompanion;
           patched-weston = patchedWeston;
         }
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
@@ -1195,6 +1245,7 @@
 
         checks = {
           default = aperture;
+          aperture-companion = apertureCompanion;
           aperture-dev = apertureDev;
         }
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {

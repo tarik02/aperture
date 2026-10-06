@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2025",
+    "jsx": "react-jsx",
+    "lib": ["ES2025", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],
+    "types": ["chrome", "vite/client"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]
+}
