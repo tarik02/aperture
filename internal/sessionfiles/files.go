@@ -49,15 +49,13 @@ type File struct {
 	ModifiedAt   time.Time `json:"modifiedAt"`
 	MIMEType     string    `json:"mimeType"`
 	// SandboxPath is where the session's browser sees the file, for CDP
-	// DOM.setFileInputFiles. Files still in the directories used before the files
-	// root have none.
+	// DOM.setFileInputFiles.
 	SandboxPath string `json:"sandboxPath,omitempty"`
 }
 
 func (File) entryType() EntryType { return EntryFile }
 
-// Directory is a directory below the files root. Directories exist only there;
-// the directories used before the files root are not listed as entries.
+// Directory is a directory below the files root.
 type Directory struct {
 	Type         EntryType `json:"type"`
 	Name         string    `json:"name"`
@@ -76,90 +74,48 @@ func describeDirectory(relative string, info fs.FileInfo) Directory {
 	}
 }
 
-// source is a directory whose files appear below prefix in session file relative
-// paths. A flat source contributes only its top-level regular files.
-type source struct {
-	dir    string
-	prefix string
-	flat   bool
-}
-
-// sources lists the session files root first, then the directories that sessions
-// launched before the single files root used. Those legacy directories map to the
-// same relative paths and disappear once such sessions expire.
-func sources(layout paths.SessionLayout) []source {
-	return []source{
-		{dir: layout.Files.Root},
-		{dir: filepath.Join(layout.Root, "downloads"), prefix: "downloads"},
-		{dir: filepath.Join(layout.Root, "recordings"), prefix: "recordings"},
-		{dir: filepath.Join(layout.Artifacts, "uploads"), prefix: "uploads"},
-		{dir: layout.Artifacts, prefix: "outputs", flat: true},
-	}
-}
-
 // Resolve returns the host path of the session file at relative and its normalized
 // relative path.
 func Resolve(layout paths.SessionLayout, relative string) (string, string, error) {
-	target, normalized, _, err := resolve(layout, relative)
-	return target, normalized, err
-}
-
-func resolve(layout paths.SessionLayout, relative string) (string, string, source, error) {
 	normalized, err := Normalize(relative)
 	if err != nil {
-		return "", "", source{}, err
+		return "", "", err
 	}
-	for _, src := range sources(layout) {
-		inner, ok := strings.CutPrefix(normalized, src.prefix+"/")
-		if src.prefix == "" {
-			inner, ok = normalized, true
-		}
-		if !ok || (src.flat && strings.Contains(inner, "/")) {
-			continue
-		}
-		target, err := paths.JoinUnderRoot(src.dir, filepath.FromSlash(inner))
-		if err != nil {
-			return "", "", source{}, ErrInvalidPath
-		}
-		info, err := os.Stat(target)
-		// ENOTDIR: a parent component is a file, so nothing is at the path.
-		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, unix.ENOTDIR) {
-			continue
-		}
-		if err != nil {
-			return "", "", source{}, err
-		}
-		if err := paths.ValidateTrustedPath(src.dir, target); err != nil {
-			return "", "", source{}, ErrInvalidPath
-		}
-		if !info.Mode().IsRegular() {
-			return "", "", source{}, ErrNotFound
-		}
-		return target, normalized, src, nil
+	target, err := paths.JoinUnderRoot(layout.Files.Root, filepath.FromSlash(normalized))
+	if err != nil {
+		return "", "", ErrInvalidPath
 	}
-	return "", "", source{}, ErrNotFound
+	info, err := os.Stat(target)
+	// ENOTDIR: a parent component is a file, so nothing is at the path.
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, unix.ENOTDIR) {
+		return "", "", ErrNotFound
+	}
+	if err != nil {
+		return "", "", err
+	}
+	if err := paths.ValidateTrustedPath(layout.Files.Root, target); err != nil {
+		return "", "", ErrInvalidPath
+	}
+	if !info.Mode().IsRegular() {
+		return "", "", ErrNotFound
+	}
+	return target, normalized, nil
 }
 
 // RelativePath maps a host path inside the session's files to its relative path.
 func RelativePath(layout paths.SessionLayout, fullPath string) (string, error) {
-	for _, src := range sources(layout) {
-		if paths.ValidateTrustedPath(src.dir, fullPath) != nil {
-			continue
-		}
-		rel, err := filepath.Rel(src.dir, fullPath)
-		if err != nil {
-			return "", err
-		}
-		if src.flat && strings.Contains(rel, string(filepath.Separator)) {
-			continue
-		}
-		return path.Join(src.prefix, filepath.ToSlash(rel)), nil
+	if paths.ValidateTrustedPath(layout.Files.Root, fullPath) != nil {
+		return "", ErrInvalidPath
 	}
-	return "", ErrInvalidPath
+	rel, err := filepath.Rel(layout.Files.Root, fullPath)
+	if err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(rel), nil
 }
 
 func Get(layout paths.SessionLayout, relative string) (File, error) {
-	fullPath, normalized, src, err := resolve(layout, relative)
+	fullPath, normalized, err := Resolve(layout, relative)
 	if err != nil {
 		return File{}, err
 	}
@@ -167,7 +123,7 @@ func Get(layout paths.SessionLayout, relative string) (File, error) {
 	if err != nil {
 		return File{}, err
 	}
-	return Describe(fullPath, normalized, src.sandboxPath(normalized), info), nil
+	return Describe(fullPath, normalized, SandboxPath(normalized), info), nil
 }
 
 // Describe builds the metadata of the session file at fullPath.
@@ -188,13 +144,6 @@ func SandboxPath(relative string) string {
 	return path.Join(paths.SandboxFilesRoot, relative)
 }
 
-func (src source) sandboxPath(relative string) string {
-	if src.prefix != "" {
-		return ""
-	}
-	return SandboxPath(relative)
-}
-
 // Normalize rejects absolute, escaping, and hidden paths. Hidden entries hold
 // in-progress uploads and recording segments, which are not session files yet.
 func Normalize(relative string) (string, error) {
@@ -213,56 +162,44 @@ func Normalize(relative string) (string, error) {
 	return clean, nil
 }
 
-// List returns every session file and every directory below the files root. A
-// relative path present in several sources is reported once, from the first.
+// List returns every session file and every directory below the files root.
 func List(layout paths.SessionLayout) ([]Entry, error) {
 	entries := make([]Entry, 0)
-	seen := make(map[string]struct{})
-	for _, src := range sources(layout) {
-		err := filepath.WalkDir(src.dir, func(full string, entry fs.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				if errors.Is(walkErr, fs.ErrNotExist) {
-					return nil
-				}
-				return walkErr
-			}
-			if full == src.dir {
+	err := filepath.WalkDir(layout.Files.Root, func(full string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			if errors.Is(walkErr, fs.ErrNotExist) {
 				return nil
 			}
-			if strings.HasPrefix(entry.Name(), ".") || entry.Type()&os.ModeSymlink != 0 {
-				if entry.IsDir() {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if entry.IsDir() && src.flat {
+			return walkErr
+		}
+		if full == layout.Files.Root {
+			return nil
+		}
+		if strings.HasPrefix(entry.Name(), ".") || entry.Type()&os.ModeSymlink != 0 {
+			if entry.IsDir() {
 				return filepath.SkipDir
 			}
-			info, err := entry.Info()
-			if err != nil {
-				return err
-			}
-			rel, err := filepath.Rel(src.dir, full)
-			if err != nil {
-				return err
-			}
-			relative := path.Join(src.prefix, filepath.ToSlash(rel))
-			if _, ok := seen[relative]; ok {
-				return nil
-			}
-			switch {
-			case info.IsDir() && src.prefix == "":
-				seen[relative] = struct{}{}
-				entries = append(entries, describeDirectory(relative, info))
-			case info.Mode().IsRegular():
-				seen[relative] = struct{}{}
-				entries = append(entries, Describe(full, relative, src.sandboxPath(relative), info))
-			}
 			return nil
-		})
-		if err != nil {
-			return nil, err
 		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(layout.Files.Root, full)
+		if err != nil {
+			return err
+		}
+		relative := filepath.ToSlash(rel)
+		switch {
+		case info.IsDir():
+			entries = append(entries, describeDirectory(relative, info))
+		case info.Mode().IsRegular():
+			entries = append(entries, Describe(full, relative, SandboxPath(relative), info))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return entries, nil
 }

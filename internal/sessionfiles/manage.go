@@ -146,7 +146,7 @@ func Delete(layout paths.SessionLayout, relative string, recursive bool) (EntryT
 	if !errors.Is(err, errNotDirectory) {
 		return "", err
 	}
-	fullPath, _, _, err := resolve(layout, relative)
+	fullPath, _, err := Resolve(layout, relative)
 	if err != nil {
 		return "", err
 	}
@@ -196,7 +196,7 @@ func Move(ctx context.Context, layout paths.SessionLayout, from, to string) (Ent
 			return nil, err
 		}
 	} else {
-		source, _, _, err = resolve(layout, from)
+		source, _, err = Resolve(layout, from)
 		if err != nil {
 			return nil, err
 		}
@@ -227,8 +227,6 @@ func Move(ctx context.Context, layout paths.SessionLayout, from, to string) (Ent
 		if errors.Is(err, unix.EEXIST) {
 			return nil, ErrExists
 		}
-		// Files of sessions from before the files root sit under store_root or
-		// artifact_root, either of which can be another filesystem than cold_root.
 		if errors.Is(err, unix.EXDEV) {
 			return nil, ErrNotInFilesRoot
 		}

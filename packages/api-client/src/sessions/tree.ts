@@ -15,7 +15,7 @@ export interface SessionFileDirectoryNode {
   readonly kind: "directory";
   readonly name: string;
   readonly relativePath: string;
-  /** Absent for a directory known only from the paths of legacy files. */
+  /** Absent when the input contains descendants without a directory entry. */
   readonly directory: SessionDirectory | undefined;
   readonly children: ReadonlyArray<SessionFileTreeNode>;
 }
