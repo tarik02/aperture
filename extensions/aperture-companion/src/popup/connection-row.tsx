@@ -95,7 +95,10 @@ export function ConnectionRow({
     <div className="aperture:flex aperture:flex-col aperture:gap-1">
       <div
         ref={rowRef}
-        className={cn("aperture:relative aperture:flex aperture:items-center aperture:gap-1", dragging && "aperture:opacity-60")}
+        className={cn(
+          "aperture:relative aperture:flex aperture:items-center aperture:gap-1",
+          dragging && "aperture:opacity-60",
+        )}
       >
         <span
           className={cn(
@@ -149,7 +152,9 @@ export function ConnectionRow({
           aria-label={`Confirm removal of ${label}`}
           className="aperture:flex aperture:items-center aperture:justify-between aperture:gap-2 aperture:px-2 aperture:py-1"
         >
-          <p className="aperture:truncate aperture:text-xs aperture:text-muted-foreground">Remove this connection?</p>
+          <p className="aperture:truncate aperture:text-xs aperture:text-muted-foreground">
+            Remove this connection?
+          </p>
           <div className="aperture:flex aperture:gap-1">
             <Button
               type="button"

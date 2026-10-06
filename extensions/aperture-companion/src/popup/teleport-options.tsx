@@ -139,10 +139,19 @@ function BaseSnapshotField({ snapshots, selected, disabled, onChange }: BaseSnap
             />
           }
         >
-          <span className="aperture:min-w-0 aperture:truncate">{blank ? "Blank session" : selected}</span>
+          <span className="aperture:min-w-0 aperture:truncate">
+            {blank ? "Blank session" : selected}
+          </span>
         </ComboboxTrigger>
-        <ComboboxContent align="start" className="aperture:w-(--anchor-width) aperture:min-w-(--anchor-width)">
-          <ComboboxInput placeholder="Search snapshots" showTrigger={false} className="aperture:w-auto" />
+        <ComboboxContent
+          align="start"
+          className="aperture:w-(--anchor-width) aperture:min-w-(--anchor-width)"
+        >
+          <ComboboxInput
+            placeholder="Search snapshots"
+            showTrigger={false}
+            className="aperture:w-auto"
+          />
           {blank ? null : (
             <Button
               type="button"

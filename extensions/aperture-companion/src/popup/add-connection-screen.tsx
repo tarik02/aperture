@@ -33,7 +33,10 @@ export function AddConnectionScreen({ popup }: { popup: Popup }) {
           {firstConnection ? "Connect to Aperture" : "Add connection"}
         </h1>
       </header>
-      <form className="aperture:flex aperture:flex-1 aperture:flex-col" onSubmit={(event) => void actions.connect(event)}>
+      <form
+        className="aperture:flex aperture:flex-1 aperture:flex-col"
+        onSubmit={(event) => void actions.connect(event)}
+      >
         <FieldGroup className="aperture:flex-1 aperture:gap-3">
           <Field>
             <FieldLabel htmlFor="origin">Aperture URL</FieldLabel>

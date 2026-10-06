@@ -10,7 +10,11 @@ function CompanionPopup() {
   const popup = usePopup();
 
   if (!popup.initialized) {
-    return <main className="aperture:h-[34rem] aperture:w-96 aperture:p-3 aperture:text-sm aperture:text-muted-foreground">Loading…</main>;
+    return (
+      <main className="aperture:h-[34rem] aperture:w-96 aperture:p-3 aperture:text-sm aperture:text-muted-foreground">
+        Loading…
+      </main>
+    );
   }
 
   return (

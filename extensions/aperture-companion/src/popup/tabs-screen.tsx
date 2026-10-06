@@ -126,10 +126,15 @@ function TabRow({
         disabled={busy || selectionLocked}
         onCheckedChange={(checked) => onToggle(tabId, checked)}
       />
-      <FieldLabel htmlFor={inputId} className="aperture:min-w-0 aperture:items-center aperture:gap-2">
+      <FieldLabel
+        htmlFor={inputId}
+        className="aperture:min-w-0 aperture:items-center aperture:gap-2"
+      >
         <TabFavicon tab={tab} />
         <span className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:gap-0">
-          <span className="aperture:truncate">{tab.title?.trim() || tab.url || "Untitled tab"}</span>
+          <span className="aperture:truncate">
+            {tab.title?.trim() || tab.url || "Untitled tab"}
+          </span>
           <span className="aperture:truncate aperture:font-mono aperture:text-xs aperture:leading-tight aperture:font-normal aperture:text-muted-foreground">
             {tabUrlLabel(tab.url)}
           </span>
@@ -158,7 +163,9 @@ function TabFavicon({ tab }: { tab: chrome.tabs.Tab }) {
   }, [tab.favIconUrl]);
 
   if (!tab.favIconUrl || failed) {
-    return <Globe2Icon className="aperture:size-4 aperture:shrink-0 aperture:text-muted-foreground" />;
+    return (
+      <Globe2Icon className="aperture:size-4 aperture:shrink-0 aperture:text-muted-foreground" />
+    );
   }
 
   return (
