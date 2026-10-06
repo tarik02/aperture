@@ -372,7 +372,7 @@ export const promoteSession = Effect.fn("promoteSession")(
     yield* api.promoteSession(yield* credentials(connection), sessionId, {
       name: options.name.trim(),
       description: options.description.trim() || null,
-      force: true,
+      force: false,
       tags: options.tags,
     });
   },
