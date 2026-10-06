@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/aperture/aperture/internal/paths"
 	"github.com/aperture/aperture/internal/sessionfiles"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -17,11 +18,11 @@ func (s *Server) mcpSessionFilesList(ctx context.Context, _ *mcp.CallToolRequest
 	if err != nil {
 		return nil, mcpSessionFilesOutput{}, err
 	}
-	scope, err := s.sessionFilesScope(view.Session)
+	layout, err := paths.Session(s.Config, view.Session.ID)
 	if err != nil {
 		return nil, mcpSessionFilesOutput{}, mcpToolError("internal", err)
 	}
-	files, err := sessionfiles.List(scope.layout)
+	files, err := sessionfiles.List(layout)
 	if err != nil {
 		return nil, mcpSessionFilesOutput{}, mcpToolError("internal", err)
 	}
@@ -32,7 +33,6 @@ func (s *Server) mcpSessionFilesList(ctx context.Context, _ *mcp.CallToolRequest
 		if !ok {
 			continue
 		}
-		file = scope.presentFile(file)
 		out.Files = append(out.Files, mcpSessionFile{Name: file.Name, RelativePath: file.RelativePath, Size: file.Size, ModifiedAt: file.ModifiedAt, MIMEType: file.MIMEType, SandboxPath: file.SandboxPath})
 	}
 	return nil, out, nil

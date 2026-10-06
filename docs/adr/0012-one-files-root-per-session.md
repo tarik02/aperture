@@ -31,17 +31,6 @@ Files used to be spread across three places: downloads and recordings under the 
 - Session files are served over the REST API and MCP only. Session-token holders reach them through session-bound MCP; there is no REST route authorized by the session token.
 - Hidden entries (in-progress uploads, recording segments) are not session files.
 
-## Existing sessions
-
-Sessions created before this change keep their files where they were, because a wrapper that is still running may be writing to those directories. Moving them is unsafe until the wrapper stops. The shared implementation reads these legacy directories as well, under the same relative paths:
-
-- `<store_root>/sessions/<bucket>/<session-id>/downloads` → `downloads/`
-- `<store_root>/sessions/<bucket>/<session-id>/recordings` → `recordings/`
-- `<artifact_root>/…/uploads` → `uploads/`
-- top-level files of `<artifact_root>/…` → `outputs/`
-
-Relative paths of downloads, recordings, and uploads are unchanged, so already-issued signed URLs and stored references keep working. Playwright output that was named `<file>` is now `outputs/<file>`. Legacy files have no `sandboxPath`. When an old session next starts, it writes to the new root, and its legacy files stay listable and downloadable but are no longer reachable from the browser. The legacy mapping can be deleted once every session created before this change has expired.
-
 ## Addendum: managing files and directories
 
 Session files and directories can be managed over REST in every retained state, so a file manager does not need the session to run:
@@ -62,7 +51,7 @@ Anything still being written cannot be moved or deleted, including anything insi
 
 Signed download URLs can be created with `disposition: inline` for previews. Every signed download is served with its detected `Content-Type`, byte ranges, and `X-Content-Type-Options: nosniff`. Content that can run scripts, such as HTML or SVG, also gets `Content-Security-Policy: sandbox`, so opening it inline cannot run scripts under the Aperture origin. Media, PDFs, and plain text are left unsandboxed because sandboxing only breaks Chrome's viewers.
 
-Changes that check limits take an exclusive lock on the files root, shared by the daemon and the session's wrapper, so concurrent uploads cannot overrun the storage quota together. Uploads stream into unnamed (`O_TMPFILE`) temporary files without the lock and hold it only for the final limit check and link (with a `/proc/self/fd` fallback where `linkat` with `AT_EMPTY_PATH` needs a capability, before Linux 6.10), so a slow client delays nothing but its own upload, and a crash mid-upload leaves nothing behind. Waiting for the lock ends with the request. Because streamed bytes count only once published, each process streams at most 3 uploads per session at once. A recording is likewise finalized under a hidden name and published without replacing an existing file, taking a numbered name instead. Because empty files and directories cost no quota bytes, the files root is also capped at 10000 entries. Creating any entry below the files root first creates `downloads`, `recordings`, `uploads`, and `outputs`, so their names stay reserved even in sessions from before the files root.
+Changes that check limits take an exclusive lock on the files root, shared by the daemon and the session's wrapper, so concurrent uploads cannot overrun the storage quota together. Uploads stream into unnamed (`O_TMPFILE`) temporary files without the lock and hold it only for the final limit check and link (with a `/proc/self/fd` fallback where `linkat` with `AT_EMPTY_PATH` needs a capability, before Linux 6.10), so a slow client delays nothing but its own upload, and a crash mid-upload leaves nothing behind. Waiting for the lock ends with the request. Because streamed bytes count only once published, each process streams at most 3 uploads per session at once. A recording is likewise finalized under a hidden name and published without replacing an existing file, taking a numbered name instead. Because empty files and directories cost no quota bytes, the files root is also capped at 10000 entries. Creating any entry below the files root first creates `downloads`, `recordings`, `uploads`, and `outputs`, so their names stay reserved.
 
 ## Addendum: filesystems without Linux-specific operations
 
