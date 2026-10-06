@@ -22,6 +22,11 @@ export function RecordingSettingsMenuItems({ settings, onChange }: RecordingSett
   const bursts = settings.capture === "bursts";
   const idleLabel =
     settings.idle === "cut" ? "Cut" : settings.idle === "speed" ? "Speed up 8×" : "Keep";
+  const pace = settings.pace ?? "fast";
+  const paceLabel = pace === "instant" ? "Instant" : pace === "slow" ? "Slow" : "Fast";
+  const natural =
+    settings.motion === "natural" ||
+    (typeof settings.motion === "object" && settings.motion.type === "natural");
   return (
     <>
       <DropdownMenuSeparator />
@@ -120,21 +125,69 @@ export function RecordingSettingsMenuItems({ settings, onChange }: RecordingSett
             </DropdownMenuGroup>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <span className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:justify-between aperture:gap-3">
+              <span className="aperture:shrink-0">Automation pace</span>
+              <span className="aperture:truncate aperture:text-muted-foreground">{paceLabel}</span>
+            </span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="aperture:w-64">
+            <DropdownMenuGroup>
+              <DropdownMenuRadioGroup
+                aria-label="Automation pace"
+                value={pace}
+                onValueChange={(value) => {
+                  const pace = Schema.decodeUnknownSync(RecordingSettings.fields.pace)(value);
+                  onChange({ ...settings, pace });
+                }}
+              >
+                <DropdownMenuRadioItem value="instant" closeOnClick={false}>
+                  <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
+                    <span>Instant</span>
+                    <span className="aperture:text-xs aperture:text-muted-foreground">
+                      The pointer jumps straight to each action.
+                    </span>
+                  </span>
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="fast" closeOnClick={false}>
+                  <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
+                    <span>Fast</span>
+                    <span className="aperture:text-xs aperture:text-muted-foreground">
+                      Quick pointer travel that is still easy to follow.
+                    </span>
+                  </span>
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="slow" closeOnClick={false}>
+                  <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
+                    <span>Slow</span>
+                    <span className="aperture:text-xs aperture:text-muted-foreground">
+                      Unhurried travel and longer pauses before clicks, for demos.
+                    </span>
+                  </span>
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuGroup>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
         <Tooltip>
           <TooltipTrigger
             render={
               <DropdownMenuCheckboxItem
-                checked={settings.presentation ?? false}
+                checked={natural}
+                disabled={pace === "instant"}
                 closeOnClick={false}
-                onCheckedChange={(presentation) => onChange({ ...settings, presentation })}
+                onCheckedChange={(checked) =>
+                  onChange({ ...settings, motion: checked ? "natural" : "linear" })
+                }
               />
             }
           >
-            Presentation pace
+            Natural pointer motion
           </TooltipTrigger>
           <TooltipContent side="left">
-            Only while recording: slower pointer movement and longer pauses before clicks than
-            Watchable automation. Manual input keeps its normal pace.
+            Only while recording: the pointer travels in curves and now and then overshoots a
+            little, like a hand. Manual input is unaffected.
           </TooltipContent>
         </Tooltip>
         <Tooltip>

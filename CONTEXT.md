@@ -17,11 +17,11 @@ What stopping a recording makes of its raw video and its journal: an H.264 video
 _Avoid_: Post-processing, render
 
 **Automation cadence**:
-How visibly browser automation acts on a live session: `immediate` is raw CDP with no added latency; `recorded` is real compositor input with eased motion, in effect while any recording runs or a connected owner or editor asked for watchable pacing; `presentation` is slower still and in effect while a presentation recording runs.
+How visibly browser automation acts on a live session: `immediate` is raw CDP with no added latency; the paced cadences are real compositor input at a recording's **pace**: `instant` jumps the pointer, `fast` and `slow` glide it in Fitts's-law time. The slowest pace of the running recordings applies, and at least `fast` while a connected owner or editor asked for watchable pacing.
 _Avoid_: Speed mode, slow mode, throttling
 
 **Pacing**:
-A session client's request (`automation.pacing.set`) that the automation it watches run at the recorded cadence. It is ephemeral: it belongs to the client and ends when the client disconnects.
+A session client's request (`automation.pacing.set`) that the automation it watches run at least at the `fast` cadence. It is ephemeral: it belongs to the client and ends when the client disconnects.
 _Avoid_: Watch mode, follow mode
 
 **Hot storage**:

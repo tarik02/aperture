@@ -48,13 +48,13 @@ One client at a time, the viewport owner, resizes the browser to its own present
 
 ## Automation pacing
 
-Browser automation through Playwright MCP runs at one of three cadences, decided per call:
+Browser automation through Playwright MCP runs at one cadence, decided per call:
 
-- **presentation**: a recording started with `presentation: true` is running;
-- **recorded**: any other recording is running, or a connected owner or editor set `automation.pacing.set {pacing: "watchable"}`;
-- **immediate**: otherwise. Plain pass-through, no added latency.
+- the slowest `pace` of the running recordings (`instant` < `fast` < `slow`);
+- at least `fast` while a connected owner or editor set `automation.pacing.set {pacing: "watchable"}`;
+- **immediate** otherwise. Plain pass-through, no added latency.
 
-At the two paced cadences the proxy between Playwright and Chromium turns `Input.dispatchMouseEvent` into real compositor input (an eased glide of the pointer, a real press, a real wheel; modifiers and back/forward buttons stay on CDP), makes `DOM.scrollIntoViewIfNeeded` scroll smoothly and wait for the page to settle, and waits for each input to be delivered. Pacing is `normal` by default and ends when the client that set `watchable` disconnects.
+At the paced cadences the proxy between Playwright and Chromium turns `Input.dispatchMouseEvent` into real compositor input (the pointer, a real press, a real wheel; modifiers and back/forward buttons stay on CDP), makes `DOM.scrollIntoViewIfNeeded` scroll smoothly and wait for the page to settle, and waits for each input to be delivered. At `instant` the pointer jumps to each point. At `fast` and `slow` it glides there in `a + b·log2(D/W + 1)` (Fitts's law; `D` the distance, `W` the width of the element under the target point along the movement) and lands at least 4 px inside that element: `fast` uses a = b = 75 ms within 100 to 700 ms, `slow` a = b = 150 ms within 200 to 1400 ms and rests twice as long before a press. The path follows the `motion` of the recording that set the pace (the earliest of equally slow ones); watchable pacing alone is linear. Typing is not paced. Pacing is `normal` by default and ends when the client that set `watchable` disconnects.
 
 ## WebRTC signaling
 

@@ -32,6 +32,7 @@ type cdpProxy struct {
 	upstream       string // Chromium's debugging endpoint, host:port
 	cadence        func() automationCadence
 	timing         func(automationCadence) cadenceTiming // tests pace the cadences faster
+	motion         func() *naturalMotion                 // the natural motion of the pace-setting recording; nil func or result is linear
 	pointer        *cdpPointer                           // nil for sessions without a compositor
 	journal        journalFunc                           // what the proxy does for real, for the recordings that run
 	recording      func() bool                           // whether any recording runs, so the journal's extra page queries are worth it

@@ -45,7 +45,7 @@ Scopes on API tokens: `sessions:read` opens reads and the observing live routes;
 ### Record what the automation does
 
 1. `browser.targets` (MCP) and take a target whose `state` is `ready`.
-2. `recording.start` with that `targetId` and the edit settings; it returns once the first frame is captured.
+2. `recording.start` with that `targetId` and the edit settings; it returns once the first frame is captured. For automation, start with `capture: "bursts"`; use `continuous` only for a human-driven session or when you want `idle`. Pick `pace` and `motion` for the viewer ([choosing](references/recordings.md#choosing-settings)).
 3. Drive the browser. Add `recording.caption` where a viewer needs context. Wrap the actions a viewer should see up close in `recording.focus` (usually `target: {pointer: true}`) … `recording.reset_focus`: focus → act → act → reset → act. To point at something without acting, `focus` → `recording.attention` → `reset_focus`.
 4. `recording.stop`; it returns the recording at once, raw video published, `editing: true` while the edit runs.
 5. Poll `recording.status` until `editing` is false; then `editedRelativePath` and `timelineRelativePath` exist, or `editError` says why not.

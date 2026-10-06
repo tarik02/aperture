@@ -77,10 +77,12 @@ type liveSession struct {
 	recordings     map[string]*wrapperRecording
 	// finalize edits a stopped recording; nil means finalizeRecording. Tests stub it.
 	finalize func(ctx context.Context, recording *wrapperRecording, video *os.File, raw string) (edited, timeline string, failure *recording.EditError)
-	// activeRecordings and presentationRecordings are read by the automation cadence, which must
-	// never wait on the runtime lock.
-	activeRecordings       atomic.Int32
-	presentationRecordings atomic.Int32
+	// activeRecordings, recordingCadence and recordingMotion are read by the automation cadence,
+	// which must never wait on the runtime lock. recordingCadence is the slowest pace of the running
+	// recordings, recordingMotion the natural motion of the recording that set it.
+	activeRecordings atomic.Int32
+	recordingCadence atomic.Int32
+	recordingMotion  atomic.Pointer[naturalMotion]
 	// gate is the slot that serializes browser calls with recording start and stop; see acquireGate.
 	gate chan struct{}
 	// pointer is the compositor pointer automation moves; nil without a compositor.
@@ -206,11 +208,12 @@ type liveSessionClientMessage struct {
 	Enabled               *bool   `json:"enabled"`
 	Pacing                string  `json:"pacing"`
 	// recording.start's edit settings; see recording.Config.
-	Presentation bool             `json:"presentation"`
-	Capture      string           `json:"capture"`
-	Idle         string           `json:"idle"`
-	Ripple       bool             `json:"ripple"`
-	Burst        *recording.Burst `json:"burst"`
+	Capture string            `json:"capture"`
+	Pace    string            `json:"pace"`
+	Motion  *recording.Motion `json:"motion"`
+	Idle    string            `json:"idle"`
+	Ripple  bool              `json:"ripple"`
+	Burst   *recording.Burst  `json:"burst"`
 }
 
 type liveSessionParticipant struct {

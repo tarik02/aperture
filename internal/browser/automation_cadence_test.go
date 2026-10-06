@@ -5,17 +5,20 @@ import "testing"
 func TestResolveAutomationCadence(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		recording, presentation, watchable bool
-		want                               automationCadence
+		recordings automationCadence
+		watchable  bool
+		want       automationCadence
 	}{
-		{false, false, false, cadenceImmediate},
-		{false, false, true, cadenceRecorded},
-		{true, false, false, cadenceRecorded},
-		{true, true, false, cadencePresentation},
-		{true, true, true, cadencePresentation},
+		{cadenceImmediate, false, cadenceImmediate},
+		{cadenceImmediate, true, cadenceFast},
+		{cadenceInstant, false, cadenceInstant},
+		{cadenceInstant, true, cadenceFast},
+		{cadenceFast, false, cadenceFast},
+		{cadenceSlow, false, cadenceSlow},
+		{cadenceSlow, true, cadenceSlow},
 	} {
-		if got := resolveAutomationCadence(tc.recording, tc.presentation, tc.watchable); got != tc.want {
-			t.Errorf("resolve(%v, %v, %v) = %v, want %v", tc.recording, tc.presentation, tc.watchable, got, tc.want)
+		if got := resolveAutomationCadence(tc.recordings, tc.watchable); got != tc.want {
+			t.Errorf("resolve(%v, %v) = %v, want %v", tc.recordings, tc.watchable, got, tc.want)
 		}
 	}
 }
@@ -44,15 +47,15 @@ func TestAutomationPacingCommandIsLimitedToEditorsAndEndsWithTheClient(t *testin
 	if err := set(editor, "watchable"); err != nil {
 		t.Fatal(err)
 	}
-	if got := session.automationCadence(); got != cadenceRecorded {
+	if got := session.automationCadence(); got != cadenceFast {
 		t.Fatalf("cadence after watchable = %v", got)
 	}
 	delete(session.clients, editor.id)
 	if got := session.automationCadence(); got != cadenceImmediate {
 		t.Fatalf("cadence after the editor left = %v", got)
 	}
-	session.activeRecordings.Store(1)
-	if got := session.automationCadence(); got != cadenceRecorded {
+	session.recordingCadence.Store(int32(cadenceFast))
+	if got := session.automationCadence(); got != cadenceFast {
 		t.Fatalf("cadence while recording = %v", got)
 	}
 	if !isLiveSessionCommand("automation.pacing.set") {

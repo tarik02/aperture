@@ -454,7 +454,7 @@ function RecordingMenuItems({
           </TooltipTrigger>
           <TooltipContent side="left">
             {recordingAvailable
-              ? "Continuous capture following your tab switches. Quiet stretches, presentation pace and click highlights use the settings below."
+              ? "Continuous capture following your tab switches. Quiet stretches, pace and click highlights use the settings below."
               : "Connect as an owner or editor to record."}
           </TooltipContent>
         </Tooltip>

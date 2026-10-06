@@ -890,7 +890,7 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_running, recording_invalid_state, recording_codec_unavailable, session_service_unavailable, browser_control_failed]
-      description: Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The edit settings are checked before the session is woken and rejected with `validation_failed` when they contradict each other (`idle` with `capture` `bursts`, `burst` without `capture` `bursts`, `tailMs` above `maxTailMs`), and `capture` `bursts`, `idle` and `ripple` are rejected the same way on an instance without `recording_ffmpeg_executable`; `presentation` alone needs nothing.
+      description: Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The edit settings are checked before the session is woken and rejected with `validation_failed` when they contradict each other (`idle` with `capture` `bursts`, `burst` without `capture` `bursts`, `tailMs` above `maxTailMs`), and `capture` `bursts`, `idle` and `ripple` are rejected the same way on an instance without `recording_ffmpeg_executable`; `pace` and `motion` alone need nothing.
       requestBody: {$ref: '#/components/requestBodies/CreateSessionRecording'}
       responses:
         '201': {description: Started recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
@@ -3047,9 +3047,26 @@ components:
           type: string
           enum: [continuous, bursts]
           description: With `bursts`, the edited video keeps only the stretches around browser tool calls, from `burst.leadMs` before a call to `burst.tailMs` after it, longer until the screen has stood still for `burst.settleMs` but at most `burst.maxTailMs`, and the recording follows the tab the automation acts on. The raw video is always the whole capture. Defaults to `continuous`. Cannot be combined with `idle`. Needs `recording_ffmpeg_executable` on the instance.
-        presentation:
-          type: boolean
-          description: Run browser automation at presentation pace while the recording runs. Needs nothing of the instance.
+        pace:
+          type: string
+          enum: [instant, fast, slow]
+          description: How browser automation acts while the recording runs. `instant` moves the pointer straight to each action; `fast` (default) and `slow` glide it there in a time that grows with the distance and shrinks with the target's size (Fitts's law), `slow` taking twice as long and resting longer before a click. The slowest pace of the running recordings applies. Needs nothing of the instance.
+        motion:
+          description: The pointer's path at pace `fast` or `slow`; ignored at `instant`. `linear` (default) is a straight eased path; `natural` is a curved eased path that now and then overshoots a little and corrects. A natural motion without a seed gets one, reported as the recording's `motionSeed`; the same seed replays the same paths.
+          oneOf:
+            - type: string
+              enum: [linear, natural]
+            - type: object
+              required: [type]
+              additionalProperties: false
+              properties:
+                type:
+                  type: string
+                  enum: [natural]
+                seed:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
         idle:
           type: string
           enum: [cut, speed]
@@ -3059,28 +3076,32 @@ components:
           description: Mark clicks with a ripple in the edited video. Needs `recording_ffmpeg_executable` on the instance.
         burst:
           type: object
-          description: Burst sizes in milliseconds for `capture` `bursts`; rejected without it. Omitted or zero fields take the defaults. `tailMs` must not exceed `maxTailMs` (default 3000).
+          description: Burst sizes in milliseconds for `capture` `bursts`; rejected without it. Omitted or zero fields take the preset's values. `tailMs` must not exceed `maxTailMs`.
           properties:
+            preset:
+              type: string
+              enum: [tight, default, relaxed]
+              description: 'The sizes the fields default to: `tight` (lead 200, tail 400, settle 200, max tail 1500), `default` (500, 800, 400, 3000) or `relaxed` (800, 1200, 600, 4000). Defaults to `default`.'
             leadMs:
               type: integer
               minimum: 0
               maximum: 60000
-              description: Kept before a tool call. Defaults to 500.
+              description: Kept before a tool call. Overrides the preset.
             tailMs:
               type: integer
               minimum: 0
               maximum: 60000
-              description: Kept after a tool call. Defaults to 800.
+              description: Kept after a tool call. Overrides the preset.
             settleMs:
               type: integer
               minimum: 0
               maximum: 60000
-              description: How long the screen must stand still to count as settled. Defaults to 400.
+              description: How long the screen must stand still to count as settled. Overrides the preset.
             maxTailMs:
               type: integer
               minimum: 0
               maximum: 60000
-              description: Longest wait for the screen to settle after a call. Defaults to 3000.
+              description: Longest wait for the screen to settle after a call. Overrides the preset.
     RecordingCaptionInput:
       type: object
       required: [text]
@@ -3182,6 +3203,9 @@ components:
         codec:
           type: string
           enum: [vp8, h264-va]
+        motionSeed:
+          type: integer
+          description: Seed of the recording's natural motion. Start a recording with a `motion` of type `natural` and this `seed` to replay its pointer paths.
         editing:
           type: boolean
           description: Whether the edit a requested stop makes is still running. The raw video is already published; `editedRelativePath`, `timelineRelativePath` and `editError` are filled once this is false.

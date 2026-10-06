@@ -83,7 +83,8 @@ func TestPlanLowersEffectsOntoEditedTime(t *testing.T) {
 		entry("focus", 4500, 5000, map[string]any{"zoom": 2.0, "rect": map[string]any{"x": 10.0, "y": 10.0, "width": 100.0, "height": 40.0}}),
 		entry("call", 13_000, 14_000, nil),
 	})
-	if err := plan.plan(cfg, 30, nil); err != nil {
+	// The second call has no pointer input, so it is kept for the picture it changed.
+	if err := plan.plan(cfg, 30, []span{{11_000, 12_000}}); err != nil {
 		t.Fatal(err)
 	}
 	for _, part := range []string{"select='", "setpts='", "scale=1280:720", "perspective=", "enable='between(t,", "ass=captions.ass"} {
@@ -91,9 +92,9 @@ func TestPlanLowersEffectsOntoEditedTime(t *testing.T) {
 			t.Errorf("filter lacks %s: %s", part, plan.filter)
 		}
 	}
-	// Backslashes and braces cannot start an override tag; whitespace collapses. The caption would
-	// last until 2.1 s, but its piece is cut at 2.0 s, and it must not run on into the next one.
-	if !strings.Contains(string(plan.ass), "Dialogue: 0,0:00:00.10,0:00:02.00,Default,,0,0,0,,a＼b \\{c\\} d") {
+	// Backslashes and braces cannot start an override tag; whitespace collapses. The caption keeps
+	// its piece open until it has been shown for its 2 s, to 2.1 s.
+	if !strings.Contains(string(plan.ass), "Dialogue: 0,0:00:00.10,0:00:02.10,Default,,0,0,0,,a＼b \\{c\\} d") {
 		t.Errorf("ass: %s", plan.ass)
 	}
 	// The timeline reports edited times only for an edit that exists.
@@ -101,7 +102,7 @@ func TestPlanLowersEffectsOntoEditedTime(t *testing.T) {
 		t.Error("an unedited timeline has edited times")
 	}
 	edited := plan.timeline(true)
-	if edited.EditedDurationMS != 4000 || edited.Map[1].EditedStartMS != 2000 || edited.Events[1]["editedStartMs"] != 500.0 {
+	if edited.EditedDurationMS != 4100 || edited.Map[1].EditedStartMS != 2100 || edited.Events[1]["editedStartMs"] != 500.0 {
 		t.Errorf("timeline = %+v", edited)
 	}
 	// Nothing to apply, nothing to render.
