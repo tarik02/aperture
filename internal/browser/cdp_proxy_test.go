@@ -236,9 +236,9 @@ func (h *proxyHarness) timing(cadence automationCadence) cadenceTiming {
 	if h.realTiming.Load() {
 		return cadence.timing()
 	}
-	timing := cadenceTiming{glideSpeed: 1e5, glideMin: 30 * time.Millisecond, glideMax: 60 * time.Millisecond, dwell: 5 * time.Millisecond, hold: 5 * time.Millisecond}
+	timing := cadenceTiming{glideMin: 30 * time.Millisecond, glideMax: 60 * time.Millisecond, dwell: 5 * time.Millisecond, hold: 5 * time.Millisecond}
 	if h.slowGlide.Load() {
-		timing.glideSpeed, timing.glideMin, timing.glideMax = 100, 3*time.Second, 3*time.Second
+		timing.glideMin, timing.glideMax = 3*time.Second, 3*time.Second
 	}
 	return timing
 }
@@ -352,7 +352,7 @@ func TestProxyRelaysCommandsUntouchedAndSwallowsInternalCalls(t *testing.T) {
 
 // Input addressed to an iframe session or an explicitly attached session reaches the page's surface.
 func TestProxyMapsSessionsToTargets(t *testing.T) {
-	h := newProxyHarness(t, cadenceRecorded)
+	h := newProxyHarness(t, cadenceFast)
 	h.send("", "Target.attachToTarget", map[string]any{"targetId": "T1", "flatten": true})
 	if reply := h.read(); !strings.Contains(string(reply.Result), "S3") {
 		t.Fatalf("attach response = %s", reply.Result)
@@ -369,7 +369,7 @@ func TestProxyMapsSessionsToTargets(t *testing.T) {
 }
 
 func TestRealMouseGlidesClicksInOrderInCSSPixels(t *testing.T) {
-	h := newProxyHarness(t, cadenceRecorded)
+	h := newProxyHarness(t, cadenceFast)
 	// Playwright does not await these: they must still run in order.
 	ids := []int64{
 		h.mouse("S1", "mouseMoved", 1100, 50, nil),
@@ -409,7 +409,7 @@ func TestRealMouseGlidesClicksInOrderInCSSPixels(t *testing.T) {
 }
 
 func TestRealMouseWaitsOutDoubleClickWindowForUnrelatedClicks(t *testing.T) {
-	h := newProxyHarness(t, cadenceRecorded)
+	h := newProxyHarness(t, cadenceFast)
 	h.mouse("S1", "mouseMoved", 100, 50, nil)
 	h.mouse("S1", "mousePressed", 100, 50, nil)
 	h.mouse("S1", "mouseReleased", 100, 50, nil)
@@ -432,7 +432,7 @@ func TestRealMouseWaitsOutDoubleClickWindowForUnrelatedClicks(t *testing.T) {
 }
 
 func TestRealMouseKeepsModifiedClicksOnCDP(t *testing.T) {
-	h := newProxyHarness(t, cadenceRecorded)
+	h := newProxyHarness(t, cadenceFast)
 	h.mouse("S1", "mouseMoved", 100, 50, map[string]any{"modifiers": 2})
 	h.mouse("S1", "mousePressed", 100, 50, map[string]any{"modifiers": 2})
 	h.read()
@@ -446,7 +446,7 @@ func TestRealMouseKeepsModifiedClicksOnCDP(t *testing.T) {
 }
 
 func TestRealWheelQuantizesWithCarry(t *testing.T) {
-	h := newProxyHarness(t, cadenceRecorded)
+	h := newProxyHarness(t, cadenceFast)
 	h.mouse("S1", "mouseWheel", 100, 50, map[string]any{"deltaX": 0, "deltaY": 101})
 	h.read()
 	var total float64
@@ -465,7 +465,7 @@ func TestRealWheelQuantizesWithCarry(t *testing.T) {
 // Playwright's drag watch: when Chromium reports that a drag started during the real glide, the
 // glide stops and the real button goes up without coordinates; Playwright drives the drag on CDP.
 func TestInterceptedDragStopsTheGlideAndDropsTheRealButton(t *testing.T) {
-	h := newProxyHarness(t, cadenceRecorded)
+	h := newProxyHarness(t, cadenceFast)
 	h.slowGlide.Store(true)
 	h.send("S1", "Input.setInterceptDrags", map[string]any{"enabled": true})
 	h.read()
@@ -521,7 +521,7 @@ func TestInterceptedDragStopsTheGlideAndDropsTheRealButton(t *testing.T) {
 
 // Without an interception the watched glide is an ordinary one: no synthetic move goes upstream.
 func TestDragWatchWithoutInterceptionGlidesForReal(t *testing.T) {
-	h := newProxyHarness(t, cadenceRecorded)
+	h := newProxyHarness(t, cadenceFast)
 	h.send("S1", "Input.setInterceptDrags", map[string]any{"enabled": true})
 	h.read()
 	h.mouse("S1", "mouseMoved", 100, 50, map[string]any{"button": "none"})
@@ -547,7 +547,7 @@ func TestDragMoveAfterCDPPressIsRelayed(t *testing.T) {
 	h := newProxyHarness(t, cadenceImmediate)
 	h.mouse("S1", "mousePressed", 100, 50, nil)
 	h.read()
-	h.cadence.Store(int32(cadenceRecorded))
+	h.cadence.Store(int32(cadenceFast))
 	h.mouse("S1", "mouseMoved", 140, 50, map[string]any{"buttons": 1})
 	h.mouse("S1", "mouseReleased", 140, 50, nil)
 	h.read()
@@ -561,7 +561,7 @@ func TestDragMoveAfterCDPPressIsRelayed(t *testing.T) {
 }
 
 func TestVanishedClientReleasesHeldButton(t *testing.T) {
-	h := newProxyHarness(t, cadenceRecorded)
+	h := newProxyHarness(t, cadenceFast)
 	h.mouse("S1", "mouseMoved", 100, 50, nil)
 	h.mouse("S1", "mousePressed", 100, 50, nil)
 	h.read()
@@ -584,7 +584,7 @@ func TestRevealScrollIsSmoothedOnlyOutsideImmediateCadence(t *testing.T) {
 	for _, tc := range []struct {
 		cadence automationCadence
 		smooth  bool
-	}{{cadenceImmediate, false}, {cadenceRecorded, true}} {
+	}{{cadenceImmediate, false}, {cadenceFast, true}} {
 		h := newProxyHarness(t, tc.cadence)
 		id := h.send("S2", "DOM.scrollIntoViewIfNeeded", map[string]any{"objectId": "obj1"})
 		if reply := h.read(); reply.ID == nil || *reply.ID != id {
@@ -601,7 +601,7 @@ func TestRevealScrollIsSmoothedOnlyOutsideImmediateCadence(t *testing.T) {
 }
 
 func TestProxyJournalsGesturesWithoutDelayingTheReply(t *testing.T) {
-	h := newProxyHarness(t, cadenceRecorded)
+	h := newProxyHarness(t, cadenceFast)
 	for _, id := range []int64{
 		h.mouse("S1", "mouseMoved", 1300, 50, nil),
 		h.mouse("S1", "mousePressed", 1300, 50, nil),
@@ -632,7 +632,7 @@ func TestProxyJournalsGesturesWithoutDelayingTheReply(t *testing.T) {
 // The cadence can drop to immediate between a real press and its release (an editor leaves, a
 // recording stops): the release must still happen for real, and only then is input relayed again.
 func TestCadenceFlipAfterRealPressStillReleasesForReal(t *testing.T) {
-	h := newProxyHarness(t, cadenceRecorded)
+	h := newProxyHarness(t, cadenceFast)
 	h.mouse("S1", "mouseMoved", 100, 50, nil)
 	h.mouse("S1", "mousePressed", 100, 50, nil)
 	h.read()
@@ -662,7 +662,7 @@ func TestReleaseWithNothingHeldIsRelayed(t *testing.T) {
 	h := newProxyHarness(t, cadenceImmediate)
 	h.mouse("S1", "mousePressed", 100, 50, nil)
 	h.read()
-	h.cadence.Store(int32(cadenceRecorded))
+	h.cadence.Store(int32(cadenceFast))
 	id := h.mouse("S1", "mouseReleased", 100, 50, nil)
 	if reply := h.read(); reply.ID == nil || *reply.ID != id {
 		t.Fatalf("reply %+v", reply)
@@ -676,7 +676,7 @@ func TestReleaseWithNothingHeldIsRelayed(t *testing.T) {
 }
 
 func TestTwoButtonsAreHeldAndReleasedIndividually(t *testing.T) {
-	h := newProxyHarness(t, cadenceRecorded)
+	h := newProxyHarness(t, cadenceFast)
 	h.mouse("S1", "mouseMoved", 100, 50, nil)
 	h.mouse("S1", "mousePressed", 100, 50, nil)
 	h.mouse("S1", "mousePressed", 100, 50, map[string]any{"button": "right"})
@@ -700,7 +700,7 @@ func TestTwoButtonsAreHeldAndReleasedIndividually(t *testing.T) {
 }
 
 func TestRejectedCompositorCommandFailsTheCallAndReleasesHeld(t *testing.T) {
-	h := newProxyHarness(t, cadenceRecorded)
+	h := newProxyHarness(t, cadenceFast)
 	h.mouse("S1", "mouseMoved", 100, 50, nil)
 	h.mouse("S1", "mousePressed", 100, 50, nil)
 	h.read()
@@ -717,7 +717,7 @@ func TestRejectedCompositorCommandFailsTheCallAndReleasesHeld(t *testing.T) {
 }
 
 func TestCancelledGlideIsNotJournaled(t *testing.T) {
-	h := newProxyHarness(t, cadenceRecorded)
+	h := newProxyHarness(t, cadenceFast)
 	h.slowGlide.Store(true)
 	h.mouse("S1", "mouseMoved", 1900, 900, nil)
 	h.weston.waitFor(t, "motion", 3)
@@ -732,7 +732,7 @@ func TestCancelledGlideIsNotJournaled(t *testing.T) {
 // A worker attached through an out-of-process iframe is gone with the page that owned both; so is
 // what the pointer remembered about the page's surface.
 func TestNestedSessionsGoWithTheirPage(t *testing.T) {
-	h := newProxyHarness(t, cadenceRecorded)
+	h := newProxyHarness(t, cadenceFast)
 	h.chrome.event("Target.attachedToTarget", "S2", map[string]any{"sessionId": "S4", "targetInfo": map[string]any{"targetId": "W1", "type": "worker"}})
 	h.read()
 	h.mouse("S4", "mouseMoved", 100, 50, nil)
@@ -759,7 +759,7 @@ func TestNestedSessionsGoWithTheirPage(t *testing.T) {
 // A human and automation move the same pointer: a glide starts where the human left it, and both
 // scroll with the same axis unit.
 func TestHumanAndAutomationShareThePointerPosition(t *testing.T) {
-	h := newProxyHarness(t, cadenceRecorded)
+	h := newProxyHarness(t, cadenceFast)
 	human := newCompositorInputSender(h.compositor, 2000, 1000)
 	human.SetTarget(7, 2000, 1000)
 	if err := human.PointerAbsolute(0.1, 0.2); err != nil {
@@ -791,9 +791,9 @@ func TestHumanAndAutomationShareThePointerPosition(t *testing.T) {
 	}
 }
 
-// The presentation cadence is paced by its own timing table.
-func TestPresentationCadenceRestsLongerBeforePressing(t *testing.T) {
-	h := newProxyHarness(t, cadencePresentation)
+// The slow cadence is paced by its own timing table.
+func TestSlowCadenceRestsLongerBeforePressing(t *testing.T) {
+	h := newProxyHarness(t, cadenceSlow)
 	h.realTiming.Store(true)
 	h.mouse("S1", "mouseMoved", 1100, 500, nil)
 	h.mouse("S1", "mousePressed", 1100, 500, nil)
@@ -810,7 +810,7 @@ func TestPresentationCadenceRestsLongerBeforePressing(t *testing.T) {
 		}
 	}
 	h.weston.mu.Unlock()
-	if dwell := pressed.Sub(arrived); dwell < presentationTiming.dwell-20*time.Millisecond {
-		t.Fatalf("pressed %v after arriving, want the presentation dwell of %v", dwell, presentationTiming.dwell)
+	if dwell := pressed.Sub(arrived); dwell < slowTiming.dwell-20*time.Millisecond {
+		t.Fatalf("pressed %v after arriving, want the slow dwell of %v", dwell, slowTiming.dwell)
 	}
 }

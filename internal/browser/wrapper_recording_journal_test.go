@@ -93,11 +93,11 @@ func TestJournalIsBounded(t *testing.T) {
 }
 
 func TestRecordingWhoseCaptureDiedStopsCountingForTheCadence(t *testing.T) {
-	recording := &wrapperRecording{ID: "r", Status: wrapperRecordingRunning, config: recording.Config{Presentation: true}, cmd: &exec.Cmd{}}
+	recording := &wrapperRecording{ID: "r", Status: wrapperRecordingRunning, config: recording.Config{Pace: recording.PaceSlow}, cmd: &exec.Cmd{}}
 	done := make(chan error, 1)
 	recording.done = done
 	session := newJournalSession(t, recording)
-	if got := session.automationCadence(); got != cadencePresentation {
+	if got := session.automationCadence(); got != cadenceSlow {
 		t.Fatalf("cadence while recording = %v", got)
 	}
 	done <- errors.New("pipeline exited")

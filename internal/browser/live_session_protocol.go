@@ -294,7 +294,7 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 			FPS:         message.FPS,
 			BitrateKbps: message.BitrateKbps,
 			Codec:       message.Codec,
-			Config:      recording.Config{Capture: message.Capture, Idle: message.Idle, Ripple: message.Ripple, Burst: message.Burst, Presentation: message.Presentation},
+			Config:      recording.Config{Capture: message.Capture, Pace: message.Pace, Motion: message.Motion, Idle: message.Idle, Ripple: message.Ripple, Burst: message.Burst},
 		})
 		if err != nil {
 			return liveSessionServerMessage{}, err

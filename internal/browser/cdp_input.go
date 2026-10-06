@@ -30,6 +30,14 @@ type cdpPointerState struct {
 	arrivedAt time.Time
 	lastPress cdpPress
 	held      map[uint32]struct{} // buttons held down for real
+	aim       cdpAim
+}
+
+// cdpAim is where automation last aimed on a surface: the point it was asked for, where it landed
+// instead, and the box under it.
+type cdpAim struct {
+	requested, landed cdpPoint
+	box               cdpRect
 }
 
 // cdpPointer drives the compositor's one real pointer for automation, shared by every proxy connection.
@@ -127,36 +135,40 @@ func easeInOut(t float64) float64 { return t * t * (3 - 2*t) }
 
 func clamp(value, low, high float64) float64 { return math.Max(low, math.Min(high, value)) }
 
-// glide moves the pointer to a point along an eased path of 60 Hz motion events, clamped to the surface.
-func (p *cdpPointer) glide(ctx context.Context, surface cdpSurface, to cdpPoint, timing cadenceTiming) error {
-	_, err := p.glideUnless(ctx, surface, to, timing, nil)
+// glide moves the pointer to a point along eased paths of 60 Hz motion events, clamped to the
+// surface; a timing without glides moves it in one event.
+func (p *cdpPointer) glide(ctx context.Context, surface cdpSurface, to cdpPoint, style glideStyle) error {
+	_, err := p.glideUnless(ctx, surface, to, style, nil)
 	return err
 }
 
 // glideUnless is a glide that stops where it is, and reports so, when stop signals between frames.
-func (p *cdpPointer) glideUnless(ctx context.Context, surface cdpSurface, to cdpPoint, timing cadenceTiming, stop <-chan struct{}) (bool, error) {
-	if surface.width > 0 && surface.height > 0 {
-		to = cdpPoint{clamp(to.x, 0, surface.width-1), clamp(to.y, 0, surface.height-1)}
+func (p *cdpPointer) glideUnless(ctx context.Context, surface cdpSurface, to cdpPoint, style glideStyle, stop <-chan struct{}) (bool, error) {
+	onSurface := func(at cdpPoint) cdpPoint {
+		if surface.width > 0 && surface.height > 0 {
+			return cdpPoint{clamp(at.x, 0, surface.width-1), clamp(at.y, 0, surface.height-1)}
+		}
+		return at
 	}
+	to = onSurface(to)
 	from := p.position(surface)
 	began := time.Now()
 	p.journal.add("target", began, map[string]any{"targetId": surface.targetID})
 	distance := math.Hypot(to.x-from.x, to.y-from.y)
-	if distance >= 2 {
-		duration := time.Duration(distance / timing.glideSpeed * float64(time.Second))
-		duration = min(max(duration, timing.glideMin), timing.glideMax)
-		start := time.Now()
-		for {
-			progress := float64(time.Since(start)) / float64(duration)
-			if progress >= 1 {
-				break
-			}
-			eased := easeInOut(progress)
-			if err := p.compositor.motion(ctx, surface.id, cdpPoint{from.x + (to.x-from.x)*eased, from.y + (to.y-from.y)*eased}); err != nil {
-				return false, err
-			}
-			if stopped, err := sleepUnless(ctx, glideFrameInterval, stop); stopped || err != nil {
-				return stopped, err
+	if distance >= 2 && style.timing.glideMax > 0 {
+		for _, leg := range planGlide(from, to, style) {
+			start := time.Now()
+			for {
+				progress := float64(time.Since(start)) / float64(leg.duration)
+				if progress >= 1 {
+					break
+				}
+				if err := p.compositor.motion(ctx, surface.id, onSurface(leg.at(easeInOut(progress)))); err != nil {
+					return false, err
+				}
+				if stopped, err := sleepUnless(ctx, glideFrameInterval, stop); stopped || err != nil {
+					return stopped, err
+				}
 			}
 		}
 	}
@@ -252,14 +264,14 @@ func (p *cdpPointer) wheel(ctx context.Context, surface cdpSurface, dx, dy float
 
 // circle moves the pointer around a point: it glides to the circle's start, then goes round at an
 // even pace and glides back to the start. It refuses while a button is held, which it would drag.
-func (p *cdpPointer) circle(ctx context.Context, surface cdpSurface, center cdpPoint, radius float64, loops int, duration time.Duration, timing cadenceTiming) error {
+func (p *cdpPointer) circle(ctx context.Context, surface cdpSurface, center cdpPoint, radius float64, loops int, duration time.Duration, style glideStyle) error {
 	at := func(angle float64) cdpPoint {
 		return cdpPoint{clamp(center.x+radius*math.Cos(angle), 0, surface.width-1), clamp(center.y+radius*math.Sin(angle), 0, surface.height-1)}
 	}
 	if len(p.state(surface.id).held) > 0 {
 		return errors.New("a mouse button is held down")
 	}
-	if err := p.glide(ctx, surface, at(0), timing); err != nil {
+	if err := p.glide(ctx, surface, at(0), style); err != nil {
 		return err
 	}
 	for start := time.Now(); time.Since(start) < duration; {
@@ -271,7 +283,7 @@ func (p *cdpPointer) circle(ctx context.Context, surface cdpSurface, center cdpP
 			return err
 		}
 	}
-	return p.glide(ctx, surface, at(0), timing)
+	return p.glide(ctx, surface, at(0), style)
 }
 
 type cdpHeldButton struct {
@@ -377,7 +389,7 @@ func (c *cdpProxyConn) runMouse(raw []byte) {
 	at := cdpPoint{params.X, params.Y}
 	if message.Method == "Input.dispatchDragEvent" {
 		// The drag itself stays CDP; moving the real pointer only shows where it happens.
-		_ = c.proxy.pointer.glide(c.ctx, surface, at, timing)
+		_ = c.proxy.pointer.glide(c.ctx, surface, at, c.glideStyle(timing))
 		c.relayMouse(raw)
 		return
 	}
@@ -400,12 +412,12 @@ func (c *cdpProxyConn) runMouse(raw []byte) {
 	if params.Modifiers != 0 {
 		c.releaseHeld()
 		if params.Type == "mouseMoved" {
-			_ = c.proxy.pointer.glide(c.ctx, surface, at, timing)
+			_ = c.proxy.pointer.glide(c.ctx, surface, at, c.glideStyle(timing))
 		}
 		c.toUp(raw)
 		return
 	}
-	if err := c.deliverMouse(message, params, surface, at, code, timing); err != nil {
+	if err := c.deliverMouse(message, params, rootSession, surface, at, code, timing); err != nil {
 		if errors.Is(err, errRelayMouse) {
 			c.relayMouse(raw)
 			return
@@ -443,7 +455,7 @@ const describeElementExpression = `(()=>{const e=document.elementFromPoint(%v,%v
 const t=(e.getAttribute("aria-label")||e.innerText||e.value||"").trim().replace(/\s+/g," ").slice(0,60);
 return e.tagName.toLowerCase()+(e.id?"#"+e.id:"")+(t?' "'+t+'"':"")})()`
 
-func (c *cdpProxyConn) deliverMouse(message cdpMessage, params cdpInputParams, surface cdpSurface, at cdpPoint, code uint32, timing cadenceTiming) error {
+func (c *cdpProxyConn) deliverMouse(message cdpMessage, params cdpInputParams, rootSession string, surface cdpSurface, at cdpPoint, code uint32, timing cadenceTiming) error {
 	pointer := c.proxy.pointer
 	switch params.Type {
 	case "mouseMoved":
@@ -452,8 +464,13 @@ func (c *cdpProxyConn) deliverMouse(message cdpMessage, params cdpInputParams, s
 			// The press went over CDP, so the drag this move continues stays there.
 			return errRelayMouse
 		}
-		if !holding || held.code != mouseButtonCodes["left"] || !c.interceptingDrags(message.SessionID) {
-			return pointer.glide(c.ctx, surface, at, timing)
+		if !holding {
+			landed, style := c.aim(rootSession, surface, at, timing)
+			return pointer.glide(c.ctx, surface, landed, style)
+		}
+		// A drag goes exactly where it was asked to: its end is not a target to land inside.
+		if held.code != mouseButtonCodes["left"] || !c.interceptingDrags(message.SessionID) {
+			return pointer.glide(c.ctx, surface, at, c.glideStyle(timing))
 		}
 		// Playwright watches for an HTML5 drag: once Chromium reports it took one over, the real
 		// button goes up without coordinates (so no click lands) and Playwright drives the drag over CDP.
@@ -461,7 +478,7 @@ func (c *cdpProxyConn) deliverMouse(message cdpMessage, params cdpInputParams, s
 		case <-c.dragged:
 		default:
 		}
-		intercepted, err := pointer.glideUnless(c.ctx, surface, at, timing, c.dragged)
+		intercepted, err := pointer.glideUnless(c.ctx, surface, at, c.glideStyle(timing), c.dragged)
 		if err != nil {
 			return err
 		}
@@ -480,7 +497,8 @@ func (c *cdpProxyConn) deliverMouse(message cdpMessage, params cdpInputParams, s
 		}
 		return nil
 	case "mousePressed":
-		if err := pointer.glide(c.ctx, surface, at, timing); err != nil {
+		landed, style := c.aim(rootSession, surface, at, timing)
+		if err := pointer.glide(c.ctx, surface, landed, style); err != nil {
 			return err
 		}
 		if err := pointer.press(c.ctx, surface, code, params.ClickCount, timing); err != nil {
@@ -491,7 +509,7 @@ func (c *cdpProxyConn) deliverMouse(message cdpMessage, params cdpInputParams, s
 		c.mu.Unlock()
 		return nil
 	default: // mouseWheel
-		if err := pointer.glide(c.ctx, surface, at, timing); err != nil {
+		if err := pointer.glide(c.ctx, surface, at, c.glideStyle(timing)); err != nil {
 			return err
 		}
 		return pointer.wheel(c.ctx, surface, params.DeltaX, params.DeltaY)

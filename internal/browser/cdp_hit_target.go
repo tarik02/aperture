@@ -107,7 +107,8 @@ func (c *cdpProxyConn) glideToHitTarget(raw []byte) bool {
 			return
 		}
 		if surface, ok := c.proxy.pointer.surface(root.targetID); ok {
-			_ = c.proxy.pointer.glide(c.ctx, surface, point, c.proxy.timing(c.proxy.cadence()))
+			landed, style := c.aim(rootSession, surface, point, c.proxy.timing(c.proxy.cadence()))
+			_ = c.proxy.pointer.glide(c.ctx, surface, landed, style)
 		}
 		c.toUp(raw)
 	}:

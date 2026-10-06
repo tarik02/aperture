@@ -18,13 +18,13 @@ Interactive clients use the `recording.start`, `recording.stop` and `recording.c
 
 **Start body.** `targetId` of a ready top-level target (from `browser.targets` or `browser/status`), with optional `fps`, `bitrateKbps`, `codec` (`vp8` or `h264-va`; the latter is refused where the host lacks VA-API, `422` / `recording_codec_unavailable`), `path` below `recordings/` (ignored for `aps_` and `ape_` callers), the [edit settings](#edit-settings), and over live-session HTTP `mode` (`tab`, or `viewer` with the `clientId` of a connected client, which then follows that client's selected target and stops when the client is gone for five seconds) and an optional `clientId` for a tab recording that should stop with that client. API and MCP start tab recordings only. Several recordings may run at once.
 
-**Recording object.** `recordingId`, `mode`, `targetId`, `captureGeneration`, `status` (`starting`, `running`, `stopped`, `failed`), `relativePath`, `sandboxPath`, `startedAt`, `fps`, `bitrateKbps`, `codec`, `editing`; once over, `stopReason`, `stoppedAt`, `sizeBytes`, and once `editing` is false again, `editedRelativePath`, `timelineRelativePath` or `editError {code, message}`. Host paths never appear. A failed recording keeps what it captured as `…-failed` files, and `relativePath` points at the first.
+**Recording object.** `recordingId`, `mode`, `targetId`, `captureGeneration`, `status` (`starting`, `running`, `stopped`, `failed`), `relativePath`, `sandboxPath`, `startedAt`, `fps`, `bitrateKbps`, `codec`, `editing`, `motionSeed` for a natural motion; once over, `stopReason`, `stoppedAt`, `sizeBytes`, and once `editing` is false again, `editedRelativePath`, `timelineRelativePath` or `editError {code, message}`. Host paths never appear. A failed recording keeps what it captured as `…-failed` files, and `relativePath` points at the first.
 
 **Targets.** `targetId` is an opaque Aperture target id; it survives navigation and ends when the page closes. Retargeting keeps the recording, its path, timeline and settings, records the old target until the new one is ready, is idempotent for the current target, and is refused for viewer, stopped and failed recordings.
 
 ## Gate and journal
 
-Browser automation calls, recording start and stop, and `attention` share one gate: a start waits for a running browser call and returns only after the capture's first frame, so nothing happens before frame 0; a stop leaves the gate before the render begins. While a recording runs, automation goes at the recorded or presentation [cadence](live-session.md#automation-pacing) and is journaled: pointer glides, presses and wheel input, smooth reveal scrolls, a span for every browser tool whose `readOnlyHint` is not true, and the explicit annotations.
+Browser automation calls, recording start and stop, and `attention` share one gate: a start waits for a running browser call and returns only after the capture's first frame, so nothing happens before frame 0; a stop leaves the gate before the render begins. While a recording runs, automation goes at the recording's [pace](live-session.md#automation-pacing) and is journaled: pointer glides, presses and wheel input, smooth reveal scrolls, a span for every browser tool whose `readOnlyHint` is not true, and the explicit annotations.
 
 ### Annotations
 
@@ -47,12 +47,28 @@ On every start surface:
 | Setting | Values | Effect |
 |---|---|---|
 | `capture` | `continuous` (default), `bursts` | `bursts` keeps only the stretches around non-read-only browser tool calls and follows the tab the automation acts on |
-| `burst` | `{leadMs, tailMs, settleMs, maxTailMs}`, each 0 to 60000, 0 meaning the default | a stretch runs from `leadMs` (500) before the call to `tailMs` (800) after it, extended until the screen has stood still for `settleMs` (400) but never past `maxTailMs` (3000); `tailMs` may not exceed `maxTailMs`; overlapping stretches merge; focus and attention windows are kept too; only with `bursts` |
+| `burst` | `{preset, leadMs, tailMs, settleMs, maxTailMs}`; `preset` is `tight`, `default` (default) or `relaxed`, each size 0 to 60000, 0 meaning the preset's | a stretch runs from `leadMs` before the call to `tailMs` after it, extended until the screen has stood still for `settleMs` but never past `maxTailMs`; `tailMs` may not exceed `maxTailMs`; overlapping stretches merge; focus and attention windows are kept too; only with `bursts` |
 | `idle` | `cut`, `speed` | removes, or plays at ×8, the stretches of a continuous recording where neither the screen nor the automation changes (a little padding stays); not with `bursts` |
 | `ripple` | bool | draws a ripple on every click |
-| `presentation` | bool | runs automation at presentation cadence while recording |
+| `pace` | `instant`, `fast` (default), `slow` | how automation moves while recording, see [automation pacing](live-session.md#automation-pacing) |
+| `motion` | `linear` (default), `natural`, `{type: "natural", seed}` | the pointer's path at `fast` and `slow`: straight, or curved with an occasional small overshoot and correction; a natural motion without a seed gets one, reported as `motionSeed`, and the same seed replays the same paths; ignored at `instant` |
+
+Burst presets, in ms:
+
+| `preset` | `leadMs` | `tailMs` | `settleMs` | `maxTailMs` |
+|---|---|---|---|---|
+| `tight` | 200 | 400 | 200 | 1500 |
+| `default` | 500 | 800 | 400 | 3000 |
+| `relaxed` | 800 | 1200 | 600 | 4000 |
 
 Contradictory settings are refused at start (`validation_failed` over the API, `400` from the session). Idle detection counts only changes at 5 fps or more as activity, so a slow spinner is idle.
+
+### Choosing settings
+
+- `capture`: `bursts` for anything automation drives; it drops the time between tool calls. `continuous` for a human-driven session, or when the waiting matters and `idle` should shorten it instead. Leaving `capture` out means `continuous`, so name `bursts` explicitly.
+- `burst.preset`: `default` suits most pages. `tight` for brisk clips of instant UI. `relaxed` when pages keep animating, loading or navigating after an action and the result would be cut off.
+- `pace`: `fast` for most recordings. `slow` for demos and tutorials a viewer should follow step by step. `instant` when only the outcome matters and pointer travel is noise; it still records real clicks.
+- `motion`: `natural` when the video should look hand-driven; `linear` for a technical, even look. Reuse a reported `motionSeed` to record the same flow again with the same paths.
 
 ## What a stop produces
 
@@ -64,4 +80,4 @@ The timeline holds `segments`, the `map` from raw to edited time when a video wa
 
 `editError.code` is one of `ffmpeg_unavailable`, `open_failed`, `nothing_kept` (a bursts recording with no call to keep), `analysis_failed`, `plan_failed`, `render_failed`, `timeout`, `cancelled` or `timeline_failed`. The raw video is there whatever the code.
 
-Edits need `recording_ffmpeg_executable` on the instance (the Nix image sets it). Without it, `capture: bursts`, `idle` and `ripple` are refused at start; `presentation` alone still works, since it only paces.
+Edits need `recording_ffmpeg_executable` on the instance (the Nix image sets it). Without it, `capture: bursts`, `idle` and `ripple` are refused at start; `pace` and `motion` alone still work, since they only steer the automation.

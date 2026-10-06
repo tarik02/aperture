@@ -64,6 +64,7 @@ type wrapperRecording struct {
 	segments          []*recordingSegment
 	journal           *recordingJournal
 	config            recording.Config
+	motion            *naturalMotion // the recording's natural motion, nil for linear paths
 	// Editing says the stop's edit is still running; the raw video is already published. The edit
 	// fields are filled when it ends.
 	Editing      bool
@@ -349,6 +350,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (rec
 		segments:          []*recordingSegment{newRecordingSegment(segmentPath, target)},
 		journal:           newRecordingJournal(segmentDir),
 		config:            request.Config,
+		motion:            newRecordingMotion(request.Motion),
 		viewport:          target.Viewport,
 		clientID:          request.ClientID,
 		operationMu:       &sync.Mutex{},
@@ -1146,17 +1148,25 @@ func (session *liveSession) listRecordingsLocked() []recordingStatus {
 // setRecordingStatusLocked changes a recording's status and refreshes the count the cadence reads without locks.
 func (session *liveSession) setRecordingStatusLocked(recording *wrapperRecording, status wrapperRecordingStatus) {
 	recording.Status = status
-	var active, presentation int32
+	var active int32
+	cadence := cadenceImmediate
+	var pacer *wrapperRecording
 	for _, other := range session.recordings {
 		if (other.Status == wrapperRecordingStarting || other.Status == wrapperRecordingRunning) && !other.stopping {
 			active++
-			if other.config.Presentation {
-				presentation++
+			// Of recordings at the same pace the earliest sets the motion, so another start does not change the paths.
+			if pace := paceCadence(other.config.Pace); pacer == nil || pace > cadence || (pace == cadence && other.StartedAt.Before(pacer.StartedAt)) {
+				cadence, pacer = pace, other
 			}
 		}
 	}
 	session.activeRecordings.Store(active)
-	session.presentationRecordings.Store(presentation)
+	session.recordingCadence.Store(int32(cadence))
+	if pacer != nil {
+		session.recordingMotion.Store(pacer.motion)
+	} else {
+		session.recordingMotion.Store(nil)
+	}
 }
 
 // refreshRecordings notices capture pipelines that have exited, which stops their recordings

@@ -1,15 +1,21 @@
 package browser
 
-import "time"
+import (
+	"time"
 
-// automationCadence is how visibly browser automation acts: immediate keeps raw
-// CDP behavior, recorded and presentation replace it with real, followable input.
+	"github.com/aperture/aperture/internal/recording"
+)
+
+// automationCadence is how visibly browser automation acts: immediate keeps raw CDP behavior; the
+// paced cadences replace it with real compositor input, the pointer jumping (instant) or
+// travelling in Fitts's-law time (fast, slow). They are ordered, so the slowest one asked for wins.
 type automationCadence int
 
 const (
 	cadenceImmediate automationCadence = iota
-	cadenceRecorded
-	cadencePresentation
+	cadenceInstant
+	cadenceFast
+	cadenceSlow
 )
 
 const (
@@ -17,19 +23,29 @@ const (
 	automationPacingWatchable = "watchable"
 )
 
-// cadenceTiming holds the pacing of one non-immediate cadence.
+// cadenceTiming holds the pacing of one paced cadence. Pointer travel to a target of width W at
+// distance D takes fittsA + fittsB * log2(D/W + 1), clamped to glideMin..glideMax; a zero glideMax
+// means the pointer jumps.
 type cadenceTiming struct {
-	glideSpeed float64       // pointer travel in surface px per second
-	glideMin   time.Duration // shortest glide that still gets eased frames
-	glideMax   time.Duration
-	dwell      time.Duration // pointer rest between arriving and pressing
-	hold       time.Duration // button held down before release
+	fittsA   time.Duration // reaction and settle time every movement pays
+	fittsB   time.Duration // time per bit of difficulty
+	glideMin time.Duration // shortest glide that still gets eased frames
+	glideMax time.Duration
+	dwell    time.Duration // pointer rest between arriving and pressing
+	hold     time.Duration // button held down before release
 }
 
 // Every automation timing lives here so it can be tuned in one place.
+//
+// The Fitts constants sit at the slow end of measured human mouse pointing (a ≈ 0.1-0.2 s,
+// b ≈ 0.1-0.2 s/bit), so a viewer can follow the pointer: slow takes ~0.3 s for an easy hop
+// (ID 1) and ~0.85 s across a 1000 px page to a 40 px button (ID ≈ 4.7). Fast is half of slow
+// throughout, which matches the 1200 px/s glide that recordings used before. The bounds keep a tiny
+// nudge visible and a far jump from dragging on.
 var (
-	recordedTiming     = cadenceTiming{glideSpeed: 1200, glideMin: 120 * time.Millisecond, glideMax: 1200 * time.Millisecond, dwell: 60 * time.Millisecond, hold: 45 * time.Millisecond}
-	presentationTiming = cadenceTiming{glideSpeed: 800, glideMin: 150 * time.Millisecond, glideMax: 1500 * time.Millisecond, dwell: 150 * time.Millisecond, hold: 45 * time.Millisecond}
+	instantTiming = cadenceTiming{dwell: 0, hold: 30 * time.Millisecond}
+	fastTiming    = cadenceTiming{fittsA: 75 * time.Millisecond, fittsB: 75 * time.Millisecond, glideMin: 100 * time.Millisecond, glideMax: 700 * time.Millisecond, dwell: 75 * time.Millisecond, hold: 45 * time.Millisecond}
+	slowTiming    = cadenceTiming{fittsA: 150 * time.Millisecond, fittsB: 150 * time.Millisecond, glideMin: 200 * time.Millisecond, glideMax: 1400 * time.Millisecond, dwell: 150 * time.Millisecond, hold: 45 * time.Millisecond}
 )
 
 const (
@@ -56,23 +72,35 @@ const (
 )
 
 func (c automationCadence) timing() cadenceTiming {
-	if c == cadencePresentation {
-		return presentationTiming
+	switch c {
+	case cadenceInstant:
+		return instantTiming
+	case cadenceSlow:
+		return slowTiming
+	default:
+		return fastTiming
 	}
-	return recordedTiming
 }
 
-// resolveAutomationCadence is the whole cadence rule: a presentation recording wins, then any
-// recording or watchable editor, otherwise automation runs at full speed.
-func resolveAutomationCadence(recording, presentation, watchable bool) automationCadence {
-	switch {
-	case presentation:
-		return cadencePresentation
-	case recording || watchable:
-		return cadenceRecorded
+// paceCadence is the cadence a recording's pace asks for.
+func paceCadence(pace string) automationCadence {
+	switch pace {
+	case recording.PaceInstant:
+		return cadenceInstant
+	case recording.PaceSlow:
+		return cadenceSlow
 	default:
-		return cadenceImmediate
+		return cadenceFast
 	}
+}
+
+// resolveAutomationCadence is the whole cadence rule: the slowest pace of the running recordings,
+// at least fast while a connected client watches, otherwise automation runs at full speed.
+func resolveAutomationCadence(recordings automationCadence, watchable bool) automationCadence {
+	if watchable {
+		return max(recordings, cadenceFast)
+	}
+	return recordings
 }
 
 // hasWatchableClient reports whether a connected client asked for automation it can follow; only
@@ -90,5 +118,10 @@ func (session *liveSession) hasWatchableClient() bool {
 
 // automationCadence is evaluated for every intercepted command, so it takes no runtime lock.
 func (session *liveSession) automationCadence() automationCadence {
-	return resolveAutomationCadence(session.activeRecordings.Load() > 0, session.presentationRecordings.Load() > 0, session.hasWatchableClient())
+	return resolveAutomationCadence(automationCadence(session.recordingCadence.Load()), session.hasWatchableClient())
+}
+
+// automationMotion is the natural motion of the recording that sets the pace, nil for linear paths.
+func (session *liveSession) automationMotion() *naturalMotion {
+	return session.recordingMotion.Load()
 }

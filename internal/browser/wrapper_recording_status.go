@@ -24,6 +24,7 @@ type recordingStatus struct {
 	FPS               int                    `json:"fps"`
 	BitrateKbps       int                    `json:"bitrateKbps"`
 	Codec             string                 `json:"codec"`
+	MotionSeed        *int64                 `json:"motionSeed,omitempty"`
 	Editing           bool                   `json:"editing"`
 	EditedPath        string                 `json:"-"`
 	TimelinePath      string                 `json:"-"`
@@ -33,11 +34,15 @@ type recordingStatus struct {
 
 // statusLocked reads only fields protected by the runtime lock.
 func (rec *wrapperRecording) statusLocked() recordingStatus {
+	var motionSeed *int64
+	if rec.config.Motion != nil {
+		motionSeed = rec.config.Motion.Seed
+	}
 	return recordingStatus{
 		ID: rec.ID, Mode: rec.Mode, TargetID: rec.TargetID,
 		CaptureGeneration: rec.CaptureGeneration, Status: rec.Status, StopReason: rec.StopReason,
 		Path: rec.Path, filesRoot: rec.filesRoot, StartedAt: rec.StartedAt, StoppedAt: rec.StoppedAt,
-		SizeBytes: rec.SizeBytes, FPS: rec.FPS, BitrateKbps: rec.BitrateKbps, Codec: rec.Codec,
+		SizeBytes: rec.SizeBytes, FPS: rec.FPS, BitrateKbps: rec.BitrateKbps, Codec: rec.Codec, MotionSeed: motionSeed,
 		Editing: rec.Editing, EditedPath: rec.EditedPath, TimelinePath: rec.TimelinePath, EditError: rec.EditError,
 	}
 }
