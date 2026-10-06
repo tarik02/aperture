@@ -47,6 +47,7 @@ func (r *wrapperRuntime) startAutomationBackend(ctx context.Context, liveSession
 		liveSession.pointer = pointer
 	}
 	proxy := newCDPProxy(net.JoinHostPort("127.0.0.1", strconv.Itoa(r.values.CDPPort)), liveSession.automationCadence, pointer, liveSession.journal, func() bool { return liveSession.activeRecordings.Load() > 0 })
+	proxy.motion = liveSession.automationMotion
 	proxy.following = liveSession.followsAutomation
 	proxy.prepareTarget = liveSession.prepareRecordingTarget
 	proxy.navigateTarget = liveSession.browser.navigate

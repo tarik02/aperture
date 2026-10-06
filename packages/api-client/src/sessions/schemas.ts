@@ -10,7 +10,8 @@ const emptyArray = Effect.succeed([]);
 
 export const RecordingSettings = Schema.Struct({
   capture: Api.CreateSessionRecordingInput.fields.capture,
-  presentation: Api.CreateSessionRecordingInput.fields.presentation,
+  pace: Api.CreateSessionRecordingInput.fields.pace,
+  motion: Api.CreateSessionRecordingInput.fields.motion,
   idle: Api.CreateSessionRecordingInput.fields.idle,
   ripple: Api.CreateSessionRecordingInput.fields.ripple,
   burst: Api.CreateSessionRecordingInput.fields.burst,

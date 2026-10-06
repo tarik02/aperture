@@ -186,7 +186,7 @@ func (session *liveSession) annotateAttention(ctx context.Context, targetID stri
 	defer session.releaseAutomation(automation)
 	center := cdpPoint{rect.X + rect.Width/2, rect.Y + rect.Height/2}
 	started := time.Now()
-	if err := session.pointer.circle(ctx, surface, center, request.radius, request.loops, time.Duration(request.durationMS)*time.Millisecond, session.automationCadence().timing()); err != nil {
+	if err := session.pointer.circle(ctx, surface, center, request.radius, request.loops, time.Duration(request.durationMS)*time.Millisecond, glideStyle{timing: max(session.automationCadence(), cadenceFast).timing(), motion: session.automationMotion()}); err != nil {
 		return time.Time{}, nil, err
 	}
 	return started, map[string]any{"targetId": targetID, "x": center.x, "y": center.y, "radius": request.radius, "loops": request.loops}, nil

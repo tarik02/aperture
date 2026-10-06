@@ -105,6 +105,27 @@ func (e CreateAdminTokenInput1AuthorityType) Valid() bool {
 	}
 }
 
+// Defines values for CreateSessionRecordingInputBurstPreset.
+const (
+	Default CreateSessionRecordingInputBurstPreset = "default"
+	Relaxed CreateSessionRecordingInputBurstPreset = "relaxed"
+	Tight   CreateSessionRecordingInputBurstPreset = "tight"
+)
+
+// Valid indicates whether the value is a known member of the CreateSessionRecordingInputBurstPreset enum.
+func (e CreateSessionRecordingInputBurstPreset) Valid() bool {
+	switch e {
+	case Default:
+		return true
+	case Relaxed:
+		return true
+	case Tight:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateSessionRecordingInputCapture.
 const (
 	Bursts     CreateSessionRecordingInputCapture = "bursts"
@@ -153,6 +174,60 @@ func (e CreateSessionRecordingInputIdle) Valid() bool {
 	case Cut:
 		return true
 	case Speed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateSessionRecordingInputMotion0.
+const (
+	CreateSessionRecordingInputMotion0Linear  CreateSessionRecordingInputMotion0 = "linear"
+	CreateSessionRecordingInputMotion0Natural CreateSessionRecordingInputMotion0 = "natural"
+)
+
+// Valid indicates whether the value is a known member of the CreateSessionRecordingInputMotion0 enum.
+func (e CreateSessionRecordingInputMotion0) Valid() bool {
+	switch e {
+	case CreateSessionRecordingInputMotion0Linear:
+		return true
+	case CreateSessionRecordingInputMotion0Natural:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateSessionRecordingInputMotion1Type.
+const (
+	CreateSessionRecordingInputMotion1TypeNatural CreateSessionRecordingInputMotion1Type = "natural"
+)
+
+// Valid indicates whether the value is a known member of the CreateSessionRecordingInputMotion1Type enum.
+func (e CreateSessionRecordingInputMotion1Type) Valid() bool {
+	switch e {
+	case CreateSessionRecordingInputMotion1TypeNatural:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateSessionRecordingInputPace.
+const (
+	Fast    CreateSessionRecordingInputPace = "fast"
+	Instant CreateSessionRecordingInputPace = "instant"
+	Slow    CreateSessionRecordingInputPace = "slow"
+)
+
+// Valid indicates whether the value is a known member of the CreateSessionRecordingInputPace enum.
+func (e CreateSessionRecordingInputPace) Valid() bool {
+	switch e {
+	case Fast:
+		return true
+	case Instant:
+		return true
+	case Slow:
 		return true
 	default:
 		return false
@@ -1321,18 +1396,21 @@ type CreateSessionRecordingInput struct {
 	// BitrateKbps Requested video bitrate in kilobits per second. Omit or use a non-positive value for the instance default.
 	BitrateKbps *int `json:"bitrateKbps,omitempty"`
 
-	// Burst Burst sizes in milliseconds for `capture` `bursts`; rejected without it. Omitted or zero fields take the defaults. `tailMs` must not exceed `maxTailMs` (default 3000).
+	// Burst Burst sizes in milliseconds for `capture` `bursts`; rejected without it. Omitted or zero fields take the preset's values. `tailMs` must not exceed `maxTailMs`.
 	Burst *struct {
-		// LeadMs Kept before a tool call. Defaults to 500.
+		// LeadMs Kept before a tool call. Overrides the preset.
 		LeadMs *int `json:"leadMs,omitempty"`
 
-		// MaxTailMs Longest wait for the screen to settle after a call. Defaults to 3000.
+		// MaxTailMs Longest wait for the screen to settle after a call. Overrides the preset.
 		MaxTailMs *int `json:"maxTailMs,omitempty"`
 
-		// SettleMs How long the screen must stand still to count as settled. Defaults to 400.
+		// Preset The sizes the fields default to: `tight` (lead 200, tail 400, settle 200, max tail 1500), `default` (500, 800, 400, 3000) or `relaxed` (800, 1200, 600, 4000). Defaults to `default`.
+		Preset *CreateSessionRecordingInputBurstPreset `json:"preset,omitempty"`
+
+		// SettleMs How long the screen must stand still to count as settled. Overrides the preset.
 		SettleMs *int `json:"settleMs,omitempty"`
 
-		// TailMs Kept after a tool call. Defaults to 800.
+		// TailMs Kept after a tool call. Overrides the preset.
 		TailMs *int `json:"tailMs,omitempty"`
 	} `json:"burst,omitempty"`
 
@@ -1348,8 +1426,11 @@ type CreateSessionRecordingInput struct {
 	// Idle Remove (`cut`) or fast-forward (`speed`) the stretches of a continuous recording in which neither the picture nor the automation changes, in the edited video. Needs `recording_ffmpeg_executable` on the instance.
 	Idle *CreateSessionRecordingInputIdle `json:"idle,omitempty"`
 
-	// Presentation Run browser automation at presentation pace while the recording runs. Needs nothing of the instance.
-	Presentation *bool `json:"presentation,omitempty"`
+	// Motion The pointer's path at pace `fast` or `slow`; ignored at `instant`. `linear` (default) is a straight eased path; `natural` is a curved eased path that now and then overshoots a little and corrects. A natural motion without a seed gets one, reported as the recording's `motionSeed`; the same seed replays the same paths.
+	Motion *CreateSessionRecordingInput_Motion `json:"motion,omitempty"`
+
+	// Pace How browser automation acts while the recording runs. `instant` moves the pointer straight to each action; `fast` (default) and `slow` glide it there in a time that grows with the distance and shrinks with the target's size (Fitts's law), `slow` taking twice as long and resting longer before a click. The slowest pace of the running recordings applies. Needs nothing of the instance.
+	Pace *CreateSessionRecordingInputPace `json:"pace,omitempty"`
 
 	// Ripple Mark clicks with a ripple in the edited video. Needs `recording_ffmpeg_executable` on the instance.
 	Ripple *bool `json:"ripple,omitempty"`
@@ -1357,6 +1438,9 @@ type CreateSessionRecordingInput struct {
 	// TargetId Identifier of the ready top-level target to record.
 	TargetId string `json:"targetId"`
 }
+
+// CreateSessionRecordingInputBurstPreset The sizes the fields default to: `tight` (lead 200, tail 400, settle 200, max tail 1500), `default` (500, 800, 400, 3000) or `relaxed` (800, 1200, 600, 4000). Defaults to `default`.
+type CreateSessionRecordingInputBurstPreset string
 
 // CreateSessionRecordingInputCapture With `bursts`, the edited video keeps only the stretches around browser tool calls, from `burst.leadMs` before a call to `burst.tailMs` after it, longer until the screen has stood still for `burst.settleMs` but at most `burst.maxTailMs`, and the recording follows the tab the automation acts on. The raw video is always the whole capture. Defaults to `continuous`. Cannot be combined with `idle`. Needs `recording_ffmpeg_executable` on the instance.
 type CreateSessionRecordingInputCapture string
@@ -1366,6 +1450,26 @@ type CreateSessionRecordingInputCodec string
 
 // CreateSessionRecordingInputIdle Remove (`cut`) or fast-forward (`speed`) the stretches of a continuous recording in which neither the picture nor the automation changes, in the edited video. Needs `recording_ffmpeg_executable` on the instance.
 type CreateSessionRecordingInputIdle string
+
+// CreateSessionRecordingInputMotion0 defines model for CreateSessionRecordingInput.Motion.0.
+type CreateSessionRecordingInputMotion0 string
+
+// CreateSessionRecordingInputMotion1 defines model for CreateSessionRecordingInput.Motion.1.
+type CreateSessionRecordingInputMotion1 struct {
+	Seed *int                                   `json:"seed,omitempty"`
+	Type CreateSessionRecordingInputMotion1Type `json:"type"`
+}
+
+// CreateSessionRecordingInputMotion1Type defines model for CreateSessionRecordingInput.Motion.1.Type.
+type CreateSessionRecordingInputMotion1Type string
+
+// CreateSessionRecordingInput_Motion The pointer's path at pace `fast` or `slow`; ignored at `instant`. `linear` (default) is a straight eased path; `natural` is a curved eased path that now and then overshoots a little and corrects. A natural motion without a seed gets one, reported as the recording's `motionSeed`; the same seed replays the same paths.
+type CreateSessionRecordingInput_Motion struct {
+	union json.RawMessage
+}
+
+// CreateSessionRecordingInputPace How browser automation acts while the recording runs. `instant` moves the pointer straight to each action; `fast` (default) and `slow` glide it there in a time that grows with the distance and shrinks with the target's size (Fitts's law), `slow` taking twice as long and resting longer before a click. The slowest pace of the running recordings applies. Needs nothing of the instance.
+type CreateSessionRecordingInputPace string
 
 // CreateSessionResult Newly created session and its one-time initial access credentials.
 type CreateSessionResult struct {
@@ -1930,6 +2034,9 @@ type Recording struct {
 
 	// Mode Tab recordings stay on their specified top-level target; viewer recordings follow a live session client's selected top-level target and cannot be explicitly retargeted.
 	Mode RecordingMode `json:"mode"`
+
+	// MotionSeed Seed of the recording's natural motion. Start a recording with a `motion` of type `natural` and this `seed` to replay its pointer paths.
+	MotionSeed *int `json:"motionSeed,omitempty"`
 
 	// RecordingId Stable recording identifier retained across target changes.
 	RecordingId openapi_types.UUID `json:"recordingId"`
@@ -3266,6 +3373,68 @@ func (t *CreateAdminTokenInput) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+// AsCreateSessionRecordingInputMotion0 returns the union data inside the CreateSessionRecordingInput_Motion as a CreateSessionRecordingInputMotion0
+func (t CreateSessionRecordingInput_Motion) AsCreateSessionRecordingInputMotion0() (CreateSessionRecordingInputMotion0, error) {
+	var body CreateSessionRecordingInputMotion0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCreateSessionRecordingInputMotion0 overwrites any union data inside the CreateSessionRecordingInput_Motion as the provided CreateSessionRecordingInputMotion0
+func (t *CreateSessionRecordingInput_Motion) FromCreateSessionRecordingInputMotion0(v CreateSessionRecordingInputMotion0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCreateSessionRecordingInputMotion0 performs a merge with any union data inside the CreateSessionRecordingInput_Motion, using the provided CreateSessionRecordingInputMotion0
+func (t *CreateSessionRecordingInput_Motion) MergeCreateSessionRecordingInputMotion0(v CreateSessionRecordingInputMotion0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsCreateSessionRecordingInputMotion1 returns the union data inside the CreateSessionRecordingInput_Motion as a CreateSessionRecordingInputMotion1
+func (t CreateSessionRecordingInput_Motion) AsCreateSessionRecordingInputMotion1() (CreateSessionRecordingInputMotion1, error) {
+	var body CreateSessionRecordingInputMotion1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCreateSessionRecordingInputMotion1 overwrites any union data inside the CreateSessionRecordingInput_Motion as the provided CreateSessionRecordingInputMotion1
+func (t *CreateSessionRecordingInput_Motion) FromCreateSessionRecordingInputMotion1(v CreateSessionRecordingInputMotion1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCreateSessionRecordingInputMotion1 performs a merge with any union data inside the CreateSessionRecordingInput_Motion, using the provided CreateSessionRecordingInputMotion1
+func (t *CreateSessionRecordingInput_Motion) MergeCreateSessionRecordingInputMotion1(v CreateSessionRecordingInputMotion1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t CreateSessionRecordingInput_Motion) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *CreateSessionRecordingInput_Motion) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // AsExportSessionStorageStateInputOrigins0 returns the union data inside the ExportSessionStorageStateInput_Origins as a ExportSessionStorageStateInputOrigins0
 func (t ExportSessionStorageStateInput_Origins) AsExportSessionStorageStateInputOrigins0() (ExportSessionStorageStateInputOrigins0, error) {
 	var body ExportSessionStorageStateInputOrigins0
@@ -3984,7 +4153,7 @@ type ClientInterface interface {
 
 	// CreateSessionRecordingWithBody Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The edit settings are checked before the session is woken and rejected with `validation_failed` when they contradict each other (`idle` with `capture` `bursts`, `burst` without `capture` `bursts`, `tailMs` above `maxTailMs`), and `capture` `bursts`, `idle` and `ripple` are rejected the same way on an instance without `recording_ffmpeg_executable`; `presentation` alone needs nothing.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The edit settings are checked before the session is woken and rejected with `validation_failed` when they contradict each other (`idle` with `capture` `bursts`, `burst` without `capture` `bursts`, `tailMs` above `maxTailMs`), and `capture` `bursts`, `idle` and `ripple` are rejected the same way on an instance without `recording_ffmpeg_executable`; `pace` and `motion` alone need nothing.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -3993,7 +4162,7 @@ type ClientInterface interface {
 
 	// CreateSessionRecording Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The edit settings are checked before the session is woken and rejected with `validation_failed` when they contradict each other (`idle` with `capture` `bursts`, `burst` without `capture` `bursts`, `tailMs` above `maxTailMs`), and `capture` `bursts`, `idle` and `ripple` are rejected the same way on an instance without `recording_ffmpeg_executable`; `presentation` alone needs nothing.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The edit settings are checked before the session is woken and rejected with `validation_failed` when they contradict each other (`idle` with `capture` `bursts`, `burst` without `capture` `bursts`, `tailMs` above `maxTailMs`), and `capture` `bursts`, `idle` and `ripple` are rejected the same way on an instance without `recording_ffmpeg_executable`; `pace` and `motion` alone need nothing.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -5282,7 +5451,7 @@ func (c *Client) ListSessionRecordings(ctx context.Context, sessionId SessionId,
 
 // CreateSessionRecordingWithBody Start a session recording
 //
-// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The edit settings are checked before the session is woken and rejected with `validation_failed` when they contradict each other (`idle` with `capture` `bursts`, `burst` without `capture` `bursts`, `tailMs` above `maxTailMs`), and `capture` `bursts`, `idle` and `ripple` are rejected the same way on an instance without `recording_ffmpeg_executable`; `presentation` alone needs nothing.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The edit settings are checked before the session is woken and rejected with `validation_failed` when they contradict each other (`idle` with `capture` `bursts`, `burst` without `capture` `bursts`, `tailMs` above `maxTailMs`), and `capture` `bursts`, `idle` and `ripple` are rejected the same way on an instance without `recording_ffmpeg_executable`; `pace` and `motion` alone need nothing.
 //
 // Takes any type of body and a specified content type.
 //
@@ -5301,7 +5470,7 @@ func (c *Client) CreateSessionRecordingWithBody(ctx context.Context, sessionId S
 
 // CreateSessionRecording Start a session recording
 //
-// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The edit settings are checked before the session is woken and rejected with `validation_failed` when they contradict each other (`idle` with `capture` `bursts`, `burst` without `capture` `bursts`, `tailMs` above `maxTailMs`), and `capture` `bursts`, `idle` and `ripple` are rejected the same way on an instance without `recording_ffmpeg_executable`; `presentation` alone needs nothing.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The edit settings are checked before the session is woken and rejected with `validation_failed` when they contradict each other (`idle` with `capture` `bursts`, `burst` without `capture` `bursts`, `tailMs` above `maxTailMs`), and `capture` `bursts`, `idle` and `ripple` are rejected the same way on an instance without `recording_ffmpeg_executable`; `pace` and `motion` alone need nothing.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -10382,7 +10551,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateSessionRecordingWithBodyWithResponse Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The edit settings are checked before the session is woken and rejected with `validation_failed` when they contradict each other (`idle` with `capture` `bursts`, `burst` without `capture` `bursts`, `tailMs` above `maxTailMs`), and `capture` `bursts`, `idle` and `ripple` are rejected the same way on an instance without `recording_ffmpeg_executable`; `presentation` alone needs nothing.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The edit settings are checked before the session is woken and rejected with `validation_failed` when they contradict each other (`idle` with `capture` `bursts`, `burst` without `capture` `bursts`, `tailMs` above `maxTailMs`), and `capture` `bursts`, `idle` and `ripple` are rejected the same way on an instance without `recording_ffmpeg_executable`; `pace` and `motion` alone need nothing.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -10391,7 +10560,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateSessionRecordingWithResponse Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The edit settings are checked before the session is woken and rejected with `validation_failed` when they contradict each other (`idle` with `capture` `bursts`, `burst` without `capture` `bursts`, `tailMs` above `maxTailMs`), and `capture` `bursts`, `idle` and `ripple` are rejected the same way on an instance without `recording_ffmpeg_executable`; `presentation` alone needs nothing.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The edit settings are checked before the session is woken and rejected with `validation_failed` when they contradict each other (`idle` with `capture` `bursts`, `burst` without `capture` `bursts`, `tailMs` above `maxTailMs`), and `capture` `bursts`, `idle` and `ripple` are rejected the same way on an instance without `recording_ffmpeg_executable`; `pace` and `motion` alone need nothing.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -14652,7 +14821,7 @@ func (c *ClientWithResponses) ListSessionRecordingsWithResponse(ctx context.Cont
 
 // CreateSessionRecordingWithBodyWithResponse Start a session recording
 //
-// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The edit settings are checked before the session is woken and rejected with `validation_failed` when they contradict each other (`idle` with `capture` `bursts`, `burst` without `capture` `bursts`, `tailMs` above `maxTailMs`), and `capture` `bursts`, `idle` and `ripple` are rejected the same way on an instance without `recording_ffmpeg_executable`; `presentation` alone needs nothing.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The edit settings are checked before the session is woken and rejected with `validation_failed` when they contradict each other (`idle` with `capture` `bursts`, `burst` without `capture` `bursts`, `tailMs` above `maxTailMs`), and `capture` `bursts`, `idle` and `ripple` are rejected the same way on an instance without `recording_ffmpeg_executable`; `pace` and `motion` alone need nothing.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -14667,7 +14836,7 @@ func (c *ClientWithResponses) CreateSessionRecordingWithBodyWithResponse(ctx con
 
 // CreateSessionRecordingWithResponse Start a session recording
 //
-// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The edit settings are checked before the session is woken and rejected with `validation_failed` when they contradict each other (`idle` with `capture` `bursts`, `burst` without `capture` `bursts`, `tailMs` above `maxTailMs`), and `capture` `bursts`, `idle` and `ripple` are rejected the same way on an instance without `recording_ffmpeg_executable`; `presentation` alone needs nothing.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The edit settings are checked before the session is woken and rejected with `validation_failed` when they contradict each other (`idle` with `capture` `bursts`, `burst` without `capture` `bursts`, `tailMs` above `maxTailMs`), and `capture` `bursts`, `idle` and `ripple` are rejected the same way on an instance without `recording_ffmpeg_executable`; `pace` and `motion` alone need nothing.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //

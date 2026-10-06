@@ -45,11 +45,32 @@ func mcpSchema[In any](adjust func(*jsonschema.Schema)) func() *jsonschema.Schem
 }
 
 // recordingStartSchema says in the schema what recording.Config.Validate checks, which the struct
-// tags cannot: the enums and the burst bounds.
+// tags cannot: the enums, the short form of motion and the burst bounds.
 func recordingStartSchema(schema *jsonschema.Schema) {
 	schema.Properties["capture"].Enum = []any{recording.CaptureContinuous, recording.CaptureBursts}
+	schema.Properties["pace"].Enum = []any{recording.PaceInstant, recording.PaceFast, recording.PaceSlow}
 	schema.Properties["idle"].Enum = []any{recording.IdleCut, recording.IdleSpeed}
-	for _, field := range schema.Properties["burst"].Properties {
+	motion := schema.Properties["motion"]
+	schema.Properties["motion"] = &jsonschema.Schema{
+		Description: motion.Description,
+		AnyOf: []*jsonschema.Schema{
+			{Type: "string", Enum: []any{recording.MotionLinear, recording.MotionNatural}},
+			{
+				Type: "object",
+				Properties: map[string]*jsonschema.Schema{
+					"type": {Type: "string", Const: jsonschema.Ptr[any](recording.MotionNatural)},
+					"seed": {Type: "integer", Minimum: jsonschema.Ptr(0.0), Maximum: jsonschema.Ptr(float64(recording.MotionSeedMax)), Description: "Replays the paths of the recording that reported this motionSeed."},
+				},
+				Required:             []string{"type"},
+				AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
+			},
+		},
+	}
+	for name, field := range schema.Properties["burst"].Properties {
+		if name == "preset" {
+			field.Enum = []any{recording.BurstTight, recording.BurstDefault, recording.BurstRelaxed}
+			continue
+		}
 		field.Minimum = jsonschema.Ptr(0.0)
 		field.Maximum = jsonschema.Ptr(float64(recording.BurstMaxMS))
 	}
@@ -337,6 +358,6 @@ func (s *Server) mcpRecordingOutputFromStatus(sessionID string, status wrapperRe
 	return mcpRecordingOutput{
 		recordingEdit: s.recordingEdit(status), RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
-		RelativePath: relativePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
+		RelativePath: relativePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec, MotionSeed: status.MotionSeed,
 	}, nil
 }

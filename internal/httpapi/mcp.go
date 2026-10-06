@@ -347,6 +347,10 @@ type mcpSessionIDInput struct {
 	TenantID  string `json:"tenantId,omitempty"`
 	SessionID string `json:"sessionId"`
 }
+
+// recordingStartDescription guides the choice of the options; the schema describes each one.
+const recordingStartDescription = "Start a tab recording of one ready top-level target. For automation use capture bursts: the edited video keeps the stretches around browser tool calls (burst preset tight for brisk clips, relaxed for pages that keep moving after an action); use continuous for human-driven sessions or with idle. Pace sets how automation moves while recording: fast (default) for most clips, slow for demos a viewer should follow, instant when only the result matters. Motion natural makes the pointer travel like a hand; the recording reports a motionSeed that replays the same paths. Edit settings are checked here; capture bursts, idle and ripple need ffmpeg on the instance."
+
 type mcpRecordingStartInput struct {
 	TenantID    string `json:"tenantId,omitempty"`
 	SessionID   string `json:"sessionId"`
@@ -395,6 +399,7 @@ type mcpRecordingOutput struct {
 	FPS               int    `json:"fps,omitempty"`
 	BitrateKbps       int    `json:"bitrateKbps,omitempty"`
 	Codec             string `json:"codec,omitempty"`
+	MotionSeed        *int64 `json:"motionSeed,omitempty" jsonschema:"Seed of the natural motion; start another recording with motion {type: natural, seed} to replay its paths."`
 	recordingEdit
 }
 type mcpRecordingsOutput struct {
@@ -584,7 +589,7 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "browser.targets", Description: "List browser targets and their readiness, waking this session if it is suspended."}, s.mcpBoundBrowserTargets)
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.get", Description: "Get remote cursor visibility for this session."}, s.mcpBoundCursorGet)
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.set", Description: "Set whether the remote cursor is included in this session's live stream and recordings."}, s.mcpBoundCursorSet)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a tab recording of one ready top-level target. Edit settings are checked here; capture bursts, idle and ripple need ffmpeg on the instance.", InputSchema: mcpBoundRecordingStartSchema()}, s.mcpBoundRecordingStart)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: recordingStartDescription, InputSchema: mcpBoundRecordingStartSchema()}, s.mcpBoundRecordingStart)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.list", Description: "List recordings and their current top-level targets for this session."}, s.mcpBoundRecordingsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.status", Description: "Get one recording and its current top-level target by recording ID."}, s.mcpBoundRecordingStatus)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.retarget", Description: "Move a running tab recording to another ready top-level target without starting a new logical recording."}, s.mcpBoundRecordingRetarget)
@@ -617,7 +622,7 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.set", Description: "Set whether the remote cursor is included in a session's live stream and recordings."}, s.mcpCursorSet)
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.list", Description: "List safe metadata for files in a session."}, s.mcpSessionFilesList)
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.create_download_url", Description: "Create a signed URL for one file in a session."}, s.mcpSessionFileURL)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a tab recording of one ready top-level target. Edit settings are checked here; capture bursts, idle and ripple need ffmpeg on the instance.", InputSchema: mcpRecordingStartSchema()}, s.mcpRecordingStart)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: recordingStartDescription, InputSchema: mcpRecordingStartSchema()}, s.mcpRecordingStart)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.list", Description: "List recordings and their current top-level targets for a session."}, s.mcpRecordingsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.status", Description: "Get one recording and its current top-level target by recording ID."}, s.mcpRecordingStatus)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.retarget", Description: "Move a running tab recording to another ready top-level target without starting a new logical recording."}, s.mcpRecordingRetarget)

@@ -189,13 +189,17 @@ func TestRecordingEditsNeedFFmpegOnTheInstance(t *testing.T) {
 	if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "validation_failed" || !strings.Contains(rec.Body.String(), "recording_ffmpeg_executable") {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	// Presentation only paces, so it needs no ffmpeg; the start reaches the wrapper with the config filled.
-	rec = env.recordings(t, http.MethodPost, "", map[string]any{"targetId": "T1", "presentation": true})
+	// Pace and motion only steer the automation, so they need no ffmpeg; the start reaches the
+	// wrapper with the config filled, a natural motion with its seed.
+	rec = env.recordings(t, http.MethodPost, "", map[string]any{"targetId": "T1", "pace": "slow", "motion": "natural"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	calls := env.wrapper.requests()
-	if len(calls) != 1 || calls[0].Path != "/recordings" || calls[0].Body["presentation"] != true || calls[0].Body["capture"] != "continuous" {
+	if len(calls) != 1 || calls[0].Path != "/recordings" || calls[0].Body["pace"] != "slow" || calls[0].Body["capture"] != "continuous" {
+		t.Fatalf("wrapper saw %+v", calls)
+	}
+	if motion, _ := calls[0].Body["motion"].(map[string]any); motion["type"] != "natural" || motion["seed"] == nil {
 		t.Fatalf("wrapper saw %+v", calls)
 	}
 }

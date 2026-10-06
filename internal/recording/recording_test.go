@@ -13,6 +13,8 @@ func TestConfigRules(t *testing.T) {
 		`{}`: false, `{"capture":"bursts"}`: false, `{"capture":"bursts","burst":{"leadMs":100}}`: false, `{"idle":"speed","ripple":true}`: false,
 		`{"capture":"bursts","idle":"cut"}`: true, `{"capture":"burst"}`: true, `{"idle":"fast"}`: true, `{"burst":{"leadMs":1}}`: true,
 		`{"capture":"bursts","burst":{"tailMs":5000}}`: true, `{"capture":"bursts","burst":{"leadMs":-1}}`: true, `{"capture":"bursts","burst":{"leadMs":60001}}`: true,
+		`{"pace":"slow","motion":"natural"}`: false, `{"motion":{"type":"natural","seed":7}}`: false, `{"capture":"bursts","burst":{"preset":"tight"}}`: false,
+		`{"pace":"presentation"}`: true, `{"motion":"wobbly"}`: true, `{"motion":{"type":"linear","seed":7}}`: true, `{"capture":"bursts","burst":{"preset":"loose"}}`: true,
 	} {
 		var c Config
 		if err := json.Unmarshal([]byte(config), &c); err != nil {
@@ -23,7 +25,7 @@ func TestConfigRules(t *testing.T) {
 		}
 	}
 	c := Config{Capture: CaptureBursts, Burst: &Burst{LeadMS: 100}}
-	if _ = c.Validate(); *c.Burst != (Burst{100, 800, 400, 3000}) {
+	if _ = c.Validate(); *c.Burst != (Burst{BurstDefault, 100, 800, 400, 3000}) {
 		t.Errorf("defaults = %+v", *c.Burst)
 	}
 	for _, edits := range []Config{{Capture: CaptureBursts}, {Idle: IdleCut}, {Ripple: true}} {
@@ -31,8 +33,8 @@ func TestConfigRules(t *testing.T) {
 			t.Errorf("%+v does not edit", edits)
 		}
 	}
-	if (Config{Presentation: true}).Edits() {
-		t.Error("presentation alone edits")
+	if (Config{Pace: PaceSlow}).Edits() {
+		t.Error("pace alone edits")
 	}
 }
 

@@ -52,6 +52,7 @@ type wrapperRecordingStatus struct {
 	FPS         int    `json:"fps"`
 	BitrateKbps int    `json:"bitrateKbps"`
 	Codec       string `json:"codec"`
+	MotionSeed  *int64 `json:"motionSeed,omitempty"`
 	recordingEdit
 }
 
@@ -69,6 +70,7 @@ type recordingResponse struct {
 	FPS               int    `json:"fps"`
 	BitrateKbps       int    `json:"bitrateKbps"`
 	Codec             string `json:"codec"`
+	MotionSeed        *int64 `json:"motionSeed,omitempty"`
 	recordingEdit
 }
 
@@ -310,7 +312,7 @@ func (s *Server) recordingResponse(sessionID string, status wrapperRecordingStat
 	return recordingResponse{
 		recordingEdit: s.recordingEdit(status), RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
-		RelativePath: relativePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
+		RelativePath: relativePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec, MotionSeed: status.MotionSeed,
 	}, nil
 }
 
