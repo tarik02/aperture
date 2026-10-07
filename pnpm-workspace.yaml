@@ -60,6 +60,7 @@ catalog:
   "@vitejs/plugin-react": "^6.0.3"
   vitest: 4.1.10
   zustand: "^5.0.14"
+  tldts: ^7.4.16
 
 catalogs:
   peers:
