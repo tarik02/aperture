@@ -1,11 +1,11 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { describe, expect, layer } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
 import { ChildProcess } from "effect/process";
 import { Playwright } from "effect-playwright";
-import { describe, expect, it } from "vite-plus/test";
 import { openStorageKeys } from "./storage-inventory.js";
 import { frameMatchesChain, navigateIsolatedOrigin } from "./storage-origin.js";
 
@@ -34,17 +34,6 @@ const withBrowser = Effect.fnUntraced(function* () {
   return browser.contexts()[0];
 });
 
-const run = <A, E>(
-  effect: Effect.Effect<
-    A,
-    E,
-    Playwright.Playwright | NodeServices.NodeServices | import("effect/Scope").Scope
-  >,
-) =>
-  Effect.runPromise(
-    effect.pipe(Effect.scoped, Effect.provide(Layer.merge(Playwright.layer, NodeServices.layer))),
-  );
-
 const jira = (body: string) =>
   `<!doctype html><script>localStorage.setItem("jira", "1");</script>${body}`;
 const forge = `<!doctype html><script>localStorage.setItem("forge", "1");</script>`;
@@ -65,8 +54,9 @@ const openJira = Effect.fnUntraced(function* (context: Playwright.BrowserContext
 });
 
 describe("storage export", { timeout: 120_000 }, () => {
-  it("inventories open tabs next to sandboxed frames and blank tabs", () =>
-    run(
+  // Test services are excluded because the TestClock would stall the DevToolsActivePort retry.
+  layer(Layer.merge(Playwright.layer, NodeServices.layer), { excludeTestServices: true })((it) => {
+    it.effect("inventories open tabs next to sandboxed frames and blank tabs", () =>
       Effect.gen(function* () {
         const context = yield* withBrowser();
         yield* openJira(
@@ -81,10 +71,9 @@ describe("storage export", { timeout: 120_000 }, () => {
           "http://jira.test/",
         ]);
       }),
-    ));
+    );
 
-  it("inventories open tabs whose frames keep being replaced", () =>
-    run(
+    it.effect("inventories open tabs whose frames keep being replaced", () =>
       Effect.gen(function* () {
         const context = yield* withBrowser();
         for (const blank of context.pages()) yield* blank.close;
@@ -108,10 +97,9 @@ describe("storage export", { timeout: 120_000 }, () => {
           expect(keys).toContain("http://jira.test/");
         }
       }),
-    ));
+    );
 
-  it("serves the helper chain of an http origin Chromium would upgrade to https", () =>
-    run(
+    it.effect("serves the helper chain of an http origin Chromium would upgrade to https", () =>
       Effect.gen(function* () {
         const context = yield* withBrowser();
         const page = yield* context.newPage;
@@ -128,5 +116,6 @@ describe("storage export", { timeout: 120_000 }, () => {
         );
         expect(yield* page.use(() => frame.evaluate(() => origin))).toBe("http://forge.test");
       }),
-    ));
+    );
+  });
 });

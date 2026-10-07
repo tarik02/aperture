@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "vp build",
-    "test": "vp test run",
+    "test": "vitest run",
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
@@ -17,11 +17,13 @@
     "@aperture-browser/api-schema": "workspace:*",
     "@aperture-browser/browser-state": "workspace:*",
     "@effect/platform-node": "catalog:",
+    "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "effect": "catalog:",
     "effect-playwright": "catalog:",
     "idb": "catalog:",
     "vite": "catalog:",
-    "vite-plus": "catalog:"
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
   }
 }

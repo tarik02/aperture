@@ -58,9 +58,10 @@ catalog:
   vite: npm:@voidzero-dev/vite-plus-core@0.2.4
   vite-plus: 0.2.4
   "@vitejs/plugin-react": "^6.0.3"
-  vitest: 4.1.10
+  vitest: 5.0.2
   zustand: "^5.0.14"
   tldts: ^7.4.16
+  "@effect/vitest": 4.0.0
 
 catalogs:
   peers:
@@ -75,7 +76,8 @@ catalogMode: strict
 overrides:
   effect-playwright>playwright-core: "catalog:"
   vite: "catalog:"
-  vitest: "catalog:"
+  # Node-only worker tests do not use Vite+'s Vitest 4 browser preview.
+  "vitest@5.0.2>@vitest/browser-preview": "-"
 
 packageExtensions:
   "@effect/platform-node":
