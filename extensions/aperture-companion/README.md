@@ -33,6 +33,9 @@ and mutable document state such as form values, contenteditable markup, focus, a
 Selected popup tabs retain their opener relationship when their parent tab is also selected.
 Cookies are captured from each selected tab's cookie store and each captured frame's exact
 partition, including its cross-site ancestor setting.
+Teleport requests access to the selected page origins and their parent sites, which Chrome
+requires to read cookie partitions. Private suffixes such as `github.io` keep separate sites
+separate.
 Extractable Web Crypto keys stored in IndexedDB are preserved. File inputs, non-extractable
 cryptographic keys, closed shadow roots, iframe document state, and in-memory JavaScript state
 cannot be transferred.

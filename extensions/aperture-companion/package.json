@@ -16,7 +16,8 @@
     "effect": "catalog:",
     "lucide-react": "catalog:",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "tldts": "catalog:"
   },
   "devDependencies": {
     "@effect/platform-node": "catalog:",

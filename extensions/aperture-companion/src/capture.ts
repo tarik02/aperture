@@ -1,6 +1,7 @@
 import * as Api from "@aperture-browser/api-schema";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import { getDomain } from "tldts";
 import { capturePageState, type CapturedPageState } from "./capture-page.ts";
 import {
   chromeCall,
@@ -51,7 +52,7 @@ const optionalStorage = [
   ["indexedDB", "IndexedDB"],
 ] as const;
 
-const tabOriginPattern = (tab: chrome.tabs.Tab) => {
+const tabCaptureOrigins = (tab: chrome.tabs.Tab) => {
   if (tab.url === undefined) {
     return Effect.fail(new CompanionError({ message: "A selected tab is unavailable" }));
   }
@@ -60,7 +61,10 @@ const tabOriginPattern = (tab: chrome.tabs.Tab) => {
       new CompanionError({ message: "Teleport supports HTTP and HTTPS pages only" }),
     );
   }
-  return Effect.succeed(`${new URL(tab.url).origin}/*`);
+  const url = new URL(tab.url);
+  // Chrome checks both the frame origin and its schemeful site for getPartitionKey.
+  const siteHost = getDomain(url.hostname, { allowPrivateDomains: true }) ?? url.hostname;
+  return Effect.succeed([`${url.origin}/*`, `${url.protocol}//${siteHost}/*`]);
 };
 
 /** The origin patterns capturing the tabs needs access to. */
@@ -68,7 +72,8 @@ export const capturePermissionOrigins = Effect.fnUntraced(function* (
   tabs: readonly chrome.tabs.Tab[],
 ) {
   if (tabs.length === 0) return yield* new CompanionError({ message: "No web pages are selected" });
-  return [...new Set(yield* Effect.forEach(tabs, tabOriginPattern))];
+  const origins = yield* Effect.forEach(tabs, tabCaptureOrigins);
+  return [...new Set(origins.flat())];
 });
 
 export const requestCapturePermissions = (tabs: readonly chrome.tabs.Tab[]) =>
