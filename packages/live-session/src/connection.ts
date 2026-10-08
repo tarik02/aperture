@@ -5,6 +5,7 @@ import * as Fiber from "effect/Fiber";
 import * as FiberSet from "effect/FiberSet";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import type { IceServer } from "@aperture-browser/api-client";
 import { sessionWebSocketURL, sessionProtocols, type SessionAccess } from "./access.ts";
@@ -21,7 +22,7 @@ import {
 /** A live session operation that could not complete. */
 export class LiveSessionError extends Data.TaggedError("LiveSessionError")<{
   readonly message: string;
-  readonly terminalReason?: "access_denied" | "session_unavailable";
+  readonly terminalReason?: "access_denied" | "session_unavailable" | "protocol_mismatch";
 }> {}
 
 interface SessionIdentity {
@@ -581,9 +582,11 @@ class WebSocketSessionTransport implements SessionTransport {
     this.socket.addEventListener("message", (event) => {
       if (typeof event.data === "string") {
         const message = decodeServerMessage(event.data);
-        if (Option.isSome(message)) {
-          this.callbacks.message(this, message.value);
+        if (Result.isFailure(message)) {
+          this.callbacks.failed(this, protocolMismatch(message.failure));
+          return;
         }
+        this.callbacks.message(this, message.success);
         return;
       }
       if (event.data instanceof Blob) {
@@ -833,12 +836,14 @@ class WebRTCSessionTransport implements SessionTransport {
       return;
     }
     const message = decodeServerMessage(event.data);
-    if (Option.isNone(message)) {
-      this.fail("WebRTC session message is invalid");
+    if (Result.isFailure(message)) {
+      if (!this.closed) {
+        this.callbacks.failed(this, protocolMismatch(message.failure));
+      }
       return;
     }
-    this.callbacks.message(this, message.value);
-    if (message.value.type === "session.snapshot") {
+    this.callbacks.message(this, message.success);
+    if (message.success.type === "session.snapshot") {
       this.snapshotReceived = true;
       this.maybeReady();
     }
@@ -933,6 +938,14 @@ function transportError(message: string, closeCode: number): LiveSessionError {
     });
   }
   return new LiveSessionError({ message });
+}
+
+// Retrying cannot help: every transport receives the same messages this client cannot read.
+function protocolMismatch(error: Schema.SchemaError): LiveSessionError {
+  return new LiveSessionError({
+    message: `The server sent a live session message this client cannot read: ${error.message}`,
+    terminalReason: "protocol_mismatch",
+  });
 }
 
 // A raster packet is a 4-byte header length, a JSON header, and the JPEG image. Malformed

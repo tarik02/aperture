@@ -236,8 +236,8 @@ export const LiveSessionServerMessage = Schema.Union([
   CommandResult,
 ]);
 
-/** Decodes one JSON text frame from the server, or returns undefined when it is invalid. */
-export const decodeServerMessage = Schema.decodeUnknownOption(
+/** Decodes one JSON text frame from the server; the failure says what this client could not read. */
+export const decodeServerMessage = Schema.decodeUnknownResult(
   Schema.fromJsonString(LiveSessionServerMessage),
   strictParseOptions,
 );
