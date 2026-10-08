@@ -88,6 +88,7 @@ const recordingFields = {
   fps: positiveInt,
   bitrateKbps: positiveInt,
   codec: Schema.String,
+  motionSeed: Schema.optionalKey(Schema.Number.check(Schema.isInt())),
   /** The stop returned and the edit is still running; `editedRelativePath` or `editError` follows. */
   editing: Schema.Boolean,
   editedRelativePath: Schema.optionalKey(Schema.String),
