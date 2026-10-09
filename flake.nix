@@ -218,11 +218,17 @@
             guiSupport = false;
           }).overrideAttrs
             (oldAttrs: {
+              buildInputs =
+                (oldAttrs.buildInputs or [ ])
+                ++ lib.optionals (pkgs.stdenv.hostPlatform.isLinux && pkgs.stdenv.hostPlatform.isx86_64) [
+                  pkgs.nv-codec-headers
+                ];
               mesonFlags = (oldAttrs.mesonFlags or [ ]) ++ [
                 "-Dauto_features=disabled"
                 "-Dopenaptx=disabled"
                 "-Dva=enabled"
                 "-Dvideoparsers=enabled"
+                "-Dnvcodec=${if pkgs.stdenv.hostPlatform.isLinux && pkgs.stdenv.hostPlatform.isx86_64 then "enabled" else "disabled"}"
               ];
             });
 

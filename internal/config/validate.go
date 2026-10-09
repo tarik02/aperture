@@ -187,12 +187,15 @@ func Validate(cfg Config) error {
 			errs = append(errs, errors.New("webrtc_media_producer_advertised_ip must be an IP address"))
 		}
 		switch strings.ToLower(strings.TrimSpace(cfg.WebRTCMediaProducerCodec)) {
-		case WebRTCMediaProducerCodecAuto, WebRTCMediaProducerCodecVP8, WebRTCMediaProducerCodecH264:
+		case WebRTCMediaProducerCodecAuto, WebRTCMediaProducerCodecVP8, WebRTCMediaProducerCodecH264, WebRTCMediaProducerCodecNVENC, WebRTCMediaProducerCodecX264:
 		default:
-			errs = append(errs, errors.New("webrtc_media_producer_codec must be auto, vp8, or h264-va"))
+			errs = append(errs, errors.New("webrtc_media_producer_codec must be auto, vp8, h264-va, h264-nvenc, or h264-software"))
 		}
 		if gpuMode == GPUModeSoftware && strings.EqualFold(strings.TrimSpace(cfg.WebRTCMediaProducerCodec), WebRTCMediaProducerCodecH264) {
 			errs = append(errs, errors.New("webrtc_media_producer_codec h264-va is incompatible with gpu_mode software"))
+		}
+		if gpuMode == GPUModeSoftware && strings.EqualFold(strings.TrimSpace(cfg.WebRTCMediaProducerCodec), WebRTCMediaProducerCodecNVENC) {
+			errs = append(errs, errors.New("webrtc_media_producer_codec h264-nvenc is incompatible with gpu_mode software"))
 		}
 		if cfg.WebRTCMediaProducerFPS <= 0 || cfg.WebRTCMediaProducerFPS > 120 {
 			errs = append(errs, errors.New("webrtc_media_producer_fps must be between 1 and 120"))

@@ -63,7 +63,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().String("webrtc-media-producer-gst-executable", "", "media producer gst-launch executable path")
 	cmd.PersistentFlags().String("webrtc-media-producer-plugin-path", "", "media producer plugin search path")
 	cmd.PersistentFlags().String("webrtc-media-producer-target", "", "media producer PipeWire target")
-	cmd.PersistentFlags().String("webrtc-media-producer-codec", "", "media producer codec (auto, vp8, h264-va)")
+	cmd.PersistentFlags().String("webrtc-media-producer-codec", "", "media producer codec (auto, vp8, h264-va, h264-nvenc, h264-software)")
 	cmd.PersistentFlags().Int("webrtc-media-producer-fps", 0, "media producer frame rate")
 	cmd.PersistentFlags().Int("webrtc-media-producer-bitrate-kbps", 0, "media producer bitrate in kbps")
 	cmd.PersistentFlags().Int("webrtc-media-producer-keyframe-interval", 0, "media producer keyframe interval")
