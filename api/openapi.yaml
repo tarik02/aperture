@@ -612,7 +612,7 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [validation_failed, resource_access_denied, session_not_found, session_expired, session_service_unavailable, overlay_mount_failed, browser_control_failed]
-      description: Stops and marks the session `deleted`. The retained overlay remains reopenable until `expiresAt`.
+      description: Permanently stops the browser and removes its overlay, files, cache, logs, and crash dumps before returning. The response contains terminal `expired` metadata with `deletedAt` and `expiredAt`, but no access credentials; the session cannot be reopened. Repeated deletion is safe, including for an already expired session. Failed cleanup remains immediately eligible for garbage collection and can be retried with DELETE.
       responses:
         '200': {description: Deleted session, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
         default: {$ref: '#/components/responses/Error'}
@@ -679,7 +679,7 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [validation_failed, resource_access_denied, session_not_found, session_not_reopenable, session_overlay_missing, session_expired, session_service_unavailable, overlay_mount_failed, browser_control_failed, browser_start_failed]
-      description: Restarts a retained `deleted` or `failed` session and returns fresh credentials.
+      description: Restarts a retained `failed` session or a legacy retained `deleted` session and returns fresh credentials. A permanently deleted or expired session cannot be reopened. Use suspension to stop a browser while preserving its state.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
@@ -1715,8 +1715,8 @@ components:
         - `creating`: browser startup is in progress; the CDP endpoint does not answer yet.
         - `running`: browser and routing are available and the CDP endpoint answers.
         - `suspended`: browser is intentionally stopped while retained state remains available.
-        - `deleted`: session is soft-deleted and may be reopened while retained.
-        - `expired`: retention elapsed and the session can no longer be used.
+        - `deleted`: deletion cleanup is pending; legacy retained soft-deleted sessions may still be reopenable until their retention deadline.
+        - `expired`: retention elapsed or permanent deletion completed; the session can no longer be used.
         - `failed`: startup or reopen failed; retained state may still be reopenable.
       enum: [creating, running, suspended, deleted, expired, failed]
       example: running

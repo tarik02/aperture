@@ -229,8 +229,8 @@ func TestReopenReportsRunningOnlyAfterCDPReady(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if _, err := service.Delete(ctx, tenantID, created.Session.ID); err != nil {
-		t.Fatalf("Delete() error = %v", err)
+	if err := service.markFailedRetained(ctx, &created.Session, "simulated failure", errors.New("boom")); err != nil {
+		t.Fatalf("mark failed: %v", err)
 	}
 
 	var probed bool
@@ -269,8 +269,8 @@ func TestReopenMarksSessionFailedWhenCDPNeverReady(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if _, err := service.Delete(ctx, tenantID, created.Session.ID); err != nil {
-		t.Fatalf("Delete() error = %v", err)
+	if err := service.markFailedRetained(ctx, &created.Session, "simulated failure", errors.New("boom")); err != nil {
+		t.Fatalf("mark failed: %v", err)
 	}
 
 	service.SetCDPReadyWaiter(func(context.Context, int) error {

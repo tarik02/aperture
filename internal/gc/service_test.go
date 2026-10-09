@@ -140,6 +140,15 @@ func newGCTestService(t *testing.T) (*Service, config.Config, *db.Repository, *g
 }
 
 func TestGCExpiresDeletedSessionAndRemovesOverlay(t *testing.T) {
+	testGCExpiresSession(t, true)
+}
+
+func TestGCExpiryRetainsArtifacts(t *testing.T) {
+	testGCExpiresSession(t, false)
+}
+
+func testGCExpiresSession(t *testing.T, deleted bool) {
+	t.Helper()
 	t.Parallel()
 
 	service, cfg, repo, overlay := newGCTestService(t)
@@ -167,11 +176,16 @@ func TestGCExpiresDeletedSessionAndRemovesOverlay(t *testing.T) {
 	}
 
 	expiresAt := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
-	deletedAt := expiresAt
+	status := db.SessionStatusSuspended
+	var deletedAt *string
+	if deleted {
+		status = db.SessionStatusDeleted
+		deletedAt = &expiresAt
+	}
 	if err := repo.CreateSession(ctx, &db.Session{
 		ID:              sessionID,
 		TenantID:        tenantID,
-		Status:          db.SessionStatusDeleted,
+		Status:          status,
 		OverlayPath:     layout.Root,
 		UpperPath:       layout.Upper,
 		WorkPath:        layout.Work,
@@ -182,7 +196,7 @@ func TestGCExpiresDeletedSessionAndRemovesOverlay(t *testing.T) {
 		BrowserChannel:  "chromium",
 		BrowserArgsJSON: "[]",
 		CreatedAt:       db.NowUTC(),
-		DeletedAt:       &deletedAt,
+		DeletedAt:       deletedAt,
 		ExpiresAt:       expiresAt,
 	}); err != nil {
 		t.Fatalf("create session: %v", err)
@@ -209,8 +223,12 @@ func TestGCExpiresDeletedSessionAndRemovesOverlay(t *testing.T) {
 	if _, err := os.Stat(layout.Upper); !os.IsNotExist(err) {
 		t.Fatalf("upper dir still present: %v", err)
 	}
-	if _, err := os.Stat(layout.Artifacts); err != nil {
-		t.Fatalf("artifacts should be retained after session expiry: %v", err)
+	if _, err := os.Stat(layout.Artifacts); deleted {
+		if !os.IsNotExist(err) {
+			t.Fatalf("deleted session artifacts remain: %v", err)
+		}
+	} else if err != nil {
+		t.Fatalf("natural expiry should retain artifacts: %v", err)
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
+	"github.com/aperture/aperture/internal/gc"
 	"github.com/aperture/aperture/internal/paths"
 	"github.com/aperture/aperture/internal/supervisor"
 	"github.com/aperture/aperture/internal/systemd"
@@ -53,8 +54,10 @@ func (f *fakeOverlay) Unmount(_ context.Context, sessionID string) error {
 }
 
 type fakeRunner struct {
-	active        map[string]bool
-	failNextStart bool
+	active          map[string]bool
+	failNextStart   bool
+	failNextStop    bool
+	beforeListUnits func()
 }
 
 func (f *fakeRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
@@ -68,6 +71,10 @@ func (f *fakeRunner) Run(ctx context.Context, name string, args ...string) ([]by
 	}
 	if len(args) >= 3 && args[0] == "--user" && args[1] == "stop" {
 		sessionID := extractInstance(args[2])
+		if f.failNextStop {
+			f.failNextStop = false
+			return nil, &systemd.CommandError{Operation: "stop", ExitCode: 1, Err: errors.New("simulated browser stop failure")}
+		}
 		delete(f.active, sessionID)
 	}
 	if len(args) >= 3 && args[0] == "--user" && args[1] == "is-active" {
@@ -78,6 +85,11 @@ func (f *fakeRunner) Run(ctx context.Context, name string, args ...string) ([]by
 		return nil, &systemd.CommandError{ExitCode: 3}
 	}
 	if len(args) >= 4 && args[0] == "--user" && args[1] == "list-units" {
+		if f.beforeListUnits != nil {
+			beforeList := f.beforeListUnits
+			f.beforeListUnits = nil
+			beforeList()
+		}
 		return f.listUnitsOutput(), nil
 	}
 	return []byte("inactive\n"), nil
@@ -181,10 +193,10 @@ func createTenant(t *testing.T, repo *db.Repository) string {
 	return tenantID
 }
 
-func TestCreateDeleteReopenSessionLifecycle(t *testing.T) {
+func TestDeleteSessionReclaimsStorage(t *testing.T) {
 	t.Parallel()
 
-	service, _, repo, _, _ := newTestService(t)
+	service, cfg, repo, runner, overlay := newTestService(t)
 	tenantID := createTenant(t, repo)
 	ctx := context.Background()
 
@@ -202,23 +214,144 @@ func TestCreateDeleteReopenSessionLifecycle(t *testing.T) {
 		t.Fatal("expected session token")
 	}
 
+	layout, err := paths.Session(cfg, created.Session.ID)
+	if err != nil {
+		t.Fatalf("derive session paths: %v", err)
+	}
+	for _, dir := range []string{layout.Upper, layout.Work, layout.Merged, layout.Cache, layout.Metadata,
+		layout.Files.Downloads, layout.Files.Uploads, layout.Files.Recordings, layout.Files.Outputs, layout.Logs, layout.CrashDumps} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "data"), []byte("session data"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	deleted, err := service.Delete(ctx, tenantID, created.Session.ID)
 	if err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
-	if deleted.Session.Status != db.SessionStatusDeleted {
-		t.Fatalf("status = %q, want deleted", deleted.Session.Status)
+	if deleted.Session.Status != db.SessionStatusExpired || deleted.Session.DeletedAt == nil || deleted.Session.ExpiredAt == nil {
+		t.Fatalf("deleted session = %#v, want deleted and expired metadata", deleted.Session)
 	}
+	if deleted.Session.ExpiresAt != service.now().UTC().Format(time.RFC3339Nano) {
+		t.Fatalf("expiry = %q, want immediate expiry", deleted.Session.ExpiresAt)
+	}
+	if deleted.SessionToken != "" || deleted.CDPURL != "" {
+		t.Fatal("deleted session returned access credentials")
+	}
+	if runner.active[created.Session.ID] || overlay.IsMounted(created.Session.ID) {
+		t.Fatal("deleted session remains active or mounted")
+	}
+	for _, path := range []string{layout.Root, filepath.Dir(layout.Files.Root), layout.Artifacts, layout.RuntimeEnv} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("session path %s remains: %v", path, err)
+		}
+	}
+	if _, err := service.Reopen(ctx, tenantID, created.Session.ID); !errors.Is(err, ErrExpired) {
+		t.Fatalf("Reopen() error = %v, want expired", err)
+	}
+	if _, err := service.RotateSessionToken(ctx, tenantID, created.Session.ID); !errors.Is(err, ErrExpired) {
+		t.Fatalf("RotateSessionToken() error = %v, want expired", err)
+	}
+	if _, err := service.Delete(ctx, tenantID, created.Session.ID); err != nil {
+		t.Fatalf("repeat Delete() error = %v", err)
+	}
+}
 
-	reopened, err := service.Reopen(ctx, tenantID, created.Session.ID)
-	if err != nil {
-		t.Fatalf("Reopen() error = %v", err)
+func TestDeleteSessionInRetainedAndExpiredStates(t *testing.T) {
+	for _, status := range []string{db.SessionStatusSuspended, db.SessionStatusFailed, db.SessionStatusDeleted, db.SessionStatusExpired} {
+		t.Run(status, func(t *testing.T) {
+			t.Parallel()
+			service, cfg, repo, runner, overlay := newTestService(t)
+			tenantID := createTenant(t, repo)
+			ctx := context.Background()
+			created, err := service.Create(ctx, CreateInput{TenantID: tenantID, BrowserChannel: "chromium"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			row := created.Session
+			row.Status = status
+			if status == db.SessionStatusExpired {
+				row.ExpiresAt = service.now().Add(-time.Hour).Format(time.RFC3339Nano)
+			}
+			if err := repo.UpdateSession(ctx, &row); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.Delete(ctx, tenantID, row.ID); err != nil {
+				t.Fatalf("Delete() error = %v", err)
+			}
+			layout, err := paths.Session(cfg, row.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if runner.active[row.ID] || overlay.IsMounted(row.ID) {
+				t.Fatal("non-running lifecycle status left its browser or overlay active")
+			}
+			for _, path := range []string{layout.Root, filepath.Dir(layout.Files.Root), layout.Artifacts} {
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Fatalf("session path %s remains: %v", path, err)
+				}
+			}
+		})
 	}
-	if reopened.Session.Status != db.SessionStatusRunning {
-		t.Fatalf("status = %q, want running", reopened.Session.Status)
-	}
-	if reopened.SessionToken != created.SessionToken {
-		t.Fatalf("session token changed on reopen")
+}
+
+func TestDeleteFailureIsClosedAndRetriedByGC(t *testing.T) {
+	for _, operation := range []string{"stop", "unmount"} {
+		t.Run(operation, func(t *testing.T) {
+			t.Parallel()
+			service, cfg, repo, runner, overlay := newTestService(t)
+			tenantID := createTenant(t, repo)
+			ctx := context.Background()
+			created, err := service.Create(ctx, CreateInput{TenantID: tenantID, BrowserChannel: "chromium"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			layout, err := paths.Session(cfg, created.Session.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(layout.Logs, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if operation == "stop" {
+				runner.failNextStop = true
+			} else {
+				service.unmountLocal = func(context.Context, string) error {
+					return errors.New("simulated unmount failure")
+				}
+			}
+			if _, err := service.Delete(ctx, tenantID, created.Session.ID); err == nil {
+				t.Fatal("Delete() succeeded despite cleanup failure")
+			}
+			row, err := repo.GetSessionByID(ctx, created.Session.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if row.Status != db.SessionStatusDeleted || row.ExpiresAt != service.now().Format(time.RFC3339Nano) {
+				t.Fatalf("failed deletion = %#v, want immediately eligible GC retry", row)
+			}
+			if _, err := os.Stat(layout.Upper); err != nil {
+				t.Fatalf("storage removed before safe shutdown: %v", err)
+			}
+			if _, err := service.Reopen(ctx, tenantID, row.ID); !errors.Is(err, ErrExpired) {
+				t.Fatalf("Reopen() error = %v, want expired", err)
+			}
+			collector := gc.NewService(cfg, repo, service.browser, overlay, traefik.NoopReconciler{})
+			if _, err := collector.Run(ctx); err != nil {
+				t.Fatalf("GC retry: %v", err)
+			}
+			for _, path := range []string{layout.Root, filepath.Dir(layout.Files.Root), layout.Artifacts, layout.RuntimeEnv} {
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Fatalf("GC retry left %s: %v", path, err)
+				}
+			}
+			if runner.active[row.ID] {
+				t.Fatal("GC retry left deleted browser running")
+			}
+		})
 	}
 }
 
@@ -306,8 +439,8 @@ func TestReopenFailureAfterMountCleansUpAndRetainsFailedSession(t *testing.T) {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	if _, err := service.Delete(ctx, tenantID, created.Session.ID); err != nil {
-		t.Fatalf("Delete() error = %v", err)
+	if err := service.markFailedRetained(ctx, &created.Session, "simulated failure", errors.New("boom")); err != nil {
+		t.Fatalf("mark failed: %v", err)
 	}
 
 	runner.failNextStart = true

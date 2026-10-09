@@ -88,7 +88,7 @@ func (m *Monitor) tick(ctx context.Context) {
 			}
 		}
 		if !active {
-			if err := m.service.markFailedRetained(ctx, &sessionRow, "browser unit became inactive", nil); err != nil {
+			if err := m.markInactiveSessionFailed(ctx, sessionRow.ID); err != nil {
 				m.logger.Error("mark failed session", zap.String("sessionId", sessionRow.ID), zap.Error(err))
 			}
 			continue
@@ -112,4 +112,25 @@ func (m *Monitor) tick(ctx context.Context) {
 	if suspended > 0 {
 		m.logger.Info("suspended idle sessions", zap.Int("count", suspended))
 	}
+}
+
+func (m *Monitor) markInactiveSessionFailed(ctx context.Context, sessionID string) error {
+	unlock := m.service.repo.LockSession(sessionID)
+	defer unlock()
+
+	latest, err := m.service.repo.GetSessionByID(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if latest == nil || latest.Status != db.SessionStatusRunning {
+		return nil
+	}
+	active, err := m.service.browser.IsActive(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if active {
+		return nil
+	}
+	return m.service.markFailedRetained(ctx, latest, "browser unit became inactive", nil)
 }

@@ -63,10 +63,11 @@ func (s *Server) sessionFile(c *gin.Context) {
 }
 
 func (s *Server) listSessionFiles(c *gin.Context) {
-	layout, ok := s.fileRequestLayout(c)
+	layout, unlock, ok := s.fileRequestLayout(c)
 	if !ok {
 		return
 	}
+	defer unlock()
 	entries, err := sessionfiles.List(layout)
 	if err != nil {
 		WriteError(c, err)
@@ -76,10 +77,11 @@ func (s *Server) listSessionFiles(c *gin.Context) {
 }
 
 func (s *Server) uploadSessionFiles(c *gin.Context, directory string, parts *multipart.Reader) {
-	layout, ok := s.fileRequestLayout(c)
+	layout, unlock, ok := s.fileRequestLayout(c)
 	if !ok {
 		return
 	}
+	defer unlock()
 	files, err := sessionfiles.Store(c.Request.Context(), layout, directory, parts, sessionfiles.Limits{
 		MaxFileBytes:      s.Config.SessionUploadMaxFileBytes,
 		StorageQuotaBytes: s.Config.SessionStorageQuotaBytes,
@@ -115,10 +117,11 @@ func (s *Server) uploadSessionFiles(c *gin.Context, directory string, parts *mul
 }
 
 func (s *Server) deleteSessionFile(c *gin.Context, relativePath string, recursive bool) {
-	layout, ok := s.fileRequestLayout(c)
+	layout, unlock, ok := s.fileRequestLayout(c)
 	if !ok {
 		return
 	}
+	defer unlock()
 	entryType, err := sessionfiles.Delete(layout, relativePath, recursive)
 	if err != nil {
 		WriteError(c, err)
@@ -147,10 +150,11 @@ func (s *Server) moveSessionFile(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
-	layout, ok := s.fileRequestLayout(c)
+	layout, unlock, ok := s.fileRequestLayout(c)
 	if !ok {
 		return
 	}
+	defer unlock()
 	entry, err := sessionfiles.Move(c.Request.Context(), layout, request.From, request.To)
 	if err != nil {
 		WriteError(c, err)
@@ -178,10 +182,11 @@ func (s *Server) createSessionDirectory(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
-	layout, ok := s.fileRequestLayout(c)
+	layout, unlock, ok := s.fileRequestLayout(c)
 	if !ok {
 		return
 	}
+	defer unlock()
 	directory, err := sessionfiles.CreateDirectory(c.Request.Context(), layout, request.RelativePath)
 	if err != nil {
 		WriteError(c, err)
@@ -200,22 +205,27 @@ func (s *Server) createSessionDirectory(c *gin.Context) {
 
 // fileRequestLayout resolves the session of a file request. Files are managed
 // on disk rather than through the wrapper, so this works in every retained state.
-func (s *Server) fileRequestLayout(c *gin.Context) (paths.SessionLayout, bool) {
-	if s.Sessions == nil {
+// The caller holds the lifecycle lock until its filesystem work and audit finish,
+// so deletion cannot purge a directory that the request later recreates.
+func (s *Server) fileRequestLayout(c *gin.Context) (paths.SessionLayout, func(), bool) {
+	if s.Sessions == nil || s.Repository == nil {
 		WriteError(c, errSessionServiceUnavailable)
-		return paths.SessionLayout{}, false
+		return paths.SessionLayout{}, nil, false
 	}
+	unlock := s.Repository.LockSessionFiles(c.Param("sessionId"))
 	view, err := s.Sessions.Get(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"))
 	if err != nil {
+		unlock()
 		WriteError(c, err)
-		return paths.SessionLayout{}, false
+		return paths.SessionLayout{}, nil, false
 	}
 	layout, err := paths.Session(s.Config, view.Session.ID)
 	if err != nil {
+		unlock()
 		WriteError(c, err)
-		return paths.SessionLayout{}, false
+		return paths.SessionLayout{}, nil, false
 	}
-	return layout, true
+	return layout, unlock, true
 }
 
 // mayRunScripts reports content a browser renders as a document that can run

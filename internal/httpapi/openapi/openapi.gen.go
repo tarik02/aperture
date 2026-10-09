@@ -2224,8 +2224,8 @@ type Session struct {
 	// - `creating`: browser startup is in progress; the CDP endpoint does not answer yet.
 	// - `running`: browser and routing are available and the CDP endpoint answers.
 	// - `suspended`: browser is intentionally stopped while retained state remains available.
-	// - `deleted`: session is soft-deleted and may be reopened while retained.
-	// - `expired`: retention elapsed and the session can no longer be used.
+	// - `deleted`: deletion cleanup is pending; legacy retained soft-deleted sessions may still be reopenable until their retention deadline.
+	// - `expired`: retention elapsed or permanent deletion completed; the session can no longer be used.
 	// - `failed`: startup or reopen failed; retained state may still be reopenable.
 	Status SessionStatus `json:"status"`
 
@@ -2406,8 +2406,8 @@ type SessionProxyUpstream struct {
 // - `creating`: browser startup is in progress; the CDP endpoint does not answer yet.
 // - `running`: browser and routing are available and the CDP endpoint answers.
 // - `suspended`: browser is intentionally stopped while retained state remains available.
-// - `deleted`: session is soft-deleted and may be reopened while retained.
-// - `expired`: retention elapsed and the session can no longer be used.
+// - `deleted`: deletion cleanup is pending; legacy retained soft-deleted sessions may still be reopenable until their retention deadline.
+// - `expired`: retention elapsed or permanent deletion completed; the session can no longer be used.
 // - `failed`: startup or reopen failed; retained state may still be reopenable.
 type SessionStatus string
 
@@ -3988,7 +3988,7 @@ type ClientInterface interface {
 
 	// DeleteSession Delete a browser session
 	//
-	// Stops and marks the session `deleted`. The retained overlay remains reopenable until `expiresAt`.
+	// Permanently stops the browser and removes its overlay, files, cache, logs, and crash dumps before returning. The response contains terminal `expired` metadata with `deletedAt` and `expiredAt`, but no access credentials; the session cannot be reopened. Repeated deletion is safe, including for an already expired session. Failed cleanup remains immediately eligible for garbage collection and can be retried with DELETE.
 	//
 	// Corresponds with DELETE /api/sessions/{sessionId} (the `DeleteSession` operationId).
 	DeleteSession(ctx context.Context, sessionId SessionId, params *DeleteSessionParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -4267,7 +4267,7 @@ type ClientInterface interface {
 
 	// ReopenSession Reopen a browser session
 	//
-	// Restarts a retained `deleted` or `failed` session and returns fresh credentials.
+	// Restarts a retained `failed` session or a legacy retained `deleted` session and returns fresh credentials. A permanently deleted or expired session cannot be reopened. Use suspension to stop a browser while preserving its state.
 	//
 	// Corresponds with POST /api/sessions/{sessionId}/reopen (the `ReopenSession` operationId).
 	ReopenSession(ctx context.Context, sessionId SessionId, params *ReopenSessionParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -5086,7 +5086,7 @@ func (c *Client) GetSessionsBulk(ctx context.Context, params *GetSessionsBulkPar
 
 // DeleteSession Delete a browser session
 //
-// Stops and marks the session `deleted`. The retained overlay remains reopenable until `expiresAt`.
+// Permanently stops the browser and removes its overlay, files, cache, logs, and crash dumps before returning. The response contains terminal `expired` metadata with `deletedAt` and `expiredAt`, but no access credentials; the session cannot be reopened. Repeated deletion is safe, including for an already expired session. Failed cleanup remains immediately eligible for garbage collection and can be retried with DELETE.
 //
 // Corresponds with DELETE /api/sessions/{sessionId} (the `DeleteSession` operationId).
 func (c *Client) DeleteSession(ctx context.Context, sessionId SessionId, params *DeleteSessionParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -5695,7 +5695,7 @@ func (c *Client) StopSessionRecording(ctx context.Context, sessionId SessionId, 
 
 // ReopenSession Reopen a browser session
 //
-// Restarts a retained `deleted` or `failed` session and returns fresh credentials.
+// Restarts a retained `failed` session or a legacy retained `deleted` session and returns fresh credentials. A permanently deleted or expired session cannot be reopened. Use suspension to stop a browser while preserving its state.
 //
 // Corresponds with POST /api/sessions/{sessionId}/reopen (the `ReopenSession` operationId).
 func (c *Client) ReopenSession(ctx context.Context, sessionId SessionId, params *ReopenSessionParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -10372,7 +10372,7 @@ type ClientWithResponsesInterface interface {
 
 	// DeleteSessionWithResponse Delete a browser session
 	//
-	// Stops and marks the session `deleted`. The retained overlay remains reopenable until `expiresAt`.
+	// Permanently stops the browser and removes its overlay, files, cache, logs, and crash dumps before returning. The response contains terminal `expired` metadata with `deletedAt` and `expiredAt`, but no access credentials; the session cannot be reopened. Repeated deletion is safe, including for an already expired session. Failed cleanup remains immediately eligible for garbage collection and can be retried with DELETE.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -10671,7 +10671,7 @@ type ClientWithResponsesInterface interface {
 
 	// ReopenSessionWithResponse Reopen a browser session
 	//
-	// Restarts a retained `deleted` or `failed` session and returns fresh credentials.
+	// Restarts a retained `failed` session or a legacy retained `deleted` session and returns fresh credentials. A permanently deleted or expired session cannot be reopened. Use suspension to stop a browser while preserving its state.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -14522,7 +14522,7 @@ func (c *ClientWithResponses) GetSessionsBulkWithResponse(ctx context.Context, p
 
 // DeleteSessionWithResponse Delete a browser session
 //
-// Stops and marks the session `deleted`. The retained overlay remains reopenable until `expiresAt`.
+// Permanently stops the browser and removes its overlay, files, cache, logs, and crash dumps before returning. The response contains terminal `expired` metadata with `deletedAt` and `expiredAt`, but no access credentials; the session cannot be reopened. Repeated deletion is safe, including for an already expired session. Failed cleanup remains immediately eligible for garbage collection and can be retried with DELETE.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -15019,7 +15019,7 @@ func (c *ClientWithResponses) StopSessionRecordingWithResponse(ctx context.Conte
 
 // ReopenSessionWithResponse Reopen a browser session
 //
-// Restarts a retained `deleted` or `failed` session and returns fresh credentials.
+// Restarts a retained `failed` session or a legacy retained `deleted` session and returns fresh credentials. A permanently deleted or expired session cannot be reopened. Use suspension to stop a browser while preserving its state.
 //
 // Returns a wrapper object for the known response body format(s).
 //

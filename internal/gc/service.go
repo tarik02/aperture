@@ -14,6 +14,7 @@ import (
 	"github.com/aperture/aperture/internal/overlay"
 	"github.com/aperture/aperture/internal/paths"
 	"github.com/aperture/aperture/internal/sessionfiles"
+	"github.com/aperture/aperture/internal/sessionstorage"
 	"github.com/aperture/aperture/internal/supervisor"
 	"github.com/aperture/aperture/internal/traefik"
 )
@@ -113,7 +114,7 @@ func (s *Service) run(ctx context.Context, result *RunResult) error {
 		return err
 	}
 	for _, sessionRow := range artifactSessions {
-		if err := s.removeSessionArtifacts(&sessionRow); err != nil {
+		if err := sessionstorage.RemoveArtifacts(s.cfg, &sessionRow); err != nil {
 			return err
 		}
 		result.RemovedArtifacts++
@@ -159,10 +160,8 @@ func (s *Service) expireSession(ctx context.Context, sessionRow *db.Session, now
 	}
 	sessionRow = latest
 
-	if sessionRow.Status == db.SessionStatusRunning {
-		if err := s.browser.Stop(ctx, sessionRow.ID); err != nil {
-			return false, err
-		}
+	if err := s.browser.Stop(ctx, sessionRow.ID); err != nil {
+		return false, err
 	}
 	if err := s.browser.RemoveRuntimeEnv(sessionRow.ID); err != nil {
 		return false, err
@@ -170,8 +169,13 @@ func (s *Service) expireSession(ctx context.Context, sessionRow *db.Session, now
 	if err := s.ensureOverlayUnmounted(ctx, sessionRow); err != nil {
 		return false, err
 	}
-	if err := s.removeSessionOverlayState(sessionRow); err != nil {
+	if err := sessionstorage.RemoveOverlay(s.cfg, sessionRow); err != nil {
 		return false, err
+	}
+	if sessionRow.DeletedAt != nil {
+		if err := sessionstorage.RemoveArtifacts(s.cfg, sessionRow); err != nil {
+			return false, err
+		}
 	}
 
 	expiredAt := now.Format(time.RFC3339Nano)
@@ -210,46 +214,6 @@ func (s *Service) ensureOverlayUnmounted(ctx context.Context, sessionRow *db.Ses
 			SessionID: sessionRow.ID,
 			Err:       fmt.Errorf("overlay still mounted at %s", merged),
 		}
-	}
-	return nil
-}
-
-func (s *Service) removeSessionOverlayState(sessionRow *db.Session) error {
-	dirs := []string{
-		sessionRow.UpperPath,
-		sessionRow.WorkPath,
-		sessionRow.MergedPath,
-		sessionRow.DownloadsPath,
-		sessionRow.CachePath,
-		sessionRow.OverlayPath,
-	}
-	if layout, err := paths.Session(s.cfg, sessionRow.ID); err == nil {
-		// The files root sits in its own session directory under cold_root, which
-		// is the overlay root only when cold_root is store_root.
-		dirs = append(dirs, layout.Metadata, filepath.Dir(layout.Files.Root))
-	}
-	seen := make(map[string]struct{}, len(dirs))
-	for _, dir := range dirs {
-		if dir == "" {
-			continue
-		}
-		if _, ok := seen[dir]; ok {
-			continue
-		}
-		seen[dir] = struct{}{}
-		if err := os.RemoveAll(dir); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("remove session path %s: %w", dir, err)
-		}
-	}
-	return nil
-}
-
-func (s *Service) removeSessionArtifacts(sessionRow *db.Session) error {
-	if sessionRow.ArtifactsPath == "" {
-		return nil
-	}
-	if err := os.RemoveAll(sessionRow.ArtifactsPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove session artifacts: %w", err)
 	}
 	return nil
 }
