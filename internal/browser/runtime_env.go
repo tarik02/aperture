@@ -61,6 +61,8 @@ type RuntimeEnvValues struct {
 	MediaProducerUDPPortMin    int
 	MediaProducerUDPPortMax    int
 	mediaProbeCache            *mediaProbeCache
+	mediaRequestedCodec        string
+	mediaRequestedGPUMode      string
 }
 
 func multiTargetCompositorEnabled(values RuntimeEnvValues) bool {

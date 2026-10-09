@@ -8,9 +8,9 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
-	webdesktopconfig "github.com/tarik02/webdesktop/config"
 	"github.com/tarik02/webdesktop/media"
 	rtc "github.com/tarik02/webdesktop/webrtc"
 	"go.uber.org/zap"
@@ -27,6 +27,7 @@ type producer struct {
 	done             chan struct{}
 	media            *targetMediaSource
 	profiles         []mediaProfile
+	codec            string
 	keyframeInterval int
 	webrtc           *rtc.Service
 }
@@ -52,80 +53,16 @@ func newWebRTCProducer(runtime *wrapperRuntime) (*producer, error) {
 			return nil, fmt.Errorf("set GStreamer plugin path: %w", err)
 		}
 	}
-
-	profileName := webdesktopconfig.VideoProfileVP8
-	switch normalizeCodec(values.MediaProducerCodec) {
-	case "vp8":
-	case "h264-va":
-		profileName = webdesktopconfig.VideoProfileH264VAAPI
-	case "h264-software":
-		profileName = webdesktopconfig.VideoProfileH264Software
-	default:
-		return nil, errors.New("media producer codec must be vp8, h264-va, or h264-software")
+	if err := os.Setenv("GST_REGISTRY_1_0", filepath.Join(values.CacheDir, "gstreamer-registry.bin")); err != nil {
+		return nil, fmt.Errorf("set GStreamer registry: %w", err)
 	}
 
-	defaultProfiles := webdesktopconfig.DefaultVideoProfiles()
-	profiles := make(map[string]media.EncoderProfile, len(defaultProfiles))
-	availableProfiles := make([]mediaProfile, 0, len(defaultProfiles))
-	for _, candidate := range []struct {
-		name  string
-		codec string
-	}{
-		{name: webdesktopconfig.VideoProfileVP8, codec: mediaCodecVP8},
-		{name: webdesktopconfig.VideoProfileH264VAAPI, codec: mediaCodecH264},
-		{name: webdesktopconfig.VideoProfileH264VAAPIHigh, codec: mediaCodecH264},
-		{name: webdesktopconfig.VideoProfileH264Software, codec: mediaCodecX264},
-	} {
-		if candidate.codec == mediaCodecH264 && values.RenderNode == "" {
-			continue
-		}
-		if err := probeMediaCodec(values, candidate.codec); err != nil {
-			continue
-		}
-		profile := defaultProfiles[candidate.name]
-		mediaWidth, mediaHeight := mediaDimensions(profile, values.CompositorWidth, values.CompositorHeight, values.MediaProducerFPS)
-		profile.DefaultOption = mediaQualityOption
-		profile.Options = map[string]media.QualityOption{
-			mediaQualityOption: {
-				Label:       "Aperture",
-				Width:       mediaWidth,
-				Height:      mediaHeight,
-				Framerate:   values.MediaProducerFPS,
-				BitrateKbps: values.MediaProducerBitrateKbps,
-			},
-		}
-		profiles[candidate.name] = profile
-		availableProfiles = append(availableProfiles, mediaProfile{
-			ID:          candidate.name,
-			Label:       profile.Label,
-			Codec:       profile.Codec.ID,
-			MimeType:    profile.Codec.MimeType,
-			SDPFmtpLine: profile.Codec.SDPFmtpLine,
-		})
+	selected, err := selectRuntimeMediaEncoder(values)
+	if err != nil {
+		return nil, err
 	}
-	profile, exists := profiles[profileName]
-	if !exists {
-		return nil, fmt.Errorf("selected media producer profile %q is unavailable", profileName)
-	}
-	mediaWidth, mediaHeight := mediaDimensions(profile, values.CompositorWidth, values.CompositorHeight, values.MediaProducerFPS)
-
+	mediaConfig, availableProfiles := probePresentationProfiles(values, selected)
 	logger := zap.NewNop()
-	mediaConfig := media.Config{
-		Profiles: profiles,
-		Quality: media.Quality{
-			Profile:     profileName,
-			Option:      mediaQualityOption,
-			Width:       mediaWidth,
-			Height:      mediaHeight,
-			Framerate:   values.MediaProducerFPS,
-			BitrateKbps: values.MediaProducerBitrateKbps,
-		},
-		Tuning: media.Tuning{
-			Threads:          4,
-			KeyframeInterval: values.MediaProducerKeyframe,
-			VP8CPUUsed:       8,
-		},
-	}
 	mediaSource := newTargetMediaSource(mediaConfig, logger.Named("media"))
 
 	iceServers, iceUsername, iceCredential, err := parseICEServers(values.MediaProducerICEServers)
@@ -161,6 +98,7 @@ func newWebRTCProducer(runtime *wrapperRuntime) (*producer, error) {
 		done:             make(chan struct{}),
 		media:            mediaSource,
 		profiles:         availableProfiles,
+		codec:            selected.codec,
 		keyframeInterval: values.MediaProducerKeyframe,
 		webrtc:           webrtcService,
 	}
@@ -268,19 +206,6 @@ func mediaDimensions(profile media.EncoderProfile, width int, height int, framer
 		}
 	}
 	return mediaWidth, mediaHeight
-}
-
-func normalizeCodec(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "", "vp8":
-		return "vp8"
-	case "h264", "h264-va":
-		return "h264-va"
-	case "h264-software", "x264":
-		return "h264-software"
-	default:
-		return strings.ToLower(strings.TrimSpace(raw))
-	}
 }
 
 func (p *producer) run(ctx context.Context) {

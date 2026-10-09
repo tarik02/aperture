@@ -296,7 +296,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (rec
 	if bitrateKbps <= 0 {
 		bitrateKbps = 6000
 	}
-	codec := normalizeWrapperCodec(request.Codec, r.values.MediaProducerCodec)
+	codec := normalizeWrapperCodec(request.Codec, r.mediaCodec())
 	id := uuid.NewString()
 	if codec == "h264-va" {
 		if err := probeGStreamerElements(r.values, codec, []string{"vapostproc", "vah264enc", "h264parse", "matroskamux"}); err != nil {
