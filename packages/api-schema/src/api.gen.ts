@@ -42,7 +42,7 @@ export const TenantScope = Schema.Literals(["sessions:read", "sessions:write", "
 export type SensitiveString = Redacted.Redacted<string>
 export const SensitiveString = Schema.RedactedFromValue(Schema.String).annotate({ "identifier": "SensitiveString" })
 export type SessionStatus = "creating" | "running" | "suspended" | "deleted" | "expired" | "failed"
-export const SessionStatus = Schema.Literals(["creating", "running", "suspended", "deleted", "expired", "failed"]).annotate({ "description": "Session lifecycle state:\n\n- `creating`: browser startup is in progress; the CDP endpoint does not answer yet.\n- `running`: browser and routing are available and the CDP endpoint answers.\n- `suspended`: browser is intentionally stopped while retained state remains available.\n- `deleted`: session is soft-deleted and may be reopened while retained.\n- `expired`: retention elapsed and the session can no longer be used.\n- `failed`: startup or reopen failed; retained state may still be reopenable.\n", "examples": ["running"], "identifier": "SessionStatus" })
+export const SessionStatus = Schema.Literals(["creating", "running", "suspended", "deleted", "expired", "failed"]).annotate({ "description": "Session lifecycle state:\n\n- `creating`: browser startup is in progress; the CDP endpoint does not answer yet.\n- `running`: browser and routing are available and the CDP endpoint answers.\n- `suspended`: browser is intentionally stopped while retained state remains available.\n- `deleted`: deletion cleanup is pending; legacy retained soft-deleted sessions may still be reopenable until their retention deadline.\n- `expired`: retention elapsed or permanent deletion completed; the session can no longer be used.\n- `failed`: startup or reopen failed; retained state may still be reopenable.\n", "examples": ["running"], "identifier": "SessionStatus" })
 export type StringMap = { readonly [x: string]: string }
 export const StringMap = Schema.Record(Schema.String, Schema.String).annotate({ "description": "Arbitrary string key-value metadata. Tag-writing operations additionally reject blank keys and blank values.", "examples": [{ "environment": "production", "region": "eu-west-1" }], "identifier": "StringMap" })
 export type SessionProxyUpstream = { readonly "url": string }
@@ -1494,7 +1494,7 @@ readonly "getSessionsBulk": <Config extends OperationConfig>(options: { readonly
 */
 readonly "getSession": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof GetSessionParams.Encoded | undefined; readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof GetSession200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
-* Stops and marks the session `deleted`. The retained overlay remains reopenable until `expiresAt`.
+* Permanently stops the browser and removes its overlay, files, cache, logs, and crash dumps before returning. The response contains terminal `expired` metadata with `deletedAt` and `expiredAt`, but no access credentials; the session cannot be reopened. Repeated deletion is safe, including for an already expired session. Failed cleanup remains immediately eligible for garbage collection and can be retried with DELETE.
 */
 readonly "deleteSession": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof DeleteSessionParams.Encoded | undefined; readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof DeleteSession200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
@@ -1510,7 +1510,7 @@ readonly "updateSessionProxy": <Config extends OperationConfig>(sessionId: strin
 */
 readonly "suspendSession": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof SuspendSessionParams.Encoded | undefined; readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof SuspendSession200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
-* Restarts a retained `deleted` or `failed` session and returns fresh credentials.
+* Restarts a retained `failed` session or a legacy retained `deleted` session and returns fresh credentials. A permanently deleted or expired session cannot be reopened. Use suspension to stop a browser while preserving its state.
 */
 readonly "reopenSession": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof ReopenSessionParams.Encoded | undefined; readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof ReopenSession200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**

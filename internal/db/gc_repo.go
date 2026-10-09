@@ -29,7 +29,7 @@ func (r *Repository) ListSessionsWithExpiredArtifacts(ctx context.Context, artif
 		Model(&sessions).
 		Where("status = ?", SessionStatusExpired).
 		Where("expired_at IS NOT NULL").
-		Where("expired_at <= ?", artifactsBefore).
+		Where("(deleted_at IS NOT NULL OR expired_at <= ?)", artifactsBefore).
 		OrderExpr("created_at ASC").
 		Scan(ctx)
 	if err != nil {

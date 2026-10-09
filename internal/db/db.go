@@ -144,7 +144,7 @@ type Repository struct {
 }
 
 type sessionLifecycleLock struct {
-	mu   sync.Mutex
+	mu   sync.RWMutex
 	refs int
 }
 
@@ -158,6 +158,15 @@ func NewRepository(db *DB) *Repository {
 
 // LockSession serializes browser, overlay, and promotion work for one session.
 func (r *Repository) LockSession(sessionID string) func() {
+	return r.lockSession(sessionID, false)
+}
+
+// LockSessionFiles allows concurrent file operations while excluding lifecycle changes.
+func (r *Repository) LockSessionFiles(sessionID string) func() {
+	return r.lockSession(sessionID, true)
+}
+
+func (r *Repository) lockSession(sessionID string, shared bool) func() {
 	r.sessionLifecycleMu.Lock()
 	lock := r.sessionLifecycleLocks[sessionID]
 	if lock == nil {
@@ -167,9 +176,17 @@ func (r *Repository) LockSession(sessionID string) func() {
 	lock.refs++
 	r.sessionLifecycleMu.Unlock()
 
-	lock.mu.Lock()
+	if shared {
+		lock.mu.RLock()
+	} else {
+		lock.mu.Lock()
+	}
 	return func() {
-		lock.mu.Unlock()
+		if shared {
+			lock.mu.RUnlock()
+		} else {
+			lock.mu.Unlock()
+		}
 
 		r.sessionLifecycleMu.Lock()
 		defer r.sessionLifecycleMu.Unlock()

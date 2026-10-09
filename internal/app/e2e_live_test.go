@@ -180,21 +180,27 @@ func TestLiveE2EDesktopSmoke(t *testing.T) {
 	}
 	_ = faResp.Body.Close()
 
-	deleteResp := doJSON(t, client, http.MethodDelete, baseURL+"/api/sessions/"+sessionID, tenantToken.Raw, "", nil)
-	if deleteResp.StatusCode != http.StatusOK {
-		t.Fatalf("delete session status = %d body = %s", deleteResp.StatusCode, readBody(deleteResp))
+	suspendResp := postJSON(t, client, baseURL+"/api/sessions/"+sessionID+"/suspend", tenantToken.Raw, "", nil)
+	if suspendResp.StatusCode != http.StatusOK {
+		t.Fatalf("suspend session status = %d body = %s", suspendResp.StatusCode, readBody(suspendResp))
 	}
+	_ = suspendResp.Body.Close()
 
-	reopenResp := postJSON(t, client, baseURL+"/api/sessions/"+sessionID+"/reopen", tenantToken.Raw, "", nil)
-	if reopenResp.StatusCode != http.StatusOK {
-		t.Fatalf("reopen session status = %d body = %s", reopenResp.StatusCode, readBody(reopenResp))
+	wakeResp, err := client.Do(faReq)
+	if err != nil {
+		t.Fatalf("wake forward auth: %v", err)
 	}
+	if wakeResp.StatusCode != http.StatusOK {
+		t.Fatalf("wake session status = %d body = %s", wakeResp.StatusCode, readBody(wakeResp))
+	}
+	_ = wakeResp.Body.Close()
 	waitForBrowserUnitActive(t, sessionID)
 
-	stopResp := doJSON(t, client, http.MethodDelete, baseURL+"/api/sessions/"+sessionID, tenantToken.Raw, "", nil)
+	stopResp := postJSON(t, client, baseURL+"/api/sessions/"+sessionID+"/suspend", tenantToken.Raw, "", nil)
 	if stopResp.StatusCode != http.StatusOK {
-		t.Fatalf("delete for promote status = %d", stopResp.StatusCode)
+		t.Fatalf("suspend for promote status = %d", stopResp.StatusCode)
 	}
+	_ = stopResp.Body.Close()
 	waitForBrowserUnitInactive(t, sessionID)
 
 	layout, err := paths.Session(cfg, sessionID)

@@ -60,7 +60,7 @@ func newSessionTestEnv(t *testing.T, configure ...func(*config.Config)) *testEnv
 	sessions := session.NewService(cfg, env.repo, &sessionHandlerFakeOverlay{cfg: cfg}, browserSupervisor, channels, traefik.NoopReconciler{})
 	sessions.SetCDPReadyWaiter(func(context.Context, int) error { return nil })
 
-	server := &Server{Config: cfg, Auth: env.service, Sessions: sessions, Channels: channels}
+	server := &Server{Config: cfg, Repository: env.repo, Auth: env.service, Sessions: sessions, Channels: channels}
 	env.router = NewRouter(zap.NewNop(), server, nil, cfg.CdpRouteBasePath)
 	env.server = server
 	return env
@@ -142,10 +142,21 @@ func TestSessionLifecycleHandlers(t *testing.T) {
 	if deleteRec.Code != http.StatusOK {
 		t.Fatalf("delete session status = %d, body = %s", deleteRec.Code, deleteRec.Body.String())
 	}
+	var deleted sessionMutationResponse
+	if err := json.Unmarshal(deleteRec.Body.Bytes(), &deleted); err != nil {
+		t.Fatalf("decode delete response: %v", err)
+	}
+	if deleted.Session.Status != db.SessionStatusExpired {
+		t.Fatalf("deleted status = %q, want expired", deleted.Session.Status)
+	}
+	repeated := env.do(t, http.MethodDelete, "/api/sessions/"+created.Session.ID, sessionsToken.Raw, "", nil)
+	if repeated.Code != http.StatusOK {
+		t.Fatalf("repeat delete status = %d, body = %s", repeated.Code, repeated.Body.String())
+	}
 
 	reopenRec := env.do(t, http.MethodPost, "/api/sessions/"+created.Session.ID+"/reopen", sessionsToken.Raw, "", nil)
-	if reopenRec.Code != http.StatusOK {
-		t.Fatalf("reopen session status = %d, body = %s", reopenRec.Code, reopenRec.Body.String())
+	if reopenRec.Code != http.StatusGone {
+		t.Fatalf("reopen session status = %d, want 410, body = %s", reopenRec.Code, reopenRec.Body.String())
 	}
 }
 

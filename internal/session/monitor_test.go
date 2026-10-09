@@ -63,7 +63,7 @@ func TestMonitorRefreshesActiveRunningSessionLease(t *testing.T) {
 
 	before := created.Session.ExpiresAt
 	service.now = func() time.Time {
-		return time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
+		return time.Date(2026, 7, 10, 11, 59, 59, 0, time.UTC)
 	}
 	recent := service.now().UTC().Format(time.RFC3339Nano)
 	sessionRow, err := repo.GetSessionByID(ctx, created.Session.ID)
@@ -87,5 +87,29 @@ func TestMonitorRefreshesActiveRunningSessionLease(t *testing.T) {
 	}
 	if updated.Status != db.SessionStatusRunning {
 		t.Fatalf("status = %q, want running", updated.Status)
+	}
+}
+
+func TestMonitorDoesNotResurrectDeletedSession(t *testing.T) {
+	t.Parallel()
+	service, _, repo, runner, _ := newTestService(t)
+	tenantID := createTenant(t, repo)
+	ctx := context.Background()
+	created, err := service.Create(ctx, CreateInput{TenantID: tenantID, BrowserChannel: "chromium"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.beforeListUnits = func() {
+		if _, err := service.Delete(ctx, tenantID, created.Session.ID); err != nil {
+			t.Fatalf("Delete() error = %v", err)
+		}
+	}
+	NewMonitor(service, zap.NewNop()).tick(ctx)
+	row, err := repo.GetSessionByID(ctx, created.Session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Status != db.SessionStatusExpired || row.DeletedAt == nil {
+		t.Fatalf("monitor restored deleted session: %#v", row)
 	}
 }

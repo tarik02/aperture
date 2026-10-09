@@ -248,5 +248,5 @@ func isExpired(expiresAt string, now time.Time) bool {
 	if err != nil {
 		return true
 	}
-	return now.After(parsed)
+	return !now.Before(parsed)
 }

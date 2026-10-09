@@ -155,9 +155,9 @@ func TestPromoteSessionHandler(t *testing.T) {
 		t.Fatalf("decode create: %v", err)
 	}
 
-	deleteRec := env.do(t, http.MethodDelete, "/api/sessions/"+created.Session.ID, sessionsToken.Raw, "", nil)
-	if deleteRec.Code != http.StatusOK {
-		t.Fatalf("delete session status = %d, body = %s", deleteRec.Code, deleteRec.Body.String())
+	suspendRec := env.do(t, http.MethodPost, "/api/sessions/"+created.Session.ID+"/suspend", sessionsToken.Raw, "", nil)
+	if suspendRec.Code != http.StatusOK {
+		t.Fatalf("suspend session status = %d, body = %s", suspendRec.Code, suspendRec.Body.String())
 	}
 
 	promoteRec := env.do(t, http.MethodPost, "/api/sessions/"+created.Session.ID+"/promote", token.Raw, "", map[string]any{

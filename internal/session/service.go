@@ -19,6 +19,7 @@ import (
 	"github.com/aperture/aperture/internal/overlay"
 	"github.com/aperture/aperture/internal/paths"
 	"github.com/aperture/aperture/internal/proxy"
+	"github.com/aperture/aperture/internal/sessionstorage"
 	"github.com/aperture/aperture/internal/supervisor"
 	"github.com/aperture/aperture/internal/traefik"
 )
@@ -456,53 +457,59 @@ func normalizedOptionalString(value *string) *string {
 	return &trimmed
 }
 
-// Delete tombstones a session and stops its browser.
+// Delete stops a session and reclaims its storage. Metadata remains for audit history.
 func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*SessionView, error) {
 	unlock := s.repo.LockSession(sessionID)
 	defer unlock()
 
-	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
+	sessionRow, err := s.repo.GetSessionByTenantAndID(ctx, tenantID, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	if sessionRow.Status == db.SessionStatusExpired {
-		return nil, ErrExpired
-	}
-	wasRunning := sessionRow.Status == db.SessionStatusRunning
-
-	if wasRunning {
-		if err := s.browser.Stop(ctx, sessionID); err != nil {
-			return nil, err
-		}
-	}
-	if err := s.browser.RemoveRuntimeEnv(sessionID); err != nil {
-		return nil, err
+	if sessionRow == nil {
+		return nil, ErrNotFound
 	}
 
 	now := s.now().UTC()
 	deletedAt := now.Format(time.RFC3339Nano)
-	expiresAt := now.Add(time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
-	stoppedAt := deletedAt
-
+	// Persist the deletion before cleanup so a failed or interrupted purge is
+	// no longer usable and the next GC pass can retry it without a retention wait.
 	sessionRow.Status = db.SessionStatusDeleted
-	sessionRow.DeletedAt = &deletedAt
-	sessionRow.StoppedAt = &stoppedAt
+	if sessionRow.DeletedAt == nil {
+		sessionRow.DeletedAt = &deletedAt
+	}
+	sessionRow.ExpiresAt = deletedAt
+	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		return nil, err
+	}
+	if err := s.browser.Stop(ctx, sessionID); err != nil {
+		return nil, err
+	}
+	if err := s.browser.RemoveRuntimeEnv(sessionID); err != nil {
+		return nil, err
+	}
+	if err := s.unmountOverlay(ctx, sessionID); err != nil {
+		return nil, &OverlayMountError{SessionID: sessionID, Err: err}
+	}
+	if err := sessionstorage.RemoveOverlay(s.cfg, sessionRow); err != nil {
+		return nil, &OverlayMountError{SessionID: sessionID, Err: err}
+	}
+	if err := sessionstorage.RemoveArtifacts(s.cfg, sessionRow); err != nil {
+		return nil, err
+	}
+
+	sessionRow.Status = db.SessionStatusExpired
+	sessionRow.ExpiredAt = &deletedAt
+	sessionRow.StoppedAt = &deletedAt
 	sessionRow.SuspendedAt = nil
-	sessionRow.ExpiresAt = expiresAt
 	sessionRow.RuntimeEnvPath = nil
 	sessionRow.CurrentCDPPort = nil
-
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
 		return nil, err
 	}
 	s.metrics.SessionEvent(metrics.SessionDeleted)
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return nil, err
-	}
-	if wasRunning {
-		if err := s.unmountOverlay(ctx, sessionID); err != nil {
-			return nil, &OverlayMountError{SessionID: sessionID, Err: err}
-		}
 	}
 
 	tags, err := s.repo.ListSessionTags(ctx, sessionID)
@@ -658,6 +665,9 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 
 // RotateSessionToken replaces the session token without restarting the browser.
 func (s *Service) RotateSessionToken(ctx context.Context, tenantID, sessionID string) (*SessionView, error) {
+	unlock := s.repo.LockSession(sessionID)
+	defer unlock()
+
 	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
 	if err != nil {
 		return nil, err
@@ -1164,7 +1174,7 @@ func (s *Service) requireTenantSession(ctx context.Context, tenantID, sessionID 
 	if sessionRow == nil {
 		return nil, ErrNotFound
 	}
-	if isExpired(sessionRow.ExpiresAt, s.now().UTC()) {
+	if sessionRow.Status == db.SessionStatusExpired || isExpired(sessionRow.ExpiresAt, s.now().UTC()) {
 		return nil, ErrExpired
 	}
 	return sessionRow, nil
@@ -1368,7 +1378,7 @@ func isExpired(expiresAt string, now time.Time) bool {
 	if err != nil {
 		return true
 	}
-	return now.After(parsed)
+	return !now.Before(parsed)
 }
 
 func isRetainedOrRunning(status string) bool {
