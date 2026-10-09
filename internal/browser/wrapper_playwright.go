@@ -51,6 +51,22 @@ func (r *wrapperRuntime) startAutomationBackend(ctx context.Context, liveSession
 	proxy.following = liveSession.followsAutomation
 	proxy.prepareTarget = liveSession.prepareRecordingTarget
 	proxy.navigateTarget = liveSession.browser.navigate
+	if r.values.CompositorEnabled {
+		proxy.resizeViewport = func(targetID string, width, height int, deviceScaleFactor float64) error {
+			if deviceScaleFactor == 0 {
+				target, ready := r.readyTarget(targetID)
+				if !ready {
+					return fmt.Errorf("target is not ready")
+				}
+				deviceScaleFactor = target.Viewport.DeviceScaleFactor
+			}
+			if err := liveSession.browser.setViewport(targetID, width, height, deviceScaleFactor); err != nil {
+				return err
+			}
+			liveSession.overrideViewportOwner(nil)
+			return nil
+		}
+	}
 	endpoint, err := proxy.serve(ctx)
 	if err != nil {
 		return err
