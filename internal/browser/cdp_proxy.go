@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/chromedp/cdproto/emulation"
 	"github.com/coder/websocket"
 )
 
@@ -39,6 +40,7 @@ type cdpProxy struct {
 	following      func() bool
 	prepareTarget  func(context.Context, string) error
 	navigateTarget func(string, string) error
+	resizeViewport func(string, int, int, float64) error
 	action         atomic.Bool // a mutating MCP tool is running
 	actionMu       sync.Mutex
 	actionTarget   string
@@ -272,7 +274,39 @@ func (c *cdpProxyConn) fromClient(raw []byte) {
 			return
 		}
 	}
+	if method == "Emulation.setDeviceMetricsOverride" && c.resizeViewport(raw) {
+		return
+	}
 	c.toUp(raw)
+}
+
+// Desktop emulation changes page layout without resizing the captured Wayland surface.
+// Resize that surface instead, and clear emulation on the connection that owns it.
+func (c *cdpProxyConn) resizeViewport(raw []byte) bool {
+	if c.proxy.resizeViewport == nil {
+		return false
+	}
+	var params emulation.SetDeviceMetricsOverrideParams
+	message, ok := decodeCDP(raw, &params)
+	if !ok || message.ID == nil || params.Mobile || params.Width <= 0 || params.Height <= 0 {
+		return false
+	}
+	_, session, known := c.rootSession(message.SessionID)
+	if !known || session.kind != "page" {
+		return false
+	}
+	go func() {
+		_, err := c.call(c.ctx, message.SessionID, "Emulation.clearDeviceMetricsOverride", struct{}{})
+		if err == nil {
+			err = c.proxy.resizeViewport(session.targetID, int(params.Width), int(params.Height), params.DeviceScaleFactor)
+		}
+		if err != nil {
+			c.reply(message, nil, err.Error())
+			return
+		}
+		c.reply(message, json.RawMessage(`{}`), "")
+	}()
+	return true
 }
 
 func (c *cdpProxyConn) prepareTarget(raw []byte) bool {
