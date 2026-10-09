@@ -46,17 +46,22 @@ func TestMediaCandidateSelection(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var attempts []string
-			selected, _, err := selectMediaCandidate(test.requested, mediaCandidates(RuntimeEnvValues{GPUMode: gpuModeHardware, RenderNode: "/dev/dri/renderD128"}), func(candidate mediaCandidate) (media.EncoderProfile, error) {
+			selected, err := selectMediaEncoder(test.requested, mediaEncoders(RuntimeEnvValues{GPUMode: gpuModeHardware, RenderNode: "/dev/dri/renderD128"}), func(candidate mediaEncoder) (media.EncoderProfile, error) {
 				attempts = append(attempts, candidate.codec)
 				for _, failed := range test.failed {
 					if candidate.codec == failed {
 						return media.EncoderProfile{}, errors.New("driver failed to emit a keyframe")
 					}
 				}
-				return candidate.profile, nil
+				profile := candidate.profile
+				profile.Label = "Proven encoder"
+				return profile, nil
 			})
 			if selected.codec != test.want || (err != nil) != (test.want == "") {
 				t.Fatalf("selected=%q err=%v, want %q", selected.codec, err, test.want)
+			}
+			if err == nil && selected.profile.Label != "Proven encoder" {
+				t.Fatalf("selection discarded the probed profile: %s", selected.profile.Label)
 			}
 			if !reflect.DeepEqual(attempts, test.attempts) {
 				t.Fatalf("attempts=%v, want %v", attempts, test.attempts)
@@ -69,7 +74,7 @@ func TestMediaCandidateSelection(t *testing.T) {
 }
 
 func TestSoftwareModeExcludesHardwareEncoders(t *testing.T) {
-	for _, candidate := range mediaCandidates(RuntimeEnvValues{GPUMode: gpuModeSoftware, RenderNode: "/dev/dri/renderD128"}) {
+	for _, candidate := range mediaEncoders(RuntimeEnvValues{GPUMode: gpuModeSoftware, RenderNode: "/dev/dri/renderD128"}) {
 		if candidate.codec != mediaCodecVP8 && candidate.codec != mediaCodecX264 {
 			t.Fatalf("software mode offered %s", candidate.name)
 		}
@@ -77,7 +82,7 @@ func TestSoftwareModeExcludesHardwareEncoders(t *testing.T) {
 }
 
 func TestAutoModeCanProbeNVENCWithoutDRM(t *testing.T) {
-	candidates := mediaCandidates(RuntimeEnvValues{GPUMode: gpuModeSoftware, mediaRequestedGPUMode: gpuModeAuto})
+	candidates := mediaEncoders(RuntimeEnvValues{GPUMode: gpuModeSoftware, mediaRequestedGPUMode: gpuModeAuto})
 	if candidates[0].codec != mediaCodecNVENC {
 		t.Fatal("auto mode excluded NVENC without a DRM render node")
 	}
@@ -86,8 +91,8 @@ func TestAutoModeCanProbeNVENCWithoutDRM(t *testing.T) {
 func TestMediaProfilesRenderWithoutVendorSpecificProperties(t *testing.T) {
 	values := probeTestValues(t)
 	values.GPUMode, values.RenderNode = gpuModeHardware, "/dev/dri/renderD128"
-	for _, candidate := range mediaCandidates(values) {
-		config := mediaCandidateConfig(values, candidate)
+	for _, candidate := range mediaEncoders(values) {
+		config := mediaEncoderConfig(values, candidate)
 		profile := config.Profiles[candidate.name]
 		if err := profile.Validate(candidate.name, config.Tuning); err != nil {
 			t.Fatalf("%s: %v", candidate.name, err)
@@ -160,26 +165,26 @@ func TestMediaEncoderProbeIntegration(t *testing.T) {
 	values := probeTestValues(t)
 	values.MediaProducerPluginPath = os.Getenv("GST_PLUGIN_SYSTEM_PATH_1_0")
 	values.mediaProbeCache = newMediaProbeCache()
-	candidate := mediaCandidates(values)[0]
-	profile, err := probeMediaCandidate(values, candidate)
+	candidate := mediaEncoders(values)[0]
+	profile, err := probeMediaEncoder(values, candidate)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if profile.Codec.ID != "vp8" {
 		t.Fatalf("probe returned codec %s", profile.Codec.ID)
 	}
-	if _, err := probeMediaCandidate(values, candidate); err != nil || len(values.mediaProbeCache.entries) != 1 {
+	if _, err := probeMediaEncoder(values, candidate); err != nil || len(values.mediaProbeCache.entries) != 1 {
 		t.Fatalf("successful probe was not reused: %v", err)
 	}
 	broken := candidate
 	broken.profile.Pipeline = strings.ReplaceAll(broken.profile.Pipeline, "deadline=1", "property-does-not-exist=1")
-	if _, err := probeMediaCandidate(values, broken); err == nil || !strings.Contains(err.Error(), "property-does-not-exist") {
+	if _, err := probeMediaEncoder(values, broken); err == nil || !strings.Contains(err.Error(), "property-does-not-exist") {
 		t.Fatalf("element presence hid a bad property: %v", err)
 	}
 	noOutput := candidate
 	noOutput.profile.Pipeline = strings.ReplaceAll(noOutput.profile.Pipeline, "video/x-vp8", "video/x-vp8 ! valve drop=true")
 	start := time.Now()
-	if _, err := probeMediaCandidate(values, noOutput); err == nil {
+	if _, err := probeMediaEncoder(values, noOutput); err == nil {
 		t.Fatal("probe accepted a pipeline without an encoded frame")
 	}
 	if time.Since(start) > mediaProbeTimeout+2*time.Second {
@@ -191,7 +196,7 @@ func TestMediaEncoderProbeIntegration(t *testing.T) {
 	hung := candidate
 	hung.profile.Pipeline += " ! identity sleep-time=10000000"
 	start = time.Now()
-	if _, err := probeMediaCandidate(values, hung); err == nil || !strings.Contains(err.Error(), "exceeded") {
+	if _, err := probeMediaEncoder(values, hung); err == nil || !strings.Contains(err.Error(), "exceeded") {
 		t.Fatalf("parent did not kill a stuck native pipeline: %v", err)
 	}
 	if time.Since(start) > mediaProbeTimeout+2*time.Second {
@@ -217,7 +222,7 @@ func TestMediaEncoderProbeIntegration(t *testing.T) {
 		scannerValues := values
 		scannerValues.CacheDir = t.TempDir()
 		scannerValues.mediaProbeCache = newMediaProbeCache()
-		if _, err := probeMediaCandidate(scannerValues, candidate); err == nil {
+		if _, err := probeMediaEncoder(scannerValues, candidate); err == nil {
 			t.Fatal("hung scanner did not fail the probe")
 		}
 		pidBytes, err := os.ReadFile(pidFile)
@@ -235,8 +240,8 @@ func TestMediaEncoderProbeIntegration(t *testing.T) {
 			}
 		}
 	})
-	_, _, err = selectMediaCandidate(mediaCodecAuto, []mediaCandidate{broken, candidate}, func(candidate mediaCandidate) (media.EncoderProfile, error) {
-		return probeMediaCandidate(values, candidate)
+	_, err = selectMediaEncoder(mediaCodecAuto, []mediaEncoder{broken, candidate}, func(candidate mediaEncoder) (media.EncoderProfile, error) {
+		return probeMediaEncoder(values, candidate)
 	})
 	if err != nil {
 		t.Fatalf("real pipeline failure did not fall back: %v", err)
@@ -259,12 +264,12 @@ func TestMediaEncoderHardwareProbeIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	values.MediaProducerPluginPath = os.Getenv("GST_PLUGIN_SYSTEM_PATH_1_0")
-	for _, candidate := range mediaCandidates(values) {
+	for _, candidate := range mediaEncoders(values) {
 		if candidate.codec != codec {
 			continue
 		}
 		t.Run(candidate.name, func(t *testing.T) {
-			profile, err := probeMediaCandidate(values, candidate)
+			profile, err := probeMediaEncoder(values, candidate)
 			if err != nil {
 				t.Fatal(err)
 			}

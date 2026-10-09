@@ -57,63 +57,12 @@ func newWebRTCProducer(runtime *wrapperRuntime) (*producer, error) {
 		return nil, fmt.Errorf("set GStreamer registry: %w", err)
 	}
 
-	candidates := mediaCandidates(values)
-	selected, selectedProfile, err := selectMediaCandidate(values.MediaProducerCodec, candidates, func(candidate mediaCandidate) (media.EncoderProfile, error) {
-		return probeMediaCandidate(values, candidate)
-	})
-	if err != nil && values.mediaRequestedCodec == mediaCodecAuto {
-		selected, selectedProfile, err = selectMediaCandidate(mediaCodecAuto, candidates, func(candidate mediaCandidate) (media.EncoderProfile, error) {
-			return probeMediaCandidate(values, candidate)
-		})
-	}
+	selected, err := selectRuntimeMediaEncoder(values)
 	if err != nil {
 		return nil, err
 	}
-	profileName := selected.name
-	profiles := make(map[string]media.EncoderProfile, len(candidates))
-	availableProfiles := make([]mediaProfile, 0, len(candidates))
-	for _, candidate := range candidates {
-		profile := selectedProfile
-		var err error
-		if candidate.name != selected.name {
-			profile, err = probeMediaCandidate(values, candidate)
-		}
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "browser-session-wrapper: media profile=%s unavailable: %v\n", candidate.name, err)
-			continue
-		}
-		profiles[candidate.name] = profile
-		availableProfiles = append(availableProfiles, mediaProfile{
-			ID:          candidate.name,
-			Label:       profile.Label,
-			Codec:       profile.Codec.ID,
-			MimeType:    profile.Codec.MimeType,
-			SDPFmtpLine: profile.Codec.SDPFmtpLine,
-		})
-	}
-	profile, exists := profiles[profileName]
-	if !exists {
-		return nil, fmt.Errorf("selected media producer profile %q is unavailable", profileName)
-	}
-	mediaWidth, mediaHeight := mediaDimensions(profile, values.CompositorWidth, values.CompositorHeight, values.MediaProducerFPS)
-
+	mediaConfig, availableProfiles := probePresentationProfiles(values, selected)
 	logger := zap.NewNop()
-	mediaConfig := media.Config{
-		Profiles: profiles,
-		Quality: media.Quality{
-			Profile:     profileName,
-			Option:      mediaQualityOption,
-			Width:       mediaWidth,
-			Height:      mediaHeight,
-			Framerate:   values.MediaProducerFPS,
-			BitrateKbps: values.MediaProducerBitrateKbps,
-		},
-		Tuning: media.Tuning{
-			Threads:          4,
-			KeyframeInterval: values.MediaProducerKeyframe,
-			VP8CPUUsed:       8,
-		},
-	}
 	mediaSource := newTargetMediaSource(mediaConfig, logger.Named("media"))
 
 	iceServers, iceUsername, iceCredential, err := parseICEServers(values.MediaProducerICEServers)

@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/tarik02/webdesktop/media"
 )
 
 const (
@@ -62,9 +60,7 @@ func resolveGPU(values RuntimeEnvValues) (RuntimeEnvValues, error) {
 	if !values.MediaProducerEnabled {
 		return values, nil
 	}
-	selected, _, err := selectMediaCandidate(requestedCodec, mediaCandidates(values), func(candidate mediaCandidate) (media.EncoderProfile, error) {
-		return probeMediaCandidate(values, candidate)
-	})
+	selected, err := selectRuntimeMediaEncoder(values)
 	if err != nil {
 		return RuntimeEnvValues{}, err
 	}
