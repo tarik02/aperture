@@ -35,7 +35,7 @@ export const makeTenantsApi = Effect.gen(function* () {
   const getCurrentTenant = Effect.fn("TenantsApi.getCurrentTenant")(function* (
     credentials: ApiCredentials,
   ) {
-    return yield* api.getTenant(undefined).pipe(authorize(Authorization.of(credentials)));
+    return yield* api.getTenant(undefined).pipe(authorize(Authorization.tenantScoped(credentials)));
   });
 
   const updateCurrentTenant = Effect.fn("TenantsApi.updateCurrentTenant")(function* (
@@ -44,7 +44,7 @@ export const makeTenantsApi = Effect.gen(function* () {
   ) {
     return yield* api
       .updateSelectedTenant({ payload: input })
-      .pipe(authorize(Authorization.of(credentials)));
+      .pipe(authorize(Authorization.tenantScoped(credentials)));
   });
 
   const createTenant = Effect.fn("TenantsApi.createTenant")(function* (

@@ -84,7 +84,7 @@ export const makeTokensApi = Effect.gen(function* () {
           scope: params.scope,
         }) as typeof Api.ListTenantTokensParams.Encoded,
       })
-      .pipe(authorize(Authorization.of(credentials)));
+      .pipe(authorize(Authorization.tenantScoped(credentials)));
   });
 
   const tenantTokens = paginated<TokensFilter, ApiToken>(listTenantTokens);
@@ -103,14 +103,16 @@ export const makeTokensApi = Effect.gen(function* () {
           expiresAt: input.expiresAt ?? null,
         } as typeof Api.CreateTenantTokenRequestJson.Encoded,
       })
-      .pipe(authorize(Authorization.of(credentials)));
+      .pipe(authorize(Authorization.tenantScoped(credentials)));
   });
 
   const revokeTenantToken = Effect.fn("TokensApi.revokeTenantToken")(function* (
     credentials: ApiCredentials,
     tokenId: string,
   ) {
-    yield* api.revokeTenantToken(tokenId, undefined).pipe(authorize(Authorization.of(credentials)));
+    yield* api
+      .revokeTenantToken(tokenId, undefined)
+      .pipe(authorize(Authorization.tenantScoped(credentials)));
   });
 
   return TokensApi.of({

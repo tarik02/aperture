@@ -33,6 +33,8 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 	router.GET("/sessions/:sessionId/targets/:targetId/thumbnail", server.sessionThumbnail)
 	router.GET("/auth/login-methods", server.listLoginMethods)
 	if server.WebAuth != nil {
+		router.GET("/auth/tenant-context", server.tenantContext)
+		router.GET("/auth/sessions/:sessionId/tenant", server.sessionTenant)
 		if slices.Contains(server.Config.LoginMethods, config.LoginMethodAPIToken) {
 			router.POST("/auth/token/login", server.loginWithAPIToken)
 		}

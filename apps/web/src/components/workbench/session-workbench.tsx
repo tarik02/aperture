@@ -30,8 +30,9 @@ import { useWorkbenchSession } from "#/hooks/use-workbench-session.ts";
 import { hasScope, useActiveScopes } from "#/hooks/use-scopes.ts";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { AppWindow } from "lucide-react";
-import type { IceServer } from "@aperture-browser/api-client";
-import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
+import { ApiRequestError, type IceServer } from "@aperture-browser/api-client";
+import { selectAuth, useAuthSessionStore } from "#/stores/auth-session.ts";
+import { useTenantSelection } from "#/hooks/use-tenant-selection.ts";
 
 interface SessionWorkbenchProps {
   sessionId: string;
@@ -41,7 +42,9 @@ const emptyIceServers: readonly IceServer[] = [];
 
 export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
   const credentials = useApiCredentials();
-  const principal = useAuthSessionStore(selectPrincipal);
+  const auth = useAuthSessionStore(selectAuth);
+  const principal = auth?.principal;
+  const { selectTenant, switching } = useTenantSelection();
   const scopes = useActiveScopes();
   const canControl = hasScope(scopes, "sessions:write");
   const tenantReady = isTenantScopedQueryReady(credentials);
@@ -50,7 +53,13 @@ export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
   const [publicOrigin, setPublicOrigin] = useState<string | null>(null);
   const [detailSection, setDetailSection] = useState<SessionDetailSection | null>(null);
 
-  const { session: selectedSession, isResolvingRoute } = useWorkbenchSession(sessionId);
+  const {
+    session: selectedSession,
+    owningTenant,
+    isResolvingRoute,
+    error: lookupError,
+    retry,
+  } = useWorkbenchSession(sessionId);
   const canConnectSession = Boolean(
     selectedSession?.status === "running" || selectedSession?.status === "suspended",
   );
@@ -116,6 +125,77 @@ export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
     recordRecentSession(selectedSession.id);
   }, [recordRecentSession, selectedSession]);
 
+  if (isResolvingRoute) {
+    return (
+      <Empty className="aperture:h-full aperture:border-none">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <Spinner />
+          </EmptyMedia>
+          <EmptyTitle>Loading session</EmptyTitle>
+        </EmptyHeader>
+      </Empty>
+    );
+  }
+
+  if (
+    selectedSession === null &&
+    owningTenant !== null &&
+    owningTenant.id !== auth?.selectedTenant?.id
+  ) {
+    return (
+      <Empty className="aperture:h-full aperture:border-none">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <AppWindow />
+          </EmptyMedia>
+          <EmptyTitle>This session belongs to {owningTenant.displayName}</EmptyTitle>
+          <EmptyDescription>
+            {auth?.selectedTenant === null
+              ? "You haven't selected a tenant."
+              : `You're currently in ${auth?.selectedTenant?.displayName}.`}{" "}
+            Open it with a temporary tenant selection for this tab. Your remembered tenant and other
+            tabs stay unchanged.
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button disabled={switching} onClick={() => void selectTenant(owningTenant.id, true)}>
+            {switching ? <Spinner data-icon="inline-start" /> : null}
+            Open in {owningTenant.displayName} for this tab
+          </Button>
+        </EmptyContent>
+      </Empty>
+    );
+  }
+
+  if (selectedSession === null && lookupError !== null) {
+    const inaccessible =
+      lookupError instanceof ApiRequestError &&
+      (lookupError.status === 404 || lookupError.status === 403);
+    return (
+      <Empty className="aperture:h-full aperture:border-none">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <AppWindow />
+          </EmptyMedia>
+          <EmptyTitle>
+            {inaccessible ? "Session not found or access denied" : "Couldn't load session"}
+          </EmptyTitle>
+          <EmptyDescription>
+            {inaccessible
+              ? "This session may have been deleted, or your account doesn't have permission to open it."
+              : lookupError.message}
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button variant="outline" size="sm" onClick={() => void retry()}>
+            Try again
+          </Button>
+        </EmptyContent>
+      </Empty>
+    );
+  }
+
   if (!tenantReady) {
     return (
       <div className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-col aperture:p-3">
@@ -142,16 +222,7 @@ export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
 
   return (
     <div className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-1 aperture:flex-col aperture:overflow-hidden aperture:bg-background">
-      {isResolvingRoute ? (
-        <Empty className="aperture:h-full aperture:border-none">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <Spinner />
-            </EmptyMedia>
-            <EmptyTitle>Loading session</EmptyTitle>
-          </EmptyHeader>
-        </Empty>
-      ) : selectedSession?.status === "creating" ? (
+      {selectedSession?.status === "creating" ? (
         <Empty className="aperture:h-full aperture:border-none">
           <EmptyHeader>
             <EmptyMedia variant="icon">

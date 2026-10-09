@@ -1,7 +1,6 @@
 import { Navigate } from "@tanstack/react-router";
 import { Building2, MoreHorizontal, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useDeferredValue, useMemo } from "react";
-import { toast } from "sonner";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { TenantFormModal } from "#/features/tenant/form-modal/tenant-form-modal.tsx";
 import { BatchActionBar } from "#/components/resources/batch-action-bar.tsx";
@@ -42,8 +41,7 @@ import { useTenantFormStore } from "#/features/tenant/form/tenant-form.store.ts"
 import { useTenantFormModalStore } from "#/features/tenant/form-modal/tenant-form-modal.store.ts";
 import { useTenantListPageStore } from "#/features/tenant/list-page/tenant-list-page.store.ts";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
-import { AuthApi } from "@aperture-browser/api-client";
-import { useRunApi } from "@aperture-browser/session-react";
+import { useTenantSelection } from "#/hooks/use-tenant-selection.ts";
 
 const TENANT_SKELETON_COLUMNS = [
   {
@@ -58,10 +56,10 @@ const TENANT_SKELETON_COLUMNS = [
 ] as const;
 
 export function TenantListPage() {
-  const runApi = useRunApi();
+  const { selectTenant: switchTenant } = useTenantSelection();
   const credentials = useApiCredentials();
   const authStatus = useAuthSessionStore((state) => state.status);
-  const setAuthenticated = useAuthSessionStore((state) => state.setAuthenticated);
+  const isTemporaryTenant = useAuthSessionStore((state) => state.isTemporaryTenant);
 
   const deleted = useTenantListPageStore((state) => state.deleted);
   const setDeleted = useTenantListPageStore((state) => state.setDeleted);
@@ -95,11 +93,7 @@ export function TenantListPage() {
   }
 
   async function selectTenant(tenant: Tenant) {
-    try {
-      setAuthenticated(await runApi(AuthApi.use((auth) => auth.getAuthMe(tenant.id))));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Tenant switch failed");
-    }
+    await switchTenant(tenant.id, isTemporaryTenant);
   }
 
   async function handleConfirmAction() {

@@ -2,7 +2,7 @@ import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type { ApiCredentials } from "../authorization/service.ts";
 import type { ApiRequestError } from "../errors.ts";
-import type { AuthMeResponse } from "../schemas.ts";
+import type { AuthMeResponse, Tenant } from "../schemas.ts";
 import type * as S from "./schemas.ts";
 
 type Call<A> = Effect.Effect<A, ApiRequestError>;
@@ -36,6 +36,11 @@ export class AuthApi extends Context.Service<
       selectedTenantId?: string | null,
       credentials?: ApiCredentials,
     ) => Call<AuthMeResponse>;
+
+    /** Inspect a browser tenant context without changing its remembered selection. */
+    readonly getTenantContext: (selectedTenantId?: string | null) => Call<AuthMeResponse>;
+    /** Resolve the owning tenant only when the browser identity may read this session. */
+    readonly resolveSessionTenant: (sessionId: string) => Call<Tenant>;
 
     readonly getSecurityStatus: () => Call<S.SecurityStatus>;
     readonly setPassword: (currentPassword: string, newPassword: string) => Call<void>;
