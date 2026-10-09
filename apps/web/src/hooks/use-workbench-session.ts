@@ -1,58 +1,50 @@
-import { useEffect, useMemo } from "react";
-import { useSessionQuery, useSessionsInfiniteQuery } from "#/features/session/session.queries.ts";
-import { flattenInfinitePages } from "@aperture-browser/api-client";
-import type { Session } from "@aperture-browser/api-client";
+import { useQuery } from "@tanstack/react-query";
+import { ApiRequestError, AuthApi } from "@aperture-browser/api-client";
+import { useRunApi } from "@aperture-browser/session-react";
+import { useSessionQuery } from "#/features/session/session.queries.ts";
+import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
+import { selectAuth, useAuthSessionStore } from "#/stores/auth-session.ts";
 
-type UseWorkbenchSessionResult = {
-  session: Session | null;
-  isResolvingRoute: boolean;
-};
-
-export function useWorkbenchSession(sessionId: string | undefined): UseWorkbenchSessionResult {
-  const sessionsQuery = useSessionsInfiniteQuery({ limit: 50 });
-  const sessions = useMemo(
-    () => flattenInfinitePages(sessionsQuery.data?.pages),
-    [sessionsQuery.data],
-  );
-
-  const listedSession = useMemo(
-    () => (sessionId ? (sessions.find((item) => item.id === sessionId) ?? null) : null),
-    [sessions, sessionId],
-  );
+export function useWorkbenchSession(sessionId: string) {
+  const runApi = useRunApi();
+  const auth = useAuthSessionStore(selectAuth);
+  const credentials = useApiCredentials();
   const sessionQuery = useSessionQuery(sessionId);
-  const session = sessionQuery.data ?? listedSession;
-
-  const isResolvingRoute = Boolean(
-    sessionId &&
-    !session &&
-    (sessionQuery.isLoading ||
-      sessionsQuery.isLoading ||
-      sessionsQuery.isFetchingNextPage ||
-      sessionsQuery.hasNextPage),
-  );
-
-  useEffect(() => {
-    if (!sessionId || session) {
-      return;
-    }
-    if (sessionsQuery.isLoading || sessionsQuery.isFetchingNextPage) {
-      return;
-    }
-    if (!sessionsQuery.hasNextPage) {
-      return;
-    }
-    void sessionsQuery.fetchNextPage();
-  }, [
-    sessionId,
-    session,
-    sessionsQuery.isLoading,
-    sessionsQuery.isFetchingNextPage,
-    sessionsQuery.hasNextPage,
-    sessionsQuery.fetchNextPage,
-  ]);
+  const tenantReady = isTenantScopedQueryReady(credentials);
+  const lookupError = sessionQuery.error;
+  const resolveTenant =
+    !tenantReady ||
+    (lookupError instanceof ApiRequestError &&
+      (lookupError.status === 404 || lookupError.status === 403));
+  const tenantQuery = useQuery({
+    queryKey: [
+      "session-tenant",
+      auth?.principal.type,
+      auth?.principal.id,
+      auth?.selectedTenant?.id,
+      sessionId,
+    ],
+    queryFn: ({ signal }) =>
+      runApi(
+        AuthApi.use((api) => api.resolveSessionTenant(sessionId)),
+        { signal },
+      ),
+    enabled: auth !== null && sessionQuery.data === undefined && resolveTenant,
+    retry: false,
+  });
 
   return {
-    session,
-    isResolvingRoute,
+    session: sessionQuery.data ?? null,
+    owningTenant: tenantQuery.data ?? null,
+    isResolvingRoute: sessionQuery.isLoading || tenantQuery.isLoading,
+    error: tenantQuery.error ?? lookupError,
+    retry: async () => {
+      if (tenantReady) {
+        await sessionQuery.refetch();
+      }
+      if (resolveTenant) {
+        await tenantQuery.refetch();
+      }
+    },
   };
 }

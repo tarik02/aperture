@@ -20,7 +20,8 @@ export const queryKeys = {
     ["sessions-bulk", tenantId, sessionIds] as const,
   snapshots: (tenantId: string | null, filters: SnapshotsFilters) =>
     ["snapshots", tenantId, filters] as const,
-  tokens: (mode: TokensQueryMode, filters: TokensFilters) => ["tokens", mode, filters] as const,
+  tokens: (mode: TokensQueryMode, tenantId: string | null, filters: TokensFilters) =>
+    ["tokens", mode, tenantId, filters] as const,
   events: (tenantId: string | null, filters: EventsFilters) =>
     ["events", tenantId, filters] as const,
 };

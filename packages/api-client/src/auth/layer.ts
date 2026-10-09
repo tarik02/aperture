@@ -101,6 +101,26 @@ export const makeAuthApi = Effect.gen(function* () {
       .pipe(Effect.flatMap(HttpClientResponse.schemaBodyJson(SecurityStatus)), webSession);
   });
 
+  const getTenantContext = Effect.fn("AuthApi.getTenantContext")(function* (
+    selectedTenantId: string | null = null,
+  ) {
+    return yield* http.get("/auth/tenant-context").pipe(
+      Effect.flatMap(HttpClientResponse.schemaBodyJson(Api.AuthMe)),
+      authorize({
+        credentials: { ...webSessionCredentials, selectedTenantId },
+        tenantHeader: "optional",
+      }),
+    );
+  });
+
+  const resolveSessionTenant = Effect.fn("AuthApi.resolveSessionTenant")(function* (
+    sessionId: string,
+  ) {
+    return yield* http
+      .get(`/auth/sessions/${encodeURIComponent(sessionId)}/tenant`)
+      .pipe(Effect.flatMap(HttpClientResponse.schemaBodyJson(Api.Tenant)), webSession);
+  });
+
   const setPassword = Effect.fn("AuthApi.setPassword")(function* (
     currentPassword: string,
     newPassword: string,
@@ -219,6 +239,8 @@ export const makeAuthApi = Effect.gen(function* () {
     acceptUserInvitation,
     logoutWebSession,
     getAuthMe,
+    getTenantContext,
+    resolveSessionTenant,
     getSecurityStatus,
     setPassword,
     listPasskeys,
