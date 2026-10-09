@@ -13,12 +13,13 @@ export function useTokensInfiniteQuery(filters: TokensFilters = {}) {
   const runApi = useRunApi();
   const credentials = useApiCredentials();
   const mode = credentials?.authorityType === "system_admin" ? "admin" : "tenant";
+  const tenantId = mode === "tenant" ? (credentials?.tenantId ?? null) : null;
   const enabled =
     credentials !== null &&
     (credentials.authorityType === "system_admin" || credentials.authorityType === "tenant");
 
   return useInfiniteQuery({
-    queryKey: queryKeys.tokens(mode, filters),
+    queryKey: queryKeys.tokens(mode, tenantId, filters),
     queryFn: ({ pageParam, signal }) => {
       const params = {
         limit: filters.limit ?? defaultListLimit,
@@ -45,7 +46,9 @@ export function useTokensInfiniteQuery(filters: TokensFilters = {}) {
     enabled,
     // Keep rows on screen while a new search loads.
     placeholderData: (previous, previousQuery) =>
-      previousQuery?.queryKey[1] === mode ? previous : undefined,
+      previousQuery?.queryKey[1] === mode && previousQuery.queryKey[2] === tenantId
+        ? previous
+        : undefined,
     ...listQueryDefaults,
   });
 }

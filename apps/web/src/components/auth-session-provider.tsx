@@ -4,7 +4,8 @@ import { useRouterState } from "@tanstack/react-router";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import { ApiAuthorization, AuthApi } from "@aperture-browser/api-client";
-import { useAuthSessionStore } from "#/stores/auth-session.ts";
+import { readTemporaryTenant, useAuthSessionStore } from "#/stores/auth-session.ts";
+import { toast } from "sonner";
 import { useFork } from "@aperture-browser/session-react";
 
 const WelcomeLoginModal = lazy(() =>
@@ -20,6 +21,7 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
   });
   const status = useAuthSessionStore((state) => state.status);
   const setAuthenticated = useAuthSessionStore((state) => state.setAuthenticated);
+  const setTemporaryAuthenticated = useAuthSessionStore((state) => state.setTemporaryAuthenticated);
   const setUnauthenticated = useAuthSessionStore((state) => state.setUnauthenticated);
 
   useEffect(() => {
@@ -44,13 +46,36 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
     () =>
       guestMode || status !== "loading"
         ? undefined
-        : AuthApi.use((auth) => auth.getAuthMe()).pipe(
+        : Effect.gen(function* () {
+            const remembered = yield* AuthApi.use((auth) => auth.getTenantContext());
+            const tenantId = readTemporaryTenant(remembered.principal);
+            if (tenantId === null) {
+              return { auth: remembered, temporary: false };
+            }
+            return yield* AuthApi.use((auth) => auth.getTenantContext(tenantId)).pipe(
+              Effect.map((auth) => ({ auth, temporary: true })),
+              Effect.catchTag("ApiRequestError", (error) => {
+                if (
+                  error.status === 403 ||
+                  error.status === 404 ||
+                  error.code === "tenant_deactivated"
+                ) {
+                  toast.warning(
+                    "The temporary tenant is no longer available. Returned to your remembered tenant.",
+                  );
+                  return Effect.succeed({ auth: remembered, temporary: false });
+                }
+                return Effect.fail(error);
+              }),
+            );
+          }).pipe(
             Effect.match({
-              onSuccess: setAuthenticated,
+              onSuccess: ({ auth, temporary }) =>
+                temporary ? setTemporaryAuthenticated(auth) : setAuthenticated(auth),
               onFailure: () => setUnauthenticated(),
             }),
           ),
-    [guestMode, setAuthenticated, setUnauthenticated, status],
+    [guestMode, setAuthenticated, setTemporaryAuthenticated, setUnauthenticated, status],
   );
 
   return (

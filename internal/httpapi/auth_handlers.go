@@ -34,6 +34,19 @@ func toPrincipalResponse(principal auth.Principal) principalResponse {
 
 func (s *Server) authMe(c *gin.Context) {
 	principal := c.MustGet("principal").(auth.Principal)
+	s.writeAuthMe(c, principal, true)
+}
+
+func (s *Server) tenantContext(c *gin.Context) {
+	principal, err := s.authenticate(c)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	s.writeAuthMe(c, principal, false)
+}
+
+func (s *Server) writeAuthMe(c *gin.Context, principal auth.Principal, remember bool) {
 
 	resp := authMeResponse{
 		Principal:        toPrincipalResponse(principal),
@@ -46,7 +59,11 @@ func (s *Server) authMe(c *gin.Context) {
 		return
 	}
 	resp.SelectedTenant = selectedTenant
-	if selectedTenant != nil && c.GetBool(webSessionAuthenticationContextKey) {
+	if !remember && selectedTenant != nil && selectedTenant.DeletedAt != nil {
+		WriteError(c, auth.ErrTenantDeleted)
+		return
+	}
+	if remember && selectedTenant != nil && c.GetBool(webSessionAuthenticationContextKey) {
 		s.WebAuth.RememberSelectedTenant(c.Request.Context(), selectedTenant.ID)
 	}
 	if principal.Type == auth.PrincipalTypeUser && principal.UserID != nil {
