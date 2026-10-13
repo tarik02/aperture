@@ -81,6 +81,17 @@ oidc_providers:
     auto_provision: false
 ```
 
+To keep the secret out of the config file, for example when Nix generates it into the world-readable store, set `client_secret_file` instead of `client_secret`. Each provider needs exactly one of them. Aperture reads the file at startup and strips one trailing newline; the path must be absolute and the file non-empty and readable by the Aperture user.
+
+```yaml
+oidc_providers:
+  - id: company
+    display_name: Company account
+    issuer_url: https://accounts.example.test
+    client_id: aperture
+    client_secret_file: /run/secrets/aperture-oidc-company
+```
+
 With `auto_provision: false`, a system administrator must create the user first. Aperture links the provider identity only when the provider returns a verified email matching that user. Set `auto_provision: true` to create users on first login. Tenant access still comes from the user's tenant memberships.
 
 Authenticated users can register discoverable passkeys from the web UI. Aperture derives the WebAuthn RP ID and origin from `external_base_url`, so changing its hostname makes credentials registered for the old RP unavailable. Passkey registration requires an existing account session; passkeys do not provision users.
