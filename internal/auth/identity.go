@@ -248,12 +248,12 @@ func (s *Service) ListTenantMemberships(ctx context.Context, tenantID string) ([
 	return s.repo.ListTenantMemberships(ctx, tenantID)
 }
 
-// ListUserMemberships returns all memberships for a user.
+// ListUserMemberships returns a user's memberships of active tenants.
 func (s *Service) ListUserMemberships(ctx context.Context, userID string) ([]db.TenantMembership, error) {
 	if _, err := s.GetUser(ctx, userID); err != nil {
 		return nil, err
 	}
-	return s.repo.ListUserMemberships(ctx, userID)
+	return s.repo.ListActiveUserMemberships(ctx, userID)
 }
 
 // DeleteTenantMembership removes a user's tenant access.

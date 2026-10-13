@@ -303,6 +303,7 @@ paths:
       operationId: listUserMemberships
       tags: [users]
       summary: List a user's tenant memberships
+      description: Memberships of active tenants. A membership of a deleted tenant is kept and listed again once the tenant is restored.
       x-aperture-auth:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]

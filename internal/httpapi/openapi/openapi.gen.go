@@ -3938,6 +3938,8 @@ type ClientInterface interface {
 
 	// ListUserMemberships List a user's tenant memberships
 	//
+	// Memberships of active tenants. A membership of a deleted tenant is kept and listed again once the tenant is restored.
+	//
 	// Corresponds with GET /api/admin/users/{userId}/memberships (the `ListUserMemberships` operationId).
 	ListUserMemberships(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -4932,6 +4934,8 @@ func (c *Client) CreateUserInvitation(ctx context.Context, userId UserId, reqEdi
 }
 
 // ListUserMemberships List a user's tenant memberships
+//
+// Memberships of active tenants. A membership of a deleted tenant is kept and listed again once the tenant is restored.
 //
 // Corresponds with GET /api/admin/users/{userId}/memberships (the `ListUserMemberships` operationId).
 func (c *Client) ListUserMemberships(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -10366,6 +10370,8 @@ type ClientWithResponsesInterface interface {
 
 	// ListUserMembershipsWithResponse List a user's tenant memberships
 	//
+	// Memberships of active tenants. A membership of a deleted tenant is kept and listed again once the tenant is restored.
+	//
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with GET /api/admin/users/{userId}/memberships (the `ListUserMemberships` operationId).
@@ -14506,6 +14512,8 @@ func (c *ClientWithResponses) CreateUserInvitationWithResponse(ctx context.Conte
 }
 
 // ListUserMembershipsWithResponse List a user's tenant memberships
+//
+// Memberships of active tenants. A membership of a deleted tenant is kept and listed again once the tenant is restored.
 //
 // Returns a wrapper object for the known response body format(s).
 //

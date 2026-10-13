@@ -1444,7 +1444,7 @@ readonly "createPersonalTenant": <Config extends OperationConfig>(userId: string
 */
 readonly "createUserInvitation": <Config extends OperationConfig>(userId: string, options: { readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof CreateUserInvitation201.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
-* List a user's tenant memberships
+* Memberships of active tenants. A membership of a deleted tenant is kept and listed again once the tenant is restored.
 */
 readonly "listUserMemberships": <Config extends OperationConfig>(userId: string, options: { readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof ListUserMemberships200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**

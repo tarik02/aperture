@@ -257,3 +257,18 @@ func (r *Repository) ListAuditEventsPage(ctx context.Context, filter AuditEventF
 	}
 	return buildPageResult(events, params.Limit, func(event AuditEvent) string { return event.CreatedAt }, func(event AuditEvent) string { return event.ID })
 }
+
+// ListActiveUserMemberships returns a user's memberships of tenants that are
+// not deleted. Memberships of deleted tenants stay stored for a restore.
+func (r *Repository) ListActiveUserMemberships(ctx context.Context, userID string) ([]TenantMembership, error) {
+	memberships := make([]TenantMembership, 0)
+	if err := r.db.bun.NewSelect().Model(&memberships).
+		Join("JOIN tenants AS tenant ON tenant.id = tenant_membership.tenant_id").
+		Where("tenant_membership.user_id = ?", userID).
+		Where("tenant.deleted_at IS NULL").
+		OrderExpr("tenant_membership.created_at ASC, tenant_membership.tenant_id ASC").
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("list active user memberships: %w", err)
+	}
+	return memberships, nil
+}
