@@ -311,6 +311,19 @@ in
       rollout.enable = lib.mkEnableOption "the aperture-rollout blue-green deployment helper" // {
         default = true;
       };
+      autoRollout = {
+        enable = lib.mkEnableOption "the aperture-deploy system unit, which starts Aperture when no color runs and runs `aperture-rollout` on activations that change it";
+        triggers = lib.mkOption {
+          type = lib.types.listOf lib.types.path;
+          default = [ ];
+          example = lib.literalExpression "[ ./secrets/aperture/oidc-client-secret ]";
+          description = ''
+            Further paths whose change rolls Aperture out, such as the sources of secret files it reads. A Nix
+            path value is copied to the store, so a change of its content counts; a string path counts only
+            when the path itself changes. An external `configFile` is not tracked unless it is listed here.
+          '';
+        };
+      };
     };
     metrics = {
       enable = lib.mkEnableOption "the Prometheus metrics listener";
@@ -424,6 +437,10 @@ in
       {
         assertion = !cfg.webrtc.enable || cfg.webrtc.udpPorts.from <= cfg.webrtc.udpPorts.to;
         message = "services.aperture.webrtc.udpPorts.from must not exceed services.aperture.webrtc.udpPorts.to.";
+      }
+      {
+        assertion = !cfg.deployment.autoRollout.enable || userUID != null;
+        message = "services.aperture.deployment.autoRollout needs a fixed UID for services.aperture.user (services.aperture.uid with createUser).";
       }
     ];
     users.users.${cfg.user} = lib.mkIf cfg.createUser {
@@ -565,5 +582,77 @@ in
         TimeoutStopSec = 20;
       };
     };
+    systemd.services.aperture-deploy =
+      let
+        userManager = "user@${toString userUID}.service";
+        # Changes with the package, the generated configuration, the API unit, and every trigger.
+        stamp = lib.concatStringsSep " " (
+          [
+            "${aperture}"
+            "${rollout}"
+            "${config.systemd.user.units."aperture@.service".unit}"
+          ]
+          ++ lib.optional (cfg.configFile == null) "${generatedConfig}"
+          ++ map (path: "${path}") cfg.deployment.autoRollout.triggers
+        );
+        userUnits =
+          lib.optional cfg.traefik.enable "aperture-traefik.service"
+          ++ lib.optional cfg.gc.enable "aperture-gc.timer";
+      in
+      lib.mkIf cfg.deployment.autoRollout.enable {
+        description = "Start or roll out Aperture";
+        wantedBy = [ "multi-user.target" ];
+        requires = [ userManager ];
+        after = [ userManager ];
+        restartIfChanged = true;
+        environment = {
+          XDG_RUNTIME_DIR = "/run/user/${toString userUID}";
+          DBUS_SESSION_BUS_ADDRESS = "unix:path=/run/user/${toString userUID}/bus";
+        };
+        path = [
+          pkgs.coreutils
+          pkgs.systemd
+        ];
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+          User = cfg.user;
+          StateDirectory = "aperture-deploy";
+        };
+        script = ''
+          stamp=${lib.escapeShellArg stamp}
+          stamp_file="$STATE_DIRECTORY/deployed"
+          wants="''${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/default.target.wants"
+
+          running() {
+            case "$(systemctl --user is-active "aperture@$1.service" || true)" in
+              active | activating | reloading) return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+
+          systemctl --user daemon-reload
+
+          if ! running blue && ! running green; then
+            # Keep the color the last rollout left enabled, so the edge and deployment state stay valid.
+            color=blue
+            if [[ -e "$wants/aperture@green.service" && ! -e "$wants/aperture@blue.service" ]]; then
+              color=green
+            fi
+            echo "no running Aperture color, starting $color"
+            mkdir -p "$wants"
+            ln -sfn /etc/systemd/user/aperture@.service "$wants/aperture@$color.service"
+            systemctl --user daemon-reload
+            systemctl --user start "aperture@$color.service"
+          elif [[ "$(cat "$stamp_file" 2>/dev/null || true)" != "$stamp" ]]; then
+            ${rollout}/bin/aperture-rollout
+          fi
+
+          ${lib.optionalString (userUnits != [ ]) ''
+            systemctl --user enable --now ${lib.escapeShellArgs userUnits}
+          ''}
+          printf '%s' "$stamp" >"$stamp_file"
+        '';
+      };
   };
 }
