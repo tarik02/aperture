@@ -263,6 +263,37 @@ systemctl --user daemon-reload
 
 For subsequent NixOS generations, reload the user manager and run `aperture-rollout`. The helper starts the inactive color, waits for `/api/health`, updates deployment state and Traefik routing, waits for the configured drain period, then stops the old API. A failed health check leaves the active color unchanged; a cutover error starts and restores the previous color.
 
+### WebRTC streaming
+
+`webrtc.enable = true` sets up WebRTC streaming: it enables PipeWire, adds the flake's patched Weston and GStreamer to the system, points the Aperture services at the GStreamer plugins, and generates these settings:
+
+- the Weston compositor (`webrtc.westonPackage`, the flake's `patched-weston`) with the PipeWire backend, the GL renderer, the Aperture shell, and a 1280x720 output
+- the GStreamer media producer streaming `weston.pipewire` at 60 fps, 6000 kbps, and a keyframe every 120 frames
+- `recording_ffmpeg_executable` from `webrtc.ffmpegPackage`, the flake's `aperture-ffmpeg`
+
+The site-specific choices are options:
+
+| Option                                       | Default                   | Setting                                                                    |
+| -------------------------------------------- | ------------------------- | -------------------------------------------------------------------------- |
+| `webrtc.advertisedIp`                        | `null` (Aperture decides) | `webrtc_media_producer_advertised_ip`                                      |
+| `webrtc.udpPorts.from`, `webrtc.udpPorts.to` | `50000`, `50099`          | `webrtc_media_producer_udp_port_min`, `webrtc_media_producer_udp_port_max` |
+| `webrtc.codec`                               | `"h264-va"`               | `webrtc_media_producer_codec`                                              |
+| `webrtc.openFirewall`                        | `false`                   | opens the UDP port range                                                   |
+
+`h264-va` encodes through VA-API, so the host needs `hardware.graphics` with a VA-API driver for its GPU; use `"vp8"` to encode on the CPU. All generated values are defaults, so `settings` overrides any of them:
+
+```nix
+services.aperture = {
+  webrtc = {
+    enable = true;
+    advertisedIp = "203.0.113.10";
+    openFirewall = true;
+  };
+  settings.webrtc_compositor_width = 1920;
+  settings.webrtc_compositor_height = 1080;
+};
+```
+
 ## Verification
 
 ```bash
