@@ -58,13 +58,19 @@ func (s *Service) ResolveOIDCUser(ctx context.Context, input ResolveOIDCUserInpu
 		if displayName == "" {
 			displayName = input.Subject
 		}
-		user, err = s.CreateUser(ctx, CreateUserInput{
+		var personalTenant *db.Tenant
+		user, personalTenant, err = s.CreateUser(ctx, CreateUserInput{
 			Email:                input.Email,
 			DisplayName:          displayName,
 			CreatePersonalTenant: input.CreatePersonalTenant,
 		})
 		if err != nil {
 			return nil, err
+		}
+		if personalTenant != nil {
+			if err := s.RecordAudit(ctx, Principal{Type: PrincipalTypeSystem}, PersonalTenantAudit(personalTenant)); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if user.DisabledAt != nil {

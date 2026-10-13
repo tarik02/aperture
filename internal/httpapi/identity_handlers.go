@@ -69,7 +69,7 @@ func (s *Server) createUser(c *gin.Context) {
 	if req.CreatePersonalTenant != nil {
 		createPersonalTenant = *req.CreatePersonalTenant
 	}
-	user, err := s.Auth.CreateUser(c.Request.Context(), auth.CreateUserInput{
+	user, personalTenant, err := s.Auth.CreateUser(c.Request.Context(), auth.CreateUserInput{
 		Email:                req.Email,
 		DisplayName:          req.DisplayName,
 		IsSystemAdmin:        *req.IsSystemAdmin,
@@ -82,15 +82,8 @@ func (s *Server) createUser(c *gin.Context) {
 	if !s.recordAudit(c, auth.AuditInput{Action: "user.created", ResourceType: "user", ResourceID: &user.ID}) {
 		return
 	}
-	if createPersonalTenant {
-		tenant, err := s.Auth.PersonalTenant(c.Request.Context(), user.ID)
-		if err != nil {
-			WriteError(c, err)
-			return
-		}
-		if tenant != nil && !s.recordPersonalTenantAudit(c, tenant) {
-			return
-		}
+	if personalTenant != nil && !s.recordAudit(c, auth.PersonalTenantAudit(personalTenant)) {
+		return
 	}
 	c.JSON(http.StatusCreated, toUserResponse(*user))
 }
@@ -101,20 +94,10 @@ func (s *Server) createPersonalTenant(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
-	if !s.recordPersonalTenantAudit(c, tenant) {
+	if !s.recordAudit(c, auth.PersonalTenantAudit(tenant)) {
 		return
 	}
 	c.JSON(http.StatusCreated, toTenantResponse(*tenant))
-}
-
-func (s *Server) recordPersonalTenantAudit(c *gin.Context, tenant *db.Tenant) bool {
-	return s.recordAudit(c, auth.AuditInput{
-		TenantID:     &tenant.ID,
-		Action:       "tenant.created",
-		ResourceType: "tenant",
-		ResourceID:   &tenant.ID,
-		Data:         map[string]any{"personal": true, "ownerUserId": tenant.OwnerUserID},
-	})
 }
 
 func (s *Server) listUsers(c *gin.Context) {

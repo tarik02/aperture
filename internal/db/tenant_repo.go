@@ -426,8 +426,8 @@ func (r *Repository) GetPersonalTenant(ctx context.Context, userID string) (*Ten
 }
 
 // CreatePersonalTenant inserts a tenant owned by a user together with the
-// owner's membership. Two active personal tenants for one user violate
-// tenants_owner_user_idx and surface as ErrPersonalTenantConflict.
+// owner's membership. A second active personal tenant for one user violates
+// tenants_owner_user_idx and surfaces as ErrPersonalTenantConflict.
 func (r *Repository) CreatePersonalTenant(ctx context.Context, tenant *Tenant, membership *TenantMembership) error {
 	return r.WithTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		return insertPersonalTenant(ctx, tx, tenant, membership)
@@ -446,18 +446,11 @@ func (r *Repository) CreateUserWithPersonalTenant(ctx context.Context, user *Use
 }
 
 func insertPersonalTenant(ctx context.Context, tx bun.Tx, tenant *Tenant, membership *TenantMembership) error {
-	exists, err := tx.NewSelect().
-		Model((*Tenant)(nil)).
-		Where("owner_user_id = ?", tenant.OwnerUserID).
-		Where("deleted_at IS NULL").
-		Exists(ctx)
-	if err != nil {
-		return fmt.Errorf("check personal tenant: %w", err)
-	}
-	if exists {
-		return ErrPersonalTenantConflict
-	}
 	if _, err := tx.NewInsert().Model(tenant).Exec(ctx); err != nil {
+		// tenants_owner_user_idx reports the column, not the index name.
+		if strings.Contains(err.Error(), "UNIQUE constraint failed: tenants.owner_user_id") {
+			return ErrPersonalTenantConflict
+		}
 		return fmt.Errorf("insert personal tenant: %w", err)
 	}
 	if _, err := tx.NewInsert().Model(membership).Exec(ctx); err != nil {

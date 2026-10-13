@@ -44,17 +44,18 @@ type AuditInput struct {
 	Data         map[string]any
 }
 
-// CreateUser creates a user account.
-func (s *Service) CreateUser(ctx context.Context, input CreateUserInput) (*db.User, error) {
+// CreateUser creates a user account. With CreatePersonalTenant it also returns
+// the tenant it created for the user.
+func (s *Service) CreateUser(ctx context.Context, input CreateUserInput) (*db.User, *db.Tenant, error) {
 	displayName := strings.TrimSpace(input.DisplayName)
 	if displayName == "" {
-		return nil, fmt.Errorf("display name is required")
+		return nil, nil, fmt.Errorf("display name is required")
 	}
 	email := normalizeEmail(input.Email)
 	now := db.NowUTC()
 	userID, err := ids.NewUUIDv7()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	user := &db.User{
@@ -68,24 +69,24 @@ func (s *Service) CreateUser(ctx context.Context, input CreateUserInput) (*db.Us
 	if !input.CreatePersonalTenant {
 		if err := s.repo.CreateUser(ctx, user); err != nil {
 			if isUniqueViolation(err) {
-				return nil, ErrUserEmailConflict
+				return nil, nil, ErrUserEmailConflict
 			}
-			return nil, err
+			return nil, nil, err
 		}
-		return user, nil
+		return user, nil, nil
 	}
 
 	tenant, membership, err := newPersonalTenant(user, now)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := s.repo.CreateUserWithPersonalTenant(ctx, user, tenant, membership); err != nil {
 		if isUniqueViolation(err) {
-			return nil, ErrUserEmailConflict
+			return nil, nil, ErrUserEmailConflict
 		}
-		return nil, err
+		return nil, nil, err
 	}
-	return user, nil
+	return user, tenant, nil
 }
 
 // PersonalTenant returns the active tenant owned by a user, or nil.
@@ -258,6 +259,13 @@ func (s *Service) ListUserMemberships(ctx context.Context, userID string) ([]db.
 
 // DeleteTenantMembership removes a user's tenant access.
 func (s *Service) DeleteTenantMembership(ctx context.Context, tenantID, userID string) error {
+	membership, err := s.repo.GetTenantMembership(ctx, tenantID, userID)
+	if err != nil {
+		return err
+	}
+	if membership == nil {
+		return ErrMembershipNotFound
+	}
 	tenant, err := s.repo.GetTenantByID(ctx, tenantID)
 	if err != nil {
 		return err
@@ -334,4 +342,15 @@ func normalizeEmail(email *string) *string {
 		return nil
 	}
 	return &normalized
+}
+
+// PersonalTenantAudit describes the creation of a personal tenant.
+func PersonalTenantAudit(tenant *db.Tenant) AuditInput {
+	return AuditInput{
+		TenantID:     &tenant.ID,
+		Action:       "tenant.created",
+		ResourceType: "tenant",
+		ResourceID:   &tenant.ID,
+		Data:         map[string]any{"personal": true, "ownerUserId": tenant.OwnerUserID},
+	}
 }
