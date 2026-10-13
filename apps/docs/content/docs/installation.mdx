@@ -147,7 +147,7 @@ On first `aperture serve`, the database is migrated and a local job token is cre
 
 ### Personal tenants
 
-A personal tenant is a tenant owned by one user, named after them, in which they hold every tenant permission. Set `auto_create_personal_tenant: true` (`APERTURE_AUTO_CREATE_PERSONAL_TENANT=true`) to create one together with every new user: on OIDC first login with `auto_provision`, and by default when an administrator creates a user. The create-user form lets the administrator override the default per user, and the user details page can create one later for a user who has none. A user owns at most one active personal tenant; deleting it as a tenant allows a fresh one. Deleted tenants keep their owner for history. Disabling the user leaves the tenant in place.
+A personal tenant is a tenant owned by one user, named after them, in which they hold every tenant permission. Set `auto_create_personal_tenant: true` (`APERTURE_AUTO_CREATE_PERSONAL_TENANT=true`) to create one together with every new user: on OIDC first login with `auto_provision`, and by default when an administrator creates a user. The create-user form lets the administrator override the default per user, and the user details page can create one later for a user who has none. A user owns at most one active personal tenant; deleting it as a tenant allows a fresh one. The owner's membership of an active personal tenant cannot be removed, since nobody could reach the tenant afterwards. Deleted tenants keep their owner for history. Disabling the user leaves the tenant in place.
 
 A user without an explicit tenant selection lands in their personal tenant when they belong to it; otherwise the existing rule applies and a single membership is selected automatically.
 

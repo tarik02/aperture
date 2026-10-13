@@ -258,6 +258,14 @@ func (s *Service) ListUserMemberships(ctx context.Context, userID string) ([]db.
 
 // DeleteTenantMembership removes a user's tenant access.
 func (s *Service) DeleteTenantMembership(ctx context.Context, tenantID, userID string) error {
+	tenant, err := s.repo.GetTenantByID(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	// A personal tenant without its owner is an orphan nobody can reach again; delete the tenant instead.
+	if tenant != nil && tenant.DeletedAt == nil && tenant.OwnerUserID != nil && *tenant.OwnerUserID == userID {
+		return ErrPersonalTenantOwner
+	}
 	if err := s.repo.DeleteTenantMembership(ctx, tenantID, userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrMembershipNotFound

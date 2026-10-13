@@ -353,7 +353,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
-      x-aperture-errors: [membership_not_found]
+      x-aperture-errors: [membership_not_found, personal_tenant_owner]
       responses:
         '204': {description: Tenant membership deleted}
         default: {$ref: '#/components/responses/Error'}
@@ -1781,6 +1781,7 @@ components:
         - user_disabled
         - user_email_conflict
         - personal_tenant_exists
+        - personal_tenant_owner
         - user_invitation_unavailable
         - membership_not_found
         - oidc_provider_not_found
@@ -1846,6 +1847,7 @@ components:
         user_disabled: 409
         user_email_conflict: 409
         personal_tenant_exists: 409
+        personal_tenant_owner: 409
         user_invitation_unavailable: 409
         membership_not_found: 404
         oidc_provider_not_found: 404

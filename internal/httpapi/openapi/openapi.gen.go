@@ -257,6 +257,7 @@ const (
 	ErrorCodeOidcProviderNotFound             ErrorCode = "oidc_provider_not_found"
 	ErrorCodeOverlayMountFailed               ErrorCode = "overlay_mount_failed"
 	ErrorCodePersonalTenantExists             ErrorCode = "personal_tenant_exists"
+	ErrorCodePersonalTenantOwner              ErrorCode = "personal_tenant_owner"
 	ErrorCodePromotionConflict                ErrorCode = "promotion_conflict"
 	ErrorCodePromotionServiceUnavailable      ErrorCode = "promotion_service_unavailable"
 	ErrorCodeRecordingCodecUnavailable        ErrorCode = "recording_codec_unavailable"
@@ -346,6 +347,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeOverlayMountFailed:
 		return true
 	case ErrorCodePersonalTenantExists:
+		return true
+	case ErrorCodePersonalTenantOwner:
 		return true
 	case ErrorCodePromotionConflict:
 		return true

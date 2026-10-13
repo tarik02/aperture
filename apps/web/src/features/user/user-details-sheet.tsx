@@ -46,6 +46,7 @@ import {
   useRestoreUserMutation,
 } from "#/features/user/user.mutations.ts";
 import { useUserMembershipsQuery, useUserQuery } from "#/features/user/user.queries.ts";
+import { useDeleteTenantMutation } from "#/features/tenant/tenant.mutations.ts";
 import { useTenantsInfiniteQuery } from "#/features/tenant/tenant.queries.ts";
 import { flattenInfinitePages } from "@aperture-browser/api-client";
 import type { TenantMembership } from "@aperture-browser/api-client";
@@ -60,6 +61,7 @@ type ConfirmAction =
   | { kind: "disable" }
   | { kind: "restore" }
   | { kind: "remove-access"; membership: TenantMembership }
+  | { kind: "delete-personal-tenant"; tenantId: string }
   | null;
 
 type UserDetailsSheetProps = {
@@ -83,6 +85,7 @@ export function UserDetailsSheet({
   const deleteMembershipMutation = useDeleteTenantMembershipMutation();
   const createInvitationMutation = useCreateUserInvitationMutation();
   const createPersonalTenantMutation = useCreatePersonalTenantMutation();
+  const deleteTenantMutation = useDeleteTenantMutation();
   const [editOpen, setEditOpen] = useState(false);
   const [passwordLinkOpen, setPasswordLinkOpen] = useState(false);
   const [passwordLink, setPasswordLink] = useState<UserPasswordLink | null>(null);
@@ -140,6 +143,10 @@ export function UserDetailsSheet({
           tenantId: confirmAction.membership.tenantId,
         });
         toast.success("Tenant access removed");
+        return;
+      case "delete-personal-tenant":
+        await deleteTenantMutation.mutateAsync(confirmAction.tenantId);
+        toast.success("Personal tenant deleted");
         return;
       default: {
         const _exhaustive: never = confirmAction;
@@ -201,7 +208,15 @@ export function UserDetailsSheet({
               variant: "destructive" as const,
               pending: deleteMembershipMutation.isPending,
             }
-          : null;
+          : confirmAction?.kind === "delete-personal-tenant"
+            ? {
+                title: "Delete personal tenant",
+                description: `Delete the personal tenant of ${user?.displayName ?? "this user"}? Its sessions and snapshots stay unreachable until the tenant is restored.`,
+                confirmLabel: "Delete",
+                variant: "destructive" as const,
+                pending: deleteTenantMutation.isPending,
+              }
+            : null;
 
   return (
     <>
@@ -445,9 +460,25 @@ export function UserDetailsSheet({
                                     type="button"
                                     variant="ghost"
                                     size="icon-sm"
-                                    aria-label="Remove tenant access"
+                                    aria-label={
+                                      membership.tenantId === user.personalTenantId
+                                        ? "Delete personal tenant"
+                                        : "Remove tenant access"
+                                    }
+                                    title={
+                                      membership.tenantId === user.personalTenantId
+                                        ? "The owner keeps access; this deletes the tenant"
+                                        : undefined
+                                    }
                                     onClick={() => {
-                                      setConfirmAction({ kind: "remove-access", membership });
+                                      setConfirmAction(
+                                        membership.tenantId === user.personalTenantId
+                                          ? {
+                                              kind: "delete-personal-tenant",
+                                              tenantId: membership.tenantId,
+                                            }
+                                          : { kind: "remove-access", membership },
+                                      );
                                       setConfirmOpen(true);
                                     }}
                                   >
