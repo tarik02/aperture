@@ -249,7 +249,7 @@ Enable the edge proxy with `services.aperture.traefik.enable = true`; its defaul
 
 Enable Prometheus metrics with `services.aperture.metrics.enable = true`; they are served on `127.0.0.1:9464` by default. See [Monitoring](/docs/monitoring).
 
-On the first activation, reload the user manager, start blue, and make that instance persistent:
+On the first activation, reload the user manager, start blue, and make that instance persistent (or let `deployment.autoRollout` do it, see below):
 
 ```bash
 systemctl --user daemon-reload
@@ -262,6 +262,24 @@ systemctl --user daemon-reload
 ```
 
 For subsequent NixOS generations, reload the user manager and run `aperture-rollout`. The helper starts the inactive color, waits for `/api/health`, updates deployment state and Traefik routing, waits for the configured drain period, then stops the old API. A failed health check leaves the active color unchanged; a cutover error starts and restores the previous color.
+
+### Automatic rollout
+
+`deployment.autoRollout.enable = true` does the steps above on every boot and activation through the `aperture-deploy` system unit. It runs as the Aperture user against its user manager, so `user` needs a fixed UID and lingering (`createUser` provides both). The unit:
+
+1. reloads the user manager
+2. when no color runs, enables and starts the color the last rollout left enabled, blue on a fresh install
+3. otherwise, when the Aperture package, the generated configuration, the API unit, or a path in `deployment.autoRollout.triggers` changed since its last run, runs `aperture-rollout`
+4. enables and starts `aperture-traefik.service` and `aperture-gc.timer` when they are enabled
+
+The unit restarts only on activations that change one of those inputs. A failed rollout fails the unit and leaves the recorded state unchanged, so the rollout runs again when the unit next starts, on boot or on a later activation that changes an input. An external `configFile`, the `environmentFile`, and secret files are not tracked by content; list their sources in `triggers`, where a Nix path value is copied to the store so a change of its content counts:
+
+```nix
+services.aperture.deployment.autoRollout = {
+  enable = true;
+  triggers = [ ./secrets/aperture/oidc-client-secret ];
+};
+```
 
 ### WebRTC streaming
 
