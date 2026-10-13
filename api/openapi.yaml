@@ -167,7 +167,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
-      x-aperture-errors: [validation_failed, tenant_not_found]
+      x-aperture-errors: [validation_failed, tenant_not_found, personal_tenant_exists]
       description: Restores a tenant. Revoked tokens remain revoked.
       parameters:
         - {$ref: '#/components/parameters/TenantId'}

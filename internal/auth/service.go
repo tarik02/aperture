@@ -286,6 +286,10 @@ func (s *Service) RestoreTenant(ctx context.Context, tenantID string) (*db.Tenan
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrTenantNotFound
 		}
+		// The owner got a new personal tenant meanwhile; two active ones are not allowed.
+		if isUniqueViolation(err) {
+			return nil, ErrPersonalTenantExists
+		}
 		return nil, err
 	}
 
