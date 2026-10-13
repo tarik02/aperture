@@ -17,6 +17,8 @@ type CreateUserInput struct {
 	Email         *string
 	DisplayName   string
 	IsSystemAdmin bool
+	// CreatePersonalTenant also creates a tenant owned by the user with every tenant scope.
+	CreatePersonalTenant bool
 }
 
 // UpdateUserInput replaces mutable user metadata.
@@ -63,13 +65,80 @@ func (s *Service) CreateUser(ctx context.Context, input CreateUserInput) (*db.Us
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
-	if err := s.repo.CreateUser(ctx, user); err != nil {
+	if !input.CreatePersonalTenant {
+		if err := s.repo.CreateUser(ctx, user); err != nil {
+			if isUniqueViolation(err) {
+				return nil, ErrUserEmailConflict
+			}
+			return nil, err
+		}
+		return user, nil
+	}
+
+	tenant, membership, err := newPersonalTenant(user, now)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.repo.CreateUserWithPersonalTenant(ctx, user, tenant, membership); err != nil {
 		if isUniqueViolation(err) {
 			return nil, ErrUserEmailConflict
 		}
 		return nil, err
 	}
 	return user, nil
+}
+
+// PersonalTenant returns the active tenant owned by a user, or nil.
+func (s *Service) PersonalTenant(ctx context.Context, userID string) (*db.Tenant, error) {
+	return s.repo.GetPersonalTenant(ctx, userID)
+}
+
+// CreatePersonalTenant creates the tenant owned by an existing user together
+// with the owner's full-scope membership.
+func (s *Service) CreatePersonalTenant(ctx context.Context, userID string) (*db.Tenant, error) {
+	user, err := s.GetUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if user.DisabledAt != nil {
+		return nil, ErrUserDisabled
+	}
+	tenant, membership, err := newPersonalTenant(user, db.NowUTC())
+	if err != nil {
+		return nil, err
+	}
+	if err := s.repo.CreatePersonalTenant(ctx, tenant, membership); err != nil {
+		if errors.Is(err, db.ErrPersonalTenantConflict) {
+			return nil, ErrPersonalTenantExists
+		}
+		return nil, err
+	}
+	return tenant, nil
+}
+
+func newPersonalTenant(user *db.User, now string) (*db.Tenant, *db.TenantMembership, error) {
+	tenantID, err := ids.NewUUIDv7()
+	if err != nil {
+		return nil, nil, err
+	}
+	scopesJSON, err := MarshalScopesJSON(TenantScopes())
+	if err != nil {
+		return nil, nil, err
+	}
+	tenant := &db.Tenant{
+		ID:          tenantID,
+		DisplayName: user.DisplayName,
+		CreatedAt:   now,
+		OwnerUserID: &user.ID,
+	}
+	membership := &db.TenantMembership{
+		TenantID:   tenantID,
+		UserID:     user.ID,
+		ScopesJSON: scopesJSON,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	return tenant, membership, nil
 }
 
 // GetUser returns a user including disabled users.

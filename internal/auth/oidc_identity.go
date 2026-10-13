@@ -10,11 +10,13 @@ import (
 
 // ResolveOIDCUserInput describes verified OIDC identity claims.
 type ResolveOIDCUserInput struct {
-	ProviderID   string
-	Subject      string
-	Email        *string
-	DisplayName  string
+	ProviderID    string
+	Subject       string
+	Email         *string
+	DisplayName   string
 	AutoProvision bool
+	// CreatePersonalTenant gives an auto-provisioned user a tenant of their own.
+	CreatePersonalTenant bool
 }
 
 // ResolveOIDCUser maps a verified provider subject to an active user.
@@ -56,7 +58,11 @@ func (s *Service) ResolveOIDCUser(ctx context.Context, input ResolveOIDCUserInpu
 		if displayName == "" {
 			displayName = input.Subject
 		}
-		user, err = s.CreateUser(ctx, CreateUserInput{Email: input.Email, DisplayName: displayName})
+		user, err = s.CreateUser(ctx, CreateUserInput{
+			Email:                input.Email,
+			DisplayName:          displayName,
+			CreatePersonalTenant: input.CreatePersonalTenant,
+		})
 		if err != nil {
 			return nil, err
 		}

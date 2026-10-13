@@ -21,6 +21,7 @@ import {
 import { Input } from "@aperture-browser/ui/components/input";
 import { Switch } from "@aperture-browser/ui/components/switch";
 import { useCreateUserMutation, useUpdateUserMutation } from "#/features/user/user.mutations.ts";
+import { selectAuth, useAuthSessionStore } from "#/stores/auth-session.ts";
 import type { User } from "@aperture-browser/api-client";
 
 type UserFormDialogProps = {
@@ -36,6 +37,9 @@ export function UserFormDialog({ open, user = null, onOpenChange, onSaved }: Use
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [isSystemAdmin, setIsSystemAdmin] = useState(false);
+  const personalTenantDefault =
+    useAuthSessionStore(selectAuth)?.settings.autoCreatePersonalTenant ?? false;
+  const [createPersonalTenant, setCreatePersonalTenant] = useState(personalTenantDefault);
   const [displayNameError, setDisplayNameError] = useState<string | null>(null);
   const pending = createMutation.isPending || updateMutation.isPending;
   const mode = user ? "edit" : "create";
@@ -47,8 +51,9 @@ export function UserFormDialog({ open, user = null, onOpenChange, onSaved }: Use
     setDisplayName(user?.displayName ?? "");
     setEmail(user?.email ?? "");
     setIsSystemAdmin(user?.isSystemAdmin ?? false);
+    setCreatePersonalTenant(personalTenantDefault);
     setDisplayNameError(null);
-  }, [open, user]);
+  }, [open, user, personalTenantDefault]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -65,7 +70,7 @@ export function UserFormDialog({ open, user = null, onOpenChange, onSaved }: Use
     };
     const savedUser = user
       ? await updateMutation.mutateAsync({ userId: user.id, input })
-      : await createMutation.mutateAsync(input);
+      : await createMutation.mutateAsync({ ...input, createPersonalTenant });
 
     toast.success(user ? "User updated" : "User created");
     onSaved(savedUser);
@@ -126,6 +131,22 @@ export function UserFormDialog({ open, user = null, onOpenChange, onSaved }: Use
                 aria-label="System administrator"
               />
             </Field>
+            {mode === "create" ? (
+              <Field orientation="horizontal" data-disabled={pending ? true : undefined}>
+                <FieldContent>
+                  <FieldTitle>Personal tenant</FieldTitle>
+                  <FieldDescription>
+                    Create a tenant owned by this user with every tenant permission.
+                  </FieldDescription>
+                </FieldContent>
+                <Switch
+                  checked={createPersonalTenant}
+                  onCheckedChange={setCreatePersonalTenant}
+                  disabled={pending}
+                  aria-label="Personal tenant"
+                />
+              </Field>
+            ) : null}
           </FieldGroup>
           <DialogFooter>
             <Button

@@ -26,6 +26,7 @@ var (
 	ErrUserDisabled           = errors.New("user disabled")
 	ErrUserEmailConflict      = errors.New("user email conflict")
 	ErrMembershipNotFound     = errors.New("tenant membership not found")
+	ErrPersonalTenantExists   = errors.New("user already has a personal tenant")
 	ErrOIDCProviderNotFound   = errors.New("oidc provider not found")
 	ErrOIDCFlowInvalid        = errors.New("oidc flow invalid")
 	ErrOIDCAuthentication     = errors.New("oidc authentication failed")

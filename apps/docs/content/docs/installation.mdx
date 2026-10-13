@@ -43,6 +43,7 @@ Create `~/.config/aperture/aperture.yaml` (or set `APERTURE_*` environment varia
 - `channels` — browser channel registry (`executable` paths only; API accepts channel names)
 - `metrics_address` — optional Prometheus metrics listener, disabled by default; see [Monitoring](/docs/monitoring)
 - `thumbnails_persist_on_suspend` — save session and tab thumbnails when a session suspends (default `true`); see [Thumbnails](/docs/session-sharing#thumbnails)
+- `auto_create_personal_tenant` — give every new user a tenant of their own, with every tenant permission (default `false`); see [Personal tenants](#personal-tenants)
 
 Example:
 
@@ -92,7 +93,7 @@ oidc_providers:
     client_secret_file: /run/secrets/aperture-oidc-company
 ```
 
-With `auto_provision: false`, a system administrator must create the user first. Aperture links the provider identity only when the provider returns a verified email matching that user. Set `auto_provision: true` to create users on first login. Tenant access still comes from the user's tenant memberships.
+With `auto_provision: false`, a system administrator must create the user first. Aperture links the provider identity only when the provider returns a verified email matching that user. Set `auto_provision: true` to create users on first login. Tenant access still comes from the user's tenant memberships, unless [personal tenants](#personal-tenants) are enabled.
 
 Authenticated users can register discoverable passkeys from the web UI. Aperture derives the WebAuthn RP ID and origin from `external_base_url`, so changing its hostname makes credentials registered for the old RP unavailable. Passkey registration requires an existing account session; passkeys do not provision users.
 
@@ -143,6 +144,12 @@ The command refuses to run while any session overlay is mounted. On the same fil
 The command moves data only out of `store_root`. To move an existing `cold_root` elsewhere, stop Aperture and copy the whole tree, including `.aperture-root`, preserving hard links (for example `rsync -aH`).
 
 On first `aperture serve`, the database is migrated and a local job token is created at `$runtime_root/job-token` (mode `0600`). The GC timer uses `aperture trigger gc`, which reads that token and calls `POST /internal/jobs/gc` on the loopback listener.
+
+### Personal tenants
+
+A personal tenant is a tenant owned by one user, named after them, in which they hold every tenant permission. Set `auto_create_personal_tenant: true` (`APERTURE_AUTO_CREATE_PERSONAL_TENANT=true`) to create one together with every new user: on OIDC first login with `auto_provision`, and by default when an administrator creates a user. The create-user form lets the administrator override the default per user, and the user details page can create one later for a user who has none. A user owns at most one active personal tenant; deleting it as a tenant allows a fresh one. Deleted tenants keep their owner for history. Disabling the user leaves the tenant in place.
+
+A user without an explicit tenant selection lands in their personal tenant when they belong to it; otherwise the existing rule applies and a single membership is selected automatically.
 
 ## User systemd services
 

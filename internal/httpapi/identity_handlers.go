@@ -65,10 +65,15 @@ func (s *Server) createUser(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
+	createPersonalTenant := s.Config.AutoCreatePersonalTenant
+	if req.CreatePersonalTenant != nil {
+		createPersonalTenant = *req.CreatePersonalTenant
+	}
 	user, err := s.Auth.CreateUser(c.Request.Context(), auth.CreateUserInput{
-		Email:         req.Email,
-		DisplayName:   req.DisplayName,
-		IsSystemAdmin: *req.IsSystemAdmin,
+		Email:                req.Email,
+		DisplayName:          req.DisplayName,
+		IsSystemAdmin:        *req.IsSystemAdmin,
+		CreatePersonalTenant: createPersonalTenant,
 	})
 	if err != nil {
 		WriteError(c, err)
@@ -77,7 +82,39 @@ func (s *Server) createUser(c *gin.Context) {
 	if !s.recordAudit(c, auth.AuditInput{Action: "user.created", ResourceType: "user", ResourceID: &user.ID}) {
 		return
 	}
+	if createPersonalTenant {
+		tenant, err := s.Auth.PersonalTenant(c.Request.Context(), user.ID)
+		if err != nil {
+			WriteError(c, err)
+			return
+		}
+		if tenant != nil && !s.recordPersonalTenantAudit(c, tenant) {
+			return
+		}
+	}
 	c.JSON(http.StatusCreated, toUserResponse(*user))
+}
+
+func (s *Server) createPersonalTenant(c *gin.Context) {
+	tenant, err := s.Auth.CreatePersonalTenant(c.Request.Context(), c.Param("userId"))
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	if !s.recordPersonalTenantAudit(c, tenant) {
+		return
+	}
+	c.JSON(http.StatusCreated, toTenantResponse(*tenant))
+}
+
+func (s *Server) recordPersonalTenantAudit(c *gin.Context, tenant *db.Tenant) bool {
+	return s.recordAudit(c, auth.AuditInput{
+		TenantID:     &tenant.ID,
+		Action:       "tenant.created",
+		ResourceType: "tenant",
+		ResourceID:   &tenant.ID,
+		Data:         map[string]any{"personal": true, "ownerUserId": tenant.OwnerUserID},
+	})
 }
 
 func (s *Server) listUsers(c *gin.Context) {
@@ -133,8 +170,16 @@ func (s *Server) getUser(c *gin.Context) {
 			}
 		}
 	}
+	personalTenant, err := s.Auth.PersonalTenant(c.Request.Context(), user.ID)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
 	response := toUserResponse(*user)
 	response.PasswordSetupStatus = &passwordSetupStatus
+	if personalTenant != nil {
+		response.PersonalTenantID = &personalTenant.ID
+	}
 	c.JSON(http.StatusOK, response)
 }
 

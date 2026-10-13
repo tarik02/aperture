@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import { KeyRound, Link2, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Building2, KeyRound, Link2, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
 import { MetadataGrid, metadataTimestamp } from "#/components/resources/metadata-grid.tsx";
@@ -40,6 +40,7 @@ import {
 } from "#/features/user/user-invitation-dialog.tsx";
 import {
   useCreateUserInvitationMutation,
+  useCreatePersonalTenantMutation,
   useDeleteTenantMembershipMutation,
   useDisableUserMutation,
   useRestoreUserMutation,
@@ -81,6 +82,7 @@ export function UserDetailsSheet({
   const restoreMutation = useRestoreUserMutation();
   const deleteMembershipMutation = useDeleteTenantMembershipMutation();
   const createInvitationMutation = useCreateUserInvitationMutation();
+  const createPersonalTenantMutation = useCreatePersonalTenantMutation();
   const [editOpen, setEditOpen] = useState(false);
   const [passwordLinkOpen, setPasswordLinkOpen] = useState(false);
   const [passwordLink, setPasswordLink] = useState<UserPasswordLink | null>(null);
@@ -143,6 +145,18 @@ export function UserDetailsSheet({
         const _exhaustive: never = confirmAction;
         return _exhaustive;
       }
+    }
+  }
+
+  async function handleCreatePersonalTenant() {
+    if (!user) {
+      return;
+    }
+    try {
+      await createPersonalTenantMutation.mutateAsync(user.id);
+      toast.success("Personal tenant created");
+    } catch {
+      // The mutation displays the API error.
     }
   }
 
@@ -322,7 +336,27 @@ export function UserDetailsSheet({
                       <CardDescription>
                         Permissions granted within individual tenants.
                       </CardDescription>
-                      <CardAction>
+                      <CardAction className="aperture:flex aperture:gap-2">
+                        {user.personalTenantId ? null : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={
+                              Boolean(user.disabledAt) || createPersonalTenantMutation.isPending
+                            }
+                            title={
+                              user.disabledAt
+                                ? "Restore the user before creating a personal tenant"
+                                : "Create a tenant owned by this user with every tenant permission"
+                            }
+                            onClick={() => void handleCreatePersonalTenant()}
+                          >
+                            <Building2 data-icon="inline-start" />
+                            {createPersonalTenantMutation.isPending
+                              ? "Creating..."
+                              : "Personal tenant"}
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="outline"
@@ -369,8 +403,13 @@ export function UserDetailsSheet({
                               {index > 0 ? <Separator /> : null}
                               <div className="aperture:flex aperture:items-start aperture:gap-3 aperture:py-3 aperture:first:pt-0 aperture:last:pb-0">
                                 <div className="aperture:min-w-0 aperture:flex-1">
-                                  <div className="aperture:truncate aperture:font-medium">
-                                    {tenantNames.get(membership.tenantId) ?? "Tenant"}
+                                  <div className="aperture:flex aperture:items-center aperture:gap-2 aperture:font-medium">
+                                    <span className="aperture:truncate">
+                                      {tenantNames.get(membership.tenantId) ?? "Tenant"}
+                                    </span>
+                                    {membership.tenantId === user.personalTenantId ? (
+                                      <Badge variant="secondary">personal</Badge>
+                                    ) : null}
                                   </div>
                                   <div className="aperture:truncate aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
                                     {membership.tenantId}

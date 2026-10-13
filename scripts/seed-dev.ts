@@ -161,6 +161,7 @@ const seedInstance = Effect.fn("seedInstance")(function* (
         email: `${first.toLowerCase()}.${last.toLowerCase()}${index}@example.test`,
         displayName: `${first} ${last}`,
         isSystemAdmin: index % 15 === 0,
+        createPersonalTenant: index % 3 === 0,
       });
       if (index % 20 === 0) {
         yield* usersApi.disableUser(admin, user.id);

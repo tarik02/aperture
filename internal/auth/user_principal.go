@@ -40,8 +40,11 @@ func (s *Service) AuthenticateUser(ctx context.Context, userID, selectedTenantID
 	if err != nil {
 		return Principal{}, err
 	}
-	if selectedTenantID == "" && len(memberships) == 1 {
-		selectedTenantID = memberships[0].TenantID
+	if selectedTenantID == "" {
+		selectedTenantID, err = s.defaultUserTenant(ctx, user.ID, memberships)
+		if err != nil {
+			return Principal{}, err
+		}
 	}
 	principal.AuthorityType = AuthorityTenant
 	if selectedTenantID == "" {
@@ -77,4 +80,25 @@ func (s *Service) UserTenants(ctx context.Context, userID string) ([]db.Tenant, 
 		return nil, nil
 	}
 	return s.repo.ListUserTenants(ctx, userID)
+}
+
+// defaultUserTenant picks the tenant a user lands in without a selection: the
+// personal tenant they still belong to, else their only membership. Empty when
+// neither applies.
+func (s *Service) defaultUserTenant(ctx context.Context, userID string, memberships []db.TenantMembership) (string, error) {
+	personal, err := s.repo.GetPersonalTenant(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	if personal != nil {
+		for _, membership := range memberships {
+			if membership.TenantID == personal.ID {
+				return personal.ID, nil
+			}
+		}
+	}
+	if len(memberships) == 1 {
+		return memberships[0].TenantID, nil
+	}
+	return "", nil
 }

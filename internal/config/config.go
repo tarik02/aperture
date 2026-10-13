@@ -116,6 +116,7 @@ type Config struct {
 	SignedFileURLTTL                 time.Duration            `mapstructure:"signed_file_url_ttl"`
 	SignedFileURLMaxTTL              time.Duration            `mapstructure:"signed_file_url_max_ttl"`
 	LoginMethods                     []string                 `mapstructure:"login_methods"`
+	AutoCreatePersonalTenant         bool                     `mapstructure:"auto_create_personal_tenant"`
 	OIDCProviders                    []OIDCProviderConfig     `mapstructure:"oidc_providers"`
 	WebSessionLifetime               time.Duration            `mapstructure:"web_session_lifetime"`
 	WebSessionIdleTimeout            time.Duration            `mapstructure:"web_session_idle_timeout"`
@@ -188,10 +189,11 @@ func Defaults() Config {
 			LoginMethodPasskey,
 			LoginMethodOIDC,
 		},
-		OIDCProviders:         nil,
-		WebSessionLifetime:    30 * 24 * time.Hour,
-		WebSessionIdleTimeout: 24 * time.Hour,
-		LogLevel:              "info",
+		AutoCreatePersonalTenant: false,
+		OIDCProviders:            nil,
+		WebSessionLifetime:       30 * 24 * time.Hour,
+		WebSessionIdleTimeout:    24 * time.Hour,
+		LogLevel:                 "info",
 	}
 }
 
@@ -263,6 +265,7 @@ func Load(flags *viper.Viper) (Config, error) {
 	v.SetDefault("signed_file_url_ttl", defaults.SignedFileURLTTL)
 	v.SetDefault("signed_file_url_max_ttl", defaults.SignedFileURLMaxTTL)
 	v.SetDefault("login_methods", defaults.LoginMethods)
+	v.SetDefault("auto_create_personal_tenant", defaults.AutoCreatePersonalTenant)
 	v.SetDefault("oidc_providers", defaults.OIDCProviders)
 	v.SetDefault("web_session_lifetime", defaults.WebSessionLifetime)
 	v.SetDefault("web_session_idle_timeout", defaults.WebSessionIdleTimeout)
@@ -330,6 +333,7 @@ func Load(flags *viper.Viper) (Config, error) {
 		"signed_file_url_ttl",
 		"signed_file_url_max_ttl",
 		"login_methods",
+		"auto_create_personal_tenant",
 		"oidc_providers",
 		"web_session_lifetime",
 		"web_session_idle_timeout",

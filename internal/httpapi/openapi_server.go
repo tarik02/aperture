@@ -270,6 +270,15 @@ func (s openAPIServer) DisableUser(ctx context.Context, _ generated.DisableUserR
 	return openAPIPassthroughResponse{}, nil
 }
 
+func (s openAPIServer) CreatePersonalTenant(ctx context.Context, _ generated.CreatePersonalTenantRequestObject) (generated.CreatePersonalTenantResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.createPersonalTenant(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
 func (s openAPIServer) RestoreUser(ctx context.Context, _ generated.RestoreUserRequestObject) (generated.RestoreUserResponseObject, error) {
 	c, ok := ctx.(*gin.Context)
 	if !ok {
@@ -839,6 +848,10 @@ func (openAPIPassthroughResponse) VisitDisableUserResponse(http.ResponseWriter) 
 }
 
 func (openAPIPassthroughResponse) VisitRestoreUserResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitCreatePersonalTenantResponse(http.ResponseWriter) error {
 	return nil
 }
 

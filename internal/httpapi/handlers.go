@@ -15,6 +15,7 @@ func toTenantResponse(tenant db.Tenant) tenantResponse {
 		DisplayName: tenant.DisplayName,
 		CreatedAt:   tenant.CreatedAt,
 		DeletedAt:   tenant.DeletedAt,
+		OwnerUserID: tenant.OwnerUserID,
 	}
 }
 

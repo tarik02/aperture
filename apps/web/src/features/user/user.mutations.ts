@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
-import type { UserInput } from "@aperture-browser/api-client";
+import type { CreateUserInput, UserInput } from "@aperture-browser/api-client";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { UsersApi } from "@aperture-browser/api-client";
 import { useRunApi } from "@aperture-browser/session-react";
@@ -26,11 +26,15 @@ export function useCreateUserMutation() {
   const runApi = useRunApi();
   const credentials = useApiCredentials();
   const invalidate = useInvalidateUsers();
+  const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: UserInput) =>
+    mutationFn: (input: CreateUserInput) =>
       runApi(UsersApi.use((users) => users.createUser(credentials!, input))),
-    onSuccess: () => invalidate(),
+    onSuccess: () => {
+      invalidate();
+      void queryClient.invalidateQueries({ queryKey: ["tenants"] });
+    },
     onError: (error) => toastMutationError(error, "Create failed"),
   });
 }
@@ -124,5 +128,24 @@ export function useDeleteTenantMembershipMutation() {
     },
     onSuccess: ({ userId }) => invalidate(userId),
     onError: (error) => toastMutationError(error, "Access removal failed"),
+  });
+}
+
+export function useCreatePersonalTenantMutation() {
+  const runApi = useRunApi();
+  const credentials = useApiCredentials();
+  const queryClient = useQueryClient();
+  const invalidateUsers = useInvalidateUsers();
+  const invalidateMemberships = useInvalidateMemberships();
+
+  return useMutation({
+    mutationFn: (userId: string) =>
+      runApi(UsersApi.use((users) => users.createPersonalTenant(credentials!, userId))),
+    onSuccess: (_tenant, userId) => {
+      invalidateUsers(userId);
+      invalidateMemberships(userId);
+      void queryClient.invalidateQueries({ queryKey: ["tenants"] });
+    },
+    onError: (error) => toastMutationError(error, "Personal tenant creation failed"),
   });
 }
