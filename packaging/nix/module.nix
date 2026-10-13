@@ -1,6 +1,7 @@
 { self }:
 {
   config,
+  options,
   lib,
   pkgs,
   ...
@@ -197,6 +198,23 @@ in
       type = lib.types.str;
       description = "Login user that owns Aperture state and browser sessions.";
     };
+    createUser = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Whether to create `user` as a normal user for Aperture: lingering, so its user manager runs without a
+        login, in the `render` and `video` groups for GPU access, and with a locked password.
+      '';
+    };
+    uid = lib.mkOption {
+      type = lib.types.nullOr lib.types.ints.unsigned;
+      default = null;
+      example = 1000;
+      description = ''
+        UID of the user created by `createUser`. Null lets NixOS pick one; `runtimeRoot` must then be set,
+        because its default needs the UID at evaluation time.
+      '';
+    };
     externalBaseUrl = lib.mkOption {
       type = lib.types.str;
       example = "https://browser.example.test";
@@ -337,7 +355,22 @@ in
         assertion = lib.hasAttr cfg.user config.users.users;
         message = "services.aperture.user must reference a configured user.";
       }
+      {
+        assertion = userUID != null || options.services.aperture.runtimeRoot.highestPrio < 1500;
+        message = "services.aperture.runtimeRoot defaults to /run/user/<uid>/aperture; give services.aperture.user a fixed UID (services.aperture.uid with createUser) or set runtimeRoot.";
+      }
     ];
+    users.users.${cfg.user} = lib.mkIf cfg.createUser {
+      isNormalUser = true;
+      uid = lib.mkIf (cfg.uid != null) cfg.uid;
+      # Aperture runs as user units, which need the user manager without a login.
+      linger = true;
+      extraGroups = [
+        "render"
+        "video"
+      ];
+      hashedPassword = "!";
+    };
     environment.systemPackages = [ aperture ] ++ lib.optional cfg.deployment.rollout.enable rollout;
     environment.etc."aperture/aperture.toml" = lib.mkIf (cfg.configFile == null) {
       source = generatedConfig;

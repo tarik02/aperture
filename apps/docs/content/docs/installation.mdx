@@ -220,6 +220,16 @@ services.aperture = {
 };
 ```
 
+The user must exist. Set `createUser = true` to let the module create it as a normal user with lingering enabled, so its user manager runs at boot without a login, in the `render` and `video` groups, and with a locked password. `uid` fixes its UID; the default `null` lets NixOS pick one, in which case `runtimeRoot` must be set, because its default `/run/user/<uid>/aperture` needs the UID at evaluation time:
+
+```nix
+services.aperture = {
+  user = "aperture";
+  createUser = true;
+  uid = 1000;
+};
+```
+
 `storeRoot`, `coldRoot`, and `databasePath` map to `store_root`, `cold_root`, and `database_path`; `coldRoot` defaults to `storeRoot` and `databasePath` to `storeRoot/aperture.db`. `settings` accepts non-secret Aperture TOML values. The module owns storage, runtime, deployment, public URL, and default Chromium channel fields so dedicated module options remain authoritative. Use `configFile` to replace the generated config entirely.
 
 Keep credentials out of `settings`, because generated Nix files are readable from the Nix store. Put environment overrides in the file selected by `environmentFile`, with permissions limited to the Aperture user. For example:
