@@ -47,14 +47,17 @@ type WebRTCICEServer struct {
 }
 
 // OIDCProviderConfig describes one configured OpenID Connect provider.
+// ClientSecretFile keeps the secret out of generated configs, which may land in
+// world-readable stores; Load reads it into ClientSecret and clears it.
 type OIDCProviderConfig struct {
-	ID            string   `mapstructure:"id"`
-	DisplayName   string   `mapstructure:"display_name"`
-	IssuerURL     string   `mapstructure:"issuer_url"`
-	ClientID      string   `mapstructure:"client_id"`
-	ClientSecret  string   `mapstructure:"client_secret"`
-	Scopes        []string `mapstructure:"scopes"`
-	AutoProvision bool     `mapstructure:"auto_provision"`
+	ID               string   `mapstructure:"id"`
+	DisplayName      string   `mapstructure:"display_name"`
+	IssuerURL        string   `mapstructure:"issuer_url"`
+	ClientID         string   `mapstructure:"client_id"`
+	ClientSecret     string   `mapstructure:"client_secret"`
+	ClientSecretFile string   `mapstructure:"client_secret_file"`
+	Scopes           []string `mapstructure:"scopes"`
+	AutoProvision    bool     `mapstructure:"auto_provision"`
 }
 
 // Config holds resolved runtime configuration decoded from Viper.
@@ -363,7 +366,34 @@ func Load(flags *viper.Viper) (Config, error) {
 	explicit := explicitPathsFrom(v, flags)
 	cfg.applyDerivedPaths(explicit)
 
-	return cfg, Validate(cfg)
+	if err := Validate(cfg); err != nil {
+		return cfg, err
+	}
+	return cfg, cfg.resolveOIDCClientSecretFiles()
+}
+
+func (cfg *Config) resolveOIDCClientSecretFiles() error {
+	var errs []error
+	for index := range cfg.OIDCProviders {
+		provider := &cfg.OIDCProviders[index]
+		if strings.TrimSpace(provider.ClientSecretFile) == "" {
+			continue
+		}
+		contents, err := os.ReadFile(provider.ClientSecretFile)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("oidc_providers[%d].client_secret_file: %w", index, err))
+			continue
+		}
+		secret := strings.TrimSuffix(string(contents), "\n")
+		secret = strings.TrimSuffix(secret, "\r")
+		if strings.TrimSpace(secret) == "" {
+			errs = append(errs, fmt.Errorf("oidc_providers[%d].client_secret_file %s is empty", index, provider.ClientSecretFile))
+			continue
+		}
+		provider.ClientSecret = secret
+		provider.ClientSecretFile = ""
+	}
+	return errors.Join(errs...)
 }
 
 type explicitPaths struct {

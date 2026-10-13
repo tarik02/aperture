@@ -57,8 +57,15 @@ func Validate(cfg Config) error {
 		if strings.TrimSpace(provider.ClientID) == "" {
 			errs = append(errs, fmt.Errorf("oidc_providers[%d].client_id is required", index))
 		}
-		if strings.TrimSpace(provider.ClientSecret) == "" {
-			errs = append(errs, fmt.Errorf("oidc_providers[%d].client_secret is required", index))
+		hasSecret := strings.TrimSpace(provider.ClientSecret) != ""
+		hasSecretFile := strings.TrimSpace(provider.ClientSecretFile) != ""
+		switch {
+		case hasSecret && hasSecretFile:
+			errs = append(errs, fmt.Errorf("oidc_providers[%d] must set only one of client_secret and client_secret_file", index))
+		case !hasSecret && !hasSecretFile:
+			errs = append(errs, fmt.Errorf("oidc_providers[%d].client_secret or client_secret_file is required", index))
+		case hasSecretFile && !filepath.IsAbs(provider.ClientSecretFile):
+			errs = append(errs, fmt.Errorf("oidc_providers[%d].client_secret_file must be an absolute path", index))
 		}
 	}
 
