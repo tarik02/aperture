@@ -54,6 +54,14 @@ let
   );
   path =
     lib.makeBinPath ([ aperture ] ++ cfg.extraPath) + ":/run/wrappers/bin:/run/current-system/sw/bin";
+  gstreamerPluginPath = lib.makeSearchPath "lib/gstreamer-1.0" [
+    pkgs.gst_all_1.gstreamer.out
+    pkgs.gst_all_1.gst-plugins-base
+    pkgs.gst_all_1.gst-plugins-good
+    pkgs.gst_all_1.gst-plugins-bad
+    pkgs.gst_all_1.gst-plugins-ugly
+    pkgs.pipewire
+  ];
   environmentFiles = lib.optional (cfg.environmentFile != null) cfg.environmentFile;
   rolloutEnvironmentArgs = lib.concatStringsSep " \\\n          " (
     lib.optional (cfg.environmentFile != null) (
@@ -343,6 +351,60 @@ in
         default = "127.0.0.1:28081";
       };
     };
+    webrtc = {
+      enable = lib.mkEnableOption "WebRTC streaming through the patched Weston compositor and a GStreamer media producer, with PipeWire and defaults for the `webrtc_*` settings that `settings` can override";
+      westonPackage = lib.mkOption {
+        type = lib.types.package;
+        default = self.packages.${pkgs.stdenv.hostPlatform.system}.patched-weston;
+        defaultText = lib.literalExpression "aperture.packages.\${system}.patched-weston";
+        description = "Weston build with the Aperture shell and the PipeWire backend.";
+      };
+      ffmpegPackage = lib.mkOption {
+        type = lib.types.package;
+        default = self.packages.${pkgs.stdenv.hostPlatform.system}.aperture-ffmpeg;
+        defaultText = lib.literalExpression "aperture.packages.\${system}.aperture-ffmpeg";
+        description = "FFmpeg used to edit recordings, as `recording_ffmpeg_executable`.";
+      };
+      advertisedIp = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "203.0.113.10";
+        description = ''
+          Address announced in WebRTC ICE candidates, as `webrtc_media_producer_advertised_ip`. Set it when
+          clients reach the host through an address that is not on its interfaces, such as a public address
+          forwarded to it. Null leaves the choice to Aperture.
+        '';
+      };
+      udpPorts = {
+        from = lib.mkOption {
+          type = lib.types.port;
+          default = 50000;
+          description = "First UDP port for WebRTC media, as `webrtc_media_producer_udp_port_min`.";
+        };
+        to = lib.mkOption {
+          type = lib.types.port;
+          default = 50099;
+          description = "Last UDP port for WebRTC media, as `webrtc_media_producer_udp_port_max`.";
+        };
+      };
+      codec = lib.mkOption {
+        type = lib.types.enum [
+          "auto"
+          "vp8"
+          "h264-va"
+        ];
+        default = "h264-va";
+        description = ''
+          Video codec, as `webrtc_media_producer_codec`. `h264-va` encodes on the GPU through VA-API and needs a
+          working VA-API driver; `vp8` encodes on the CPU.
+        '';
+      };
+      openFirewall = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = "Whether to open the WebRTC UDP port range in the firewall.";
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -359,6 +421,10 @@ in
         assertion = userUID != null || options.services.aperture.runtimeRoot.highestPrio < 1500;
         message = "services.aperture.runtimeRoot defaults to /run/user/<uid>/aperture; give services.aperture.user a fixed UID (services.aperture.uid with createUser) or set runtimeRoot.";
       }
+      {
+        assertion = !cfg.webrtc.enable || cfg.webrtc.udpPorts.from <= cfg.webrtc.udpPorts.to;
+        message = "services.aperture.webrtc.udpPorts.from must not exceed services.aperture.webrtc.udpPorts.to.";
+      }
     ];
     users.users.${cfg.user} = lib.mkIf cfg.createUser {
       isNormalUser = true;
@@ -371,7 +437,48 @@ in
       ];
       hashedPassword = "!";
     };
-    environment.systemPackages = [ aperture ] ++ lib.optional cfg.deployment.rollout.enable rollout;
+    environment.systemPackages = [
+      aperture
+    ]
+    ++ lib.optional cfg.deployment.rollout.enable rollout
+    ++ lib.optionals cfg.webrtc.enable [
+      cfg.webrtc.westonPackage
+      pkgs.gst_all_1.gstreamer
+    ];
+    services.pipewire.enable = lib.mkIf cfg.webrtc.enable true;
+    networking.firewall.allowedUDPPortRanges = lib.mkIf (cfg.webrtc.enable && cfg.webrtc.openFirewall) [
+      cfg.webrtc.udpPorts
+    ];
+    services.aperture.extraEnvironment = lib.mkIf cfg.webrtc.enable {
+      APERTURE_WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH = lib.mkDefault gstreamerPluginPath;
+      GST_PLUGIN_SYSTEM_PATH_1_0 = lib.mkDefault gstreamerPluginPath;
+    };
+    services.aperture.settings = lib.mkIf cfg.webrtc.enable (
+      lib.mapAttrs (_: lib.mkDefault) (
+        {
+          webrtc_compositor_enabled = true;
+          webrtc_compositor_executable = lib.getExe' cfg.webrtc.westonPackage "weston";
+          webrtc_compositor_backend = "pipewire";
+          webrtc_compositor_renderer = "gl";
+          webrtc_compositor_shell = "aperture";
+          webrtc_compositor_width = 1280;
+          webrtc_compositor_height = 720;
+          webrtc_media_producer_enabled = true;
+          webrtc_media_producer_gst_executable = lib.getExe' pkgs.gst_all_1.gstreamer "gst-launch-1.0";
+          webrtc_media_producer_target = "weston.pipewire";
+          webrtc_media_producer_codec = cfg.webrtc.codec;
+          webrtc_media_producer_fps = 60;
+          webrtc_media_producer_bitrate_kbps = 6000;
+          webrtc_media_producer_keyframe_interval = 120;
+          webrtc_media_producer_udp_port_min = cfg.webrtc.udpPorts.from;
+          webrtc_media_producer_udp_port_max = cfg.webrtc.udpPorts.to;
+          recording_ffmpeg_executable = lib.getExe' cfg.webrtc.ffmpegPackage "ffmpeg";
+        }
+        // lib.optionalAttrs (cfg.webrtc.advertisedIp != null) {
+          webrtc_media_producer_advertised_ip = cfg.webrtc.advertisedIp;
+        }
+      )
+    );
     environment.etc."aperture/aperture.toml" = lib.mkIf (cfg.configFile == null) {
       source = generatedConfig;
     };
