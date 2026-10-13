@@ -11,7 +11,7 @@ import {
   InfiniteTableShell,
   TableSkeletonRows,
 } from "#/components/resources/infinite-table-shell.tsx";
-import { DeletedBadge } from "#/components/resources/status-badge.tsx";
+import { DeletedBadge, PersonalTenantBadge } from "#/components/resources/status-badge.tsx";
 import { Button } from "@aperture-browser/ui/components/button";
 import { Checkbox } from "@aperture-browser/ui/components/checkbox";
 import {
@@ -250,6 +250,7 @@ export function TenantListPage() {
                   <TableCell>
                     <span className="aperture:flex aperture:items-center aperture:gap-2">
                       {tenant.displayName}
+                      <PersonalTenantBadge ownerUserId={tenant.ownerUserId} />
                       <DeletedBadge deletedAt={tenant.deletedAt} />
                     </span>
                   </TableCell>

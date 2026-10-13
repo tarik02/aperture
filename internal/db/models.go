@@ -22,6 +22,8 @@ type Tenant struct {
 	DisplayName string  `bun:"display_name,notnull"`
 	CreatedAt   string  `bun:"created_at,notnull"`
 	DeletedAt   *string `bun:"deleted_at"`
+	// OwnerUserID marks a personal tenant: the user it was created for.
+	OwnerUserID *string `bun:"owner_user_id"`
 }
 
 // APIToken maps the api_tokens table.

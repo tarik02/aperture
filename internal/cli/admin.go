@@ -490,13 +490,18 @@ func printTenant(out io.Writer, tenant *db.Tenant) error {
 	if tenant.DeletedAt != nil {
 		deleted = *tenant.DeletedAt
 	}
+	owner := "none"
+	if tenant.OwnerUserID != nil {
+		owner = *tenant.OwnerUserID
+	}
 	_, err := fmt.Fprintf(
 		out,
-		"tenant id=%s display_name=%q created_at=%s deleted_at=%s\n",
+		"tenant id=%s display_name=%q created_at=%s deleted_at=%s owner_user_id=%s\n",
 		tenant.ID,
 		tenant.DisplayName,
 		tenant.CreatedAt,
 		deleted,
+		owner,
 	)
 	return err
 }

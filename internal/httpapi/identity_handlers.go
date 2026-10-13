@@ -65,10 +65,15 @@ func (s *Server) createUser(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
-	user, err := s.Auth.CreateUser(c.Request.Context(), auth.CreateUserInput{
-		Email:         req.Email,
-		DisplayName:   req.DisplayName,
-		IsSystemAdmin: *req.IsSystemAdmin,
+	createPersonalTenant := s.Config.AutoCreatePersonalTenant
+	if req.CreatePersonalTenant != nil {
+		createPersonalTenant = *req.CreatePersonalTenant
+	}
+	user, personalTenant, err := s.Auth.CreateUser(c.Request.Context(), auth.CreateUserInput{
+		Email:                req.Email,
+		DisplayName:          req.DisplayName,
+		IsSystemAdmin:        *req.IsSystemAdmin,
+		CreatePersonalTenant: createPersonalTenant,
 	})
 	if err != nil {
 		WriteError(c, err)
@@ -77,7 +82,22 @@ func (s *Server) createUser(c *gin.Context) {
 	if !s.recordAudit(c, auth.AuditInput{Action: "user.created", ResourceType: "user", ResourceID: &user.ID}) {
 		return
 	}
+	if personalTenant != nil && !s.recordAudit(c, auth.PersonalTenantAudit(personalTenant)) {
+		return
+	}
 	c.JSON(http.StatusCreated, toUserResponse(*user))
+}
+
+func (s *Server) createPersonalTenant(c *gin.Context) {
+	tenant, err := s.Auth.CreatePersonalTenant(c.Request.Context(), c.Param("userId"))
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	if !s.recordAudit(c, auth.PersonalTenantAudit(tenant)) {
+		return
+	}
+	c.JSON(http.StatusCreated, toTenantResponse(*tenant))
 }
 
 func (s *Server) listUsers(c *gin.Context) {
@@ -133,8 +153,16 @@ func (s *Server) getUser(c *gin.Context) {
 			}
 		}
 	}
+	personalTenant, err := s.Auth.PersonalTenant(c.Request.Context(), user.ID)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
 	response := toUserResponse(*user)
 	response.PasswordSetupStatus = &passwordSetupStatus
+	if personalTenant != nil {
+		response.PersonalTenantID = &personalTenant.ID
+	}
 	c.JSON(http.StatusOK, response)
 }
 

@@ -31,3 +31,10 @@ export function RevokedBadge({ revokedAt }: { revokedAt?: string | null }) {
   }
   return <Badge variant="destructive">revoked</Badge>;
 }
+
+export function PersonalTenantBadge({ ownerUserId }: { ownerUserId?: string | null }) {
+  if (!ownerUserId) {
+    return null;
+  }
+  return <Badge variant="secondary">personal</Badge>;
+}

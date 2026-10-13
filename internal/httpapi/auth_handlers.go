@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/aperture/aperture/internal/auth"
+	"github.com/aperture/aperture/internal/db"
 	"github.com/gin-gonic/gin"
 )
 
@@ -51,6 +52,7 @@ func (s *Server) writeAuthMe(c *gin.Context, principal auth.Principal, remember 
 	resp := authMeResponse{
 		Principal:        toPrincipalResponse(principal),
 		AvailableTenants: []tenantResponse{},
+		Settings:         authMeSettings{AutoCreatePersonalTenant: s.Config.AutoCreatePersonalTenant},
 	}
 
 	selectedTenant, err := s.resolveSelectedTenant(c, principal)
@@ -95,14 +97,14 @@ func (s *Server) resolveSelectedTenant(c *gin.Context, principal auth.Principal)
 	case auth.AuthoritySystemAdmin:
 		tenantID = selectedTenantID(c)
 		if tenantID == "" {
-			tenants, err := s.Auth.ListTenants(c.Request.Context(), false)
+			defaultTenant, err := s.defaultAdminTenant(c, principal)
 			if err != nil {
 				return nil, err
 			}
-			if len(tenants) == 0 {
+			if defaultTenant == nil {
 				return nil, nil
 			}
-			tenantID = tenants[0].ID
+			tenantID = defaultTenant.ID
 		}
 	default:
 		return nil, nil
@@ -130,4 +132,27 @@ func (s *Server) listBrowserChannels(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, browserChannelsResponse{Channels: channels})
+}
+
+// defaultAdminTenant picks the tenant a system admin lands in without a
+// selection: their own personal tenant when they have one, else the oldest
+// active tenant.
+func (s *Server) defaultAdminTenant(c *gin.Context, principal auth.Principal) (*db.Tenant, error) {
+	if principal.UserID != nil {
+		personal, err := s.Auth.PersonalTenant(c.Request.Context(), *principal.UserID)
+		if err != nil {
+			return nil, err
+		}
+		if personal != nil {
+			return personal, nil
+		}
+	}
+	tenants, err := s.Auth.ListTenants(c.Request.Context(), false)
+	if err != nil {
+		return nil, err
+	}
+	if len(tenants) == 0 {
+		return nil, nil
+	}
+	return &tenants[0], nil
 }

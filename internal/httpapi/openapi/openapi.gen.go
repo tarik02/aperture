@@ -256,6 +256,8 @@ const (
 	ErrorCodeOidcFlowInvalid                  ErrorCode = "oidc_flow_invalid"
 	ErrorCodeOidcProviderNotFound             ErrorCode = "oidc_provider_not_found"
 	ErrorCodeOverlayMountFailed               ErrorCode = "overlay_mount_failed"
+	ErrorCodePersonalTenantExists             ErrorCode = "personal_tenant_exists"
+	ErrorCodePersonalTenantOwner              ErrorCode = "personal_tenant_owner"
 	ErrorCodePromotionConflict                ErrorCode = "promotion_conflict"
 	ErrorCodePromotionServiceUnavailable      ErrorCode = "promotion_service_unavailable"
 	ErrorCodeRecordingCodecUnavailable        ErrorCode = "recording_codec_unavailable"
@@ -343,6 +345,10 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeOidcProviderNotFound:
 		return true
 	case ErrorCodeOverlayMountFailed:
+		return true
+	case ErrorCodePersonalTenantExists:
+		return true
+	case ErrorCodePersonalTenantOwner:
 		return true
 	case ErrorCodePromotionConflict:
 		return true
@@ -1271,6 +1277,12 @@ type AuthMe struct {
 
 	// SelectedTenant Effective tenant, or `null` when the principal has not selected one.
 	SelectedTenant *Tenant `json:"selectedTenant"`
+
+	// Settings Server settings relevant to the signed-in principal.
+	Settings struct {
+		// AutoCreatePersonalTenant Whether new users get a personal tenant by default (`auto_create_personal_tenant`).
+		AutoCreatePersonalTenant bool `json:"autoCreatePersonalTenant"`
+	} `json:"settings"`
 }
 
 // AuthorityType Authorization boundary. `system_admin` principals may administer the deployment and select tenants. `tenant` principals act within one effective tenant.
@@ -1511,6 +1523,19 @@ type CreateTokenResponse struct {
 
 	// Token API token metadata. The raw bearer secret is never included in this schema.
 	Token Token `json:"token"`
+}
+
+// CreateUserInput User profile and authority for a new user. Same fields as UserInput plus the personal tenant choice.
+type CreateUserInput struct {
+	// CreatePersonalTenant Also create a tenant owned by the user with every tenant scope. `null` or omitted uses the server default `auto_create_personal_tenant`.
+	CreatePersonalTenant *bool  `json:"createPersonalTenant,omitempty"`
+	DisplayName          string `json:"displayName"`
+
+	// Email Optional normalized login and contact email.
+	Email *openapi_types.Email `json:"email,omitempty"`
+
+	// IsSystemAdmin Grants deployment-wide administration independently of tenant memberships.
+	IsSystemAdmin bool `json:"isSystemAdmin"`
 }
 
 // CursorVisibility Whether the remote browser cursor is composited into session media.
@@ -2512,6 +2537,9 @@ type Tenant struct {
 
 	// Id Tenant identifier.
 	Id UUIDv7 `json:"id"`
+
+	// OwnerUserId Owner of a personal tenant, or `null` for a shared tenant.
+	OwnerUserId *UUIDv7 `json:"ownerUserId,omitempty"`
 }
 
 // TenantInput Tenant fields accepted by create and update operations.
@@ -2650,7 +2678,10 @@ type User struct {
 
 	// PasswordSetupStatus Password setup state included by the get-user operation.
 	PasswordSetupStatus *UserPasswordSetupStatus `json:"passwordSetupStatus,omitempty"`
-	UpdatedAt           time.Time                `json:"updatedAt"`
+
+	// PersonalTenantId Active tenant owned by the user, or `null`. Included by the get-user operation.
+	PersonalTenantId *UUIDv7   `json:"personalTenantId,omitempty"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 // UserPasswordSetupStatus Password setup state included by the get-user operation.
@@ -2773,8 +2804,8 @@ type CreateTenant = TenantInput
 // CreateTenantToken Token definition automatically bound to the authenticated tenant.
 type CreateTenantToken = CreateTenantTokenInput
 
-// CreateUser defines model for CreateUser.
-type CreateUser = UserInput
+// CreateUser User profile and authority for a new user. Same fields as UserInput plus the personal tenant choice.
+type CreateUser = CreateUserInput
 
 // MoveSessionFile Current and new path of a session file.
 type MoveSessionFile = MoveSessionFileInput
@@ -3249,7 +3280,7 @@ type UpsertTenantMembershipJSONRequestBody = TenantMembershipInput
 type CreateAdminTokenJSONRequestBody = CreateAdminTokenInput
 
 // CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
-type CreateUserJSONRequestBody = UserInput
+type CreateUserJSONRequestBody = CreateUserInput
 
 // UpdateUserJSONRequestBody defines body for UpdateUser for application/json ContentType.
 type UpdateUserJSONRequestBody = UserInput
@@ -3907,8 +3938,17 @@ type ClientInterface interface {
 
 	// ListUserMemberships List a user's tenant memberships
 	//
+	// Memberships of active tenants. A membership of a deleted tenant is kept and listed again once the tenant is restored.
+	//
 	// Corresponds with GET /api/admin/users/{userId}/memberships (the `ListUserMemberships` operationId).
 	ListUserMemberships(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreatePersonalTenant Create a user's personal tenant
+	//
+	// Creates a tenant owned by an active user, named after the user, with a membership holding every tenant scope. A user owns at most one active personal tenant.
+	//
+	// Corresponds with POST /api/admin/users/{userId}/personal-tenant (the `CreatePersonalTenant` operationId).
+	CreatePersonalTenant(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// RestoreUser Restore a user
 	//
@@ -4895,9 +4935,28 @@ func (c *Client) CreateUserInvitation(ctx context.Context, userId UserId, reqEdi
 
 // ListUserMemberships List a user's tenant memberships
 //
+// Memberships of active tenants. A membership of a deleted tenant is kept and listed again once the tenant is restored.
+//
 // Corresponds with GET /api/admin/users/{userId}/memberships (the `ListUserMemberships` operationId).
 func (c *Client) ListUserMemberships(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListUserMembershipsRequest(c.Server, userId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreatePersonalTenant Create a user's personal tenant
+//
+// Creates a tenant owned by an active user, named after the user, with a membership holding every tenant scope. A user owns at most one active personal tenant.
+//
+// Corresponds with POST /api/admin/users/{userId}/personal-tenant (the `CreatePersonalTenant` operationId).
+func (c *Client) CreatePersonalTenant(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreatePersonalTenantRequest(c.Server, userId)
 	if err != nil {
 		return nil, err
 	}
@@ -7172,6 +7231,40 @@ func NewListUserMembershipsRequest(server string, userId UserId) (*http.Request,
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreatePersonalTenantRequest constructs an http.Request for the CreatePersonalTenant method
+func NewCreatePersonalTenantRequest(server string, userId UserId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "userId", userId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/admin/users/%s/personal-tenant", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -10277,10 +10370,21 @@ type ClientWithResponsesInterface interface {
 
 	// ListUserMembershipsWithResponse List a user's tenant memberships
 	//
+	// Memberships of active tenants. A membership of a deleted tenant is kept and listed again once the tenant is restored.
+	//
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with GET /api/admin/users/{userId}/memberships (the `ListUserMemberships` operationId).
 	ListUserMembershipsWithResponse(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*ListUserMembershipsResponse, error)
+
+	// CreatePersonalTenantWithResponse Create a user's personal tenant
+	//
+	// Creates a tenant owned by an active user, named after the user, with a membership holding every tenant scope. A user owns at most one active personal tenant.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/admin/users/{userId}/personal-tenant (the `CreatePersonalTenant` operationId).
+	CreatePersonalTenantWithResponse(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*CreatePersonalTenantResponse, error)
 
 	// RestoreUserWithResponse Restore a user
 	//
@@ -11803,6 +11907,54 @@ func (r ListUserMembershipsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListUserMembershipsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreatePersonalTenantResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Tenant
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreatePersonalTenantResponse) GetJSON201() *Tenant {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r CreatePersonalTenantResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r CreatePersonalTenantResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreatePersonalTenantResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreatePersonalTenantResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreatePersonalTenantResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -14361,6 +14513,8 @@ func (c *ClientWithResponses) CreateUserInvitationWithResponse(ctx context.Conte
 
 // ListUserMembershipsWithResponse List a user's tenant memberships
 //
+// Memberships of active tenants. A membership of a deleted tenant is kept and listed again once the tenant is restored.
+//
 // Returns a wrapper object for the known response body format(s).
 //
 // Corresponds with GET /api/admin/users/{userId}/memberships (the `ListUserMemberships` operationId).
@@ -14370,6 +14524,21 @@ func (c *ClientWithResponses) ListUserMembershipsWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParseListUserMembershipsResponse(rsp)
+}
+
+// CreatePersonalTenantWithResponse Create a user's personal tenant
+//
+// Creates a tenant owned by an active user, named after the user, with a membership holding every tenant scope. A user owns at most one active personal tenant.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/admin/users/{userId}/personal-tenant (the `CreatePersonalTenant` operationId).
+func (c *ClientWithResponses) CreatePersonalTenantWithResponse(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*CreatePersonalTenantResponse, error) {
+	rsp, err := c.CreatePersonalTenant(ctx, userId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreatePersonalTenantResponse(rsp)
 }
 
 // RestoreUserWithResponse Restore a user
@@ -16015,6 +16184,39 @@ func ParseListUserMembershipsResponse(rsp *http.Response) (*ListUserMembershipsR
 	return response, nil
 }
 
+// ParseCreatePersonalTenantResponse parses an HTTP response from a CreatePersonalTenantWithResponse call
+func ParseCreatePersonalTenantResponse(rsp *http.Response) (*CreatePersonalTenantResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreatePersonalTenantResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Tenant
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseRestoreUserResponse parses an HTTP response from a RestoreUserWithResponse call
 func ParseRestoreUserResponse(rsp *http.Response) (*RestoreUserResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -17619,6 +17821,9 @@ type ServerInterface interface {
 	// ListUserMemberships List a user's tenant memberships
 	// (GET /api/admin/users/{userId}/memberships)
 	ListUserMemberships(c *gin.Context, userId UserId)
+	// CreatePersonalTenant Create a user's personal tenant
+	// (POST /api/admin/users/{userId}/personal-tenant)
+	CreatePersonalTenant(c *gin.Context, userId UserId)
 	// RestoreUser Restore a user
 	// (POST /api/admin/users/{userId}/restore)
 	RestoreUser(c *gin.Context, userId UserId)
@@ -18394,6 +18599,31 @@ func (siw *ServerInterfaceWrapper) ListUserMemberships(c *gin.Context) {
 	}
 
 	siw.Handler.ListUserMemberships(c, userId)
+}
+
+// CreatePersonalTenant operation middleware
+func (siw *ServerInterfaceWrapper) CreatePersonalTenant(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", c.Param("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter userId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreatePersonalTenant(c, userId)
 }
 
 // RestoreUser operation middleware
@@ -20741,6 +20971,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.GET(options.BaseURL+"/api/admin/users/:userId", wrapper.GetUser)
 	router.PATCH(options.BaseURL+"/api/admin/users/:userId", wrapper.UpdateUser)
 	router.POST(options.BaseURL+"/api/admin/users/:userId/restore", wrapper.RestoreUser)
+	router.POST(options.BaseURL+"/api/admin/users/:userId/personal-tenant", wrapper.CreatePersonalTenant)
 	router.POST(options.BaseURL+"/api/admin/users/:userId/invitation", wrapper.CreateUserInvitation)
 	router.GET(options.BaseURL+"/api/admin/users/:userId/memberships", wrapper.ListUserMemberships)
 	router.GET(options.BaseURL+"/api/admin/tenants/:tenantId/memberships", wrapper.ListTenantMemberships)
@@ -21534,6 +21765,45 @@ type ListUserMembershipsdefaultJSONResponse struct {
 }
 
 func (response ListUserMembershipsdefaultJSONResponse) VisitListUserMembershipsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePersonalTenantRequestObject struct {
+	UserId UserId `json:"userId"`
+}
+
+type CreatePersonalTenantResponseObject interface {
+	VisitCreatePersonalTenantResponse(w http.ResponseWriter) error
+}
+
+type CreatePersonalTenant201JSONResponse Tenant
+
+func (response CreatePersonalTenant201JSONResponse) VisitCreatePersonalTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePersonalTenantdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreatePersonalTenantdefaultJSONResponse) VisitCreatePersonalTenantResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -23489,6 +23759,9 @@ type StrictServerInterface interface {
 	// ListUserMemberships List a user's tenant memberships
 	// (GET /api/admin/users/{userId}/memberships)
 	ListUserMemberships(ctx context.Context, request ListUserMembershipsRequestObject) (ListUserMembershipsResponseObject, error)
+	// CreatePersonalTenant Create a user's personal tenant
+	// (POST /api/admin/users/{userId}/personal-tenant)
+	CreatePersonalTenant(ctx context.Context, request CreatePersonalTenantRequestObject) (CreatePersonalTenantResponseObject, error)
 	// RestoreUser Restore a user
 	// (POST /api/admin/users/{userId}/restore)
 	RestoreUser(ctx context.Context, request RestoreUserRequestObject) (RestoreUserResponseObject, error)
@@ -24214,6 +24487,32 @@ func (sh *strictHandler) ListUserMemberships(ctx *gin.Context, userId UserId) {
 		sh.options.HandlerErrorFunc(ctx, err)
 	} else if validResponse, ok := response.(ListUserMembershipsResponseObject); ok {
 		if err := validResponse.VisitListUserMembershipsResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreatePersonalTenant operation middleware
+func (sh *strictHandler) CreatePersonalTenant(ctx *gin.Context, userId UserId) {
+	var request CreatePersonalTenantRequestObject
+
+	request.UserId = userId
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.CreatePersonalTenant(ctx, request.(CreatePersonalTenantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreatePersonalTenant")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(CreatePersonalTenantResponseObject); ok {
+		if err := validResponse.VisitCreatePersonalTenantResponse(ctx.Writer); err != nil {
 			sh.options.ResponseErrorHandlerFunc(ctx, err)
 		}
 	} else if response != nil {

@@ -3,7 +3,7 @@ import type * as Effect from "effect/Effect";
 import type { ApiCredentials } from "../authorization/service.ts";
 import type { ApiRequestError } from "../errors.ts";
 import type { PageCursor, PaginatedList } from "../pagination.ts";
-import type { TenantMembership, User, UserInvitation } from "../schemas.ts";
+import type { Tenant, TenantMembership, User, UserInvitation } from "../schemas.ts";
 
 type Call<A> = Effect.Effect<A, ApiRequestError>;
 
@@ -23,6 +23,11 @@ export interface UserInput {
   isSystemAdmin: boolean;
 }
 
+export interface CreateUserInput extends UserInput {
+  /** `null` leaves the choice to the server's `auto_create_personal_tenant` default. */
+  createPersonalTenant: boolean | null;
+}
+
 /** User administration and tenant memberships. */
 export class UsersApi extends Context.Service<
   UsersApi,
@@ -30,7 +35,7 @@ export class UsersApi extends Context.Service<
     readonly listUsers: UsersList["list"];
     readonly streamUsers: UsersList["stream"];
     readonly listAllUsers: UsersList["listAll"];
-    readonly createUser: (credentials: ApiCredentials, input: UserInput) => Call<User>;
+    readonly createUser: (credentials: ApiCredentials, input: CreateUserInput) => Call<User>;
     readonly getUser: (credentials: ApiCredentials, userId: string) => Call<User>;
     readonly updateUser: (
       credentials: ApiCredentials,
@@ -43,6 +48,8 @@ export class UsersApi extends Context.Service<
     ) => Call<UserInvitation>;
     readonly disableUser: (credentials: ApiCredentials, userId: string) => Call<User>;
     readonly restoreUser: (credentials: ApiCredentials, userId: string) => Call<User>;
+    /** Creates the tenant owned by a user with every tenant scope. */
+    readonly createPersonalTenant: (credentials: ApiCredentials, userId: string) => Call<Tenant>;
     readonly listUserMemberships: (
       credentials: ApiCredentials,
       userId: string,

@@ -8,6 +8,9 @@ function useInvalidateTenants() {
   const queryClient = useQueryClient();
   return () => {
     void queryClient.invalidateQueries({ queryKey: ["tenants"] });
+    // A user's personal tenant and membership rows reflect tenant state.
+    void queryClient.invalidateQueries({ queryKey: ["user"] });
+    void queryClient.invalidateQueries({ queryKey: ["user-memberships"] });
   };
 }
 

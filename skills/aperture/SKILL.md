@@ -63,7 +63,7 @@ Open the WebSocket `/sessions/<id>/session` with subprotocol `aperture-session.v
 
 ### Administer tenants, tokens, users
 
-`/api/admin/*` with `system:admin`, `/api/tenant*` with `tenant:write`; routes and bodies are in the spec, delegation and allowlist rules in [control-plane.md](references/control-plane.md).
+`/api/admin/*` with `system:admin`, `/api/tenant*` with `tenant:write`; routes and bodies are in the spec, delegation and allowlist rules in [control-plane.md](references/control-plane.md). A tenant with `ownerUserId` is a user's personal tenant; `POST /api/admin/users/{userId}/personal-tenant` creates one, and `createPersonalTenant` on user creation does the same (default from `auto_create_personal_tenant`).
 
 ## Route by branch
 

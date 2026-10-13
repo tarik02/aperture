@@ -8,6 +8,7 @@ import {
 } from "@aperture-browser/ui/components/input-group";
 import { Popover, PopoverContent, PopoverTrigger } from "@aperture-browser/ui/components/popover";
 import { ScrollArea } from "@aperture-browser/ui/components/scroll-area";
+import { PersonalTenantBadge } from "#/components/resources/status-badge.tsx";
 import { useTenantsInfiniteQuery } from "#/features/tenant/tenant.queries.ts";
 import { flattenInfinitePages } from "@aperture-browser/api-client";
 import type { Tenant } from "@aperture-browser/api-client";
@@ -129,8 +130,9 @@ export function TenantCombobox({
                   }}
                 >
                   <span className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:gap-0.5">
-                    <span className="aperture:truncate aperture:font-medium">
-                      {tenant.displayName}
+                    <span className="aperture:flex aperture:items-center aperture:gap-2 aperture:font-medium">
+                      <span className="aperture:truncate">{tenant.displayName}</span>
+                      <PersonalTenantBadge ownerUserId={tenant.ownerUserId} />
                     </span>
                     <span className="aperture:truncate aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
                       {tenant.id}

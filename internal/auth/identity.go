@@ -17,6 +17,8 @@ type CreateUserInput struct {
 	Email         *string
 	DisplayName   string
 	IsSystemAdmin bool
+	// CreatePersonalTenant also creates a tenant owned by the user with every tenant scope.
+	CreatePersonalTenant bool
 }
 
 // UpdateUserInput replaces mutable user metadata.
@@ -42,17 +44,18 @@ type AuditInput struct {
 	Data         map[string]any
 }
 
-// CreateUser creates a user account.
-func (s *Service) CreateUser(ctx context.Context, input CreateUserInput) (*db.User, error) {
+// CreateUser creates a user account. With CreatePersonalTenant it also returns
+// the tenant it created for the user.
+func (s *Service) CreateUser(ctx context.Context, input CreateUserInput) (*db.User, *db.Tenant, error) {
 	displayName := strings.TrimSpace(input.DisplayName)
 	if displayName == "" {
-		return nil, fmt.Errorf("display name is required")
+		return nil, nil, fmt.Errorf("display name is required")
 	}
 	email := normalizeEmail(input.Email)
 	now := db.NowUTC()
 	userID, err := ids.NewUUIDv7()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	user := &db.User{
@@ -63,13 +66,80 @@ func (s *Service) CreateUser(ctx context.Context, input CreateUserInput) (*db.Us
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
-	if err := s.repo.CreateUser(ctx, user); err != nil {
+	if !input.CreatePersonalTenant {
+		if err := s.repo.CreateUser(ctx, user); err != nil {
+			if isUniqueViolation(err) {
+				return nil, nil, ErrUserEmailConflict
+			}
+			return nil, nil, err
+		}
+		return user, nil, nil
+	}
+
+	tenant, membership, err := newPersonalTenant(user, now)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := s.repo.CreateUserWithPersonalTenant(ctx, user, tenant, membership); err != nil {
 		if isUniqueViolation(err) {
-			return nil, ErrUserEmailConflict
+			return nil, nil, ErrUserEmailConflict
+		}
+		return nil, nil, err
+	}
+	return user, tenant, nil
+}
+
+// PersonalTenant returns the active tenant owned by a user, or nil.
+func (s *Service) PersonalTenant(ctx context.Context, userID string) (*db.Tenant, error) {
+	return s.repo.GetPersonalTenant(ctx, userID)
+}
+
+// CreatePersonalTenant creates the tenant owned by an existing user together
+// with the owner's full-scope membership.
+func (s *Service) CreatePersonalTenant(ctx context.Context, userID string) (*db.Tenant, error) {
+	user, err := s.GetUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if user.DisabledAt != nil {
+		return nil, ErrUserDisabled
+	}
+	tenant, membership, err := newPersonalTenant(user, db.NowUTC())
+	if err != nil {
+		return nil, err
+	}
+	if err := s.repo.CreatePersonalTenant(ctx, tenant, membership); err != nil {
+		if errors.Is(err, db.ErrPersonalTenantConflict) {
+			return nil, ErrPersonalTenantExists
 		}
 		return nil, err
 	}
-	return user, nil
+	return tenant, nil
+}
+
+func newPersonalTenant(user *db.User, now string) (*db.Tenant, *db.TenantMembership, error) {
+	tenantID, err := ids.NewUUIDv7()
+	if err != nil {
+		return nil, nil, err
+	}
+	scopesJSON, err := MarshalScopesJSON(TenantScopes())
+	if err != nil {
+		return nil, nil, err
+	}
+	tenant := &db.Tenant{
+		ID:          tenantID,
+		DisplayName: user.DisplayName,
+		CreatedAt:   now,
+		OwnerUserID: &user.ID,
+	}
+	membership := &db.TenantMembership{
+		TenantID:   tenantID,
+		UserID:     user.ID,
+		ScopesJSON: scopesJSON,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	return tenant, membership, nil
 }
 
 // GetUser returns a user including disabled users.
@@ -179,16 +249,31 @@ func (s *Service) ListTenantMemberships(ctx context.Context, tenantID string) ([
 	return s.repo.ListTenantMemberships(ctx, tenantID)
 }
 
-// ListUserMemberships returns all memberships for a user.
+// ListUserMemberships returns a user's memberships of active tenants.
 func (s *Service) ListUserMemberships(ctx context.Context, userID string) ([]db.TenantMembership, error) {
 	if _, err := s.GetUser(ctx, userID); err != nil {
 		return nil, err
 	}
-	return s.repo.ListUserMemberships(ctx, userID)
+	return s.repo.ListActiveUserMemberships(ctx, userID)
 }
 
 // DeleteTenantMembership removes a user's tenant access.
 func (s *Service) DeleteTenantMembership(ctx context.Context, tenantID, userID string) error {
+	membership, err := s.repo.GetTenantMembership(ctx, tenantID, userID)
+	if err != nil {
+		return err
+	}
+	if membership == nil {
+		return ErrMembershipNotFound
+	}
+	tenant, err := s.repo.GetTenantByID(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	// A personal tenant without its owner is an orphan nobody can reach again; delete the tenant instead.
+	if tenant != nil && tenant.DeletedAt == nil && tenant.OwnerUserID != nil && *tenant.OwnerUserID == userID {
+		return ErrPersonalTenantOwner
+	}
 	if err := s.repo.DeleteTenantMembership(ctx, tenantID, userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrMembershipNotFound
@@ -257,4 +342,15 @@ func normalizeEmail(email *string) *string {
 		return nil
 	}
 	return &normalized
+}
+
+// PersonalTenantAudit describes the creation of a personal tenant.
+func PersonalTenantAudit(tenant *db.Tenant) AuditInput {
+	return AuditInput{
+		TenantID:     &tenant.ID,
+		Action:       "tenant.created",
+		ResourceType: "tenant",
+		ResourceID:   &tenant.ID,
+		Data:         map[string]any{"personal": true, "ownerUserId": tenant.OwnerUserID},
+	}
 }

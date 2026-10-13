@@ -54,6 +54,7 @@ type WebService struct {
 	providers         map[string]*oidcProvider
 	public            []OIDCProvider
 	passkeys          *webauthnlib.WebAuthn
+	personalTenants   bool
 	passkeyRPID       string
 	passwordDummyHash string
 }
@@ -131,6 +132,7 @@ func NewWebService(ctx context.Context, cfg config.Config, authService *Service,
 		providers:         providers,
 		public:            public,
 		passkeys:          passkeys,
+		personalTenants:   cfg.AutoCreatePersonalTenant,
 		passkeyRPID:       base.Hostname(),
 		passwordDummyHash: passwordDummyHash,
 	}, nil
@@ -216,11 +218,12 @@ func (s *WebService) CompleteOIDC(ctx context.Context, providerID, state, code s
 		displayName = strings.TrimSpace(claims.PreferredUsername)
 	}
 	user, err := s.auth.ResolveOIDCUser(ctx, ResolveOIDCUserInput{
-		ProviderID:    provider.id,
-		Subject:       idToken.Subject,
-		Email:         email,
-		DisplayName:   displayName,
-		AutoProvision: provider.autoProvision,
+		ProviderID:           provider.id,
+		Subject:              idToken.Subject,
+		Email:                email,
+		DisplayName:          displayName,
+		AutoProvision:        provider.autoProvision,
+		CreatePersonalTenant: s.personalTenants,
 	})
 	if err != nil {
 		return nil, "", err

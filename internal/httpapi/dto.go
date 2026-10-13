@@ -142,6 +142,7 @@ type tenantResponse struct {
 	DisplayName string  `json:"displayName"`
 	CreatedAt   string  `json:"createdAt"`
 	DeletedAt   *string `json:"deletedAt"`
+	OwnerUserID *string `json:"ownerUserId"`
 }
 
 type principalResponse struct {
@@ -162,6 +163,11 @@ type authMeResponse struct {
 	Principal        principalResponse `json:"principal"`
 	SelectedTenant   *tenantResponse   `json:"selectedTenant"`
 	AvailableTenants []tenantResponse  `json:"availableTenants"`
+	Settings         authMeSettings    `json:"settings"`
+}
+
+type authMeSettings struct {
+	AutoCreatePersonalTenant bool `json:"autoCreatePersonalTenant"`
 }
 
 type loginMethodResponse struct {
@@ -175,10 +181,16 @@ type loginMethodsResponse struct {
 	Methods []loginMethodResponse `json:"methods"`
 }
 
-type createUserRequest struct {
+type userInputRequest struct {
 	Email         *string `json:"email"`
 	DisplayName   string  `json:"displayName"`
 	IsSystemAdmin *bool   `json:"isSystemAdmin"`
+}
+
+type createUserRequest struct {
+	userInputRequest
+	// CreatePersonalTenant nil means the configured default.
+	CreatePersonalTenant *bool `json:"createPersonalTenant"`
 }
 
 type userInvitationResponse struct {
@@ -186,7 +198,7 @@ type userInvitationResponse struct {
 	ExpiresAt string `json:"expiresAt"`
 }
 
-func (r createUserRequest) Validate() error {
+func (r userInputRequest) Validate() error {
 	if strings.TrimSpace(r.DisplayName) == "" {
 		return validationError("displayName is required")
 	}
@@ -202,7 +214,7 @@ func (r createUserRequest) Validate() error {
 	return nil
 }
 
-type updateUserRequest = createUserRequest
+type updateUserRequest = userInputRequest
 
 type userResponse struct {
 	ID                  string  `json:"id"`
@@ -212,6 +224,7 @@ type userResponse struct {
 	CreatedAt           string  `json:"createdAt"`
 	UpdatedAt           string  `json:"updatedAt"`
 	DisabledAt          *string `json:"disabledAt"`
+	PersonalTenantID    *string `json:"personalTenantId,omitempty"`
 	PasswordSetupStatus *string `json:"passwordSetupStatus,omitempty"`
 }
 

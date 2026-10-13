@@ -167,7 +167,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
-      x-aperture-errors: [validation_failed, tenant_not_found]
+      x-aperture-errors: [validation_failed, tenant_not_found, personal_tenant_exists]
       description: Restores a tenant. Revoked tokens remain revoked.
       parameters:
         - {$ref: '#/components/parameters/TenantId'}
@@ -266,6 +266,22 @@ paths:
       responses:
         '200': {description: Restored user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
         default: {$ref: '#/components/responses/Error'}
+  /api/admin/users/{userId}/personal-tenant:
+    post:
+      operationId: createPersonalTenant
+      tags: [users]
+      summary: Create a user's personal tenant
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [user_not_found, user_disabled, personal_tenant_exists]
+      description: Creates a tenant owned by an active user, named after the user, with a membership holding every tenant scope. A user owns at most one active personal tenant.
+      parameters:
+        - {$ref: '#/components/parameters/UserId'}
+      responses:
+        '201': {description: Created personal tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
+        default: {$ref: '#/components/responses/Error'}
   /api/admin/users/{userId}/invitation:
     post:
       operationId: createUserInvitation
@@ -287,6 +303,7 @@ paths:
       operationId: listUserMemberships
       tags: [users]
       summary: List a user's tenant memberships
+      description: Memberships of active tenants. A membership of a deleted tenant is kept and listed again once the tenant is restored.
       x-aperture-auth:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
@@ -337,7 +354,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
-      x-aperture-errors: [membership_not_found]
+      x-aperture-errors: [membership_not_found, personal_tenant_owner]
       responses:
         '204': {description: Tenant membership deleted}
         default: {$ref: '#/components/responses/Error'}
@@ -1524,8 +1541,8 @@ components:
       content: {application/json: {schema: {$ref: '#/components/schemas/TenantInput'}}}
     CreateUser:
       required: true
-      description: User profile and deployment-level authority.
-      content: {application/json: {schema: {$ref: '#/components/schemas/UserInput'}}}
+      description: User profile, deployment-level authority and whether to create a personal tenant.
+      content: {application/json: {schema: {$ref: '#/components/schemas/CreateUserInput'}}}
     UpdateUser:
       required: true
       description: Replacement user profile and deployment-level authority.
@@ -1764,6 +1781,8 @@ components:
         - user_not_found
         - user_disabled
         - user_email_conflict
+        - personal_tenant_exists
+        - personal_tenant_owner
         - user_invitation_unavailable
         - membership_not_found
         - oidc_provider_not_found
@@ -1828,6 +1847,8 @@ components:
         user_not_found: 404
         user_disabled: 409
         user_email_conflict: 409
+        personal_tenant_exists: 409
+        personal_tenant_owner: 409
         user_invitation_unavailable: 409
         membership_not_found: 404
         oidc_provider_not_found: 404
@@ -1952,6 +1973,10 @@ components:
           format: date-time
           description: Soft-deactivation time, or `null` for an active tenant.
           example: null
+        ownerUserId:
+          oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
+          description: Owner of a personal tenant, or `null` for a shared tenant.
+          example: null
     TenantPage:
       type: object
       description: Cursor-paginated tenants.
@@ -1972,6 +1997,25 @@ components:
         isSystemAdmin:
           type: boolean
           description: Grants deployment-wide administration independently of tenant memberships.
+    CreateUserInput:
+      type: object
+      description: User profile and authority for a new user. Same fields as UserInput plus the personal tenant choice.
+      required: [displayName, isSystemAdmin]
+      properties:
+        email:
+          type: [string, 'null']
+          format: email
+          description: Optional normalized login and contact email.
+        displayName:
+          type: string
+          minLength: 1
+          pattern: '.*\S.*'
+        isSystemAdmin:
+          type: boolean
+          description: Grants deployment-wide administration independently of tenant memberships.
+        createPersonalTenant:
+          type: [boolean, 'null']
+          description: Also create a tenant owned by the user with every tenant scope. `null` or omitted uses the server default `auto_create_personal_tenant`.
     User:
       type: object
       required: [id, displayName, isSystemAdmin, createdAt, updatedAt]
@@ -1983,6 +2027,9 @@ components:
         createdAt: {type: string, format: date-time}
         updatedAt: {type: string, format: date-time}
         disabledAt: {type: [string, 'null'], format: date-time}
+        personalTenantId:
+          oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
+          description: Active tenant owned by the user, or `null`. Included by the get-user operation.
         passwordSetupStatus:
           type: string
           enum: [available, configured, email_required, user_disabled, login_disabled]
@@ -2079,7 +2126,7 @@ components:
     AuthMe:
       type: object
       description: Current principal and its effective tenant selection.
-      required: [principal, selectedTenant, availableTenants]
+      required: [principal, selectedTenant, availableTenants, settings]
       properties:
         principal: {$ref: '#/components/schemas/Principal'}
         selectedTenant:
@@ -2089,6 +2136,14 @@ components:
           type: array
           description: Active tenant memberships available to an account-backed principal. API-token principals return an empty array.
           items: {$ref: '#/components/schemas/Tenant'}
+        settings:
+          type: object
+          description: Server settings relevant to the signed-in principal.
+          required: [autoCreatePersonalTenant]
+          properties:
+            autoCreatePersonalTenant:
+              type: boolean
+              description: Whether new users get a personal tenant by default (`auto_create_personal_tenant`).
     BrowserChannel:
       type: object
       description: Browser runtime selectable when creating a session.

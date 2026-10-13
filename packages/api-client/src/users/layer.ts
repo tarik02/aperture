@@ -6,7 +6,13 @@ import { ApiAuthorization, Authorization, type ApiCredentials } from "../authori
 import { paginated } from "../pagination.ts";
 import { compactQuery } from "../query.ts";
 import type { User } from "../schemas.ts";
-import { UsersApi, type UserInput, type UsersFilter, type UsersListParams } from "./service.ts";
+import {
+  UsersApi,
+  type CreateUserInput,
+  type UserInput,
+  type UsersFilter,
+  type UsersListParams,
+} from "./service.ts";
 
 export const makeUsersApi = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
@@ -33,9 +39,18 @@ export const makeUsersApi = Effect.gen(function* () {
 
   const createUser = Effect.fn("UsersApi.createUser")(function* (
     credentials: ApiCredentials,
-    input: UserInput,
+    input: CreateUserInput,
   ) {
     return yield* api.createUser({ payload: input }).pipe(authorize(Authorization.of(credentials)));
+  });
+
+  const createPersonalTenant = Effect.fn("UsersApi.createPersonalTenant")(function* (
+    credentials: ApiCredentials,
+    userId: string,
+  ) {
+    return yield* api
+      .createPersonalTenant(userId, undefined)
+      .pipe(authorize(Authorization.of(credentials)));
   });
 
   const getUser = Effect.fn("UsersApi.getUser")(function* (
@@ -129,6 +144,7 @@ export const makeUsersApi = Effect.gen(function* () {
     createUserInvitation,
     disableUser,
     restoreUser,
+    createPersonalTenant,
     listUserMemberships,
     listTenantMemberships,
     upsertTenantMembership,
