@@ -51,6 +51,8 @@ func toSnapshotListItem(view snapshot.SnapshotView) snapshotListItemResponse {
 		TenantID:              view.Snapshot.TenantID,
 		ParentSnapshotID:      view.Snapshot.ParentSnapshotID,
 		PromotedFromSessionID: view.Snapshot.PromotedFromSessionID,
+		ParentSnapshot:        newReference(view.Snapshot.ParentSnapshotID, nil),
+		PromotedFromSession:   newReference(view.Snapshot.PromotedFromSessionID, nil),
 		CreatedAt:             view.Snapshot.CreatedAt,
 		DeletedAt:             view.Snapshot.DeletedAt,
 		ExpiresAt:             view.Snapshot.ExpiresAt,
@@ -194,6 +196,10 @@ func (s *Server) listSnapshots(c *gin.Context) {
 	items := make([]snapshotListItemResponse, 0, len(page.Items))
 	for _, view := range page.Items {
 		items = append(items, toSnapshotListItem(view))
+	}
+	if err := s.addSnapshotReferenceNames(c.Request.Context(), items); err != nil {
+		WriteError(c, err)
+		return
 	}
 	c.JSON(http.StatusOK, paginatedResponse[snapshotListItemResponse]{Data: items, Meta: page.Meta})
 }

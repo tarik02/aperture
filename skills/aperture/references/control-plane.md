@@ -15,7 +15,7 @@ Every operation carries `x-aperture-auth` (accepted authorities, required scopes
 
 ## Tokens and delegation
 
-A token created through the API or MCP is a delegate of its creator: it cannot hold a scope the creator lacks, belong to another tenant, or expire later than an expiring creator. `createdByType`, `createdById` and `parentTokenId` on the token record say who made it. The raw `apt_…` value appears once, in the creation response.
+A token created through the API or MCP is a delegate of its creator: it cannot hold a scope the creator lacks, belong to another tenant, or expire later than an expiring creator. `createdBy` (`type`, `id`, `name`) and `parentToken` on the token record say who made it; the older `createdByType`, `createdById` and `parentTokenId` are deprecated. The raw `apt_…` value appears once, in the creation response.
 
 Tenant tokens carry `resourceMode: "all"` or `"allowlist"` with grants `{ "resourceType": "session" | "snapshot", "resourceId" }`. A restricted token sees only granted rows in lists (filtered before pagination) and gets `resource_access_denied` on direct access; it can create only another allowlist token whose grants are a subset of its own. Sessions it creates and snapshots it promotes are not added to its allowlist, but the `sessionToken` returned by create still works. System-admin tokens cannot be restricted.
 

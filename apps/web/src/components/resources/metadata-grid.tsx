@@ -13,6 +13,15 @@ type MetadataItem =
       kind: "identifier";
       label: string;
       value: string | null | undefined;
+    }
+  | {
+      // Something referred to by id: its name when known, then the id.
+      kind: "reference";
+      label: string;
+      id: string | null | undefined;
+      name: string | null | undefined;
+      // What the id points at, such as "User", shown before the name.
+      type?: string;
     };
 
 type MetadataGridProps = {
@@ -54,6 +63,31 @@ function MetadataValue({ item }: { item: MetadataItem }) {
                 className="aperture:shrink-0"
                 render={<Button variant="ghost" size="icon-xs" />}
               />
+            </>
+          )}
+        </dd>
+      );
+    case "reference":
+      return (
+        <dd className="aperture:flex aperture:min-w-0 aperture:flex-wrap aperture:items-center aperture:gap-x-2 aperture:gap-y-0.5">
+          {item.id === null || item.id === undefined ? (
+            "—"
+          ) : (
+            <>
+              <span className="aperture:min-w-0 aperture:break-words">
+                {[item.type, item.name ?? "Unknown"].filter(Boolean).join(" · ")}
+              </span>
+              <span className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-1">
+                <span className="aperture:min-w-0 aperture:break-all aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
+                  {item.id}
+                </span>
+                <CopyButton
+                  value={item.id}
+                  label={`Copy ${item.label.toLowerCase()} id`}
+                  className="aperture:shrink-0"
+                  render={<Button variant="ghost" size="icon-xs" />}
+                />
+              </span>
             </>
           )}
         </dd>

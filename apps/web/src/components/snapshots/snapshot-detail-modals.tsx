@@ -1,4 +1,5 @@
 import { AppWindow, Clock3, Info } from "lucide-react";
+import { useTenantName } from "#/hooks/use-tenant-name.ts";
 import { useEffect, useState } from "react";
 import { EventsPanel } from "#/components/resources/events-panel.tsx";
 import { MetadataGrid, metadataTimestamp } from "#/components/resources/metadata-grid.tsx";
@@ -53,6 +54,7 @@ export function SnapshotDetailModals({
   }
 
   const displayedSnapshot = snapshot ?? content?.snapshot;
+  const tenantName = useTenantName(displayedSnapshot?.tenantId);
   const displayedSection = section ?? content?.section ?? "details";
 
   return (
@@ -112,19 +114,23 @@ export function SnapshotDetailModals({
                           value: displayedSnapshot.description ?? "—",
                         },
                         {
-                          kind: "identifier",
+                          kind: "reference",
                           label: "Tenant",
-                          value: displayedSnapshot.tenantId,
+                          id: displayedSnapshot.tenantId,
+                          name: tenantName,
                         },
                         {
-                          kind: "identifier",
+                          kind: "reference",
                           label: "Parent",
-                          value: displayedSnapshot.parentSnapshotId,
+                          id: displayedSnapshot.parentSnapshot?.id,
+                          name: displayedSnapshot.parentSnapshot?.name,
                         },
                         {
-                          kind: "identifier",
+                          kind: "reference",
                           label: "Promoted from",
-                          value: displayedSnapshot.promotedFromSessionId,
+                          id: displayedSnapshot.promotedFromSession?.id,
+                          // Sessions without a label have nothing better than their id.
+                          name: displayedSnapshot.promotedFromSession?.name ?? "Session",
                         },
                         {
                           kind: "text",

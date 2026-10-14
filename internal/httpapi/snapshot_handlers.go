@@ -1,10 +1,12 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
 	"github.com/aperture/aperture/internal/auth"
+	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/snapshot"
 	"github.com/gin-gonic/gin"
 )
@@ -17,6 +19,8 @@ func toSnapshotResponse(view *snapshot.SnapshotView) snapshotResponse {
 		TenantID:              view.Snapshot.TenantID,
 		ParentSnapshotID:      view.Snapshot.ParentSnapshotID,
 		PromotedFromSessionID: view.Snapshot.PromotedFromSessionID,
+		ParentSnapshot:        newReference(view.Snapshot.ParentSnapshotID, nil),
+		PromotedFromSession:   newReference(view.Snapshot.PromotedFromSessionID, nil),
 		CreatedAt:             view.Snapshot.CreatedAt,
 		DeletedAt:             view.Snapshot.DeletedAt,
 		ExpiresAt:             view.Snapshot.ExpiresAt,
@@ -54,7 +58,11 @@ func (s *Server) promoteSession(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, promoteSessionResponse{Snapshot: toSnapshotResponse(view)})
+	item, ok := s.snapshotWithNames(c, view)
+	if !ok {
+		return
+	}
+	c.JSON(http.StatusOK, promoteSessionResponse{Snapshot: item})
 }
 
 func (s *Server) updateSnapshot(c *gin.Context) {
@@ -78,7 +86,11 @@ func (s *Server) updateSnapshot(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, snapshotMutationResponse{Snapshot: toSnapshotResponse(view)})
+	item, ok := s.snapshotWithNames(c, view)
+	if !ok {
+		return
+	}
+	c.JSON(http.StatusOK, snapshotMutationResponse{Snapshot: item})
 }
 
 func (s *Server) replaceSnapshotTags(c *gin.Context) {
@@ -102,7 +114,11 @@ func (s *Server) replaceSnapshotTags(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, snapshotMutationResponse{Snapshot: toSnapshotResponse(view)})
+	item, ok := s.snapshotWithNames(c, view)
+	if !ok {
+		return
+	}
+	c.JSON(http.StatusOK, snapshotMutationResponse{Snapshot: item})
 }
 
 func (s *Server) deleteSnapshot(c *gin.Context) {
@@ -120,7 +136,11 @@ func (s *Server) deleteSnapshot(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, snapshotMutationResponse{Snapshot: toSnapshotResponse(view)})
+	item, ok := s.snapshotWithNames(c, view)
+	if !ok {
+		return
+	}
+	c.JSON(http.StatusOK, snapshotMutationResponse{Snapshot: item})
 }
 
 func (s *Server) restoreSnapshot(c *gin.Context) {
@@ -138,7 +158,11 @@ func (s *Server) restoreSnapshot(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, snapshotMutationResponse{Snapshot: toSnapshotResponse(view)})
+	item, ok := s.snapshotWithNames(c, view)
+	if !ok {
+		return
+	}
+	c.JSON(http.StatusOK, snapshotMutationResponse{Snapshot: item})
 }
 
 func (s *Server) requireSnapshotScope(c *gin.Context, scope string) bool {
@@ -180,4 +204,51 @@ func validateSnapshotName(name string) error {
 		return validationError("name is required")
 	}
 	return nil
+}
+
+// addSnapshotReferenceNames fills in the parent snapshot's name and the label
+// of the session a snapshot was promoted from, so clients need not resolve
+// those ids themselves. Both belong to the snapshot's own tenant.
+func (s *Server) addSnapshotReferenceNames(ctx context.Context, snapshots []snapshotResponse) error {
+	var refs db.ReferenceIDs
+	for _, item := range snapshots {
+		if item.ParentSnapshotID != nil {
+			refs.Snapshots = append(refs.Snapshots, *item.ParentSnapshotID)
+		}
+		if item.PromotedFromSessionID != nil {
+			refs.Sessions = append(refs.Sessions, *item.PromotedFromSessionID)
+		}
+	}
+	if s.Repository == nil || (len(refs.Snapshots) == 0 && len(refs.Sessions) == 0) {
+		return nil
+	}
+	names, err := s.Repository.ResolveReferenceNames(ctx, refs)
+	if err != nil {
+		return err
+	}
+	for i := range snapshots {
+		item := &snapshots[i]
+		if item.ParentSnapshot != nil {
+			if name, ok := names.Snapshots[item.ParentSnapshot.ID]; ok {
+				item.ParentSnapshot.Name = &name
+			}
+		}
+		if item.PromotedFromSession != nil {
+			if label, ok := names.Sessions[item.PromotedFromSession.ID]; ok {
+				item.PromotedFromSession.Name = &label
+			}
+		}
+	}
+	return nil
+}
+
+// snapshotWithNames maps one snapshot with its reference names. On failure it
+// writes the error and returns false.
+func (s *Server) snapshotWithNames(c *gin.Context, view *snapshot.SnapshotView) (snapshotResponse, bool) {
+	items := []snapshotResponse{toSnapshotResponse(view)}
+	if err := s.addSnapshotReferenceNames(c.Request.Context(), items); err != nil {
+		WriteError(c, err)
+		return snapshotResponse{}, false
+	}
+	return items[0], true
 }

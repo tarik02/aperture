@@ -44,6 +44,11 @@ type APIToken struct {
 	ExpiresAt      *string                 `bun:"expires_at"`
 	RevokedAt      *string                 `bun:"revoked_at"`
 	ResourceGrants []APITokenResourceGrant `bun:"-"`
+	// Display names of the referenced tenant, creator and parent token, filled
+	// in for API responses; nil when unknown.
+	TenantName      *string `bun:"-"`
+	CreatedByName   *string `bun:"-"`
+	ParentTokenName *string `bun:"-"`
 }
 
 // APITokenResourceGrant restricts a token to one session or snapshot.
@@ -53,6 +58,8 @@ type APITokenResourceGrant struct {
 	TokenID      string `bun:"token_id,pk"`
 	ResourceType string `bun:"resource_type,pk"`
 	ResourceID   string `bun:"resource_id,pk"`
+	// Label is the session label or snapshot name, filled in for API responses.
+	Label *string `bun:"-"`
 }
 
 // ResourceIDFilter limits a query to an explicit set of resource ids.
