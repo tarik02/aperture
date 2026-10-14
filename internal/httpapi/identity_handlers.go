@@ -257,10 +257,7 @@ func (s *Server) createUserInvitation(c *gin.Context) {
 }
 
 func (s *Server) listTenantMemberships(c *gin.Context) {
-	if !s.authorizeTenant(c, c.Param("tenantId")) {
-		return
-	}
-	memberships, err := s.Auth.ListTenantMemberships(c.Request.Context(), c.Param("tenantId"))
+	memberships, err := s.Auth.ListTenantMemberships(c.Request.Context(), c.MustGet("principal").(auth.Principal), c.Param("tenantId"))
 	if err != nil {
 		WriteError(c, err)
 		return
@@ -291,15 +288,12 @@ func (s *Server) writeMemberships(c *gin.Context, memberships []db.TenantMembers
 }
 
 func (s *Server) upsertTenantMembership(c *gin.Context) {
-	if !s.authorizeTenant(c, c.Param("tenantId")) {
-		return
-	}
 	var req upsertTenantMembershipRequest
 	if err := bindJSON(c, &req); err != nil {
 		WriteError(c, err)
 		return
 	}
-	membership, err := s.Auth.UpsertTenantMembership(c.Request.Context(), auth.UpsertMembershipInput{
+	membership, err := s.Auth.UpsertTenantMembership(c.Request.Context(), c.MustGet("principal").(auth.Principal), auth.UpsertMembershipInput{
 		TenantID: c.Param("tenantId"),
 		UserID:   c.Param("userId"),
 		Scopes:   req.Scopes,
@@ -329,10 +323,7 @@ func (s *Server) upsertTenantMembership(c *gin.Context) {
 func (s *Server) deleteTenantMembership(c *gin.Context) {
 	tenantID := c.Param("tenantId")
 	userID := c.Param("userId")
-	if !s.authorizeTenant(c, tenantID) {
-		return
-	}
-	if err := s.Auth.DeleteTenantMembership(c.Request.Context(), tenantID, userID); err != nil {
+	if err := s.Auth.DeleteTenantMembership(c.Request.Context(), c.MustGet("principal").(auth.Principal), tenantID, userID); err != nil {
 		WriteError(c, err)
 		return
 	}
@@ -354,14 +345,13 @@ func (s *Server) listAuditEvents(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
-	page, err := s.Auth.ListAuditEventsPage(c.Request.Context(), db.AuditEventFilter{
+	page, err := s.Auth.ListAuditEventsPage(c.Request.Context(), c.MustGet("principal").(auth.Principal), db.AuditEventFilter{
 		TenantID:     parseOptionalQuery(c, "tenantId"),
 		ActorType:    parseOptionalQuery(c, "actorType"),
 		ActorID:      parseOptionalQuery(c, "actorId"),
 		Action:       parseOptionalQuery(c, "action"),
 		ResourceType: parseOptionalQuery(c, "resourceType"),
 		ResourceID:   parseOptionalQuery(c, "resourceId"),
-		Personal:     auth.PersonalTenantScopeFor(c.MustGet("principal").(auth.Principal)),
 	}, params)
 	if err != nil {
 		WriteError(c, mapInvalidCursor(err))

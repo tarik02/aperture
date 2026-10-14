@@ -156,7 +156,7 @@ func TestDeleteTenantRevokesTenantTokens(t *testing.T) {
 		t.Fatalf("CreateToken() error = %v", err)
 	}
 
-	if _, err := service.DeleteTenant(ctx, tenant.ID); err != nil {
+	if _, err := service.DeleteTenant(ctx, SystemPrincipal(), tenant.ID); err != nil {
 		t.Fatalf("DeleteTenant() error = %v", err)
 	}
 
@@ -194,10 +194,10 @@ func TestRestoreTenantDoesNotUnrevokeTokens(t *testing.T) {
 		t.Fatalf("CreateToken() error = %v", err)
 	}
 
-	if _, err := service.DeleteTenant(ctx, tenant.ID); err != nil {
+	if _, err := service.DeleteTenant(ctx, SystemPrincipal(), tenant.ID); err != nil {
 		t.Fatalf("DeleteTenant() error = %v", err)
 	}
-	if _, err := service.RestoreTenant(ctx, tenant.ID); err != nil {
+	if _, err := service.RestoreTenant(ctx, SystemPrincipal(), tenant.ID); err != nil {
 		t.Fatalf("RestoreTenant() error = %v", err)
 	}
 

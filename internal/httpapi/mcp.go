@@ -1276,7 +1276,7 @@ func (s *Server) mcpTenantsList(ctx context.Context, _ *mcp.CallToolRequest, in 
 	if a.principal == nil || !auth.HasScope(a.principal.Scopes, auth.ScopeTenantsWrite) {
 		return nil, mcpListTenantsOutput{}, mcpToolError("forbidden", nil)
 	}
-	page, err := s.Auth.ListTenantsPage(ctx, db.TenantFilter{IncludeDeleted: in.IncludeDeleted, Personal: auth.PersonalTenantScopeFor(*a.principal)}, mcpPageParams(in.Cursor, in.Limit))
+	page, err := s.Auth.ListTenantsPage(ctx, *a.principal, db.TenantFilter{IncludeDeleted: in.IncludeDeleted}, mcpPageParams(in.Cursor, in.Limit))
 	if err != nil {
 		return nil, mcpListTenantsOutput{}, mcpToolError("internal", err)
 	}
@@ -1300,7 +1300,7 @@ func (s *Server) mcpTokensList(ctx context.Context, _ *mcp.CallToolRequest, in m
 	if a.principal.AuthorityType != auth.AuthoritySystemAdmin && !auth.HasScope(a.principal.Scopes, auth.ScopeTenantWrite) {
 		return nil, mcpListTokensOutput{}, mcpToolError("forbidden", nil)
 	}
-	page, err := s.Auth.ListTokensPage(ctx, db.APITokenFilter{TenantID: tenantID, Personal: auth.PersonalTenantScopeFor(*a.principal)}, mcpPageParams(in.Cursor, in.Limit))
+	page, err := s.Auth.ListTokensPage(ctx, *a.principal, db.APITokenFilter{TenantID: tenantID}, mcpPageParams(in.Cursor, in.Limit))
 	if err != nil {
 		return nil, mcpListTokensOutput{}, mcpToolError("internal", err)
 	}

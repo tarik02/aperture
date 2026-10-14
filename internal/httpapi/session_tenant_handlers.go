@@ -45,7 +45,7 @@ func (s *Server) sessionTenant(c *gin.Context) {
 		WriteError(c, session.ErrNotFound)
 		return
 	}
-	tenant, err := s.Auth.GetTenant(c.Request.Context(), row.TenantID)
+	tenant, err := s.Auth.GetTenant(c.Request.Context(), principal, row.TenantID)
 	if err != nil {
 		WriteError(c, err)
 		return

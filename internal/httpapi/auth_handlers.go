@@ -115,11 +115,7 @@ func (s *Server) resolveSelectedTenant(c *gin.Context, principal auth.Principal)
 		tenantID = *principal.TenantID
 	case auth.AuthoritySystemAdmin:
 		tenantID = selectedTenantID(c)
-		if tenantID != "" {
-			if err := s.Auth.AuthorizeTenant(c.Request.Context(), principal, tenantID); err != nil {
-				return nil, err
-			}
-		} else {
+		if tenantID == "" {
 			defaultTenant, err := s.defaultAdminTenant(c, principal)
 			if err != nil {
 				return nil, err
@@ -133,7 +129,7 @@ func (s *Server) resolveSelectedTenant(c *gin.Context, principal auth.Principal)
 		return nil, nil
 	}
 
-	tenant, err := s.Auth.GetTenant(c.Request.Context(), tenantID)
+	tenant, err := s.Auth.GetTenant(c.Request.Context(), principal, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -170,9 +166,8 @@ func (s *Server) defaultAdminTenant(c *gin.Context, principal auth.Principal) (*
 			return personal, nil
 		}
 	}
-	tenants, err := s.Auth.ListTenants(c.Request.Context(), db.TenantFilter{
-		Personal: db.PersonalTenantScope{Restricted: true},
-	})
+	// The admin has no active personal tenant here, so this lists shared ones.
+	tenants, err := s.Auth.ListTenants(c.Request.Context(), principal, db.TenantFilter{})
 	if err != nil {
 		return nil, err
 	}

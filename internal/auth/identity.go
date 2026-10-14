@@ -201,11 +201,11 @@ func (s *Service) RestoreUser(ctx context.Context, userID string) (*db.User, err
 }
 
 // UpsertTenantMembership creates or replaces a user's tenant scopes.
-func (s *Service) UpsertTenantMembership(ctx context.Context, input UpsertMembershipInput) (*db.TenantMembership, error) {
+func (s *Service) UpsertTenantMembership(ctx context.Context, principal Principal, input UpsertMembershipInput) (*db.TenantMembership, error) {
 	if err := ValidateScopes(AuthorityTenant, input.Scopes); err != nil {
 		return nil, err
 	}
-	tenant, err := s.requireActiveTenant(ctx, input.TenantID)
+	tenant, err := s.RequireActiveTenant(ctx, principal, input.TenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -246,9 +246,9 @@ func (s *Service) UpsertTenantMembership(ctx context.Context, input UpsertMember
 	return membership, nil
 }
 
-// ListTenantMemberships returns all memberships for a tenant.
-func (s *Service) ListTenantMemberships(ctx context.Context, tenantID string) ([]db.TenantMembership, error) {
-	if _, err := s.GetTenant(ctx, tenantID); err != nil {
+// ListTenantMemberships returns all memberships for a tenant principal may see.
+func (s *Service) ListTenantMemberships(ctx context.Context, principal Principal, tenantID string) ([]db.TenantMembership, error) {
+	if _, err := s.GetTenant(ctx, principal, tenantID); err != nil {
 		return nil, err
 	}
 	return s.repo.ListTenantMemberships(ctx, tenantID)
@@ -263,22 +263,22 @@ func (s *Service) ListUserMemberships(ctx context.Context, userID string) ([]db.
 }
 
 // DeleteTenantMembership removes a user's tenant access.
-func (s *Service) DeleteTenantMembership(ctx context.Context, tenantID, userID string) error {
+func (s *Service) DeleteTenantMembership(ctx context.Context, principal Principal, tenantID, userID string) error {
+	tenant, err := s.GetTenant(ctx, principal, tenantID)
+	if err != nil {
+		return err
+	}
+	// The owner's membership lasts as long as the personal tenant: without it
+	// the tenant is an orphan nobody can reach again.
+	if tenant.OwnerUserID != nil {
+		return ErrPersonalTenantMember
+	}
 	membership, err := s.repo.GetTenantMembership(ctx, tenantID, userID)
 	if err != nil {
 		return err
 	}
 	if membership == nil {
 		return ErrMembershipNotFound
-	}
-	tenant, err := s.repo.GetTenantByID(ctx, tenantID)
-	if err != nil {
-		return err
-	}
-	// The owner's membership lasts as long as the personal tenant: without it
-	// the tenant is an orphan nobody can reach again.
-	if tenant != nil && tenant.OwnerUserID != nil {
-		return ErrPersonalTenantMember
 	}
 	if err := s.repo.DeleteTenantMembership(ctx, tenantID, userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -334,8 +334,9 @@ func (s *Service) newAuditEvent(principal Principal, input AuditInput) (*db.Audi
 	}, nil
 }
 
-// ListAuditEventsPage returns security audit entries.
-func (s *Service) ListAuditEventsPage(ctx context.Context, filter db.AuditEventFilter, params db.PageParams) (db.PageResult[db.AuditEvent], error) {
+// ListAuditEventsPage returns the security audit entries principal may see.
+func (s *Service) ListAuditEventsPage(ctx context.Context, principal Principal, filter db.AuditEventFilter, params db.PageParams) (db.PageResult[db.AuditEvent], error) {
+	filter.Personal = personalTenantScopeFor(principal)
 	return s.repo.ListAuditEventsPage(ctx, filter, params)
 }
 

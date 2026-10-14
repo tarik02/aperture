@@ -364,12 +364,13 @@ func (s *Server) rememberedTenantGone(ctx context.Context, principal auth.Princi
 	if principal.AuthorityType != auth.AuthoritySystemAdmin {
 		return false, nil
 	}
-	tenant, err := s.Auth.GetTenant(ctx, tenantID)
+	// GetTenant also answers not found for another user's personal tenant.
+	tenant, err := s.Auth.GetTenant(ctx, principal, tenantID)
 	if errors.Is(err, auth.ErrTenantNotFound) {
 		return true, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	return tenant.DeletedAt != nil || !auth.CanSeeTenant(principal, *tenant), nil
+	return tenant.DeletedAt != nil, nil
 }
