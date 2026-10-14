@@ -308,3 +308,38 @@ func TestBuildBwrapCommandIsolatesSessionWithoutPIDNamespace(t *testing.T) {
 	assertSandboxHidesServiceState(t, args, layout)
 	assertSandboxExposes(t, args, layout.merged, layout.files, layout.cache)
 }
+
+func TestHiddenConfigMountsResolvesSymlinks(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "static-target", "aperture")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	direct := filepath.Join(root, "etc", "aperture")
+	if err := os.MkdirAll(direct, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Like NixOS: /etc/static is a symlink, so /etc/static/aperture is reached through it.
+	if err := os.Symlink(filepath.Join(root, "static-target"), filepath.Join(root, "etc", "static")); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(root, "etc", "file")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := hiddenConfigMounts([]string{
+		direct,
+		filepath.Join(root, "etc", "static", "aperture"),
+		real,
+		file,
+		filepath.Join(root, "missing"),
+	})
+
+	resolvedDirect, _ := filepath.EvalSymlinks(direct)
+	resolvedReal, _ := filepath.EvalSymlinks(real)
+	want := []string{resolvedDirect, resolvedReal}
+	if !slices.Equal(got, want) {
+		t.Fatalf("hiddenConfigMounts() = %q, want %q", got, want)
+	}
+}

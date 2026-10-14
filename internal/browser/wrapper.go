@@ -600,10 +600,7 @@ func hostBindMounts(browserExecutable string) [][]string {
 		}
 		mounts = append(mounts, []string{"--ro-bind", path, path})
 	}
-	for _, path := range hiddenSystemPaths {
-		if _, err := os.Stat(path); err != nil {
-			continue
-		}
+	for _, path := range hiddenConfigMounts(hiddenSystemPaths) {
 		mounts = append(mounts, []string{"--tmpfs", path})
 	}
 	// A browser installed outside the system trees, such as a downloaded Chromium build, gets a bind
@@ -616,6 +613,31 @@ func hostBindMounts(browserExecutable string) [][]string {
 		}
 	}
 	return mounts
+}
+
+// hiddenConfigMounts returns the existing directories to cover with a tmpfs. bwrap creates mount points
+// without following symlinks, so a path reached through one (NixOS links /etc/static into the store)
+// is masked at its resolved location. Paths that resolve into the Nix store are left visible: the whole
+// store is bound read-only and anything there stays readable by its store path anyway.
+func hiddenConfigMounts(paths []string) []string {
+	seen := make(map[string]bool, len(paths))
+	result := make([]string, 0, len(paths))
+	for _, path := range paths {
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			continue
+		}
+		info, err := os.Stat(resolved)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		if withinAnyPath(resolved, []string{"/nix/store"}) || seen[resolved] {
+			continue
+		}
+		seen[resolved] = true
+		result = append(result, resolved)
+	}
+	return result
 }
 
 func withinAnyPath(path string, roots []string) bool {
