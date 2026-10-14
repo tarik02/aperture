@@ -155,10 +155,21 @@ func (s *Server) authenticate(c *gin.Context) (auth.Principal, error) {
 		}
 	} else if s.WebAuth != nil {
 		selectedTenant := selectedTenantID(c)
-		if selectedTenant == "" {
+		remembered := selectedTenant == ""
+		if remembered {
 			selectedTenant = s.WebAuth.SelectedTenantID(c.Request.Context())
 		}
 		principal, err = s.WebAuth.Authenticate(c.Request.Context(), selectedTenant)
+		if remembered && selectedTenant != "" {
+			gone, goneErr := s.rememberedTenantGone(c.Request.Context(), principal, err, selectedTenant)
+			if goneErr != nil {
+				err = goneErr
+			} else if gone {
+				s.WebAuth.RememberSelectedTenant(c.Request.Context(), "")
+				selectedTenant = ""
+				principal, err = s.WebAuth.Authenticate(c.Request.Context(), selectedTenant)
+			}
+		}
 		if err == nil {
 			c.Set(selectedTenantContextKey, selectedTenant)
 			c.Set(webSessionAuthenticationContextKey, true)
@@ -304,7 +315,7 @@ func (s *Server) requireSessionScope(c *gin.Context, scope string) bool {
 	}
 
 	p := c.MustGet("principal").(auth.Principal)
-	tenantID, err := auth.ResolveTenantID(p, selectedTenantID(c))
+	tenantID, err := s.Auth.ResolveTenantID(c.Request.Context(), p, selectedTenantID(c))
 	if err != nil {
 		WriteError(c, err)
 		c.Abort()
@@ -337,4 +348,28 @@ func eventResourceFilter(principal auth.Principal) ([]db.ResourceReference, bool
 
 func tenantIDFromContext(c *gin.Context) string {
 	return c.GetString("tenantId")
+}
+
+// rememberedTenantGone reports whether the tenant a browser session remembers
+// can no longer be used: someone deleted it or removed the user's access, or,
+// for a system administrator, it is deleted or another user's personal tenant.
+// The session then falls back to the default selection instead of failing
+// every request.
+func (s *Server) rememberedTenantGone(ctx context.Context, principal auth.Principal, authErr error, tenantID string) (bool, error) {
+	if authErr != nil {
+		return errors.Is(authErr, auth.ErrTenantDeleted) ||
+			errors.Is(authErr, auth.ErrTenantForbidden) ||
+			errors.Is(authErr, auth.ErrTenantNotFound), nil
+	}
+	if principal.AuthorityType != auth.AuthoritySystemAdmin {
+		return false, nil
+	}
+	tenant, err := s.Auth.GetTenant(ctx, tenantID)
+	if errors.Is(err, auth.ErrTenantNotFound) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return tenant.DeletedAt != nil || !auth.CanSeeTenant(principal, *tenant), nil
 }

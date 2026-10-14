@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 
 	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/db"
@@ -82,7 +83,7 @@ func (s *Server) mcpSnapshotUpdate(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSnapshotsWrite)
+	tenantID, err := s.mcpTenant(ctx, &a, in.TenantID, auth.ScopeSnapshotsWrite)
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
@@ -104,7 +105,7 @@ func (s *Server) mcpSnapshotDelete(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSnapshotsWrite)
+	tenantID, err := s.mcpTenant(ctx, &a, in.TenantID, auth.ScopeSnapshotsWrite)
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
@@ -129,7 +130,7 @@ func (s *Server) mcpSnapshotReplaceTags(ctx context.Context, _ *mcp.CallToolRequ
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSnapshotsWrite)
+	tenantID, err := s.mcpTenant(ctx, &a, in.TenantID, auth.ScopeSnapshotsWrite)
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
@@ -151,7 +152,7 @@ func (s *Server) mcpSnapshotRestore(ctx context.Context, _ *mcp.CallToolRequest,
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSnapshotsWrite)
+	tenantID, err := s.mcpTenant(ctx, &a, in.TenantID, auth.ScopeSnapshotsWrite)
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
@@ -240,6 +241,9 @@ func (s *Server) mcpTenantsUpdate(ctx context.Context, _ *mcp.CallToolRequest, i
 	if a.principal == nil || a.principal.AuthorityType != auth.AuthoritySystemAdmin || !auth.HasScope(a.principal.Scopes, auth.ScopeTenantsWrite) {
 		return nil, mcpTenantOutput{}, mcpToolError("forbidden", nil)
 	}
+	if err := s.Auth.AuthorizeTenant(ctx, *a.principal, in.TenantID); err != nil {
+		return nil, mcpTenantOutput{}, mcpAuthorizeTenantError(err)
+	}
 	tenant, err := s.Auth.UpdateTenant(ctx, in.TenantID, auth.UpdateTenantInput{DisplayName: in.DisplayName})
 	if err != nil {
 		return nil, mcpTenantOutput{}, mcpToolError("invalid_arguments", err)
@@ -255,6 +259,9 @@ func (s *Server) mcpTenantsDelete(ctx context.Context, _ *mcp.CallToolRequest, i
 	if a.principal == nil || a.principal.AuthorityType != auth.AuthoritySystemAdmin || !auth.HasScope(a.principal.Scopes, auth.ScopeTenantsWrite) {
 		return nil, mcpTenantOutput{}, mcpToolError("forbidden", nil)
 	}
+	if err := s.Auth.AuthorizeTenant(ctx, *a.principal, in.TenantID); err != nil {
+		return nil, mcpTenantOutput{}, mcpAuthorizeTenantError(err)
+	}
 	tenant, err := s.Auth.DeleteTenant(ctx, in.TenantID)
 	if err != nil {
 		return nil, mcpTenantOutput{}, mcpToolError("tenant_not_found", err)
@@ -269,6 +276,9 @@ func (s *Server) mcpTenantsRestore(ctx context.Context, _ *mcp.CallToolRequest, 
 	}
 	if a.principal == nil || a.principal.AuthorityType != auth.AuthoritySystemAdmin || !auth.HasScope(a.principal.Scopes, auth.ScopeTenantsWrite) {
 		return nil, mcpTenantOutput{}, mcpToolError("forbidden", nil)
+	}
+	if err := s.Auth.AuthorizeTenant(ctx, *a.principal, in.TenantID); err != nil {
+		return nil, mcpTenantOutput{}, mcpAuthorizeTenantError(err)
 	}
 	tenant, err := s.Auth.RestoreTenant(ctx, in.TenantID)
 	if err != nil {
@@ -295,4 +305,11 @@ func (s *Server) mcpBrowserChannels(ctx context.Context, _ *mcp.CallToolRequest,
 		out.Channels = append(out.Channels, mcpBrowserChannel{Name: name})
 	}
 	return nil, out, nil
+}
+
+func mcpAuthorizeTenantError(err error) error {
+	if errors.Is(err, auth.ErrTenantNotFound) {
+		return mcpToolError("tenant_not_found", err)
+	}
+	return mcpToolError("internal", err)
 }

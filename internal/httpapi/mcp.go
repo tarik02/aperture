@@ -179,7 +179,7 @@ func (s *Server) authenticateMCP(r *http.Request) (mcpAuth, error) {
 		if err != nil {
 			return mcpAuth{}, errors.New("forbidden")
 		}
-		tenantID, err := auth.ResolveTenantID(principal, row.TenantID)
+		tenantID, err := s.Auth.ResolveTenantID(r.Context(), principal, row.TenantID)
 		if err != nil {
 			return mcpAuth{}, errors.New("forbidden")
 		}
@@ -873,7 +873,7 @@ func (s *Server) resolveProxySession(ctx context.Context, a mcpAuth, sessionID s
 	if !auth.HasResourceAccess(principal, auth.ResourceTypeSession, sessionID) {
 		return nil, mcpToolError("forbidden", auth.ErrResourceAccessDenied)
 	}
-	if _, err := auth.ResolveTenantID(principal, row.TenantID); err != nil {
+	if _, err := s.Auth.ResolveTenantID(ctx, principal, row.TenantID); err != nil {
 		return nil, mcpToolError("forbidden", nil)
 	}
 	return s.Sessions.Get(ctx, row.TenantID, sessionID)
@@ -882,7 +882,7 @@ func (s *Server) resolveProxySession(ctx context.Context, a mcpAuth, sessionID s
 // mcpTenant resolves the tenant a tool call acts in. A multi-tenant principal
 // is narrowed in place to the requested tenant, so later checks in the same
 // call see that tenant's scopes.
-func (s *Server) mcpTenant(a *mcpAuth, requested string, scope string) (string, error) {
+func (s *Server) mcpTenant(ctx context.Context, a *mcpAuth, requested string, scope string) (string, error) {
 	if a.principal == nil {
 		return "", mcpToolError("unauthorized", nil)
 	}
@@ -900,7 +900,7 @@ func (s *Server) mcpTenant(a *mcpAuth, requested string, scope string) (string, 
 	if a.principal.AuthorityType == auth.AuthorityTenant && requested != "" {
 		return "", mcpToolError("tenant_selection_forbidden", auth.ErrTenantForbidden)
 	}
-	tenantID, err := auth.ResolveTenantID(*a.principal, requested)
+	tenantID, err := s.Auth.ResolveTenantID(ctx, *a.principal, requested)
 	if err != nil {
 		return "", mcpToolError("tenant_not_found", err)
 	}
@@ -912,7 +912,7 @@ func (s *Server) mcpSnapshotsList(ctx context.Context, _ *mcp.CallToolRequest, i
 	if err != nil {
 		return nil, mcpListSnapshotsOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSnapshotsRead)
+	tenantID, err := s.mcpTenant(ctx, &a, in.TenantID, auth.ScopeSnapshotsRead)
 	if err != nil {
 		return nil, mcpListSnapshotsOutput{}, err
 	}
@@ -935,7 +935,7 @@ func (s *Server) mcpSnapshotsGet(ctx context.Context, _ *mcp.CallToolRequest, in
 	if err != nil {
 		return nil, mcpSnapshot{}, err
 	}
-	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSnapshotsRead)
+	tenantID, err := s.mcpTenant(ctx, &a, in.TenantID, auth.ScopeSnapshotsRead)
 	if err != nil {
 		return nil, mcpSnapshot{}, err
 	}
@@ -954,7 +954,7 @@ func (s *Server) mcpSessionsCreate(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpCreateSessionOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSessionsWrite)
+	tenantID, err := s.mcpTenant(ctx, &a, in.TenantID, auth.ScopeSessionsWrite)
 	if err != nil {
 		return nil, mcpCreateSessionOutput{}, err
 	}
@@ -987,7 +987,7 @@ func (s *Server) mcpSessionsList(ctx context.Context, _ *mcp.CallToolRequest, in
 	if err != nil {
 		return nil, mcpListSessionsOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSessionsRead)
+	tenantID, err := s.mcpTenant(ctx, &a, in.TenantID, auth.ScopeSessionsRead)
 	if err != nil {
 		return nil, mcpListSessionsOutput{}, err
 	}
@@ -1020,7 +1020,7 @@ func (s *Server) mcpSessionsBulkGet(ctx context.Context, _ *mcp.CallToolRequest,
 	if err != nil {
 		return nil, mcpBulkSessionsOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSessionsRead)
+	tenantID, err := s.mcpTenant(ctx, &a, in.TenantID, auth.ScopeSessionsRead)
 	if err != nil {
 		return nil, mcpBulkSessionsOutput{}, err
 	}
@@ -1063,7 +1063,7 @@ func (s *Server) sessionForMCP(ctx context.Context, a *mcpAuth, requested, reque
 			requestedTenant = row.TenantID
 		}
 		var err error
-		tenantID, err = s.mcpTenant(a, requestedTenant, scope)
+		tenantID, err = s.mcpTenant(ctx, a, requestedTenant, scope)
 		if err != nil {
 			return nil, err
 		}
@@ -1169,7 +1169,7 @@ func (s *Server) mcpEventsList(ctx context.Context, _ *mcp.CallToolRequest, in m
 	if err != nil {
 		return nil, mcpListEventsOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSessionsRead)
+	tenantID, err := s.mcpTenant(ctx, &a, in.TenantID, auth.ScopeSessionsRead)
 	if err != nil {
 		return nil, mcpListEventsOutput{}, err
 	}
@@ -1276,7 +1276,7 @@ func (s *Server) mcpTenantsList(ctx context.Context, _ *mcp.CallToolRequest, in 
 	if a.principal == nil || !auth.HasScope(a.principal.Scopes, auth.ScopeTenantsWrite) {
 		return nil, mcpListTenantsOutput{}, mcpToolError("forbidden", nil)
 	}
-	page, err := s.Auth.ListTenantsPage(ctx, db.TenantFilter{IncludeDeleted: in.IncludeDeleted}, mcpPageParams(in.Cursor, in.Limit))
+	page, err := s.Auth.ListTenantsPage(ctx, db.TenantFilter{IncludeDeleted: in.IncludeDeleted, Personal: auth.PersonalTenantScopeFor(*a.principal)}, mcpPageParams(in.Cursor, in.Limit))
 	if err != nil {
 		return nil, mcpListTenantsOutput{}, mcpToolError("internal", err)
 	}
@@ -1300,7 +1300,7 @@ func (s *Server) mcpTokensList(ctx context.Context, _ *mcp.CallToolRequest, in m
 	if a.principal.AuthorityType != auth.AuthoritySystemAdmin && !auth.HasScope(a.principal.Scopes, auth.ScopeTenantWrite) {
 		return nil, mcpListTokensOutput{}, mcpToolError("forbidden", nil)
 	}
-	page, err := s.Auth.ListTokensPage(ctx, db.APITokenFilter{TenantID: tenantID}, mcpPageParams(in.Cursor, in.Limit))
+	page, err := s.Auth.ListTokensPage(ctx, db.APITokenFilter{TenantID: tenantID, Personal: auth.PersonalTenantScopeFor(*a.principal)}, mcpPageParams(in.Cursor, in.Limit))
 	if err != nil {
 		return nil, mcpListTokensOutput{}, mcpToolError("internal", err)
 	}

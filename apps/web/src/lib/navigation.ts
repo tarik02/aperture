@@ -6,12 +6,14 @@ export type NavItem = {
   to: string;
   icon: LucideIcon;
   adminOnly?: boolean;
+  /** The page lists resources of the selected tenant. */
+  tenantScoped?: boolean;
 };
 
 export const primaryNavItems: NavItem[] = [
-  { title: "Sessions", to: "/-/sessions", icon: AppWindow },
-  { title: "Snapshots", to: "/-/snapshots", icon: Camera },
-  { title: "Tokens", to: "/-/tokens", icon: KeyRound },
+  { title: "Sessions", to: "/-/sessions", icon: AppWindow, tenantScoped: true },
+  { title: "Snapshots", to: "/-/snapshots", icon: Camera, tenantScoped: true },
+  { title: "Tokens", to: "/-/tokens", icon: KeyRound, tenantScoped: true },
   { title: "Tenants", to: "/-/tenants", icon: Building2, adminOnly: true },
   { title: "Users", to: "/-/users", icon: Users, adminOnly: true },
 ];

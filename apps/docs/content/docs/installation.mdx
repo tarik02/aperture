@@ -43,7 +43,8 @@ Create `~/.config/aperture/aperture.yaml` (or set `APERTURE_*` environment varia
 - `channels` — browser channel registry (`executable` paths only; API accepts channel names)
 - `metrics_address` — optional Prometheus metrics listener, disabled by default; see [Monitoring](/docs/monitoring)
 - `thumbnails_persist_on_suspend` — save session and tab thumbnails when a session suspends (default `true`); see [Thumbnails](/docs/session-sharing#thumbnails)
-- `auto_create_personal_tenant` — give every new user a tenant of their own, with every tenant permission (default `false`); see [Personal tenants](#personal-tenants)
+- `allow_personal_tenants` — let users and administrators create [personal tenants](#personal-tenants) (default `true`)
+- `auto_create_personal_tenant` — give every new user a tenant of their own, with every tenant permission (default `false`, requires `allow_personal_tenants`); see [Personal tenants](#personal-tenants)
 - `browser_pid_namespace` — run each browser in its own PID namespace, so a session cannot see or signal other processes (default `true`). bwrap must be able to mount a new procfs; container runtimes that mask parts of `/proc` prevent that, see [Docker](/docs/docker#pid-namespace)
 
 Example:
@@ -148,9 +149,21 @@ On first `aperture serve`, the database is migrated and a local job token is cre
 
 ### Personal tenants
 
-A personal tenant is a tenant owned by one user, named after them, in which they hold every tenant permission. Set `auto_create_personal_tenant: true` (`APERTURE_AUTO_CREATE_PERSONAL_TENANT=true`) to create one together with every new user: on OIDC first login with `auto_provision`, and by default when an administrator creates a user. The create-user form lets the administrator override the default per user, and the user details page can create one later for a user who has none. A user owns at most one active personal tenant; deleting it as a tenant allows a fresh one. The owner's membership of an active personal tenant cannot be removed, since nobody could reach the tenant afterwards. Deleted tenants keep their owner for history. Disabling the user leaves the tenant in place.
+A personal tenant is a tenant owned by one user, named after them, in which they hold every tenant permission. It is private to that user:
 
-A user without an explicit tenant selection lands in their personal tenant when they belong to it; otherwise the existing rule applies and a single membership is selected automatically.
+- Nobody else can be a member, and the owner never changes.
+- System administrators cannot list, select, rename or mint tokens for another user's personal tenant, and its audit events are hidden from them. To an administrator it does not exist; the user details page only shows whether the user has one.
+- Only tenant tokens the owner created keep working in it.
+
+Set `allow_personal_tenants: false` (`APERTURE_ALLOW_PERSONAL_TENANTS=false`) to forbid creating personal tenants. The account-menu item and the create buttons disappear, and the API answers `personal_tenants_disabled`. Existing personal tenants keep working, and their owners and administrators can still delete them.
+
+Set `auto_create_personal_tenant: true` (`APERTURE_AUTO_CREATE_PERSONAL_TENANT=true`) to create one together with every new user: on OIDC first login with `auto_provision`, and by default when an administrator creates a user. The create-user form lets the administrator override the default per user. The user details page can create one later for a user who has none, or delete it, for example when offboarding, without revealing it.
+
+Users manage their own personal tenant from **Personal tenant** in the account menu: create one or delete it. Deleting a personal tenant is final: nobody can restore it, and the owner can create a new one instead. A user owns at most one active personal tenant. Deleted tenants keep their owner for history. Disabling the user leaves the tenant in place.
+
+A user without an explicit tenant selection lands in their personal tenant when they have one; otherwise the existing rule applies and a single membership is selected automatically.
+
+The local `aperture admin` CLI works directly on the database and still sees every tenant.
 
 ## User systemd services
 

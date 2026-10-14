@@ -41,16 +41,17 @@ import {
 import {
   useCreateUserInvitationMutation,
   useCreatePersonalTenantMutation,
+  useDeletePersonalTenantMutation,
   useDeleteTenantMembershipMutation,
   useDisableUserMutation,
   useRestoreUserMutation,
 } from "#/features/user/user.mutations.ts";
 import { useUserMembershipsQuery, useUserQuery } from "#/features/user/user.queries.ts";
-import { useDeleteTenantMutation } from "#/features/tenant/tenant.mutations.ts";
 import { useTenantsInfiniteQuery } from "#/features/tenant/tenant.queries.ts";
 import { flattenInfinitePages } from "@aperture-browser/api-client";
 import type { TenantMembership } from "@aperture-browser/api-client";
 import { scopeLabel } from "#/lib/scopes.ts";
+import { selectAuth, useAuthSessionStore } from "#/stores/auth-session.ts";
 
 type MembershipDialogState =
   | { kind: "create" }
@@ -61,7 +62,7 @@ type ConfirmAction =
   | { kind: "disable" }
   | { kind: "restore" }
   | { kind: "remove-access"; membership: TenantMembership }
-  | { kind: "delete-personal-tenant"; tenantId: string }
+  | { kind: "delete-personal-tenant" }
   | null;
 
 type UserDetailsSheetProps = {
@@ -78,6 +79,8 @@ export function UserDetailsSheet({
   onOpenChangeComplete,
 }: UserDetailsSheetProps) {
   const userQuery = useUserQuery(userId);
+  const allowPersonalTenants =
+    useAuthSessionStore(selectAuth)?.settings.allowPersonalTenants ?? false;
   const membershipsQuery = useUserMembershipsQuery(userId);
   const tenantsQuery = useTenantsInfiniteQuery({ limit: 100 });
   const disableMutation = useDisableUserMutation();
@@ -85,7 +88,7 @@ export function UserDetailsSheet({
   const deleteMembershipMutation = useDeleteTenantMembershipMutation();
   const createInvitationMutation = useCreateUserInvitationMutation();
   const createPersonalTenantMutation = useCreatePersonalTenantMutation();
-  const deleteTenantMutation = useDeleteTenantMutation();
+  const deletePersonalTenantMutation = useDeletePersonalTenantMutation();
   const [editOpen, setEditOpen] = useState(false);
   const [passwordLinkOpen, setPasswordLinkOpen] = useState(false);
   const [passwordLink, setPasswordLink] = useState<UserPasswordLink | null>(null);
@@ -145,7 +148,7 @@ export function UserDetailsSheet({
         toast.success("Tenant access removed");
         return;
       case "delete-personal-tenant":
-        await deleteTenantMutation.mutateAsync(confirmAction.tenantId);
+        await deletePersonalTenantMutation.mutateAsync(user.id);
         toast.success("Personal tenant deleted");
         return;
       default: {
@@ -211,10 +214,10 @@ export function UserDetailsSheet({
           : confirmAction?.kind === "delete-personal-tenant"
             ? {
                 title: "Delete personal tenant",
-                description: `Delete the personal tenant of ${user?.displayName ?? "this user"}? Its sessions and snapshots stay unreachable until the tenant is restored.`,
+                description: `Delete the personal tenant of ${user?.displayName ?? "this user"}? This is final: its sessions and snapshots become unreachable and its tokens are revoked.`,
                 confirmLabel: "Delete",
                 variant: "destructive" as const,
-                pending: deleteTenantMutation.isPending,
+                pending: deletePersonalTenantMutation.isPending,
               }
             : null;
 
@@ -345,33 +348,63 @@ export function UserDetailsSheet({
                     </Card>
                   ) : null}
 
-                  <Card size="sm">
-                    <CardHeader>
-                      <CardTitle>Tenant access</CardTitle>
-                      <CardDescription>
-                        Permissions granted within individual tenants.
-                      </CardDescription>
-                      <CardAction className="aperture:flex aperture:gap-2">
-                        {user.personalTenantId ? null : (
+                  {user.hasPersonalTenant || allowPersonalTenants ? (
+                    <Card size="sm">
+                      <CardHeader>
+                        <CardTitle>Personal tenant</CardTitle>
+                        <CardDescription>
+                          {user.hasPersonalTenant
+                            ? "This user owns a personal tenant. Only they can see or use it."
+                            : "A tenant owned by this user with every tenant permission. Only they can see or use it."}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardFooter className="aperture:justify-end">
+                        {user.hasPersonalTenant ? (
                           <Button
+                            type="button"
+                            variant="destructive"
                             size="sm"
+                            disabled={deletePersonalTenantMutation.isPending}
+                            onClick={() => {
+                              setConfirmAction({ kind: "delete-personal-tenant" });
+                              setConfirmOpen(true);
+                            }}
+                          >
+                            <Trash2 data-icon="inline-start" />
+                            Delete personal tenant
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
                             variant="outline"
+                            size="sm"
                             disabled={
                               Boolean(user.disabledAt) || createPersonalTenantMutation.isPending
                             }
                             title={
                               user.disabledAt
                                 ? "Restore the user before creating a personal tenant"
-                                : "Create a tenant owned by this user with every tenant permission"
+                                : undefined
                             }
                             onClick={() => void handleCreatePersonalTenant()}
                           >
                             <Building2 data-icon="inline-start" />
                             {createPersonalTenantMutation.isPending
                               ? "Creating..."
-                              : "Personal tenant"}
+                              : "Create personal tenant"}
                           </Button>
                         )}
+                      </CardFooter>
+                    </Card>
+                  ) : null}
+
+                  <Card size="sm">
+                    <CardHeader>
+                      <CardTitle>Tenant access</CardTitle>
+                      <CardDescription>
+                        Permissions granted within individual tenants.
+                      </CardDescription>
+                      <CardAction>
                         <Button
                           size="sm"
                           variant="outline"
@@ -418,13 +451,8 @@ export function UserDetailsSheet({
                               {index > 0 ? <Separator /> : null}
                               <div className="aperture:flex aperture:items-start aperture:gap-3 aperture:py-3 aperture:first:pt-0 aperture:last:pb-0">
                                 <div className="aperture:min-w-0 aperture:flex-1">
-                                  <div className="aperture:flex aperture:items-center aperture:gap-2 aperture:font-medium">
-                                    <span className="aperture:truncate">
-                                      {tenantNames.get(membership.tenantId) ?? "Tenant"}
-                                    </span>
-                                    {membership.tenantId === user.personalTenantId ? (
-                                      <Badge variant="secondary">personal</Badge>
-                                    ) : null}
+                                  <div className="aperture:truncate aperture:font-medium">
+                                    {tenantNames.get(membership.tenantId) ?? "Tenant"}
                                   </div>
                                   <div className="aperture:truncate aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
                                     {membership.tenantId}
@@ -460,25 +488,9 @@ export function UserDetailsSheet({
                                     type="button"
                                     variant="ghost"
                                     size="icon-sm"
-                                    aria-label={
-                                      membership.tenantId === user.personalTenantId
-                                        ? "Delete personal tenant"
-                                        : "Remove tenant access"
-                                    }
-                                    title={
-                                      membership.tenantId === user.personalTenantId
-                                        ? "The owner keeps access; this deletes the tenant"
-                                        : undefined
-                                    }
+                                    aria-label="Remove tenant access"
                                     onClick={() => {
-                                      setConfirmAction(
-                                        membership.tenantId === user.personalTenantId
-                                          ? {
-                                              kind: "delete-personal-tenant",
-                                              tenantId: membership.tenantId,
-                                            }
-                                          : { kind: "remove-access", membership },
-                                      );
+                                      setConfirmAction({ kind: "remove-access", membership });
                                       setConfirmOpen(true);
                                     }}
                                   >

@@ -83,7 +83,10 @@ export function TenantListPage() {
   const setConfirmAction = useTenantListPageStore((state) => state.setConfirmAction);
   const selectedTenantItems = useMemo(() => Object.values(selectedTenants), [selectedTenants]);
   const deletableTenantItems = selectedTenantItems.filter((tenant) => !tenant.deletedAt);
-  const restorableTenantItems = selectedTenantItems.filter((tenant) => tenant.deletedAt);
+  // Deleting a personal tenant is final.
+  const restorableTenantItems = selectedTenantItems.filter(
+    (tenant) => tenant.deletedAt && !tenant.ownerUserId,
+  );
 
   const deleteMutation = useDeleteTenantMutation();
   const restoreMutation = useRestoreTenantMutation();
@@ -280,11 +283,13 @@ export function TenantListPage() {
                           Rename
                         </DropdownMenuItem>
                         {tenant.deletedAt ? (
-                          <DropdownMenuItem
-                            onClick={() => void restoreMutation.mutateAsync(tenant.id)}
-                          >
-                            Restore
-                          </DropdownMenuItem>
+                          tenant.ownerUserId ? null : (
+                            <DropdownMenuItem
+                              onClick={() => void restoreMutation.mutateAsync(tenant.id)}
+                            >
+                              Restore
+                            </DropdownMenuItem>
+                          )
                         ) : (
                           <>
                             <DropdownMenuSeparator />

@@ -160,13 +160,19 @@ type principalResponse struct {
 }
 
 type authMeResponse struct {
-	Principal        principalResponse `json:"principal"`
-	SelectedTenant   *tenantResponse   `json:"selectedTenant"`
-	AvailableTenants []tenantResponse  `json:"availableTenants"`
-	Settings         authMeSettings    `json:"settings"`
+	Principal        principalResponse             `json:"principal"`
+	SelectedTenant   *tenantResponse               `json:"selectedTenant"`
+	AvailableTenants []tenantResponse              `json:"availableTenants"`
+	Settings         authMeSettings                `json:"settings"`
+	PersonalTenant   *personalTenantStatusResponse `json:"personalTenant"`
+}
+
+type personalTenantStatusResponse struct {
+	Tenant *tenantResponse `json:"tenant"`
 }
 
 type authMeSettings struct {
+	AllowPersonalTenants     bool `json:"allowPersonalTenants"`
 	AutoCreatePersonalTenant bool `json:"autoCreatePersonalTenant"`
 }
 
@@ -224,7 +230,7 @@ type userResponse struct {
 	CreatedAt           string  `json:"createdAt"`
 	UpdatedAt           string  `json:"updatedAt"`
 	DisabledAt          *string `json:"disabledAt"`
-	PersonalTenantID    *string `json:"personalTenantId,omitempty"`
+	HasPersonalTenant   *bool   `json:"hasPersonalTenant,omitempty"`
 	PasswordSetupStatus *string `json:"passwordSetupStatus,omitempty"`
 }
 

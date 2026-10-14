@@ -156,7 +156,7 @@ func (s *Server) requireSnapshotScope(c *gin.Context, scope string) bool {
 		return false
 	}
 
-	tenantID, err := auth.ResolveTenantID(p, selectedTenantID(c))
+	tenantID, err := s.Auth.ResolveTenantID(c.Request.Context(), p, selectedTenantID(c))
 	if err != nil {
 		WriteError(c, err)
 		c.Abort()

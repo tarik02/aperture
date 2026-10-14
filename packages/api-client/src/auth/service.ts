@@ -42,6 +42,10 @@ export class AuthApi extends Context.Service<
     /** Resolve the owning tenant only when the browser identity may read this session. */
     readonly resolveSessionTenant: (sessionId: string) => Call<Tenant>;
 
+    /** Create or delete the signed-in user's own personal tenant. Deleting is final. */
+    readonly createOwnPersonalTenant: () => Call<Tenant>;
+    readonly deleteOwnPersonalTenant: () => Call<Tenant>;
+
     readonly getSecurityStatus: () => Call<S.SecurityStatus>;
     readonly setPassword: (currentPassword: string, newPassword: string) => Call<void>;
     readonly listPasskeys: () => Call<S.Passkeys>;

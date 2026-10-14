@@ -37,8 +37,9 @@ export function UserFormDialog({ open, user = null, onOpenChange, onSaved }: Use
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [isSystemAdmin, setIsSystemAdmin] = useState(false);
-  const personalTenantDefault =
-    useAuthSessionStore(selectAuth)?.settings.autoCreatePersonalTenant ?? false;
+  const settings = useAuthSessionStore(selectAuth)?.settings;
+  const allowPersonalTenants = settings?.allowPersonalTenants ?? false;
+  const personalTenantDefault = settings?.autoCreatePersonalTenant ?? false;
   const [createPersonalTenant, setCreatePersonalTenant] = useState(personalTenantDefault);
   const [displayNameError, setDisplayNameError] = useState<string | null>(null);
   const pending = createMutation.isPending || updateMutation.isPending;
@@ -70,7 +71,10 @@ export function UserFormDialog({ open, user = null, onOpenChange, onSaved }: Use
     };
     const savedUser = user
       ? await updateMutation.mutateAsync({ userId: user.id, input })
-      : await createMutation.mutateAsync({ ...input, createPersonalTenant });
+      : await createMutation.mutateAsync({
+          ...input,
+          createPersonalTenant: allowPersonalTenants && createPersonalTenant,
+        });
 
     toast.success(user ? "User updated" : "User created");
     onSaved(savedUser);
@@ -131,7 +135,7 @@ export function UserFormDialog({ open, user = null, onOpenChange, onSaved }: Use
                 aria-label="System administrator"
               />
             </Field>
-            {mode === "create" ? (
+            {mode === "create" && allowPersonalTenants ? (
               <Field orientation="horizontal" data-disabled={pending ? true : undefined}>
                 <FieldContent>
                   <FieldTitle>Personal tenant</FieldTitle>

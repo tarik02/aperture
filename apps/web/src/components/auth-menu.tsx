@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AppWindow,
+  Building2,
   ChevronsUpDown,
   Fingerprint,
   KeyRound,
@@ -23,8 +24,9 @@ import {
 import { ConnectedAppsModal } from "#/features/oauth/connected-apps-modal.tsx";
 import { PasskeyModal } from "#/features/passkey/passkey-modal.tsx";
 import { SecurityModal } from "#/features/security/security-modal.tsx";
+import { PersonalTenantModal } from "#/features/tenant/personal-tenant-modal.tsx";
 import { cn } from "@aperture-browser/ui/utils";
-import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
+import { selectAuth, selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
 import { AuthApi } from "@aperture-browser/api-client";
 import { useRunApi } from "@aperture-browser/session-react";
 
@@ -36,12 +38,14 @@ export function AuthMenu({ className }: AuthMenuProps) {
   const runApi = useRunApi();
   const queryClient = useQueryClient();
   const principal = useAuthSessionStore(selectPrincipal);
+  const canManagePersonalTenant = Boolean(useAuthSessionStore(selectAuth)?.personalTenant);
   const setUnauthenticated = useAuthSessionStore((state) => state.setUnauthenticated);
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [passkeysOpen, setPasskeysOpen] = useState(false);
   const [securityOpen, setSecurityOpen] = useState(false);
   const [connectedAppsOpen, setConnectedAppsOpen] = useState(false);
+  const [personalTenantOpen, setPersonalTenantOpen] = useState(false);
 
   async function handleLogout() {
     setLoggingOut(true);
@@ -111,6 +115,12 @@ export function AuthMenu({ className }: AuthMenuProps) {
                 <AppWindow />
                 Connected apps
               </DropdownMenuItem>
+              {canManagePersonalTenant ? (
+                <DropdownMenuItem onClick={() => setPersonalTenantOpen(true)}>
+                  <Building2 />
+                  Personal tenant
+                </DropdownMenuItem>
+              ) : null}
             </>
           ) : null}
           <DropdownMenuSeparator />
@@ -126,6 +136,9 @@ export function AuthMenu({ className }: AuthMenuProps) {
           <SecurityModal open={securityOpen} onOpenChange={setSecurityOpen} />
           <PasskeyModal open={passkeysOpen} onOpenChange={setPasskeysOpen} />
           <ConnectedAppsModal open={connectedAppsOpen} onOpenChange={setConnectedAppsOpen} />
+          {canManagePersonalTenant ? (
+            <PersonalTenantModal open={personalTenantOpen} onOpenChange={setPersonalTenantOpen} />
+          ) : null}
         </>
       ) : null}
       <ConfirmDialog

@@ -83,7 +83,7 @@ func newProvisionCmd() *cobra.Command {
 				}
 			}
 
-			tenants, err := application.Auth.ListTenants(cmd.Context(), false)
+			tenants, err := application.Auth.ListTenants(cmd.Context(), db.TenantFilter{})
 			if err != nil {
 				return err
 			}
@@ -224,7 +224,7 @@ func newAdminTenantsListCmd() *cobra.Command {
 				return err
 			}
 
-			tenants, err := application.Auth.ListTenants(cmd.Context(), includeDeleted)
+			tenants, err := application.Auth.ListTenants(cmd.Context(), db.TenantFilter{IncludeDeleted: includeDeleted})
 			if err != nil {
 				return err
 			}

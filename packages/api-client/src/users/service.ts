@@ -3,7 +3,7 @@ import type * as Effect from "effect/Effect";
 import type { ApiCredentials } from "../authorization/service.ts";
 import type { ApiRequestError } from "../errors.ts";
 import type { PageCursor, PaginatedList } from "../pagination.ts";
-import type { Tenant, TenantMembership, User, UserInvitation } from "../schemas.ts";
+import type { TenantMembership, User, UserInvitation } from "../schemas.ts";
 
 type Call<A> = Effect.Effect<A, ApiRequestError>;
 
@@ -48,8 +48,10 @@ export class UsersApi extends Context.Service<
     ) => Call<UserInvitation>;
     readonly disableUser: (credentials: ApiCredentials, userId: string) => Call<User>;
     readonly restoreUser: (credentials: ApiCredentials, userId: string) => Call<User>;
-    /** Creates the tenant owned by a user with every tenant scope. */
-    readonly createPersonalTenant: (credentials: ApiCredentials, userId: string) => Call<Tenant>;
+    /** Creates the tenant owned by a user with every tenant scope. Only the user can see it afterwards. */
+    readonly createPersonalTenant: (credentials: ApiCredentials, userId: string) => Call<void>;
+    /** Deletes a user's personal tenant without revealing it. */
+    readonly deletePersonalTenant: (credentials: ApiCredentials, userId: string) => Call<void>;
     readonly listUserMemberships: (
       credentials: ApiCredentials,
       userId: string,

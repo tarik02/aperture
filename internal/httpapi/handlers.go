@@ -96,6 +96,7 @@ func (s *Server) listTenants(c *gin.Context) {
 		IncludeDeleted: includeDeleted,
 		DeletedOnly:    deletedOnly,
 		Query:          strings.TrimSpace(c.Query("query")),
+		Personal:       auth.PersonalTenantScopeFor(c.MustGet("principal").(auth.Principal)),
 	}, params)
 	if err != nil {
 		WriteError(c, mapInvalidCursor(err))
@@ -111,6 +112,9 @@ func (s *Server) listTenants(c *gin.Context) {
 
 func (s *Server) updateTenant(c *gin.Context) {
 	tenantID := c.Param("tenantId")
+	if !s.authorizeTenant(c, tenantID) {
+		return
+	}
 	var req updateTenantRequest
 	if err := bindJSON(c, &req); err != nil {
 		WriteError(c, err)
@@ -130,6 +134,9 @@ func (s *Server) updateTenant(c *gin.Context) {
 
 func (s *Server) deleteTenant(c *gin.Context) {
 	tenantID := c.Param("tenantId")
+	if !s.authorizeTenant(c, tenantID) {
+		return
+	}
 	tenant, err := s.Auth.DeleteTenant(c.Request.Context(), tenantID)
 	if err != nil {
 		WriteError(c, err)
@@ -140,6 +147,9 @@ func (s *Server) deleteTenant(c *gin.Context) {
 
 func (s *Server) restoreTenant(c *gin.Context) {
 	tenantID := c.Param("tenantId")
+	if !s.authorizeTenant(c, tenantID) {
+		return
+	}
 	tenant, err := s.Auth.RestoreTenant(c.Request.Context(), tenantID)
 	if err != nil {
 		WriteError(c, err)
@@ -196,6 +206,7 @@ func (s *Server) listAdminTokens(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
+	filter.Personal = auth.PersonalTenantScopeFor(c.MustGet("principal").(auth.Principal))
 
 	params, err := parsePageParams(c)
 	if err != nil {

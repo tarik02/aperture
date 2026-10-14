@@ -69,6 +69,14 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 	c.Set("principal", principal)
 
 	path := c.FullPath()
+	// A user acting without a selected tenant holds no scopes yet; say what is
+	// missing instead of failing the scope checks below.
+	if isTenantScopedPath(path) && principal.Type == auth.PrincipalTypeUser &&
+		principal.AuthorityType == auth.AuthorityTenant && principal.TenantID == nil {
+		WriteError(c, auth.ErrTenantRequired)
+		c.Abort()
+		return
+	}
 	switch {
 	case path == "/api/auth/me":
 	case path == "/api/browser/channels":
@@ -119,7 +127,7 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 			c.Abort()
 			return
 		}
-		tenantID, err := auth.ResolveTenantID(principal, selectedTenantID(c))
+		tenantID, err := s.Auth.ResolveTenantID(c.Request.Context(), principal, selectedTenantID(c))
 		if err != nil {
 			WriteError(c, err)
 			c.Abort()
@@ -1106,4 +1114,52 @@ func (openAPIPassthroughResponse) VisitResetFocusSessionRecordingResponse(http.R
 }
 func (openAPIPassthroughResponse) VisitAttentionSessionRecordingResponse(http.ResponseWriter) error {
 	return nil
+}
+
+func (s openAPIServer) DeletePersonalTenant(ctx context.Context, _ generated.DeletePersonalTenantRequestObject) (generated.DeletePersonalTenantResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.deletePersonalTenant(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) CreateOwnPersonalTenant(ctx context.Context, _ generated.CreateOwnPersonalTenantRequestObject) (generated.CreateOwnPersonalTenantResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.createOwnPersonalTenant(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) DeleteOwnPersonalTenant(ctx context.Context, _ generated.DeleteOwnPersonalTenantRequestObject) (generated.DeleteOwnPersonalTenantResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.deleteOwnPersonalTenant(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (openAPIPassthroughResponse) VisitDeletePersonalTenantResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitCreateOwnPersonalTenantResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitDeleteOwnPersonalTenantResponse(http.ResponseWriter) error {
+	return nil
+}
+
+// isTenantScopedPath reports whether a route acts in the selected tenant.
+func isTenantScopedPath(path string) bool {
+	return path == "/api/tenant" ||
+		strings.HasPrefix(path, "/api/tenant/") ||
+		strings.HasPrefix(path, "/api/sessions") ||
+		strings.HasPrefix(path, "/api/snapshots") ||
+		path == "/api/events"
 }

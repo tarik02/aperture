@@ -23,6 +23,8 @@ interface TenantComboboxProps {
   triggerClassName?: string;
   align?: "start" | "center" | "end";
   options?: readonly Tenant[];
+  /** Leave out personal tenants, whose memberships cannot change. */
+  sharedOnly?: boolean;
 }
 
 export function TenantCombobox({
@@ -34,6 +36,7 @@ export function TenantCombobox({
   triggerClassName,
   align = "end",
   options,
+  sharedOnly = false,
 }: TenantComboboxProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -42,10 +45,10 @@ export function TenantCombobox({
   // Static options are filtered locally; the full tenant list is searched on the server.
   const query = useTenantsInfiniteQuery({ limit: 100, query: deferredSearch || undefined });
 
-  const tenants = useMemo(
-    () => options ?? flattenInfinitePages(query.data?.pages),
-    [options, query.data?.pages],
-  );
+  const tenants = useMemo(() => {
+    const all = options ?? flattenInfinitePages(query.data?.pages);
+    return sharedOnly ? all.filter((tenant) => !tenant.ownerUserId) : all;
+  }, [options, query.data?.pages, sharedOnly]);
   const selectedTenant = useMemo(
     () => tenants.find((tenant) => tenant.id === value) ?? null,
     [tenants, value],
