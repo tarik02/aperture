@@ -6,7 +6,7 @@ import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
 import { ChildProcess } from "effect/process";
 import { Playwright } from "effect-playwright";
-import { openStorageKeys } from "./storage-inventory.js";
+import { discoverStorage, openStorageKeys } from "./storage-inventory.js";
 import { frameMatchesChain, navigateIsolatedOrigin } from "./storage-origin.js";
 
 // Chromium runs the way the session wrapper starts it, not through Playwright's
@@ -96,6 +96,29 @@ describe("storage export", { timeout: 120_000 }, () => {
           const keys = yield* openStorageKeys(context);
           expect(keys).toContain("http://jira.test/");
         }
+      }),
+    );
+
+    it.effect("inventories storage when something else closes a helper tab", () =>
+      Effect.gen(function* () {
+        const context = yield* withBrowser();
+        const jira = yield* openJira(context, "");
+        const raw = yield* jira.use(async (page) => page.context());
+        yield* jira.close;
+
+        // Stands in for whatever closed the inventory tab of a live session.
+        let created = 0;
+        raw.on("page", (page) => {
+          if (created++ === 0) void page.close();
+        });
+        const partitions = yield* discoverStorage(
+          context,
+          { origins: ["http://jira.test"] },
+          new Set(),
+        );
+
+        expect(created).toBeGreaterThan(1);
+        expect(partitions.map((partition) => partition.storageKey)).toEqual(["http://jira.test/"]);
       }),
     );
 

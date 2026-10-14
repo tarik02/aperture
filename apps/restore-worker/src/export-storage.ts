@@ -19,6 +19,7 @@ import {
   frameTree,
   isSameSite,
   openStorageKeys,
+  retryInterruptedHelper,
   storageKeyForFrame,
   StorageChangedError,
   UnsupportedStorageError,
@@ -185,7 +186,7 @@ export const exportStorage = Effect.fn("storageExport.exportStorage")(function* 
 
   const origins: ExportedStorageOrigin[] = [];
   for (const partition of partitions) {
-    const state = yield* exportOrigin(context, partition);
+    const state = yield* retryInterruptedHelper(exportOrigin(context, partition));
     if (state.localStorage.length === 0 && !partition.quota) continue;
     origins.push(state);
     if (origins.length > 100)

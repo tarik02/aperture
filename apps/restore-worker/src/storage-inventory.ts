@@ -116,6 +116,33 @@ const causeMessage = (error: Playwright.PlaywrightError): string =>
 const isVanishedFrame = (error: Playwright.PlaywrightError): boolean =>
   vanishedFrameMessages.some((message) => causeMessage(error).includes(message));
 
+/**
+ * Retries a read in a helper tab after the tab went away or another navigation
+ * cancelled its own. Helper tabs are ordinary tabs of a live session: the window
+ * enforcer, a viewer or an automation client can close or navigate them meanwhile.
+ * Every attempt opens a fresh tab, and helper reads change no storage.
+ */
+export const retryInterruptedHelper = <A, E, R>(read: Effect.Effect<A, E, R>) =>
+  read.pipe(
+    Effect.retry({
+      while: (error) =>
+        error instanceof Playwright.PlaywrightError &&
+        (isVanishedFrame(error) || causeMessage(error).includes("net::ERR_ABORTED")),
+      times: 2,
+    }),
+  );
+
+/** Opens a helper tab for `use` and closes it afterwards. */
+const withHelperPage = <A, E, R>(
+  context: Playwright.BrowserContext,
+  use: (page: Playwright.Page, cdp: Cdp) => Effect.Effect<A, E, R>,
+) =>
+  Effect.gen(function* () {
+    const page = yield* Effect.acquireRelease(context.newPage, (page) => Effect.ignore(page.close));
+    const cdp = makeCdp(yield* page.use((raw) => raw.context().newCDPSession(raw)));
+    return yield* use(page, cdp);
+  }).pipe(Effect.scoped);
+
 // Sandboxed frames and initial about:blank tabs have opaque origins, whose storage
 // no storageState can address.
 const isOpaqueFrame = (error: Playwright.PlaywrightError): boolean =>
@@ -256,10 +283,8 @@ export const discoverStorage = Effect.fn("storageInventory.discoverStorage")(fun
   // Capture pages before opening helper targets; open-tabs never includes helpers.
   for (const key of openKeys) yield* add(key, false);
 
-  const page = yield* Effect.acquireRelease(context.newPage, (page) => Effect.ignore(page.close));
-  const cdp = makeCdp(yield* page.use((raw) => raw.context().newCDPSession(raw)));
-
-  for (const bucket of yield* quotaBuckets(page, cdp)) {
+  const buckets = yield* retryInterruptedHelper(withHelperPage(context, quotaBuckets));
+  for (const bucket of buckets) {
     if (!isSelected(bucket.storageKey)) continue;
     if (bucket.name !== "_default")
       return yield* new UnsupportedStorageError({
@@ -270,7 +295,8 @@ export const discoverStorage = Effect.fn("storageInventory.discoverStorage")(fun
 
   if (selection === "open-tabs") return [...inventory.values()];
 
-  for (const group of yield* siteData(page, cdp)) {
+  const groups = yield* retryInterruptedHelper(withHelperPage(context, siteData));
+  for (const group of groups) {
     for (const site of group.origins) {
       const origin = urlOrigin(site.origin);
       if (site.usage === 0 || origin === null || !matchesOrigin(selection, origin)) continue;
@@ -287,4 +313,4 @@ export const discoverStorage = Effect.fn("storageInventory.discoverStorage")(fun
     if (origin !== null) yield* add(`${origin}/`, false);
   }
   return [...inventory.values()];
-}, Effect.scoped);
+});
