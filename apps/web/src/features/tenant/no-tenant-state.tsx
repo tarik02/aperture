@@ -40,7 +40,7 @@ export function NoTenantState() {
           <EmptyContent>
             <Button type="button" onClick={() => setPersonalTenantOpen(true)}>
               <Building2 data-icon="inline-start" />
-              {personalTenant.restorable ? "Personal tenant" : "Create personal tenant"}
+              Personal tenant
             </Button>
           </EmptyContent>
         ) : null}
