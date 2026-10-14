@@ -211,3 +211,30 @@ func TestParseRuntimeEnvFromProcessReadsWrapperControlToken(t *testing.T) {
 		t.Fatalf("WrapperControlToken = %q, want %q", values.WrapperControlToken, "control-token")
 	}
 }
+
+func TestRuntimeEnvCarriesPIDNamespaceSetting(t *testing.T) {
+	t.Parallel()
+
+	for _, hostPIDNamespace := range []bool{false, true} {
+		body, err := RenderRuntimeEnv(RuntimeEnvValues{
+			SessionID:         "018f1234-0000-7000-8000-000000000001",
+			MergedUserDataDir: "/store/sessions/01/8f/id/merged",
+			FilesDir:          "/store/sessions/01/8f/id/files",
+			CacheDir:          "/store/sessions/01/8f/id/cache",
+			CDPPort:           9222,
+			WrapperPort:       9223,
+			BrowserExecutable: "/usr/bin/chromium",
+			HostPIDNamespace:  hostPIDNamespace,
+		})
+		if err != nil {
+			t.Fatalf("RenderRuntimeEnv() error = %v", err)
+		}
+		parsed, err := ParseRuntimeEnv(body)
+		if err != nil {
+			t.Fatalf("ParseRuntimeEnv() error = %v", err)
+		}
+		if parsed.HostPIDNamespace != hostPIDNamespace {
+			t.Errorf("host PID namespace = %v, want %v; env:\n%s", parsed.HostPIDNamespace, hostPIDNamespace, body)
+		}
+	}
+}

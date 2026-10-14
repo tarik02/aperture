@@ -44,6 +44,7 @@ Create `~/.config/aperture/aperture.yaml` (or set `APERTURE_*` environment varia
 - `metrics_address` — optional Prometheus metrics listener, disabled by default; see [Monitoring](/docs/monitoring)
 - `thumbnails_persist_on_suspend` — save session and tab thumbnails when a session suspends (default `true`); see [Thumbnails](/docs/session-sharing#thumbnails)
 - `auto_create_personal_tenant` — give every new user a tenant of their own, with every tenant permission (default `false`); see [Personal tenants](#personal-tenants)
+- `browser_pid_namespace` — run each browser in its own PID namespace, so a session cannot see or signal other processes (default `true`). bwrap must be able to mount a new procfs; container runtimes that mask parts of `/proc` prevent that, see [Docker](/docs/docker#pid-namespace)
 
 Example:
 
@@ -255,6 +256,8 @@ The deployment defaults are:
 Enable the edge proxy with `services.aperture.traefik.enable = true`; its default entrypoint is `127.0.0.1:28081`. TLS and external ingress remain outside the module.
 
 Enable Prometheus metrics with `services.aperture.metrics.enable = true`; they are served on `127.0.0.1:9464` by default. See [Monitoring](/docs/monitoring).
+
+The module enables `browser_pid_namespace`. It works on bare NixOS and in a privileged Proxmox LXC container with `nesting=1`; set `settings.browser_pid_namespace = false` where bwrap cannot mount a new procfs.
 
 On the first activation, reload the user manager, start blue, and make that instance persistent (or let `deployment.autoRollout` do it, see below):
 

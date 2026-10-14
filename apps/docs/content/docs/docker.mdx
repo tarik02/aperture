@@ -197,6 +197,22 @@ docker compose \
 
 Point the external HTTP proxy at port `18080`. Preserve the original `Host`, `X-Forwarded-Proto`, and WebSocket upgrade headers. The public base URL must match `APERTURE_EXTERNAL_BASE_URL`.
 
+### PID namespace
+
+The image sets `browser_pid_namespace = false`. Docker and Podman mask parts of `/proc` by default, and the kernel then refuses the new procfs that bwrap mounts for a PID namespace of its own, so every session would fail to start. Without it, sessions share the container's PID namespace: they can list the container's processes and signal those of the `aperture` user.
+
+To isolate sessions from each other's processes, relax the runtime's `/proc` masking and set `APERTURE_BROWSER_PID_NAMESPACE=true`:
+
+```yaml
+# compose.pid-namespace.yaml
+services:
+  aperture:
+    security_opt:
+      - systempaths=unconfined # Podman: unmask=/proc/*
+    environment:
+      APERTURE_BROWSER_PID_NAMESPACE: "true"
+```
+
 ### Metrics
 
 Set `APERTURE_METRICS_ADDRESS`, for example to `127.0.0.1:9464`, to serve Prometheus metrics on the host. See [Monitoring](/docs/monitoring) for a Compose override that adds Prometheus.

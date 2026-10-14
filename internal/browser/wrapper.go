@@ -263,6 +263,9 @@ type LaunchConfig struct {
 	// ProxyServerAddr is the session-local SOCKS5 address (host:port) Chromium
 	// must use. Always set by the wrapper; never user-supplied.
 	ProxyServerAddr string
+	// HostPIDNamespace keeps the browser in the wrapper's PID namespace, for hosts where
+	// bwrap cannot mount the procfs of a new one, such as containers that mask parts of /proc.
+	HostPIDNamespace bool
 }
 
 // BuildBwrapCommand constructs the bwrap command that launches Chromium.
@@ -339,18 +342,34 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 		}
 	}
 
+	isolatedRuntime := strings.TrimSpace(cfg.NestedWaylandSocket) != ""
+
+	// Chromium runs with --no-sandbox under the service's UID, so this sandbox is the only boundary
+	// between a compromised renderer and other sessions' state. A PID namespace keeps it from seeing or
+	// ptracing same-UID processes outside, and from reaching their filesystems through /proc/<pid>/root.
 	args := []string{
 		"--die-with-parent",
 		"--unshare-user-try",
+		"--unshare-uts",
+	}
+	// Without a PID namespace bwrap bind-mounts the host /proc instead of mounting a new one.
+	if !cfg.HostPIDNamespace {
+		args = append(args, "--unshare-pid")
+	}
+	// A desktop browser may use MIT-SHM with the host X server, which needs the host IPC namespace.
+	if isolatedRuntime {
+		args = append(args, "--unshare-ipc")
+	}
+	args = append(
+		args,
 		"--clearenv",
 		"--share-net",
 		"--proc", "/proc",
 		"--dev", "/dev",
 		"--tmpfs", "/tmp",
-	}
+	)
 
-	isolatedRuntime := strings.TrimSpace(cfg.NestedWaylandSocket) != ""
-	for _, bind := range hostBindMounts(!isolatedRuntime) {
+	for _, bind := range hostBindMounts(cfg.BrowserExecutable) {
 		args = append(args, bind...)
 	}
 
@@ -377,6 +396,10 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 	}
 	for _, extensionDir := range extensionDirs {
 		args = append(args, "--ro-bind", extensionDir, extensionDir)
+	}
+	// Chromium starts the native messaging host inside the sandbox.
+	if strings.TrimSpace(cfg.ExtensionNativeHostPath) != "" {
+		args = append(args, "--ro-bind", cfg.ExtensionNativeHostPath, cfg.ExtensionNativeHostPath)
 	}
 
 	args = append(
@@ -429,28 +452,33 @@ func sessionBindMounts(cfg LaunchConfig) [][]string {
 	return mounts
 }
 
+// runtimeBindMounts exposes the parts of /run the browser needs. /run is never bound whole: it holds
+// the service's XDG_RUNTIME_DIR with the Aperture runtime root (job token, every session's runtime env
+// and sockets) and its D-Bus session bus, through which systemd starts processes outside the sandbox,
+// and secrets such as /run/secrets.
 func runtimeBindMounts(nestedWaylandSocket string) ([][]string, error) {
+	isolatedRuntime := strings.TrimSpace(nestedWaylandSocket) != ""
 	runtimeDir := strings.TrimSpace(os.Getenv("XDG_RUNTIME_DIR"))
 	if runtimeDir == "" || !filepath.IsAbs(runtimeDir) {
-		if strings.TrimSpace(nestedWaylandSocket) != "" {
+		if isolatedRuntime {
 			return nil, fmt.Errorf("XDG_RUNTIME_DIR is required for nested Wayland socket")
 		}
-		return nil, nil
-	}
-	if strings.TrimSpace(nestedWaylandSocket) == "" {
-		if _, err := os.Stat(runtimeDir); err != nil {
-			return nil, nil
-		}
-		return [][]string{{"--bind", runtimeDir, runtimeDir}}, nil
+		runtimeDir = ""
 	}
 
-	socketName := strings.TrimSpace(nestedWaylandSocket)
-	if strings.Contains(socketName, string(os.PathSeparator)) {
-		return nil, fmt.Errorf("nested Wayland socket must be a socket name")
-	}
-	socketPath := filepath.Join(runtimeDir, socketName)
-	if _, err := os.Stat(socketPath); err != nil {
-		return nil, fmt.Errorf("stat nested Wayland socket: %w", err)
+	var sockets []string
+	if isolatedRuntime {
+		socketName := strings.TrimSpace(nestedWaylandSocket)
+		if strings.Contains(socketName, string(os.PathSeparator)) {
+			return nil, fmt.Errorf("nested Wayland socket must be a socket name")
+		}
+		socketPath := filepath.Join(runtimeDir, socketName)
+		if _, err := os.Stat(socketPath); err != nil {
+			return nil, fmt.Errorf("stat nested Wayland socket: %w", err)
+		}
+		sockets = append(sockets, socketPath)
+	} else if socketPath := desktopWaylandSocket(runtimeDir); socketPath != "" {
+		sockets = append(sockets, socketPath)
 	}
 
 	mounts := [][]string{{"--dir", "/run"}}
@@ -461,15 +489,48 @@ func runtimeBindMounts(nestedWaylandSocket string) ([][]string, error) {
 			[]string{"--ro-bind", "/run/systemd/resolve", "/run/systemd/resolve"},
 		)
 	}
-	if strings.HasPrefix(runtimeDir, "/run/") {
-		mounts = append(mounts, []string{"--dir", "/run/user"})
+	if !isolatedRuntime {
+		// A desktop browser loads host GL drivers, and on NixOS resolves users and hosts through nscd.
+		for _, path := range []string{
+			"/run/current-system",
+			"/run/opengl-driver",
+			"/run/opengl-driver-32",
+			"/run/nscd",
+		} {
+			if _, err := os.Stat(path); err == nil {
+				mounts = append(mounts, []string{"--ro-bind", path, path})
+			}
+		}
 	}
-	mounts = append(
-		mounts,
-		[]string{"--dir", runtimeDir},
-		[]string{"--bind", socketPath, socketPath},
-	)
+	if runtimeDir != "" {
+		if strings.HasPrefix(runtimeDir, "/run/user/") {
+			mounts = append(mounts, []string{"--dir", "/run/user"})
+		}
+		mounts = append(mounts, []string{"--dir", runtimeDir})
+	}
+	for _, socketPath := range sockets {
+		mounts = append(mounts, []string{"--bind", socketPath, socketPath})
+	}
 	return mounts, nil
+}
+
+// desktopWaylandSocket returns the host compositor socket a desktop browser connects to, if any.
+func desktopWaylandSocket(runtimeDir string) string {
+	display := strings.TrimSpace(os.Getenv("WAYLAND_DISPLAY"))
+	if display == "" {
+		return ""
+	}
+	socketPath := display
+	if !filepath.IsAbs(socketPath) {
+		if runtimeDir == "" {
+			return ""
+		}
+		socketPath = filepath.Join(runtimeDir, display)
+	}
+	if _, err := os.Stat(socketPath); err != nil {
+		return ""
+	}
+	return socketPath
 }
 
 func hardwareAccelerationBindMounts(renderNode string) ([][]string, error) {
@@ -512,32 +573,58 @@ func hardwareAccelerationBindMounts(renderNode string) ([][]string, error) {
 	return mounts, nil
 }
 
-func hostBindMounts(includeRun bool) [][]string {
-	candidates := []string{
-		"/usr",
-		"/lib",
-		"/lib64",
-		"/bin",
-		"/etc",
-		"/var",
-		"/nix",
-	}
-	if includeRun {
-		candidates = append(candidates, "/run")
-	}
-	home, err := os.UserHomeDir()
-	if err == nil && home != "" {
-		candidates = append(candidates, home)
-	}
+// systemBindRoots are the read-only host trees the browser loads its libraries, fonts, certificates
+// and configuration from. /var and home directories are left out: the store root, the database and the
+// service's configuration commonly live there, and every session runs under the service's UID.
+var systemBindRoots = []string{
+	"/usr",
+	"/lib",
+	"/lib64",
+	"/bin",
+	"/etc",
+	"/nix/store",
+	"/var/cache/fontconfig",
+}
 
-	mounts := make([][]string, 0, len(candidates))
-	for _, path := range candidates {
+// hiddenSystemPaths hold Aperture's own configuration below systemBindRoots.
+var hiddenSystemPaths = []string{
+	"/etc/aperture",
+	"/etc/static/aperture",
+}
+
+func hostBindMounts(browserExecutable string) [][]string {
+	mounts := make([][]string, 0, len(systemBindRoots)+len(hiddenSystemPaths)+1)
+	for _, path := range systemBindRoots {
 		if _, err := os.Stat(path); err != nil {
 			continue
 		}
 		mounts = append(mounts, []string{"--ro-bind", path, path})
 	}
+	for _, path := range hiddenSystemPaths {
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		mounts = append(mounts, []string{"--tmpfs", path})
+	}
+	// A browser installed outside the system trees, such as a downloaded Chromium build, gets a bind
+	// of its own directory only.
+	if filepath.IsAbs(browserExecutable) {
+		resolved, err := filepath.EvalSymlinks(browserExecutable)
+		if err == nil && !withinAnyPath(resolved, systemBindRoots) {
+			dir := filepath.Dir(resolved)
+			mounts = append(mounts, []string{"--ro-bind", dir, dir})
+		}
+	}
 	return mounts
+}
+
+func withinAnyPath(path string, roots []string) bool {
+	for _, root := range roots {
+		if path == root || strings.HasPrefix(path, root+string(os.PathSeparator)) {
+			return true
+		}
+	}
+	return false
 }
 
 func passthroughEnvKeys(isolatedRuntime bool) []string {
@@ -556,8 +643,6 @@ func passthroughEnvKeys(isolatedRuntime bool) []string {
 		"DISPLAY",
 		"WAYLAND_DISPLAY",
 		"XDG_RUNTIME_DIR",
-		"DBUS_SESSION_BUS_ADDRESS",
-		"PULSE_SERVER",
 		"XDG_SESSION_TYPE",
 		"XDG_CURRENT_DESKTOP",
 		"NVIDIA_VISIBLE_DEVICES",
@@ -613,6 +698,7 @@ func LaunchFromRuntimeEnv() error {
 		HardwareAcceleration:     values.GPUMode == gpuModeHardware,
 		RenderNode:               values.RenderNode,
 		ProxyServerAddr:          proxyManager.Addr(),
+		HostPIDNamespace:         values.HostPIDNamespace,
 	})
 	if err != nil {
 		return err
@@ -936,6 +1022,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		RenderNode:               values.RenderNode,
 		NestedWaylandSocket:      socketName,
 		ProxyServerAddr:          proxyManager.Addr(),
+		HostPIDNamespace:         values.HostPIDNamespace,
 	})
 	if err != nil {
 		stopProcess(compositor, compositorDone)
@@ -1479,6 +1566,7 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 		return RuntimeEnvValues{}, err
 	}
 	values.ProxyConfig = proxyConfig
+	values.HostPIDNamespace = strings.TrimSpace(os.Getenv("BROWSER_PID_NAMESPACE")) == "0"
 	values.CompositorEnabled = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_ENABLED")) == "1"
 	values.CompositorExecutable = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_EXECUTABLE"))
 	values.CompositorBackend = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_BACKEND"))
