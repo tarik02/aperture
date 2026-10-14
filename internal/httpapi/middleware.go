@@ -304,7 +304,7 @@ func (s *Server) requireSessionScope(c *gin.Context, scope string) bool {
 	}
 
 	p := c.MustGet("principal").(auth.Principal)
-	tenantID, err := auth.ResolveTenantID(p, selectedTenantID(c))
+	tenantID, err := s.Auth.ResolveTenantID(c.Request.Context(), p, selectedTenantID(c))
 	if err != nil {
 		WriteError(c, err)
 		c.Abort()

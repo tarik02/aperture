@@ -205,8 +205,13 @@ func (s *Service) UpsertTenantMembership(ctx context.Context, input UpsertMember
 	if err := ValidateScopes(AuthorityTenant, input.Scopes); err != nil {
 		return nil, err
 	}
-	if _, err := s.requireActiveTenant(ctx, input.TenantID); err != nil {
+	tenant, err := s.requireActiveTenant(ctx, input.TenantID)
+	if err != nil {
 		return nil, err
+	}
+	// The owner's full-scope membership is the only one a personal tenant has.
+	if tenant.OwnerUserID != nil {
+		return nil, ErrPersonalTenantMember
 	}
 	user, err := s.GetUser(ctx, input.UserID)
 	if err != nil {
@@ -249,12 +254,12 @@ func (s *Service) ListTenantMemberships(ctx context.Context, tenantID string) ([
 	return s.repo.ListTenantMemberships(ctx, tenantID)
 }
 
-// ListUserMemberships returns a user's memberships of active tenants.
+// ListUserMemberships returns a user's memberships of active shared tenants.
 func (s *Service) ListUserMemberships(ctx context.Context, userID string) ([]db.TenantMembership, error) {
 	if _, err := s.GetUser(ctx, userID); err != nil {
 		return nil, err
 	}
-	return s.repo.ListActiveUserMemberships(ctx, userID)
+	return s.repo.ListSharedUserMemberships(ctx, userID)
 }
 
 // DeleteTenantMembership removes a user's tenant access.
@@ -270,9 +275,10 @@ func (s *Service) DeleteTenantMembership(ctx context.Context, tenantID, userID s
 	if err != nil {
 		return err
 	}
-	// A personal tenant without its owner is an orphan nobody can reach again; delete the tenant instead.
-	if tenant != nil && tenant.DeletedAt == nil && tenant.OwnerUserID != nil && *tenant.OwnerUserID == userID {
-		return ErrPersonalTenantOwner
+	// The owner's membership lasts as long as the personal tenant: without it
+	// the tenant is an orphan nobody can reach again.
+	if tenant != nil && tenant.OwnerUserID != nil {
+		return ErrPersonalTenantMember
 	}
 	if err := s.repo.DeleteTenantMembership(ctx, tenantID, userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -342,15 +348,4 @@ func normalizeEmail(email *string) *string {
 		return nil
 	}
 	return &normalized
-}
-
-// PersonalTenantAudit describes the creation of a personal tenant.
-func PersonalTenantAudit(tenant *db.Tenant) AuditInput {
-	return AuditInput{
-		TenantID:     &tenant.ID,
-		Action:       "tenant.created",
-		ResourceType: "tenant",
-		ResourceID:   &tenant.ID,
-		Data:         map[string]any{"personal": true, "ownerUserId": tenant.OwnerUserID},
-	}
 }

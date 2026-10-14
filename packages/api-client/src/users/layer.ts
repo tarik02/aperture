@@ -48,8 +48,17 @@ export const makeUsersApi = Effect.gen(function* () {
     credentials: ApiCredentials,
     userId: string,
   ) {
-    return yield* api
+    yield* api
       .createPersonalTenant(userId, undefined)
+      .pipe(authorize(Authorization.of(credentials)));
+  });
+
+  const deletePersonalTenant = Effect.fn("UsersApi.deletePersonalTenant")(function* (
+    credentials: ApiCredentials,
+    userId: string,
+  ) {
+    yield* api
+      .deletePersonalTenant(userId, undefined)
       .pipe(authorize(Authorization.of(credentials)));
   });
 
@@ -145,6 +154,7 @@ export const makeUsersApi = Effect.gen(function* () {
     disableUser,
     restoreUser,
     createPersonalTenant,
+    deletePersonalTenant,
     listUserMemberships,
     listTenantMemberships,
     upsertTenantMembership,

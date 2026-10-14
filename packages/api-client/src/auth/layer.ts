@@ -225,6 +225,18 @@ export const makeAuthApi = Effect.gen(function* () {
       .pipe(Effect.flatMap(HttpClientResponse.schemaBodyJson(OAuthGrants)), webSession);
   });
 
+  const createOwnPersonalTenant = Effect.fn("AuthApi.createOwnPersonalTenant")(function* () {
+    return yield* api.createOwnPersonalTenant(undefined).pipe(webSession);
+  });
+
+  const deleteOwnPersonalTenant = Effect.fn("AuthApi.deleteOwnPersonalTenant")(function* () {
+    return yield* api.deleteOwnPersonalTenant(undefined).pipe(webSession);
+  });
+
+  const restoreOwnPersonalTenant = Effect.fn("AuthApi.restoreOwnPersonalTenant")(function* () {
+    return yield* api.restoreOwnPersonalTenant(undefined).pipe(webSession);
+  });
+
   const revokeOAuthGrant = Effect.fn("AuthApi.revokeOAuthGrant")(function* (grantId: string) {
     yield* http.del(`/auth/oauth/grants/${encodeURIComponent(grantId)}`).pipe(webSession);
   });
@@ -241,6 +253,9 @@ export const makeAuthApi = Effect.gen(function* () {
     getAuthMe,
     getTenantContext,
     resolveSessionTenant,
+    createOwnPersonalTenant,
+    deleteOwnPersonalTenant,
+    restoreOwnPersonalTenant,
     getSecurityStatus,
     setPassword,
     listPasskeys,

@@ -119,7 +119,7 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 			c.Abort()
 			return
 		}
-		tenantID, err := auth.ResolveTenantID(principal, selectedTenantID(c))
+		tenantID, err := s.Auth.ResolveTenantID(c.Request.Context(), principal, selectedTenantID(c))
 		if err != nil {
 			WriteError(c, err)
 			c.Abort()
@@ -1105,5 +1105,57 @@ func (openAPIPassthroughResponse) VisitResetFocusSessionRecordingResponse(http.R
 	return nil
 }
 func (openAPIPassthroughResponse) VisitAttentionSessionRecordingResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (s openAPIServer) DeletePersonalTenant(ctx context.Context, _ generated.DeletePersonalTenantRequestObject) (generated.DeletePersonalTenantResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.deletePersonalTenant(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) CreateOwnPersonalTenant(ctx context.Context, _ generated.CreateOwnPersonalTenantRequestObject) (generated.CreateOwnPersonalTenantResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.createOwnPersonalTenant(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) DeleteOwnPersonalTenant(ctx context.Context, _ generated.DeleteOwnPersonalTenantRequestObject) (generated.DeleteOwnPersonalTenantResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.deleteOwnPersonalTenant(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) RestoreOwnPersonalTenant(ctx context.Context, _ generated.RestoreOwnPersonalTenantRequestObject) (generated.RestoreOwnPersonalTenantResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.restoreOwnPersonalTenant(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (openAPIPassthroughResponse) VisitDeletePersonalTenantResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitCreateOwnPersonalTenantResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitDeleteOwnPersonalTenantResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitRestoreOwnPersonalTenantResponse(http.ResponseWriter) error {
 	return nil
 }

@@ -160,10 +160,16 @@ type principalResponse struct {
 }
 
 type authMeResponse struct {
-	Principal        principalResponse `json:"principal"`
-	SelectedTenant   *tenantResponse   `json:"selectedTenant"`
-	AvailableTenants []tenantResponse  `json:"availableTenants"`
-	Settings         authMeSettings    `json:"settings"`
+	Principal        principalResponse             `json:"principal"`
+	SelectedTenant   *tenantResponse               `json:"selectedTenant"`
+	AvailableTenants []tenantResponse              `json:"availableTenants"`
+	Settings         authMeSettings                `json:"settings"`
+	PersonalTenant   *personalTenantStatusResponse `json:"personalTenant"`
+}
+
+type personalTenantStatusResponse struct {
+	Tenant     *tenantResponse `json:"tenant"`
+	Restorable bool            `json:"restorable"`
 }
 
 type authMeSettings struct {
@@ -224,7 +230,7 @@ type userResponse struct {
 	CreatedAt           string  `json:"createdAt"`
 	UpdatedAt           string  `json:"updatedAt"`
 	DisabledAt          *string `json:"disabledAt"`
-	PersonalTenantID    *string `json:"personalTenantId,omitempty"`
+	HasPersonalTenant   *bool   `json:"hasPersonalTenant,omitempty"`
 	PasswordSetupStatus *string `json:"passwordSetupStatus,omitempty"`
 }
 

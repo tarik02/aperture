@@ -107,8 +107,10 @@ func mapError(err error) (int, string, string) {
 		return http.StatusConflict, "user_email_conflict", "user email already exists"
 	case errors.Is(err, auth.ErrPersonalTenantExists):
 		return http.StatusConflict, "personal_tenant_exists", "user already has a personal tenant"
-	case errors.Is(err, auth.ErrPersonalTenantOwner):
-		return http.StatusConflict, "personal_tenant_owner", "the owner keeps access to their personal tenant; delete the tenant instead"
+	case errors.Is(err, auth.ErrPersonalTenantNotFound):
+		return http.StatusNotFound, "personal_tenant_not_found", "personal tenant not found"
+	case errors.Is(err, auth.ErrPersonalTenantMember):
+		return http.StatusConflict, "personal_tenant_membership", "a personal tenant belongs to its owner alone; its memberships cannot change"
 	case errors.Is(err, auth.ErrMembershipNotFound):
 		return http.StatusNotFound, "membership_not_found", "tenant membership not found"
 	case errors.Is(err, auth.ErrOIDCProviderNotFound):

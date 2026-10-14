@@ -212,6 +212,7 @@ type AuditEventFilter struct {
 	Action       *string
 	ResourceType *string
 	ResourceID   *string
+	Personal     PersonalTenantScope
 }
 
 // CreateAuditEvent inserts an audit event.
@@ -249,6 +250,7 @@ func (r *Repository) ListAuditEventsPage(ctx context.Context, filter AuditEventF
 	if filter.ResourceID != nil {
 		query = query.Where("resource_id = ?", *filter.ResourceID)
 	}
+	query = filter.Personal.applyTenantReference(query, "tenant_id")
 	query = paginateCreatedAtID(query, params, cursor)
 
 	events := make([]AuditEvent, 0)
@@ -258,17 +260,19 @@ func (r *Repository) ListAuditEventsPage(ctx context.Context, filter AuditEventF
 	return buildPageResult(events, params.Limit, func(event AuditEvent) string { return event.CreatedAt }, func(event AuditEvent) string { return event.ID })
 }
 
-// ListActiveUserMemberships returns a user's memberships of tenants that are
-// not deleted. Memberships of deleted tenants stay stored for a restore.
-func (r *Repository) ListActiveUserMemberships(ctx context.Context, userID string) ([]TenantMembership, error) {
+// ListSharedUserMemberships returns a user's memberships of shared tenants
+// that are not deleted. Memberships of deleted tenants stay stored for a
+// restore; the personal tenant membership is left out.
+func (r *Repository) ListSharedUserMemberships(ctx context.Context, userID string) ([]TenantMembership, error) {
 	memberships := make([]TenantMembership, 0)
 	if err := r.db.bun.NewSelect().Model(&memberships).
 		Join("JOIN tenants AS tenant ON tenant.id = tenant_membership.tenant_id").
 		Where("tenant_membership.user_id = ?", userID).
 		Where("tenant.deleted_at IS NULL").
+		Where("tenant.owner_user_id IS NULL").
 		OrderExpr("tenant_membership.created_at ASC, tenant_membership.tenant_id ASC").
 		Scan(ctx); err != nil {
-		return nil, fmt.Errorf("list active user memberships: %w", err)
+		return nil, fmt.Errorf("list shared user memberships: %w", err)
 	}
 	return memberships, nil
 }

@@ -26,15 +26,11 @@ export function useCreateUserMutation() {
   const runApi = useRunApi();
   const credentials = useApiCredentials();
   const invalidate = useInvalidateUsers();
-  const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (input: CreateUserInput) =>
       runApi(UsersApi.use((users) => users.createUser(credentials!, input))),
-    onSuccess: () => {
-      invalidate();
-      void queryClient.invalidateQueries({ queryKey: ["tenants"] });
-    },
+    onSuccess: () => invalidate(),
     onError: (error) => toastMutationError(error, "Create failed"),
   });
 }
@@ -136,16 +132,32 @@ export function useCreatePersonalTenantMutation() {
   const credentials = useApiCredentials();
   const queryClient = useQueryClient();
   const invalidateUsers = useInvalidateUsers();
-  const invalidateMemberships = useInvalidateMemberships();
 
   return useMutation({
     mutationFn: (userId: string) =>
       runApi(UsersApi.use((users) => users.createPersonalTenant(credentials!, userId))),
-    onSuccess: (_tenant, userId) => {
+    onSuccess: (_result, userId) => {
       invalidateUsers(userId);
-      invalidateMemberships(userId);
+      // An administrator's tenant list shows their own personal tenant.
       void queryClient.invalidateQueries({ queryKey: ["tenants"] });
     },
     onError: (error) => toastMutationError(error, "Personal tenant creation failed"),
+  });
+}
+
+export function useDeletePersonalTenantMutation() {
+  const runApi = useRunApi();
+  const credentials = useApiCredentials();
+  const queryClient = useQueryClient();
+  const invalidateUsers = useInvalidateUsers();
+
+  return useMutation({
+    mutationFn: (userId: string) =>
+      runApi(UsersApi.use((users) => users.deletePersonalTenant(credentials!, userId))),
+    onSuccess: (_result, userId) => {
+      invalidateUsers(userId);
+      void queryClient.invalidateQueries({ queryKey: ["tenants"] });
+    },
+    onError: (error) => toastMutationError(error, "Personal tenant deletion failed"),
   });
 }

@@ -38,7 +38,7 @@ func (s *Server) sessionTenant(c *gin.Context) {
 		}
 		return
 	}
-	if _, err := auth.ResolveTenantID(principal, row.TenantID); err != nil ||
+	if _, err := s.Auth.ResolveTenantID(c.Request.Context(), principal, row.TenantID); err != nil ||
 		!auth.HasScope(principal.Scopes, auth.ScopeSessionsRead) ||
 		!auth.HasResourceAccess(principal, auth.ResourceTypeSession, row.ID) {
 		// An inaccessible session must not disclose its owning tenant.

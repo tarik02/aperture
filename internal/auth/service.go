@@ -223,8 +223,8 @@ func (s *Service) CreateTenant(ctx context.Context, input CreateTenantInput) (*d
 }
 
 // ListTenants returns tenants for administration.
-func (s *Service) ListTenants(ctx context.Context, includeDeleted bool) ([]db.Tenant, error) {
-	return s.repo.ListTenants(ctx, db.TenantFilter{IncludeDeleted: includeDeleted})
+func (s *Service) ListTenants(ctx context.Context, filter db.TenantFilter) ([]db.Tenant, error) {
+	return s.repo.ListTenants(ctx, filter)
 }
 
 // ListTenantsPage returns tenants with cursor pagination.
@@ -314,6 +314,12 @@ func (s *Service) CreateToken(ctx context.Context, input CreateTokenInput) (Crea
 
 // DelegateToken creates a token within the authenticated principal's authority.
 func (s *Service) DelegateToken(ctx context.Context, principal Principal, input CreateTokenInput) (CreatedToken, error) {
+	// Before validation, which tells a deleted tenant apart from a missing one.
+	if input.TenantID != nil {
+		if err := s.AuthorizeTenant(ctx, principal, strings.TrimSpace(*input.TenantID)); err != nil {
+			return CreatedToken{}, err
+		}
+	}
 	validated, err := s.validateCreateTokenInput(ctx, input)
 	if err != nil {
 		return CreatedToken{}, err
@@ -451,6 +457,14 @@ func (s *Service) revokeToken(ctx context.Context, principal Principal, tokenID 
 	if tenantID != nil {
 		if row.TenantID == nil || *row.TenantID != *tenantID {
 			return ErrTokenNotFound
+		}
+	}
+	if row.TenantID != nil {
+		if err := s.AuthorizeTenant(ctx, principal, *row.TenantID); err != nil {
+			if errors.Is(err, ErrTenantNotFound) {
+				return ErrTokenNotFound
+			}
+			return err
 		}
 	}
 

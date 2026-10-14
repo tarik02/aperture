@@ -107,6 +107,7 @@ export function MembershipDialog({
                   disabled={mutation.isPending}
                   align="start"
                   triggerClassName="aperture:w-full"
+                  sharedOnly
                 />
               )}
               <FieldError>{tenantError}</FieldError>

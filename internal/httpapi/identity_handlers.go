@@ -82,22 +82,37 @@ func (s *Server) createUser(c *gin.Context) {
 	if !s.recordAudit(c, auth.AuditInput{Action: "user.created", ResourceType: "user", ResourceID: &user.ID}) {
 		return
 	}
-	if personalTenant != nil && !s.recordAudit(c, auth.PersonalTenantAudit(personalTenant)) {
+	if personalTenant != nil && !s.recordAudit(c, auth.PersonalTenantAudit(user.ID, "created")) {
 		return
 	}
 	c.JSON(http.StatusCreated, toUserResponse(*user))
 }
 
+// createPersonalTenant creates a user's personal tenant on an administrator's
+// behalf. The administrator gets no access to it, so the response carries
+// nothing about the tenant.
 func (s *Server) createPersonalTenant(c *gin.Context) {
-	tenant, err := s.Auth.CreatePersonalTenant(c.Request.Context(), c.Param("userId"))
-	if err != nil {
+	userID := c.Param("userId")
+	if _, err := s.Auth.CreatePersonalTenant(c.Request.Context(), userID); err != nil {
 		WriteError(c, err)
 		return
 	}
-	if !s.recordAudit(c, auth.PersonalTenantAudit(tenant)) {
+	if !s.recordAudit(c, auth.PersonalTenantAudit(userID, "created")) {
 		return
 	}
-	c.JSON(http.StatusCreated, toTenantResponse(*tenant))
+	c.Status(http.StatusNoContent)
+}
+
+func (s *Server) deletePersonalTenant(c *gin.Context) {
+	userID := c.Param("userId")
+	if _, err := s.Auth.DeletePersonalTenant(c.Request.Context(), userID); err != nil {
+		WriteError(c, err)
+		return
+	}
+	if !s.recordAudit(c, auth.PersonalTenantAudit(userID, "deleted")) {
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 func (s *Server) listUsers(c *gin.Context) {
@@ -153,16 +168,14 @@ func (s *Server) getUser(c *gin.Context) {
 			}
 		}
 	}
-	personalTenant, err := s.Auth.PersonalTenant(c.Request.Context(), user.ID)
+	hasPersonalTenant, err := s.Auth.HasPersonalTenant(c.Request.Context(), user.ID)
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
 	response := toUserResponse(*user)
 	response.PasswordSetupStatus = &passwordSetupStatus
-	if personalTenant != nil {
-		response.PersonalTenantID = &personalTenant.ID
-	}
+	response.HasPersonalTenant = &hasPersonalTenant
 	c.JSON(http.StatusOK, response)
 }
 
@@ -236,6 +249,9 @@ func (s *Server) createUserInvitation(c *gin.Context) {
 }
 
 func (s *Server) listTenantMemberships(c *gin.Context) {
+	if !s.authorizeTenant(c, c.Param("tenantId")) {
+		return
+	}
 	memberships, err := s.Auth.ListTenantMemberships(c.Request.Context(), c.Param("tenantId"))
 	if err != nil {
 		WriteError(c, err)
@@ -267,6 +283,9 @@ func (s *Server) writeMemberships(c *gin.Context, memberships []db.TenantMembers
 }
 
 func (s *Server) upsertTenantMembership(c *gin.Context) {
+	if !s.authorizeTenant(c, c.Param("tenantId")) {
+		return
+	}
 	var req upsertTenantMembershipRequest
 	if err := bindJSON(c, &req); err != nil {
 		WriteError(c, err)
@@ -302,6 +321,9 @@ func (s *Server) upsertTenantMembership(c *gin.Context) {
 func (s *Server) deleteTenantMembership(c *gin.Context) {
 	tenantID := c.Param("tenantId")
 	userID := c.Param("userId")
+	if !s.authorizeTenant(c, tenantID) {
+		return
+	}
 	if err := s.Auth.DeleteTenantMembership(c.Request.Context(), tenantID, userID); err != nil {
 		WriteError(c, err)
 		return
@@ -331,6 +353,7 @@ func (s *Server) listAuditEvents(c *gin.Context) {
 		Action:       parseOptionalQuery(c, "action"),
 		ResourceType: parseOptionalQuery(c, "resourceType"),
 		ResourceID:   parseOptionalQuery(c, "resourceId"),
+		Personal:     auth.PersonalTenantScopeFor(c.MustGet("principal").(auth.Principal)),
 	}, params)
 	if err != nil {
 		WriteError(c, mapInvalidCursor(err))

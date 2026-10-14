@@ -15,7 +15,45 @@ type TenantFilter struct {
 	IncludeDeleted bool
 	DeletedOnly    bool
 	// Query matches a substring of the display name or the id.
-	Query string
+	Query    string
+	Personal PersonalTenantScope
+}
+
+// PersonalTenantScope hides personal tenants, and rows belonging to them,
+// from a query. The zero value hides nothing.
+type PersonalTenantScope struct {
+	Restricted bool
+	// OwnerUserID keeps the personal tenants of this user visible.
+	OwnerUserID *string
+}
+
+func (s PersonalTenantScope) owner() string {
+	if s.OwnerUserID == nil {
+		// No user id is empty, so this matches no owner.
+		return ""
+	}
+	return *s.OwnerUserID
+}
+
+// applyTenantTable filters a query over the tenants table.
+func (s PersonalTenantScope) applyTenantTable(query *bun.SelectQuery, ownerColumn string) *bun.SelectQuery {
+	if !s.Restricted {
+		return query
+	}
+	return query.Where("(? IS NULL OR ? = ?)", bun.Ident(ownerColumn), bun.Ident(ownerColumn), s.owner())
+}
+
+// applyTenantReference filters a query over a table referencing tenants.
+func (s PersonalTenantScope) applyTenantReference(query *bun.SelectQuery, tenantColumn string) *bun.SelectQuery {
+	if !s.Restricted {
+		return query
+	}
+	hidden := query.DB().NewSelect().
+		Table("tenants").
+		Column("id").
+		Where("owner_user_id IS NOT NULL").
+		Where("owner_user_id <> ?", s.owner())
+	return query.Where("(? IS NULL OR ? NOT IN (?))", bun.Ident(tenantColumn), bun.Ident(tenantColumn), hidden)
 }
 
 // CreateTenant inserts a new tenant row.
@@ -51,6 +89,7 @@ func (r *Repository) ListTenants(ctx context.Context, filter TenantFilter) ([]Te
 	} else if !filter.IncludeDeleted {
 		query = query.Where("deleted_at IS NULL")
 	}
+	query = filter.Personal.applyTenantTable(query, "owner_user_id")
 
 	tenants := make([]Tenant, 0)
 	if err := query.Scan(ctx, &tenants); err != nil {
@@ -77,6 +116,7 @@ func (r *Repository) ListTenantsPage(ctx context.Context, filter TenantFilter, p
 		pattern := containsPattern(filter.Query)
 		query = query.Where("(display_name LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')", pattern, pattern)
 	}
+	query = filter.Personal.applyTenantTable(query, "owner_user_id")
 	query = paginateCreatedAtID(query, params, cursor)
 
 	tenants := make([]Tenant, 0)
@@ -316,6 +356,7 @@ type APITokenFilter struct {
 	Scope         *string
 	RevokedOnly   bool
 	ActiveOnly    bool
+	Personal      PersonalTenantScope
 }
 
 // ListAPITokens returns API tokens, optionally filtered by tenant.
@@ -375,7 +416,7 @@ func applyAPITokenFilters(query *bun.SelectQuery, filter APITokenFilter) *bun.Se
 	} else if filter.ActiveOnly {
 		query = query.Where("revoked_at IS NULL")
 	}
-	return query
+	return filter.Personal.applyTenantReference(query, "tenant_id")
 }
 
 // RevokeAPIToken marks a token revoked and records its audit event atomically.
@@ -421,6 +462,26 @@ func (r *Repository) GetPersonalTenant(ctx context.Context, userID string) (*Ten
 	}
 	if err != nil {
 		return nil, fmt.Errorf("select personal tenant: %w", err)
+	}
+	return tenant, nil
+}
+
+// GetLastDeletedPersonalTenant returns the most recently deleted tenant owned
+// by a user, or nil.
+func (r *Repository) GetLastDeletedPersonalTenant(ctx context.Context, userID string) (*Tenant, error) {
+	tenant := new(Tenant)
+	err := r.db.bun.NewSelect().
+		Model(tenant).
+		Where("owner_user_id = ?", userID).
+		Where("deleted_at IS NOT NULL").
+		OrderExpr("deleted_at DESC, id DESC").
+		Limit(1).
+		Scan(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("select deleted personal tenant: %w", err)
 	}
 	return tenant, nil
 }

@@ -1,0 +1,3 @@
+DROP TRIGGER IF EXISTS tenant_memberships_personal_owner_update;
+DROP TRIGGER IF EXISTS tenant_memberships_personal_owner_insert;
+DROP TRIGGER IF EXISTS tenants_owner_user_immutable;
