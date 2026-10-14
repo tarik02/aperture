@@ -403,7 +403,7 @@ export const wasSessionPromoted = Effect.fn("wasSessionPromoted")(
     }
     const api = yield* SnapshotsApi;
     const snapshot = yield* api.getSnapshotByName(yield* credentials(connection), name.trim());
-    return Option.isSome(snapshot) && snapshot.value.promotedFromSessionId === sessionId;
+    return Option.isSome(snapshot) && snapshot.value.promotedFromSession?.id === sessionId;
   },
   (effect, connection) => withApi(connection.origin)(effect),
 );

@@ -1761,6 +1761,27 @@ components:
       description: Tenant resource category accepted by API token allowlists.
       enum: [session, snapshot]
       example: session
+    Reference:
+      type: object
+      description: Something a resource refers to, by id and display name.
+      required: [id, name]
+      properties:
+        id: {$ref: '#/components/schemas/UUIDv7'}
+        name:
+          type: [string, 'null']
+          description: Display name (a session's label), or `null` when it has none or no longer exists.
+    PrincipalReference:
+      type: object
+      description: The user or API token behind an action, or the trusted local system.
+      required: [type, id, name]
+      properties:
+        type: {$ref: '#/components/schemas/PrincipalType'}
+        id:
+          oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
+          description: User or API token id, or `null` for the trusted local system.
+        name:
+          type: [string, 'null']
+          description: User display name or token name, or `null` for the local system or when it no longer exists.
     ResourceGrant:
       type: object
       description: Access to one existing tenant session or snapshot by its stable UUIDv7 identifier.
@@ -2233,7 +2254,7 @@ components:
     Token:
       type: object
       description: API token metadata. The raw bearer secret is never included in this schema.
-      required: [id, authorityType, name, scopes, createdAt, createdByType, createdById, parentTokenId, resourceMode, resourceGrants]
+      required: [id, authorityType, name, scopes, createdAt, createdByType, createdById, parentTokenId, tenant, createdBy, parentToken, resourceMode, resourceGrants]
       properties:
         id:
           allOf: [{$ref: '#/components/schemas/UUIDv7'}]
@@ -2241,11 +2262,12 @@ components:
         authorityType: {$ref: '#/components/schemas/AuthorityType'}
         tenantId:
           oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
-          description: Bound tenant for a tenant token, or `null` for a system administrator token.
-        tenantName:
-          type: [string, 'null']
+          deprecated: true
+          description: Deprecated, use `tenant`. Bound tenant for a tenant token, or `null` for a system administrator token.
+        tenant:
+          oneOf: [{$ref: '#/components/schemas/Reference'}, {type: 'null'}]
           readOnly: true
-          description: Display name of the bound tenant, or `null` for a system administrator token.
+          description: Bound tenant for a tenant token, or `null` for a system administrator token.
         name:
           type: string
           description: Operator-assigned token name, unique within its authority and tenant context.
@@ -2263,21 +2285,24 @@ components:
           example: '2026-07-17T12:00:00Z'
         createdByType:
           allOf: [{$ref: '#/components/schemas/PrincipalType'}]
-          description: Principal category that created the token.
+          deprecated: true
+          description: Deprecated, use `createdBy.type`. Principal category that created the token.
         createdById:
           oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
-          description: User or API token identifier that created the token, or `null` for trusted local system actions.
-        createdByName:
-          type: [string, 'null']
+          deprecated: true
+          description: Deprecated, use `createdBy.id`. User or API token identifier that created the token, or `null` for trusted local system actions.
+        createdBy:
+          allOf: [{$ref: '#/components/schemas/PrincipalReference'}]
           readOnly: true
-          description: Display name of the creating user, or name of the creating API token; `null` for trusted local system actions or when it no longer exists.
+          description: User or API token that created the token, or the trusted local system.
         parentTokenId:
           oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
-          description: API token used to delegate this token, or `null` when a user or trusted local system created it.
-        parentTokenName:
-          type: [string, 'null']
+          deprecated: true
+          description: Deprecated, use `parentToken`. API token used to delegate this token, or `null` when a user or trusted local system created it.
+        parentToken:
+          oneOf: [{$ref: '#/components/schemas/Reference'}, {type: 'null'}]
           readOnly: true
-          description: Name of the parent token, or `null` when there is none or it no longer exists.
+          description: API token used to delegate this token, or `null` when a user or trusted local system created it.
         resourceMode: {$ref: '#/components/schemas/ResourceMode'}
         resourceGrants:
           type: array
@@ -3597,18 +3622,20 @@ components:
           example: Signed-in storefront state for checkout tests
         parentSnapshotId:
           allOf: [{$ref: '#/components/schemas/UUIDv7'}]
-          description: Base snapshot from which the source session was created. Omitted for snapshots without a parent.
-        parentSnapshotName:
-          type: string
+          deprecated: true
+          description: Deprecated, use `parentSnapshot`. Base snapshot from which the source session was created. Omitted for snapshots without a parent.
+        parentSnapshot:
+          allOf: [{$ref: '#/components/schemas/Reference'}]
           readOnly: true
-          description: Name of the parent snapshot. Omitted without a parent or when it no longer exists.
+          description: Base snapshot from which the source session was created. Omitted for snapshots without a parent.
         promotedFromSessionId:
           allOf: [{$ref: '#/components/schemas/UUIDv7'}]
-          description: Session whose retained overlay produced this snapshot. Omitted when lineage is unavailable.
-        promotedFromSessionLabel:
-          type: string
+          deprecated: true
+          description: Deprecated, use `promotedFromSession`. Session whose retained overlay produced this snapshot. Omitted when lineage is unavailable.
+        promotedFromSession:
+          allOf: [{$ref: '#/components/schemas/Reference'}]
           readOnly: true
-          description: Label of the session this snapshot was promoted from. Omitted when that session has no label or lineage is unavailable.
+          description: Session whose retained overlay produced this snapshot, named by its label. Omitted when lineage is unavailable.
         createdAt:
           type: string
           format: date-time

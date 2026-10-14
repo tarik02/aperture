@@ -122,15 +122,15 @@ export function SnapshotDetailModals({
                         {
                           kind: "reference",
                           label: "Parent",
-                          id: displayedSnapshot.parentSnapshotId,
-                          name: displayedSnapshot.parentSnapshotName,
+                          id: displayedSnapshot.parentSnapshot?.id,
+                          name: displayedSnapshot.parentSnapshot?.name,
                         },
                         {
                           kind: "reference",
                           label: "Promoted from",
-                          id: displayedSnapshot.promotedFromSessionId,
+                          id: displayedSnapshot.promotedFromSession?.id,
                           // Sessions without a label have nothing better than their id.
-                          name: displayedSnapshot.promotedFromSessionLabel ?? "Session",
+                          name: displayedSnapshot.promotedFromSession?.name ?? "Session",
                         },
                         {
                           kind: "text",

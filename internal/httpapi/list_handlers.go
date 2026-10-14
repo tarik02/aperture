@@ -51,6 +51,8 @@ func toSnapshotListItem(view snapshot.SnapshotView) snapshotListItemResponse {
 		TenantID:              view.Snapshot.TenantID,
 		ParentSnapshotID:      view.Snapshot.ParentSnapshotID,
 		PromotedFromSessionID: view.Snapshot.PromotedFromSessionID,
+		ParentSnapshot:        newReference(view.Snapshot.ParentSnapshotID, nil),
+		PromotedFromSession:   newReference(view.Snapshot.PromotedFromSessionID, nil),
 		CreatedAt:             view.Snapshot.CreatedAt,
 		DeletedAt:             view.Snapshot.DeletedAt,
 		ExpiresAt:             view.Snapshot.ExpiresAt,

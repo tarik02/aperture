@@ -19,6 +19,8 @@ func toSnapshotResponse(view *snapshot.SnapshotView) snapshotResponse {
 		TenantID:              view.Snapshot.TenantID,
 		ParentSnapshotID:      view.Snapshot.ParentSnapshotID,
 		PromotedFromSessionID: view.Snapshot.PromotedFromSessionID,
+		ParentSnapshot:        newReference(view.Snapshot.ParentSnapshotID, nil),
+		PromotedFromSession:   newReference(view.Snapshot.PromotedFromSessionID, nil),
 		CreatedAt:             view.Snapshot.CreatedAt,
 		DeletedAt:             view.Snapshot.DeletedAt,
 		ExpiresAt:             view.Snapshot.ExpiresAt,
@@ -226,14 +228,14 @@ func (s *Server) addSnapshotReferenceNames(ctx context.Context, snapshots []snap
 	}
 	for i := range snapshots {
 		item := &snapshots[i]
-		if item.ParentSnapshotID != nil {
-			if name, ok := names.Snapshots[*item.ParentSnapshotID]; ok {
-				item.ParentSnapshotName = &name
+		if item.ParentSnapshot != nil {
+			if name, ok := names.Snapshots[item.ParentSnapshot.ID]; ok {
+				item.ParentSnapshot.Name = &name
 			}
 		}
-		if item.PromotedFromSessionID != nil {
-			if label, ok := names.Sessions[*item.PromotedFromSessionID]; ok {
-				item.PromotedFromSessionLabel = &label
+		if item.PromotedFromSession != nil {
+			if label, ok := names.Sessions[item.PromotedFromSession.ID]; ok {
+				item.PromotedFromSession.Name = &label
 			}
 		}
 	}

@@ -531,8 +531,8 @@ function TokenViewModal({
                   {
                     kind: "reference",
                     label: "Tenant",
-                    id: token.tenantId,
-                    name: token.tenantName,
+                    id: token.tenant?.id,
+                    name: token.tenant?.name,
                   },
                   { kind: "text", label: "Scopes", value: <ScopeList scopes={token.scopes} /> },
                   {
@@ -546,20 +546,20 @@ function TokenViewModal({
                       ),
                   },
                   { kind: "text", label: "Created", value: metadataTimestamp(token.createdAt) },
-                  token.createdByType === "system"
+                  token.createdBy.type === "system"
                     ? { kind: "text", label: "Created by", value: "System" }
                     : {
                         kind: "reference",
                         label: "Created by",
-                        type: token.createdByType === "user" ? "User" : "API token",
-                        id: token.createdById,
-                        name: token.createdByName,
+                        type: token.createdBy.type === "user" ? "User" : "API token",
+                        id: token.createdBy.id,
+                        name: token.createdBy.name,
                       },
                   {
                     kind: "reference",
                     label: "Parent token",
-                    id: token.parentTokenId,
-                    name: token.parentTokenName,
+                    id: token.parentToken?.id,
+                    name: token.parentToken?.name,
                   },
                   { kind: "text", label: "Expires", value: metadataTimestamp(token.expiresAt) },
                   { kind: "text", label: "Revoked", value: metadataTimestamp(token.revokedAt) },

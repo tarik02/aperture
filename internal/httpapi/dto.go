@@ -282,22 +282,48 @@ type browserChannelsResponse struct {
 }
 
 type tokenResponse struct {
-	ID              string                  `json:"id"`
-	AuthorityType   string                  `json:"authorityType"`
-	TenantID        *string                 `json:"tenantId"`
-	TenantName      *string                 `json:"tenantName"`
-	Name            string                  `json:"name"`
-	Scopes          []string                `json:"scopes"`
-	CreatedAt       string                  `json:"createdAt"`
-	CreatedByType   string                  `json:"createdByType"`
-	CreatedByID     *string                 `json:"createdById"`
-	CreatedByName   *string                 `json:"createdByName"`
-	ParentTokenID   *string                 `json:"parentTokenId"`
-	ParentTokenName *string                 `json:"parentTokenName"`
-	ResourceMode    string                  `json:"resourceMode"`
-	ResourceGrants  []resourceGrantResponse `json:"resourceGrants"`
-	ExpiresAt       *string                 `json:"expiresAt"`
-	RevokedAt       *string                 `json:"revokedAt"`
+	ID            string `json:"id"`
+	AuthorityType string `json:"authorityType"`
+	// Deprecated: use Tenant.
+	TenantID  *string            `json:"tenantId"`
+	Tenant    *referenceResponse `json:"tenant"`
+	Name      string             `json:"name"`
+	Scopes    []string           `json:"scopes"`
+	CreatedAt string             `json:"createdAt"`
+	// Deprecated: use CreatedBy.
+	CreatedByType string `json:"createdByType"`
+	// Deprecated: use CreatedBy.
+	CreatedByID *string                    `json:"createdById"`
+	CreatedBy   principalReferenceResponse `json:"createdBy"`
+	// Deprecated: use ParentToken.
+	ParentTokenID  *string                 `json:"parentTokenId"`
+	ParentToken    *referenceResponse      `json:"parentToken"`
+	ResourceMode   string                  `json:"resourceMode"`
+	ResourceGrants []resourceGrantResponse `json:"resourceGrants"`
+	ExpiresAt      *string                 `json:"expiresAt"`
+	RevokedAt      *string                 `json:"revokedAt"`
+}
+
+// referenceResponse names something a resource refers to by id. Name is nil
+// when it is unknown or has none.
+type referenceResponse struct {
+	ID   string  `json:"id"`
+	Name *string `json:"name"`
+}
+
+// principalReferenceResponse names the user or API token behind an action. ID
+// and Name are nil for the trusted local system.
+type principalReferenceResponse struct {
+	Type string  `json:"type"`
+	ID   *string `json:"id"`
+	Name *string `json:"name"`
+}
+
+func newReference(id *string, name *string) *referenceResponse {
+	if id == nil {
+		return nil
+	}
+	return &referenceResponse{ID: *id, Name: name}
 }
 
 type resourceGrantResponse struct {
@@ -643,18 +669,21 @@ func (r promoteSessionRequest) Validate() error {
 }
 
 type snapshotResponse struct {
-	ID                       string            `json:"id"`
-	Name                     string            `json:"name"`
-	Description              *string           `json:"description"`
-	TenantID                 string            `json:"tenantId"`
-	ParentSnapshotID         *string           `json:"parentSnapshotId,omitempty"`
-	PromotedFromSessionID    *string           `json:"promotedFromSessionId,omitempty"`
-	ParentSnapshotName       *string           `json:"parentSnapshotName,omitempty"`
-	PromotedFromSessionLabel *string           `json:"promotedFromSessionLabel,omitempty"`
-	CreatedAt                string            `json:"createdAt"`
-	DeletedAt                *string           `json:"deletedAt"`
-	ExpiresAt                *string           `json:"expiresAt,omitempty"`
-	Tags                     map[string]string `json:"tags,omitempty"`
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Description *string `json:"description"`
+	TenantID    string  `json:"tenantId"`
+	// Deprecated: use ParentSnapshot.
+	ParentSnapshotID *string `json:"parentSnapshotId,omitempty"`
+	// Deprecated: use PromotedFromSession.
+	PromotedFromSessionID *string            `json:"promotedFromSessionId,omitempty"`
+	ParentSnapshot        *referenceResponse `json:"parentSnapshot,omitempty"`
+	// PromotedFromSession names the session by its label.
+	PromotedFromSession *referenceResponse `json:"promotedFromSession,omitempty"`
+	CreatedAt           string             `json:"createdAt"`
+	DeletedAt           *string            `json:"deletedAt"`
+	ExpiresAt           *string            `json:"expiresAt,omitempty"`
+	Tags                map[string]string  `json:"tags,omitempty"`
 }
 
 type snapshotListItemResponse = snapshotResponse
