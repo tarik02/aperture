@@ -283,3 +283,28 @@ func hasSandboxBind(args []string, source string, dest string) bool {
 func pathWithin(path string, root string) bool {
 	return path == root || root == "/" || strings.HasPrefix(path, root+string(os.PathSeparator))
 }
+
+func TestBuildBwrapCommandKeepsIsolationInHostPIDNamespace(t *testing.T) {
+	layout := newSandboxTestLayout(t)
+
+	cmd, err := BuildBwrapCommand(LaunchConfig{
+		BwrapPath:         "/usr/bin/bwrap",
+		BrowserExecutable: "/nix/store/00000000000000000000000000000000-chromium/bin/chromium",
+		MergedUserDataDir: layout.merged,
+		FilesDir:          layout.files,
+		CacheDir:          layout.cache,
+		CDPPort:           9222,
+		HostPIDNamespace:  true,
+	})
+	if err != nil {
+		t.Fatalf("BuildBwrapCommand() error = %v", err)
+	}
+	args := bwrapSetupArgs(cmd.Args[1:])
+
+	if slices.Contains(args, "--unshare-pid") {
+		t.Errorf("bwrap args unshare the PID namespace; args: %q", args)
+	}
+	assertSandboxFlags(t, args, "--die-with-parent", "--unshare-uts")
+	assertSandboxHidesServiceState(t, args, layout)
+	assertSandboxExposes(t, args, layout.merged, layout.files, layout.cache)
+}
