@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Building2, RotateCcw, Trash2 } from "lucide-react";
+import { Building2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
 import { Button } from "@aperture-browser/ui/components/button";
@@ -22,7 +22,7 @@ interface PersonalTenantModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
-type Change = "create" | "restore" | "delete";
+type Change = "create" | "delete";
 
 export function PersonalTenantModal({ open, onOpenChange }: PersonalTenantModalProps) {
   const runApi = useRunApi();
@@ -41,24 +41,14 @@ export function PersonalTenantModal({ open, onOpenChange }: PersonalTenantModalP
     try {
       const changed = await runApi(
         AuthApi.use((api) =>
-          kind === "create"
-            ? api.createOwnPersonalTenant()
-            : kind === "restore"
-              ? api.restoreOwnPersonalTenant()
-              : api.deleteOwnPersonalTenant(),
+          kind === "create" ? api.createOwnPersonalTenant() : api.deleteOwnPersonalTenant(),
         ),
       );
       void queryClient.invalidateQueries({ queryKey: ["tenants"] });
-      // Land in a new or restored tenant; after a delete the server falls back
-      // to the default selection.
+      // Land in a new tenant; after a delete the server falls back to the
+      // default selection.
       await selectTenant(kind === "delete" ? null : changed.id);
-      toast.success(
-        kind === "create"
-          ? "Personal tenant created"
-          : kind === "restore"
-            ? "Personal tenant restored"
-            : "Personal tenant deleted",
-      );
+      toast.success(kind === "create" ? "Personal tenant created" : "Personal tenant deleted");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Personal tenant change failed");
       throw error;
@@ -86,11 +76,6 @@ export function PersonalTenantModal({ open, onOpenChange }: PersonalTenantModalP
                 {tenant.id}
               </span>
             </div>
-          ) : status?.restorable ? (
-            <p className="aperture:text-sm aperture:text-muted-foreground">
-              Your personal tenant is deleted. Restore it to reach its sessions and snapshots again,
-              or start a new one.
-            </p>
           ) : (
             <p className="aperture:text-sm aperture:text-muted-foreground">
               You have no personal tenant.
@@ -120,31 +105,14 @@ export function PersonalTenantModal({ open, onOpenChange }: PersonalTenantModalP
                 )}
               </>
             ) : (
-              <>
-                {status?.restorable ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => void change("restore").catch(() => undefined)}
-                  >
-                    <RotateCcw data-icon="inline-start" />
-                    {pending === "restore" ? "Restoring..." : "Restore"}
-                  </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void change("create").catch(() => undefined)}
-                >
-                  <Building2 data-icon="inline-start" />
-                  {pending === "create"
-                    ? "Creating..."
-                    : status?.restorable
-                      ? "Create new"
-                      : "Create"}
-                </Button>
-              </>
+              <Button
+                type="button"
+                disabled={busy}
+                onClick={() => void change("create").catch(() => undefined)}
+              >
+                <Building2 data-icon="inline-start" />
+                {pending === "create" ? "Creating..." : "Create"}
+              </Button>
             )}
           </DialogFooter>
         </DialogContent>
@@ -153,7 +121,7 @@ export function PersonalTenantModal({ open, onOpenChange }: PersonalTenantModalP
       <ConfirmDialog
         open={deleteOpen}
         title="Delete personal tenant"
-        description={`Delete ${tenant?.displayName ?? "your personal tenant"}? Its sessions and snapshots stay unreachable and its tokens are revoked. You can restore it later.`}
+        description={`Delete ${tenant?.displayName ?? "your personal tenant"}? This is final: its sessions and snapshots become unreachable and its tokens are revoked. You can create a new one later.`}
         confirmLabel="Delete"
         pending={pending === "delete"}
         variant="destructive"

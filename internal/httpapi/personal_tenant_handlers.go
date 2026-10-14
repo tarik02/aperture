@@ -30,15 +30,15 @@ func personalTenantOwner(principal auth.Principal) (string, bool) {
 }
 
 func (s *Server) createOwnPersonalTenant(c *gin.Context) {
+	if !s.Config.AllowPersonalTenants {
+		WriteError(c, auth.ErrPersonalTenantsOff)
+		return
+	}
 	s.changeOwnPersonalTenant(c, http.StatusCreated, "created", s.Auth.CreatePersonalTenant)
 }
 
 func (s *Server) deleteOwnPersonalTenant(c *gin.Context) {
 	s.changeOwnPersonalTenant(c, http.StatusOK, "deleted", s.Auth.DeletePersonalTenant)
-}
-
-func (s *Server) restoreOwnPersonalTenant(c *gin.Context) {
-	s.changeOwnPersonalTenant(c, http.StatusOK, "restored", s.Auth.RestorePersonalTenant)
 }
 
 func (s *Server) changeOwnPersonalTenant(

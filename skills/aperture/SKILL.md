@@ -63,7 +63,7 @@ Open the WebSocket `/sessions/<id>/session` with subprotocol `aperture-session.v
 
 ### Administer tenants, tokens, users
 
-`/api/admin/*` with `system:admin`, `/api/tenant*` with `tenant:write`; routes and bodies are in the spec, delegation and allowlist rules in [control-plane.md](references/control-plane.md). A tenant with `ownerUserId` is a user's personal tenant, private to its owner: system administrators get `tenant_not_found` for it and never see it listed. `POST`/`DELETE /api/admin/users/{userId}/personal-tenant` create or delete one without revealing it, and `createPersonalTenant` on user creation does the same (default from `auto_create_personal_tenant`); the owner manages it through `/api/auth/personal-tenant`.
+`/api/admin/*` with `system:admin`, `/api/tenant*` with `tenant:write`; routes and bodies are in the spec, delegation and allowlist rules in [control-plane.md](references/control-plane.md). A tenant with `ownerUserId` is a user's personal tenant, private to its owner: system administrators get `tenant_not_found` for it and never see it listed. `POST`/`DELETE /api/admin/users/{userId}/personal-tenant` create or delete one without revealing it, and `createPersonalTenant` on user creation does the same (default from `auto_create_personal_tenant`); the owner manages it through `/api/auth/personal-tenant`. Deleting one is final, and `allow_personal_tenants: false` refuses creation with `personal_tenants_disabled`.
 
 ## Route by branch
 

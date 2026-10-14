@@ -52,7 +52,10 @@ func (s *Server) writeAuthMe(c *gin.Context, principal auth.Principal, remember 
 	resp := authMeResponse{
 		Principal:        toPrincipalResponse(principal),
 		AvailableTenants: []tenantResponse{},
-		Settings:         authMeSettings{AutoCreatePersonalTenant: s.Config.AutoCreatePersonalTenant},
+		Settings: authMeSettings{
+			AllowPersonalTenants:     s.Config.AllowPersonalTenants,
+			AutoCreatePersonalTenant: s.Config.AutoCreatePersonalTenant,
+		},
 	}
 
 	selectedTenant, err := s.resolveSelectedTenant(c, principal)
@@ -69,17 +72,20 @@ func (s *Server) writeAuthMe(c *gin.Context, principal auth.Principal, remember 
 		s.WebAuth.RememberSelectedTenant(c.Request.Context(), selectedTenant.ID)
 	}
 	if userID, ok := personalTenantOwner(principal); ok {
-		active, restorable, err := s.Auth.PersonalTenantStatus(c.Request.Context(), userID)
+		active, err := s.Auth.PersonalTenant(c.Request.Context(), userID)
 		if err != nil {
 			WriteError(c, err)
 			return
 		}
-		status := personalTenantStatusResponse{Restorable: restorable}
-		if active != nil {
-			mapped := toTenantResponse(*active)
-			status.Tenant = &mapped
+		// With personal tenants disabled an existing one can still be deleted.
+		if active != nil || s.Config.AllowPersonalTenants {
+			status := personalTenantStatusResponse{}
+			if active != nil {
+				mapped := toTenantResponse(*active)
+				status.Tenant = &mapped
+			}
+			resp.PersonalTenant = &status
 		}
-		resp.PersonalTenant = &status
 	}
 	if principal.Type == auth.PrincipalTypeUser && principal.UserID != nil {
 		tenants, err := s.Auth.UserTenants(c.Request.Context(), *principal.UserID)

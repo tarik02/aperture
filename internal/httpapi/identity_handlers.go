@@ -69,6 +69,10 @@ func (s *Server) createUser(c *gin.Context) {
 	if req.CreatePersonalTenant != nil {
 		createPersonalTenant = *req.CreatePersonalTenant
 	}
+	if createPersonalTenant && !s.Config.AllowPersonalTenants {
+		WriteError(c, auth.ErrPersonalTenantsOff)
+		return
+	}
 	user, personalTenant, err := s.Auth.CreateUser(c.Request.Context(), auth.CreateUserInput{
 		Email:                req.Email,
 		DisplayName:          req.DisplayName,
@@ -92,6 +96,10 @@ func (s *Server) createUser(c *gin.Context) {
 // behalf. The administrator gets no access to it, so the response carries
 // nothing about the tenant.
 func (s *Server) createPersonalTenant(c *gin.Context) {
+	if !s.Config.AllowPersonalTenants {
+		WriteError(c, auth.ErrPersonalTenantsOff)
+		return
+	}
 	userID := c.Param("userId")
 	if _, err := s.Auth.CreatePersonalTenant(c.Request.Context(), userID); err != nil {
 		WriteError(c, err)

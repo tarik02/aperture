@@ -109,6 +109,10 @@ func mapError(err error) (int, string, string) {
 		return http.StatusConflict, "personal_tenant_exists", "user already has a personal tenant"
 	case errors.Is(err, auth.ErrPersonalTenantNotFound):
 		return http.StatusNotFound, "personal_tenant_not_found", "personal tenant not found"
+	case errors.Is(err, auth.ErrPersonalTenantFinal):
+		return http.StatusConflict, "personal_tenant_final", "a deleted personal tenant cannot be restored; create a new one"
+	case errors.Is(err, auth.ErrPersonalTenantsOff):
+		return http.StatusConflict, "personal_tenants_disabled", "personal tenants are disabled on this server"
 	case errors.Is(err, auth.ErrPersonalTenantMember):
 		return http.StatusConflict, "personal_tenant_membership", "a personal tenant belongs to its owner alone; its memberships cannot change"
 	case errors.Is(err, auth.ErrMembershipNotFound):

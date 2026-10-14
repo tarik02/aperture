@@ -20,6 +20,9 @@ func Validate(cfg Config) error {
 	if cfg.WebSessionIdleTimeout <= 0 {
 		errs = append(errs, errors.New("web_session_idle_timeout must be positive"))
 	}
+	if cfg.AutoCreatePersonalTenant && !cfg.AllowPersonalTenants {
+		errs = append(errs, errors.New("auto_create_personal_tenant requires allow_personal_tenants"))
+	}
 	if len(cfg.LoginMethods) == 0 {
 		errs = append(errs, errors.New("login_methods must not be empty"))
 	}

@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"errors"
 
 	"github.com/aperture/aperture/internal/db"
 )
@@ -91,29 +90,6 @@ func (s *Service) DeletePersonalTenant(ctx context.Context, userID string) (*db.
 	return s.DeleteTenant(ctx, tenant.ID)
 }
 
-// RestorePersonalTenant restores the personal tenant a user deleted last.
-func (s *Service) RestorePersonalTenant(ctx context.Context, userID string) (*db.Tenant, error) {
-	active, err := s.repo.GetPersonalTenant(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	if active != nil {
-		return nil, ErrPersonalTenantExists
-	}
-	deleted, err := s.repo.GetLastDeletedPersonalTenant(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	if deleted == nil {
-		return nil, ErrPersonalTenantNotFound
-	}
-	tenant, err := s.RestoreTenant(ctx, deleted.ID)
-	if errors.Is(err, ErrTenantNotFound) {
-		return nil, ErrPersonalTenantNotFound
-	}
-	return tenant, err
-}
-
 // PersonalTenantAudit describes a change to a user's personal tenant. It names
 // the user, not the tenant, so administrators see that it happened and
 // nothing about the tenant itself.
@@ -123,18 +99,4 @@ func PersonalTenantAudit(userID string, action string) AuditInput {
 		ResourceType: "user",
 		ResourceID:   &userID,
 	}
-}
-
-// PersonalTenantStatus returns a user's active personal tenant, or nil, and
-// whether a deleted one could be restored instead.
-func (s *Service) PersonalTenantStatus(ctx context.Context, userID string) (*db.Tenant, bool, error) {
-	active, err := s.repo.GetPersonalTenant(ctx, userID)
-	if err != nil || active != nil {
-		return active, false, err
-	}
-	deleted, err := s.repo.GetLastDeletedPersonalTenant(ctx, userID)
-	if err != nil {
-		return nil, false, err
-	}
-	return nil, deleted != nil, nil
 }

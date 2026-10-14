@@ -51,6 +51,7 @@ import { useTenantsInfiniteQuery } from "#/features/tenant/tenant.queries.ts";
 import { flattenInfinitePages } from "@aperture-browser/api-client";
 import type { TenantMembership } from "@aperture-browser/api-client";
 import { scopeLabel } from "#/lib/scopes.ts";
+import { selectAuth, useAuthSessionStore } from "#/stores/auth-session.ts";
 
 type MembershipDialogState =
   | { kind: "create" }
@@ -78,6 +79,8 @@ export function UserDetailsSheet({
   onOpenChangeComplete,
 }: UserDetailsSheetProps) {
   const userQuery = useUserQuery(userId);
+  const allowPersonalTenants =
+    useAuthSessionStore(selectAuth)?.settings.allowPersonalTenants ?? false;
   const membershipsQuery = useUserMembershipsQuery(userId);
   const tenantsQuery = useTenantsInfiniteQuery({ limit: 100 });
   const disableMutation = useDisableUserMutation();
@@ -211,7 +214,7 @@ export function UserDetailsSheet({
           : confirmAction?.kind === "delete-personal-tenant"
             ? {
                 title: "Delete personal tenant",
-                description: `Delete the personal tenant of ${user?.displayName ?? "this user"}? Its sessions and snapshots stay unreachable until they restore it. You cannot see or restore it yourself.`,
+                description: `Delete the personal tenant of ${user?.displayName ?? "this user"}? This is final: its sessions and snapshots become unreachable and its tokens are revoked.`,
                 confirmLabel: "Delete",
                 variant: "destructive" as const,
                 pending: deletePersonalTenantMutation.isPending,
@@ -345,53 +348,55 @@ export function UserDetailsSheet({
                     </Card>
                   ) : null}
 
-                  <Card size="sm">
-                    <CardHeader>
-                      <CardTitle>Personal tenant</CardTitle>
-                      <CardDescription>
-                        {user.hasPersonalTenant
-                          ? "This user owns a personal tenant. Only they can see or use it."
-                          : "A tenant owned by this user with every tenant permission. Only they can see or use it."}
-                      </CardDescription>
-                    </CardHeader>
-                    <CardFooter className="aperture:justify-end">
-                      {user.hasPersonalTenant ? (
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          size="sm"
-                          disabled={deletePersonalTenantMutation.isPending}
-                          onClick={() => {
-                            setConfirmAction({ kind: "delete-personal-tenant" });
-                            setConfirmOpen(true);
-                          }}
-                        >
-                          <Trash2 data-icon="inline-start" />
-                          Delete personal tenant
-                        </Button>
-                      ) : (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={
-                            Boolean(user.disabledAt) || createPersonalTenantMutation.isPending
-                          }
-                          title={
-                            user.disabledAt
-                              ? "Restore the user before creating a personal tenant"
-                              : undefined
-                          }
-                          onClick={() => void handleCreatePersonalTenant()}
-                        >
-                          <Building2 data-icon="inline-start" />
-                          {createPersonalTenantMutation.isPending
-                            ? "Creating..."
-                            : "Create personal tenant"}
-                        </Button>
-                      )}
-                    </CardFooter>
-                  </Card>
+                  {user.hasPersonalTenant || allowPersonalTenants ? (
+                    <Card size="sm">
+                      <CardHeader>
+                        <CardTitle>Personal tenant</CardTitle>
+                        <CardDescription>
+                          {user.hasPersonalTenant
+                            ? "This user owns a personal tenant. Only they can see or use it."
+                            : "A tenant owned by this user with every tenant permission. Only they can see or use it."}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardFooter className="aperture:justify-end">
+                        {user.hasPersonalTenant ? (
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            disabled={deletePersonalTenantMutation.isPending}
+                            onClick={() => {
+                              setConfirmAction({ kind: "delete-personal-tenant" });
+                              setConfirmOpen(true);
+                            }}
+                          >
+                            <Trash2 data-icon="inline-start" />
+                            Delete personal tenant
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              Boolean(user.disabledAt) || createPersonalTenantMutation.isPending
+                            }
+                            title={
+                              user.disabledAt
+                                ? "Restore the user before creating a personal tenant"
+                                : undefined
+                            }
+                            onClick={() => void handleCreatePersonalTenant()}
+                          >
+                            <Building2 data-icon="inline-start" />
+                            {createPersonalTenantMutation.isPending
+                              ? "Creating..."
+                              : "Create personal tenant"}
+                          </Button>
+                        )}
+                      </CardFooter>
+                    </Card>
+                  ) : null}
 
                   <Card size="sm">
                     <CardHeader>

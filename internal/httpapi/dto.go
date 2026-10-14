@@ -168,11 +168,11 @@ type authMeResponse struct {
 }
 
 type personalTenantStatusResponse struct {
-	Tenant     *tenantResponse `json:"tenant"`
-	Restorable bool            `json:"restorable"`
+	Tenant *tenantResponse `json:"tenant"`
 }
 
 type authMeSettings struct {
+	AllowPersonalTenants     bool `json:"allowPersonalTenants"`
 	AutoCreatePersonalTenant bool `json:"autoCreatePersonalTenant"`
 }
 

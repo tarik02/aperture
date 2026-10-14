@@ -257,8 +257,10 @@ const (
 	ErrorCodeOidcProviderNotFound             ErrorCode = "oidc_provider_not_found"
 	ErrorCodeOverlayMountFailed               ErrorCode = "overlay_mount_failed"
 	ErrorCodePersonalTenantExists             ErrorCode = "personal_tenant_exists"
+	ErrorCodePersonalTenantFinal              ErrorCode = "personal_tenant_final"
 	ErrorCodePersonalTenantMembership         ErrorCode = "personal_tenant_membership"
 	ErrorCodePersonalTenantNotFound           ErrorCode = "personal_tenant_not_found"
+	ErrorCodePersonalTenantsDisabled          ErrorCode = "personal_tenants_disabled"
 	ErrorCodePromotionConflict                ErrorCode = "promotion_conflict"
 	ErrorCodePromotionServiceUnavailable      ErrorCode = "promotion_service_unavailable"
 	ErrorCodeRecordingCodecUnavailable        ErrorCode = "recording_codec_unavailable"
@@ -349,9 +351,13 @@ func (e ErrorCode) Valid() bool {
 		return true
 	case ErrorCodePersonalTenantExists:
 		return true
+	case ErrorCodePersonalTenantFinal:
+		return true
 	case ErrorCodePersonalTenantMembership:
 		return true
 	case ErrorCodePersonalTenantNotFound:
+		return true
+	case ErrorCodePersonalTenantsDisabled:
 		return true
 	case ErrorCodePromotionConflict:
 		return true
@@ -1275,7 +1281,7 @@ type AuthMe struct {
 	// AvailableTenants Active tenant memberships available to an account-backed principal. API-token principals return an empty array.
 	AvailableTenants []Tenant `json:"availableTenants"`
 
-	// PersonalTenant The signed-in user's personal tenant, or `null` for API tokens and OAuth clients, which cannot manage it.
+	// PersonalTenant The signed-in user's personal tenant, or `null` when they cannot manage one (API tokens, OAuth clients, and users without one while `allow_personal_tenants` is off).
 	PersonalTenant *PersonalTenantStatus `json:"personalTenant"`
 
 	// Principal Authenticated subject identity and authorization context.
@@ -1286,6 +1292,9 @@ type AuthMe struct {
 
 	// Settings Server settings relevant to the signed-in principal.
 	Settings struct {
+		// AllowPersonalTenants Whether personal tenants can be created (`allow_personal_tenants`).
+		AllowPersonalTenants bool `json:"allowPersonalTenants"`
+
 		// AutoCreatePersonalTenant Whether new users get a personal tenant by default (`auto_create_personal_tenant`).
 		AutoCreatePersonalTenant bool `json:"autoCreatePersonalTenant"`
 	} `json:"settings"`
@@ -1936,9 +1945,6 @@ type PageMeta struct {
 
 // PersonalTenantStatus State of the signed-in user's personal tenant.
 type PersonalTenantStatus struct {
-	// Restorable Whether a deleted personal tenant can be restored. Always `false` while one is active.
-	Restorable bool `json:"restorable"`
-
 	// Tenant Active personal tenant, or `null` when the user has none.
 	Tenant *Tenant `json:"tenant"`
 }
@@ -3870,7 +3876,7 @@ type ClientInterface interface {
 
 	// RestoreTenant Restore a tenant
 	//
-	// Restores a tenant. Revoked tokens remain revoked. Another user's personal tenant answers `tenant_not_found`; only its owner restores it.
+	// Restores a tenant. Revoked tokens remain revoked. A personal tenant cannot be restored (`personal_tenant_final`); another user's answers `tenant_not_found`.
 	//
 	// Corresponds with POST /api/admin/tenants/{tenantId}/restore (the `RestoreTenant` operationId).
 	RestoreTenant(ctx context.Context, tenantId TenantId, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -3966,7 +3972,7 @@ type ClientInterface interface {
 
 	// DeletePersonalTenant Delete a user's personal tenant
 	//
-	// Deactivates the user's active personal tenant and revokes its tenant tokens without revealing the tenant. Only the owner can restore it.
+	// Deactivates the user's active personal tenant and revokes its tenant tokens without revealing the tenant. Deleting is final.
 	//
 	// Corresponds with DELETE /api/admin/users/{userId}/personal-tenant (the `DeletePersonalTenant` operationId).
 	DeletePersonalTenant(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -3992,24 +3998,17 @@ type ClientInterface interface {
 
 	// DeleteOwnPersonalTenant Delete the signed-in user's personal tenant
 	//
-	// Deactivates the signed-in user's active personal tenant and revokes its tenant tokens.
+	// Deactivates the signed-in user's active personal tenant and revokes its tenant tokens. Deleting is final; the user can create a new one.
 	//
 	// Corresponds with DELETE /api/auth/personal-tenant (the `DeleteOwnPersonalTenant` operationId).
 	DeleteOwnPersonalTenant(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// CreateOwnPersonalTenant Create the signed-in user's personal tenant
 	//
-	// Creates a tenant owned by the signed-in user with every tenant scope. Only the user's own sign-in qualifies; API tokens and OAuth clients are refused.
+	// Creates a tenant owned by the signed-in user with every tenant scope. Only the user's own sign-in qualifies; API tokens and OAuth clients are refused. Refused with `personal_tenants_disabled` when `allow_personal_tenants` is off.
 	//
 	// Corresponds with POST /api/auth/personal-tenant (the `CreateOwnPersonalTenant` operationId).
 	CreateOwnPersonalTenant(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// RestoreOwnPersonalTenant Restore the signed-in user's personal tenant
-	//
-	// Restores the personal tenant the signed-in user deleted most recently. Revoked tokens remain revoked.
-	//
-	// Corresponds with POST /api/auth/personal-tenant/restore (the `RestoreOwnPersonalTenant` operationId).
-	RestoreOwnPersonalTenant(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListBrowserChannels List available browser channels
 	//
@@ -4771,7 +4770,7 @@ func (c *Client) UpsertTenantMembership(ctx context.Context, tenantId TenantId, 
 
 // RestoreTenant Restore a tenant
 //
-// Restores a tenant. Revoked tokens remain revoked. Another user's personal tenant answers `tenant_not_found`; only its owner restores it.
+// Restores a tenant. Revoked tokens remain revoked. A personal tenant cannot be restored (`personal_tenant_final`); another user's answers `tenant_not_found`.
 //
 // Corresponds with POST /api/admin/tenants/{tenantId}/restore (the `RestoreTenant` operationId).
 func (c *Client) RestoreTenant(ctx context.Context, tenantId TenantId, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -5007,7 +5006,7 @@ func (c *Client) ListUserMemberships(ctx context.Context, userId UserId, reqEdit
 
 // DeletePersonalTenant Delete a user's personal tenant
 //
-// Deactivates the user's active personal tenant and revokes its tenant tokens without revealing the tenant. Only the owner can restore it.
+// Deactivates the user's active personal tenant and revokes its tenant tokens without revealing the tenant. Deleting is final.
 //
 // Corresponds with DELETE /api/admin/users/{userId}/personal-tenant (the `DeletePersonalTenant` operationId).
 func (c *Client) DeletePersonalTenant(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -5073,7 +5072,7 @@ func (c *Client) GetCurrentPrincipal(ctx context.Context, params *GetCurrentPrin
 
 // DeleteOwnPersonalTenant Delete the signed-in user's personal tenant
 //
-// Deactivates the signed-in user's active personal tenant and revokes its tenant tokens.
+// Deactivates the signed-in user's active personal tenant and revokes its tenant tokens. Deleting is final; the user can create a new one.
 //
 // Corresponds with DELETE /api/auth/personal-tenant (the `DeleteOwnPersonalTenant` operationId).
 func (c *Client) DeleteOwnPersonalTenant(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -5090,28 +5089,11 @@ func (c *Client) DeleteOwnPersonalTenant(ctx context.Context, reqEditors ...Requ
 
 // CreateOwnPersonalTenant Create the signed-in user's personal tenant
 //
-// Creates a tenant owned by the signed-in user with every tenant scope. Only the user's own sign-in qualifies; API tokens and OAuth clients are refused.
+// Creates a tenant owned by the signed-in user with every tenant scope. Only the user's own sign-in qualifies; API tokens and OAuth clients are refused. Refused with `personal_tenants_disabled` when `allow_personal_tenants` is off.
 //
 // Corresponds with POST /api/auth/personal-tenant (the `CreateOwnPersonalTenant` operationId).
 func (c *Client) CreateOwnPersonalTenant(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateOwnPersonalTenantRequest(c.Server)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// RestoreOwnPersonalTenant Restore the signed-in user's personal tenant
-//
-// Restores the personal tenant the signed-in user deleted most recently. Revoked tokens remain revoked.
-//
-// Corresponds with POST /api/auth/personal-tenant/restore (the `RestoreOwnPersonalTenant` operationId).
-func (c *Client) RestoreOwnPersonalTenant(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewRestoreOwnPersonalTenantRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -7542,33 +7524,6 @@ func NewCreateOwnPersonalTenantRequest(server string) (*http.Request, error) {
 	}
 
 	operationPath := fmt.Sprintf("/api/auth/personal-tenant")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewRestoreOwnPersonalTenantRequest constructs an http.Request for the RestoreOwnPersonalTenant method
-func NewRestoreOwnPersonalTenantRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/auth/personal-tenant/restore")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -10511,7 +10466,7 @@ type ClientWithResponsesInterface interface {
 
 	// RestoreTenantWithResponse Restore a tenant
 	//
-	// Restores a tenant. Revoked tokens remain revoked. Another user's personal tenant answers `tenant_not_found`; only its owner restores it.
+	// Restores a tenant. Revoked tokens remain revoked. A personal tenant cannot be restored (`personal_tenant_final`); another user's answers `tenant_not_found`.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -10623,7 +10578,7 @@ type ClientWithResponsesInterface interface {
 
 	// DeletePersonalTenantWithResponse Delete a user's personal tenant
 	//
-	// Deactivates the user's active personal tenant and revokes its tenant tokens without revealing the tenant. Only the owner can restore it.
+	// Deactivates the user's active personal tenant and revokes its tenant tokens without revealing the tenant. Deleting is final.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -10657,7 +10612,7 @@ type ClientWithResponsesInterface interface {
 
 	// DeleteOwnPersonalTenantWithResponse Delete the signed-in user's personal tenant
 	//
-	// Deactivates the signed-in user's active personal tenant and revokes its tenant tokens.
+	// Deactivates the signed-in user's active personal tenant and revokes its tenant tokens. Deleting is final; the user can create a new one.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -10666,21 +10621,12 @@ type ClientWithResponsesInterface interface {
 
 	// CreateOwnPersonalTenantWithResponse Create the signed-in user's personal tenant
 	//
-	// Creates a tenant owned by the signed-in user with every tenant scope. Only the user's own sign-in qualifies; API tokens and OAuth clients are refused.
+	// Creates a tenant owned by the signed-in user with every tenant scope. Only the user's own sign-in qualifies; API tokens and OAuth clients are refused. Refused with `personal_tenants_disabled` when `allow_personal_tenants` is off.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /api/auth/personal-tenant (the `CreateOwnPersonalTenant` operationId).
 	CreateOwnPersonalTenantWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*CreateOwnPersonalTenantResponse, error)
-
-	// RestoreOwnPersonalTenantWithResponse Restore the signed-in user's personal tenant
-	//
-	// Restores the personal tenant the signed-in user deleted most recently. Revoked tokens remain revoked.
-	//
-	// Returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with POST /api/auth/personal-tenant/restore (the `RestoreOwnPersonalTenant` operationId).
-	RestoreOwnPersonalTenantWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*RestoreOwnPersonalTenantResponse, error)
 
 	// ListBrowserChannelsWithResponse List available browser channels
 	//
@@ -12461,54 +12407,6 @@ func (r CreateOwnPersonalTenantResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r CreateOwnPersonalTenantResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type RestoreOwnPersonalTenantResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *Tenant
-	// JSONDefault the response for an HTTP default `application/json` response
-	JSONDefault *Error
-}
-
-// GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r RestoreOwnPersonalTenantResponse) GetJSON200() *Tenant {
-	return r.JSON200
-}
-
-// GetJSONDefault returns the response for an HTTP default `application/json` response
-func (r RestoreOwnPersonalTenantResponse) GetJSONDefault() *Error {
-	return r.JSONDefault
-}
-
-// GetBody returns the raw response body bytes
-func (r RestoreOwnPersonalTenantResponse) GetBody() []byte {
-	return r.Body
-}
-
-// Status returns HTTPResponse.Status
-func (r RestoreOwnPersonalTenantResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r RestoreOwnPersonalTenantResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r RestoreOwnPersonalTenantResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -14796,7 +14694,7 @@ func (c *ClientWithResponses) UpsertTenantMembershipWithResponse(ctx context.Con
 
 // RestoreTenantWithResponse Restore a tenant
 //
-// Restores a tenant. Revoked tokens remain revoked. Another user's personal tenant answers `tenant_not_found`; only its owner restores it.
+// Restores a tenant. Revoked tokens remain revoked. A personal tenant cannot be restored (`personal_tenant_final`); another user's answers `tenant_not_found`.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -14992,7 +14890,7 @@ func (c *ClientWithResponses) ListUserMembershipsWithResponse(ctx context.Contex
 
 // DeletePersonalTenantWithResponse Delete a user's personal tenant
 //
-// Deactivates the user's active personal tenant and revokes its tenant tokens without revealing the tenant. Only the owner can restore it.
+// Deactivates the user's active personal tenant and revokes its tenant tokens without revealing the tenant. Deleting is final.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -15050,7 +14948,7 @@ func (c *ClientWithResponses) GetCurrentPrincipalWithResponse(ctx context.Contex
 
 // DeleteOwnPersonalTenantWithResponse Delete the signed-in user's personal tenant
 //
-// Deactivates the signed-in user's active personal tenant and revokes its tenant tokens.
+// Deactivates the signed-in user's active personal tenant and revokes its tenant tokens. Deleting is final; the user can create a new one.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -15065,7 +14963,7 @@ func (c *ClientWithResponses) DeleteOwnPersonalTenantWithResponse(ctx context.Co
 
 // CreateOwnPersonalTenantWithResponse Create the signed-in user's personal tenant
 //
-// Creates a tenant owned by the signed-in user with every tenant scope. Only the user's own sign-in qualifies; API tokens and OAuth clients are refused.
+// Creates a tenant owned by the signed-in user with every tenant scope. Only the user's own sign-in qualifies; API tokens and OAuth clients are refused. Refused with `personal_tenants_disabled` when `allow_personal_tenants` is off.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -15076,21 +14974,6 @@ func (c *ClientWithResponses) CreateOwnPersonalTenantWithResponse(ctx context.Co
 		return nil, err
 	}
 	return ParseCreateOwnPersonalTenantResponse(rsp)
-}
-
-// RestoreOwnPersonalTenantWithResponse Restore the signed-in user's personal tenant
-//
-// Restores the personal tenant the signed-in user deleted most recently. Revoked tokens remain revoked.
-//
-// Returns a wrapper object for the known response body format(s).
-//
-// Corresponds with POST /api/auth/personal-tenant/restore (the `RestoreOwnPersonalTenant` operationId).
-func (c *ClientWithResponses) RestoreOwnPersonalTenantWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*RestoreOwnPersonalTenantResponse, error) {
-	rsp, err := c.RestoreOwnPersonalTenant(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseRestoreOwnPersonalTenantResponse(rsp)
 }
 
 // ListBrowserChannelsWithResponse List available browser channels
@@ -16898,39 +16781,6 @@ func ParseCreateOwnPersonalTenantResponse(rsp *http.Response) (*CreateOwnPersona
 	return response, nil
 }
 
-// ParseRestoreOwnPersonalTenantResponse parses an HTTP response from a RestoreOwnPersonalTenantWithResponse call
-func ParseRestoreOwnPersonalTenantResponse(rsp *http.Response) (*RestoreOwnPersonalTenantResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &RestoreOwnPersonalTenantResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest Tenant
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
 // ParseListBrowserChannelsResponse parses an HTTP response from a ListBrowserChannelsWithResponse call
 func ParseListBrowserChannelsResponse(rsp *http.Response) (*ListBrowserChannelsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -18487,9 +18337,6 @@ type ServerInterface interface {
 	// CreateOwnPersonalTenant Create the signed-in user's personal tenant
 	// (POST /api/auth/personal-tenant)
 	CreateOwnPersonalTenant(c *gin.Context)
-	// RestoreOwnPersonalTenant Restore the signed-in user's personal tenant
-	// (POST /api/auth/personal-tenant/restore)
-	RestoreOwnPersonalTenant(c *gin.Context)
 	// ListBrowserChannels List available browser channels
 	// (GET /api/browser/channels)
 	ListBrowserChannels(c *gin.Context)
@@ -19400,19 +19247,6 @@ func (siw *ServerInterfaceWrapper) CreateOwnPersonalTenant(c *gin.Context) {
 	}
 
 	siw.Handler.CreateOwnPersonalTenant(c)
-}
-
-// RestoreOwnPersonalTenant operation middleware
-func (siw *ServerInterfaceWrapper) RestoreOwnPersonalTenant(c *gin.Context) {
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		middleware(c)
-		if c.IsAborted() {
-			return
-		}
-	}
-
-	siw.Handler.RestoreOwnPersonalTenant(c)
 }
 
 // ListBrowserChannels operation middleware
@@ -21685,7 +21519,6 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.GET(options.BaseURL+"/api/auth/me", wrapper.GetCurrentPrincipal)
 	router.DELETE(options.BaseURL+"/api/auth/personal-tenant", wrapper.DeleteOwnPersonalTenant)
 	router.POST(options.BaseURL+"/api/auth/personal-tenant", wrapper.CreateOwnPersonalTenant)
-	router.POST(options.BaseURL+"/api/auth/personal-tenant/restore", wrapper.RestoreOwnPersonalTenant)
 	router.GET(options.BaseURL+"/api/browser/channels", wrapper.ListBrowserChannels)
 	router.GET(options.BaseURL+"/api/admin/tenants", wrapper.ListTenants)
 	router.POST(options.BaseURL+"/api/admin/tenants", wrapper.CreateTenant)
@@ -22713,44 +22546,6 @@ type CreateOwnPersonalTenantdefaultJSONResponse struct {
 }
 
 func (response CreateOwnPersonalTenantdefaultJSONResponse) VisitCreateOwnPersonalTenantResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type RestoreOwnPersonalTenantRequestObject struct {
-}
-
-type RestoreOwnPersonalTenantResponseObject interface {
-	VisitRestoreOwnPersonalTenantResponse(w http.ResponseWriter) error
-}
-
-type RestoreOwnPersonalTenant200JSONResponse Tenant
-
-func (response RestoreOwnPersonalTenant200JSONResponse) VisitRestoreOwnPersonalTenantResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type RestoreOwnPersonalTenantdefaultJSONResponse struct {
-	Body       Error
-	StatusCode int
-}
-
-func (response RestoreOwnPersonalTenantdefaultJSONResponse) VisitRestoreOwnPersonalTenantResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -24646,9 +24441,6 @@ type StrictServerInterface interface {
 	// CreateOwnPersonalTenant Create the signed-in user's personal tenant
 	// (POST /api/auth/personal-tenant)
 	CreateOwnPersonalTenant(ctx context.Context, request CreateOwnPersonalTenantRequestObject) (CreateOwnPersonalTenantResponseObject, error)
-	// RestoreOwnPersonalTenant Restore the signed-in user's personal tenant
-	// (POST /api/auth/personal-tenant/restore)
-	RestoreOwnPersonalTenant(ctx context.Context, request RestoreOwnPersonalTenantRequestObject) (RestoreOwnPersonalTenantResponseObject, error)
 	// ListBrowserChannels List available browser channels
 	// (GET /api/browser/channels)
 	ListBrowserChannels(ctx context.Context, request ListBrowserChannelsRequestObject) (ListBrowserChannelsResponseObject, error)
@@ -25520,30 +25312,6 @@ func (sh *strictHandler) CreateOwnPersonalTenant(ctx *gin.Context) {
 		sh.options.HandlerErrorFunc(ctx, err)
 	} else if validResponse, ok := response.(CreateOwnPersonalTenantResponseObject); ok {
 		if err := validResponse.VisitCreateOwnPersonalTenantResponse(ctx.Writer); err != nil {
-			sh.options.ResponseErrorHandlerFunc(ctx, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// RestoreOwnPersonalTenant operation middleware
-func (sh *strictHandler) RestoreOwnPersonalTenant(ctx *gin.Context) {
-	var request RestoreOwnPersonalTenantRequestObject
-
-	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
-		return sh.ssi.RestoreOwnPersonalTenant(ctx, request.(RestoreOwnPersonalTenantRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "RestoreOwnPersonalTenant")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		sh.options.HandlerErrorFunc(ctx, err)
-	} else if validResponse, ok := response.(RestoreOwnPersonalTenantResponseObject); ok {
-		if err := validResponse.VisitRestoreOwnPersonalTenantResponse(ctx.Writer); err != nil {
 			sh.options.ResponseErrorHandlerFunc(ctx, err)
 		}
 	} else if response != nil {

@@ -167,8 +167,8 @@ export type SessionFileEntry = SessionFile | SessionDirectory
 export const SessionFileEntry = Schema.Union([SessionFile, SessionDirectory], { mode: "oneOf" }).annotate({ "description": "A session file or directory, told apart by `type`.", "identifier": "SessionFileEntry" })
 export type TargetViewport = { readonly "targetId": string, readonly "generation": number, readonly "viewport": Viewport }
 export const TargetViewport = Schema.Struct({ "targetId": Schema.String, "generation": Schema.Number.annotate({ "description": "Assignment generation of the target's media output.", "format": "int64" }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(0).annotate({ "expected": "a value greater than or equal to 0" })), "viewport": Viewport }).annotate({ "description": "Viewport applied to a top-level target.", "identifier": "TargetViewport" })
-export type PersonalTenantStatus = { readonly "tenant": Tenant | null, readonly "restorable": boolean }
-export const PersonalTenantStatus = Schema.Struct({ "tenant": Schema.Union([Tenant, Schema.Null], { mode: "oneOf" }).annotate({ "description": "Active personal tenant, or `null` when the user has none." }), "restorable": Schema.Boolean.annotate({ "description": "Whether a deleted personal tenant can be restored. Always `false` while one is active." }) }).annotate({ "description": "State of the signed-in user's personal tenant.", "identifier": "PersonalTenantStatus" })
+export type PersonalTenantStatus = { readonly "tenant": Tenant | null }
+export const PersonalTenantStatus = Schema.Struct({ "tenant": Schema.Union([Tenant, Schema.Null], { mode: "oneOf" }).annotate({ "description": "Active personal tenant, or `null` when the user has none." }) }).annotate({ "description": "State of the signed-in user's personal tenant.", "identifier": "PersonalTenantStatus" })
 export type TenantPage = { readonly "data": ReadonlyArray<Tenant>, readonly "meta": PageMeta }
 export const TenantPage = Schema.Struct({ "data": Schema.Array(Tenant), "meta": PageMeta }).annotate({ "description": "Cursor-paginated tenants.", "identifier": "TenantPage" })
 export type UserPage = { readonly "data": ReadonlyArray<User>, readonly "meta": PageMeta }
@@ -213,8 +213,8 @@ export type InitialIndexedDBObjectStore = { readonly "name": string, readonly "k
 export const InitialIndexedDBObjectStore = Schema.Struct({ "name": Schema.String, "keyPath": InitialIndexedDBKeyPath, "autoIncrement": Schema.Boolean, "indexes": Schema.Array(InitialIndexedDBIndex), "records": Schema.Array(InitialIndexedDBRecord) }).annotate({ "identifier": "InitialIndexedDBObjectStore" })
 export type RecordingFocusInput = { readonly "target": RecordingFocusTarget, readonly "zoom": number, readonly "durationMs"?: number }
 export const RecordingFocusInput = Schema.Struct({ "target": RecordingFocusTarget, "zoom": Schema.Number.check(Schema.isFinite().annotate({ "expected": "a finite number" })).check(Schema.isGreaterThanOrEqualTo(1).annotate({ "expected": "a value greater than or equal to 1" })).check(Schema.isLessThanOrEqualTo(4).annotate({ "expected": "a value less than or equal to 4" })), "durationMs": Schema.optionalKey(Schema.Number.annotate({ "description": "Zoom out after this many milliseconds; at least 200. Zero or omitted keeps the focus until reset-focus." }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(0).annotate({ "expected": "a value greater than or equal to 0" })).check(Schema.isLessThanOrEqualTo(10000).annotate({ "expected": "a value less than or equal to 10000" }))) }).annotate({ "identifier": "RecordingFocusInput" })
-export type AuthMe = { readonly "principal": Principal, readonly "personalTenant": PersonalTenantStatus | null, readonly "selectedTenant": Tenant | null, readonly "availableTenants": ReadonlyArray<Tenant>, readonly "settings": { readonly "autoCreatePersonalTenant": boolean } }
-export const AuthMe = Schema.Struct({ "principal": Principal, "personalTenant": Schema.Union([PersonalTenantStatus, Schema.Null], { mode: "oneOf" }).annotate({ "description": "The signed-in user's personal tenant, or `null` for API tokens and OAuth clients, which cannot manage it." }), "selectedTenant": Schema.Union([Tenant, Schema.Null], { mode: "oneOf" }).annotate({ "description": "Effective tenant, or `null` when the principal has not selected one." }), "availableTenants": Schema.Array(Tenant).annotate({ "description": "Active tenant memberships available to an account-backed principal. API-token principals return an empty array." }), "settings": Schema.Struct({ "autoCreatePersonalTenant": Schema.Boolean.annotate({ "description": "Whether new users get a personal tenant by default (`auto_create_personal_tenant`)." }) }).annotate({ "description": "Server settings relevant to the signed-in principal." }) }).annotate({ "description": "Current principal and its effective tenant selection.", "identifier": "AuthMe" })
+export type AuthMe = { readonly "principal": Principal, readonly "personalTenant": PersonalTenantStatus | null, readonly "selectedTenant": Tenant | null, readonly "availableTenants": ReadonlyArray<Tenant>, readonly "settings": { readonly "allowPersonalTenants": boolean, readonly "autoCreatePersonalTenant": boolean } }
+export const AuthMe = Schema.Struct({ "principal": Principal, "personalTenant": Schema.Union([PersonalTenantStatus, Schema.Null], { mode: "oneOf" }).annotate({ "description": "The signed-in user's personal tenant, or `null` when they cannot manage one (API tokens, OAuth clients, and users without one while `allow_personal_tenants` is off)." }), "selectedTenant": Schema.Union([Tenant, Schema.Null], { mode: "oneOf" }).annotate({ "description": "Effective tenant, or `null` when the principal has not selected one." }), "availableTenants": Schema.Array(Tenant).annotate({ "description": "Active tenant memberships available to an account-backed principal. API-token principals return an empty array." }), "settings": Schema.Struct({ "allowPersonalTenants": Schema.Boolean.annotate({ "description": "Whether personal tenants can be created (`allow_personal_tenants`)." }), "autoCreatePersonalTenant": Schema.Boolean.annotate({ "description": "Whether new users get a personal tenant by default (`auto_create_personal_tenant`)." }) }).annotate({ "description": "Server settings relevant to the signed-in principal." }) }).annotate({ "description": "Current principal and its effective tenant selection.", "identifier": "AuthMe" })
 export type TokenPage = { readonly "data": ReadonlyArray<Token>, readonly "meta": PageMeta }
 export const TokenPage = Schema.Struct({ "data": Schema.Array(Token), "meta": PageMeta }).annotate({ "description": "Cursor-paginated API token metadata without bearer secrets.", "identifier": "TokenPage" })
 export type CreateTokenResponse = { readonly "token": Token, readonly "rawToken": SensitiveString }
@@ -260,10 +260,6 @@ export type DeleteOwnPersonalTenant200 = Tenant
 export const DeleteOwnPersonalTenant200 = Tenant
 export type DeleteOwnPersonalTenantdefault = Error
 export const DeleteOwnPersonalTenantdefault = Error
-export type RestoreOwnPersonalTenant200 = Tenant
-export const RestoreOwnPersonalTenant200 = Tenant
-export type RestoreOwnPersonalTenantdefault = Error
-export const RestoreOwnPersonalTenantdefault = Error
 export type ListBrowserChannels200 = BrowserChannels
 export const ListBrowserChannels200 = BrowserChannels
 export type ListBrowserChannelsdefault = Error
@@ -794,12 +790,6 @@ export const make = (
     "deleteOwnPersonalTenant": (options) => HttpClientRequest.delete("/api/auth/personal-tenant").pipe(
       withResponse(options?.config)(HttpClientResponse.matchStatus({
       "2xx": decodeSuccess(DeleteOwnPersonalTenant200),
-      orElse: unexpectedStatus
-    }))
-    ),
-    "restoreOwnPersonalTenant": (options) => HttpClientRequest.post("/api/auth/personal-tenant/restore").pipe(
-      withResponse(options?.config)(HttpClientResponse.matchStatus({
-      "2xx": decodeSuccess(RestoreOwnPersonalTenant200),
       orElse: unexpectedStatus
     }))
     ),
@@ -1430,17 +1420,13 @@ readonly "getHealth": <Config extends OperationConfig>(options: { readonly confi
 */
 readonly "getCurrentPrincipal": <Config extends OperationConfig>(options: { readonly params?: typeof GetCurrentPrincipalParams.Encoded | undefined; readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof GetCurrentPrincipal200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
-* Creates a tenant owned by the signed-in user with every tenant scope. Only the user's own sign-in qualifies; API tokens and OAuth clients are refused.
+* Creates a tenant owned by the signed-in user with every tenant scope. Only the user's own sign-in qualifies; API tokens and OAuth clients are refused. Refused with `personal_tenants_disabled` when `allow_personal_tenants` is off.
 */
 readonly "createOwnPersonalTenant": <Config extends OperationConfig>(options: { readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof CreateOwnPersonalTenant201.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
-* Deactivates the signed-in user's active personal tenant and revokes its tenant tokens.
+* Deactivates the signed-in user's active personal tenant and revokes its tenant tokens. Deleting is final; the user can create a new one.
 */
 readonly "deleteOwnPersonalTenant": <Config extends OperationConfig>(options: { readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof DeleteOwnPersonalTenant200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
-  /**
-* Restores the personal tenant the signed-in user deleted most recently. Revoked tokens remain revoked.
-*/
-readonly "restoreOwnPersonalTenant": <Config extends OperationConfig>(options: { readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof RestoreOwnPersonalTenant200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
 * Browser channels accepted by session creation.
 */
@@ -1462,7 +1448,7 @@ readonly "deleteTenant": <Config extends OperationConfig>(tenantId: string, opti
 */
 readonly "updateTenant": <Config extends OperationConfig>(tenantId: string, options: { readonly payload: typeof UpdateTenantRequestJson.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof UpdateTenant200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
-* Restores a tenant. Revoked tokens remain revoked. Another user's personal tenant answers `tenant_not_found`; only its owner restores it.
+* Restores a tenant. Revoked tokens remain revoked. A personal tenant cannot be restored (`personal_tenant_final`); another user's answers `tenant_not_found`.
 */
 readonly "restoreTenant": <Config extends OperationConfig>(tenantId: string, options: { readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof RestoreTenant200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
@@ -1494,7 +1480,7 @@ readonly "restoreUser": <Config extends OperationConfig>(userId: string, options
 */
 readonly "createPersonalTenant": <Config extends OperationConfig>(userId: string, options: { readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof CreatePersonalTenantdefault.Type | void, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
-* Deactivates the user's active personal tenant and revokes its tenant tokens without revealing the tenant. Only the owner can restore it.
+* Deactivates the user's active personal tenant and revokes its tenant tokens without revealing the tenant. Deleting is final.
 */
 readonly "deletePersonalTenant": <Config extends OperationConfig>(userId: string, options: { readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof DeletePersonalTenantdefault.Type | void, Config>, HttpClientError.HttpClientError | SchemaError>
   /**

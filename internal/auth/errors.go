@@ -29,6 +29,8 @@ var (
 	ErrPersonalTenantExists   = errors.New("user already has a personal tenant")
 	ErrPersonalTenantNotFound = errors.New("personal tenant not found")
 	ErrPersonalTenantMember   = errors.New("personal tenant memberships cannot change")
+	ErrPersonalTenantFinal    = errors.New("a deleted personal tenant cannot be restored")
+	ErrPersonalTenantsOff     = errors.New("personal tenants are disabled")
 	ErrOIDCProviderNotFound   = errors.New("oidc provider not found")
 	ErrOIDCFlowInvalid        = errors.New("oidc flow invalid")
 	ErrOIDCAuthentication     = errors.New("oidc authentication failed")

@@ -282,13 +282,17 @@ func (s *Service) DeleteTenant(ctx context.Context, tenantID string) (*db.Tenant
 
 // RestoreTenant clears tenant deactivation.
 func (s *Service) RestoreTenant(ctx context.Context, tenantID string) (*db.Tenant, error) {
+	existing, err := s.repo.GetTenantByID(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	// Deleting a personal tenant is final; its owner starts a new one instead.
+	if existing != nil && existing.OwnerUserID != nil {
+		return nil, ErrPersonalTenantFinal
+	}
 	if err := s.repo.RestoreTenant(ctx, tenantID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrTenantNotFound
-		}
-		// The owner got a new personal tenant meanwhile; two active ones are not allowed.
-		if isUniqueViolation(err) {
-			return nil, ErrPersonalTenantExists
 		}
 		return nil, err
 	}

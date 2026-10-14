@@ -466,26 +466,6 @@ func (r *Repository) GetPersonalTenant(ctx context.Context, userID string) (*Ten
 	return tenant, nil
 }
 
-// GetLastDeletedPersonalTenant returns the most recently deleted tenant owned
-// by a user, or nil.
-func (r *Repository) GetLastDeletedPersonalTenant(ctx context.Context, userID string) (*Tenant, error) {
-	tenant := new(Tenant)
-	err := r.db.bun.NewSelect().
-		Model(tenant).
-		Where("owner_user_id = ?", userID).
-		Where("deleted_at IS NOT NULL").
-		OrderExpr("deleted_at DESC, id DESC").
-		Limit(1).
-		Scan(ctx)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("select deleted personal tenant: %w", err)
-	}
-	return tenant, nil
-}
-
 // CreatePersonalTenant inserts a tenant owned by a user together with the
 // owner's membership. A second active personal tenant for one user violates
 // tenants_owner_user_idx and surfaces as ErrPersonalTenantConflict.

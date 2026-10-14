@@ -86,8 +86,8 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: []
         tenantResolution: not_applicable
-      x-aperture-errors: [insufficient_scope, user_disabled, personal_tenant_exists]
-      description: Creates a tenant owned by the signed-in user with every tenant scope. Only the user's own sign-in qualifies; API tokens and OAuth clients are refused.
+      x-aperture-errors: [insufficient_scope, user_disabled, personal_tenant_exists, personal_tenants_disabled]
+      description: Creates a tenant owned by the signed-in user with every tenant scope. Only the user's own sign-in qualifies; API tokens and OAuth clients are refused. Refused with `personal_tenants_disabled` when `allow_personal_tenants` is off.
       responses:
         '201': {description: Created personal tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
         default: {$ref: '#/components/responses/Error'}
@@ -100,23 +100,9 @@ paths:
         requiredScopes: []
         tenantResolution: not_applicable
       x-aperture-errors: [insufficient_scope, personal_tenant_not_found]
-      description: Deactivates the signed-in user's active personal tenant and revokes its tenant tokens.
+      description: Deactivates the signed-in user's active personal tenant and revokes its tenant tokens. Deleting is final; the user can create a new one.
       responses:
         '200': {description: Deleted personal tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
-        default: {$ref: '#/components/responses/Error'}
-  /api/auth/personal-tenant/restore:
-    post:
-      operationId: restoreOwnPersonalTenant
-      tags: [auth]
-      summary: Restore the signed-in user's personal tenant
-      x-aperture-auth:
-        authorityTypes: [system_admin, tenant]
-        requiredScopes: []
-        tenantResolution: not_applicable
-      x-aperture-errors: [insufficient_scope, personal_tenant_exists, personal_tenant_not_found]
-      description: Restores the personal tenant the signed-in user deleted most recently. Revoked tokens remain revoked.
-      responses:
-        '200': {description: Restored personal tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
         default: {$ref: '#/components/responses/Error'}
   /api/browser/channels:
     get:
@@ -208,8 +194,8 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
-      x-aperture-errors: [validation_failed, tenant_not_found, personal_tenant_exists]
-      description: Restores a tenant. Revoked tokens remain revoked. Another user's personal tenant answers `tenant_not_found`; only its owner restores it.
+      x-aperture-errors: [validation_failed, tenant_not_found, personal_tenant_final]
+      description: Restores a tenant. Revoked tokens remain revoked. A personal tenant cannot be restored (`personal_tenant_final`); another user's answers `tenant_not_found`.
       parameters:
         - {$ref: '#/components/parameters/TenantId'}
       responses:
@@ -247,7 +233,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
-      x-aperture-errors: [invalid_request_body, validation_failed, user_email_conflict]
+      x-aperture-errors: [invalid_request_body, validation_failed, user_email_conflict, personal_tenants_disabled]
       requestBody: {$ref: '#/components/requestBodies/CreateUser'}
       responses:
         '201': {description: Created user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
@@ -316,7 +302,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
-      x-aperture-errors: [user_not_found, user_disabled, personal_tenant_exists]
+      x-aperture-errors: [user_not_found, user_disabled, personal_tenant_exists, personal_tenants_disabled]
       description: Creates a tenant owned by an active user, named after the user, with a membership holding every tenant scope. A user owns at most one active personal tenant. Only its owner can see or act in it, so the administrator gets no access and the response names no tenant.
       parameters:
         - {$ref: '#/components/parameters/UserId'}
@@ -332,7 +318,7 @@ paths:
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
       x-aperture-errors: [user_not_found, personal_tenant_not_found]
-      description: Deactivates the user's active personal tenant and revokes its tenant tokens without revealing the tenant. Only the owner can restore it.
+      description: Deactivates the user's active personal tenant and revokes its tenant tokens without revealing the tenant. Deleting is final.
       parameters:
         - {$ref: '#/components/parameters/UserId'}
       responses:
@@ -1842,6 +1828,8 @@ components:
         - personal_tenant_exists
         - personal_tenant_not_found
         - personal_tenant_membership
+        - personal_tenant_final
+        - personal_tenants_disabled
         - user_invitation_unavailable
         - membership_not_found
         - oidc_provider_not_found
@@ -1909,6 +1897,8 @@ components:
         personal_tenant_exists: 409
         personal_tenant_not_found: 404
         personal_tenant_membership: 409
+        personal_tenant_final: 409
+        personal_tenants_disabled: 409
         user_invitation_unavailable: 409
         membership_not_found: 404
         oidc_provider_not_found: 404
@@ -2191,7 +2181,7 @@ components:
         principal: {$ref: '#/components/schemas/Principal'}
         personalTenant:
           oneOf: [{$ref: '#/components/schemas/PersonalTenantStatus'}, {type: 'null'}]
-          description: The signed-in user's personal tenant, or `null` for API tokens and OAuth clients, which cannot manage it.
+          description: "The signed-in user's personal tenant, or `null` when they cannot manage one (API tokens, OAuth clients, and users without one while `allow_personal_tenants` is off)."
         selectedTenant:
           oneOf: [{$ref: '#/components/schemas/Tenant'}, {type: 'null'}]
           description: Effective tenant, or `null` when the principal has not selected one.
@@ -2202,22 +2192,22 @@ components:
         settings:
           type: object
           description: Server settings relevant to the signed-in principal.
-          required: [autoCreatePersonalTenant]
+          required: [allowPersonalTenants, autoCreatePersonalTenant]
           properties:
+            allowPersonalTenants:
+              type: boolean
+              description: Whether personal tenants can be created (`allow_personal_tenants`).
             autoCreatePersonalTenant:
               type: boolean
               description: Whether new users get a personal tenant by default (`auto_create_personal_tenant`).
     PersonalTenantStatus:
       type: object
       description: State of the signed-in user's personal tenant.
-      required: [tenant, restorable]
+      required: [tenant]
       properties:
         tenant:
           oneOf: [{$ref: '#/components/schemas/Tenant'}, {type: 'null'}]
           description: Active personal tenant, or `null` when the user has none.
-        restorable:
-          type: boolean
-          description: Whether a deleted personal tenant can be restored. Always `false` while one is active.
     BrowserChannel:
       type: object
       description: Browser runtime selectable when creating a session.

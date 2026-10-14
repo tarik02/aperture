@@ -1143,15 +1143,6 @@ func (s openAPIServer) DeleteOwnPersonalTenant(ctx context.Context, _ generated.
 	return openAPIPassthroughResponse{}, nil
 }
 
-func (s openAPIServer) RestoreOwnPersonalTenant(ctx context.Context, _ generated.RestoreOwnPersonalTenantRequestObject) (generated.RestoreOwnPersonalTenantResponseObject, error) {
-	c, ok := ctx.(*gin.Context)
-	if !ok {
-		return nil, errOpenAPIContext
-	}
-	s.server.restoreOwnPersonalTenant(c)
-	return openAPIPassthroughResponse{}, nil
-}
-
 func (openAPIPassthroughResponse) VisitDeletePersonalTenantResponse(http.ResponseWriter) error {
 	return nil
 }
@@ -1161,10 +1152,6 @@ func (openAPIPassthroughResponse) VisitCreateOwnPersonalTenantResponse(http.Resp
 }
 
 func (openAPIPassthroughResponse) VisitDeleteOwnPersonalTenantResponse(http.ResponseWriter) error {
-	return nil
-}
-
-func (openAPIPassthroughResponse) VisitRestoreOwnPersonalTenantResponse(http.ResponseWriter) error {
 	return nil
 }
 
