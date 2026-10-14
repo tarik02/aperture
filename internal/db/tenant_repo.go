@@ -359,12 +359,8 @@ type APITokenFilter struct {
 	Personal      PersonalTenantScope
 }
 
-// ListAPITokens returns API tokens, optionally filtered by tenant.
-func (r *Repository) ListAPITokens(ctx context.Context, tenantID *string) ([]APIToken, error) {
-	return r.listAPITokens(ctx, APITokenFilter{TenantID: tenantID})
-}
-
-func (r *Repository) listAPITokens(ctx context.Context, filter APITokenFilter) ([]APIToken, error) {
+// ListAPITokens returns API tokens matching filter, oldest first.
+func (r *Repository) ListAPITokens(ctx context.Context, filter APITokenFilter) ([]APIToken, error) {
 	query := r.db.bun.NewSelect().Model((*APIToken)(nil)).OrderExpr("created_at ASC")
 	if filter.TenantID != nil {
 		query = query.Where("tenant_id = ?", *filter.TenantID)

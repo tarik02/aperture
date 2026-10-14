@@ -9,16 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// authorizeTenant rejects a tenant the request principal may not see.
-func (s *Server) authorizeTenant(c *gin.Context, tenantID string) bool {
-	principal := c.MustGet("principal").(auth.Principal)
-	if err := s.Auth.AuthorizeTenant(c.Request.Context(), principal, tenantID); err != nil {
-		WriteError(c, err)
-		return false
-	}
-	return true
-}
-
 // personalTenantOwner returns the user a personal-tenant self-service request
 // acts for. Only the user's own sign-in qualifies: API tokens act for no user,
 // and an OAuth client must not dispose of the user's tenant.

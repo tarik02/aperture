@@ -405,6 +405,9 @@ func (s *Server) listOAuthGrants(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
+	// Tenant names are resolved as the user, so a tenant hidden from them stays
+	// a bare id.
+	viewer := auth.Principal{Type: auth.PrincipalTypeUser, ID: userID, UserID: &userID}
 	response := oauthGrantsResponse{Grants: make([]oauthGrantResponse, 0, len(grants))}
 	for _, item := range grants {
 		grant := oauthGrantResponse{
@@ -420,7 +423,7 @@ func (s *Server) listOAuthGrants(c *gin.Context) {
 		}
 		for _, tenantID := range item.Grant.TenantIDs {
 			displayName := tenantID
-			if tenant, err := s.Auth.GetTenant(c.Request.Context(), tenantID); err == nil {
+			if tenant, err := s.Auth.GetTenant(c.Request.Context(), viewer, tenantID); err == nil {
 				displayName = tenant.DisplayName
 			} else if !errors.Is(err, auth.ErrTenantNotFound) {
 				WriteError(c, err)

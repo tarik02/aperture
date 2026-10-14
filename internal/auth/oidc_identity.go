@@ -68,7 +68,7 @@ func (s *Service) ResolveOIDCUser(ctx context.Context, input ResolveOIDCUserInpu
 			return nil, err
 		}
 		if personalTenant != nil {
-			if err := s.RecordAudit(ctx, Principal{Type: PrincipalTypeSystem}, PersonalTenantAudit(user.ID, "created")); err != nil {
+			if err := s.RecordAudit(ctx, SystemPrincipal(), PersonalTenantAudit(user.ID, "created")); err != nil {
 				return nil, err
 			}
 		}

@@ -54,7 +54,7 @@ func TestResolveTenantID(t *testing.T) {
 		TenantID:      &tenantID,
 	}
 
-	got, err := ResolveTenantID(tenantPrincipal, "")
+	got, err := resolveTenantID(tenantPrincipal, "")
 	if err != nil {
 		t.Fatalf("ResolveTenantID() error = %v", err)
 	}
@@ -62,16 +62,16 @@ func TestResolveTenantID(t *testing.T) {
 		t.Fatalf("tenant id = %q, want %q", got, tenantID)
 	}
 
-	if _, err := ResolveTenantID(tenantPrincipal, "other-tenant"); err == nil {
+	if _, err := resolveTenantID(tenantPrincipal, "other-tenant"); err == nil {
 		t.Fatal("expected tenant override to be forbidden")
 	}
 
 	adminPrincipal := Principal{AuthorityType: AuthoritySystemAdmin}
-	if _, err := ResolveTenantID(adminPrincipal, ""); err == nil {
+	if _, err := resolveTenantID(adminPrincipal, ""); err == nil {
 		t.Fatal("expected system admin without header to require tenant")
 	}
 
-	got, err = ResolveTenantID(adminPrincipal, tenantID)
+	got, err = resolveTenantID(adminPrincipal, tenantID)
 	if err != nil {
 		t.Fatalf("ResolveTenantID() for admin error = %v", err)
 	}

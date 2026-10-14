@@ -210,7 +210,7 @@ func (s *Server) mcpTenantGet(ctx context.Context, _ *mcp.CallToolRequest, in mc
 	if !ok {
 		return nil, mcpTenantOutput{}, mcpToolError("forbidden", nil)
 	}
-	tenant, err := s.Auth.RequireActiveTenant(ctx, *principal.TenantID)
+	tenant, err := s.Auth.RequireActiveTenant(ctx, principal, *principal.TenantID)
 	if err != nil {
 		return nil, mcpTenantOutput{}, mcpToolError("tenant_not_found", err)
 	}
@@ -226,7 +226,7 @@ func (s *Server) mcpTenantUpdate(ctx context.Context, _ *mcp.CallToolRequest, in
 	if !ok || auth.IsResourceRestricted(principal) {
 		return nil, mcpTenantOutput{}, mcpToolError("forbidden", nil)
 	}
-	tenant, err := s.Auth.UpdateTenant(ctx, *principal.TenantID, auth.UpdateTenantInput{DisplayName: in.DisplayName})
+	tenant, err := s.Auth.UpdateTenant(ctx, principal, *principal.TenantID, auth.UpdateTenantInput{DisplayName: in.DisplayName})
 	if err != nil {
 		return nil, mcpTenantOutput{}, mcpToolError("invalid_arguments", err)
 	}
@@ -241,12 +241,9 @@ func (s *Server) mcpTenantsUpdate(ctx context.Context, _ *mcp.CallToolRequest, i
 	if a.principal == nil || a.principal.AuthorityType != auth.AuthoritySystemAdmin || !auth.HasScope(a.principal.Scopes, auth.ScopeTenantsWrite) {
 		return nil, mcpTenantOutput{}, mcpToolError("forbidden", nil)
 	}
-	if err := s.Auth.AuthorizeTenant(ctx, *a.principal, in.TenantID); err != nil {
-		return nil, mcpTenantOutput{}, mcpAuthorizeTenantError(err)
-	}
-	tenant, err := s.Auth.UpdateTenant(ctx, in.TenantID, auth.UpdateTenantInput{DisplayName: in.DisplayName})
+	tenant, err := s.Auth.UpdateTenant(ctx, *a.principal, in.TenantID, auth.UpdateTenantInput{DisplayName: in.DisplayName})
 	if err != nil {
-		return nil, mcpTenantOutput{}, mcpToolError("invalid_arguments", err)
+		return nil, mcpTenantOutput{}, mcpTenantChangeError(err, "invalid_arguments")
 	}
 	return nil, mcpTenantOutput{Tenant: *tenant}, nil
 }
@@ -259,12 +256,9 @@ func (s *Server) mcpTenantsDelete(ctx context.Context, _ *mcp.CallToolRequest, i
 	if a.principal == nil || a.principal.AuthorityType != auth.AuthoritySystemAdmin || !auth.HasScope(a.principal.Scopes, auth.ScopeTenantsWrite) {
 		return nil, mcpTenantOutput{}, mcpToolError("forbidden", nil)
 	}
-	if err := s.Auth.AuthorizeTenant(ctx, *a.principal, in.TenantID); err != nil {
-		return nil, mcpTenantOutput{}, mcpAuthorizeTenantError(err)
-	}
-	tenant, err := s.Auth.DeleteTenant(ctx, in.TenantID)
+	tenant, err := s.Auth.DeleteTenant(ctx, *a.principal, in.TenantID)
 	if err != nil {
-		return nil, mcpTenantOutput{}, mcpToolError("tenant_not_found", err)
+		return nil, mcpTenantOutput{}, mcpTenantChangeError(err, "internal")
 	}
 	return nil, mcpTenantOutput{Tenant: *tenant}, nil
 }
@@ -277,12 +271,9 @@ func (s *Server) mcpTenantsRestore(ctx context.Context, _ *mcp.CallToolRequest, 
 	if a.principal == nil || a.principal.AuthorityType != auth.AuthoritySystemAdmin || !auth.HasScope(a.principal.Scopes, auth.ScopeTenantsWrite) {
 		return nil, mcpTenantOutput{}, mcpToolError("forbidden", nil)
 	}
-	if err := s.Auth.AuthorizeTenant(ctx, *a.principal, in.TenantID); err != nil {
-		return nil, mcpTenantOutput{}, mcpAuthorizeTenantError(err)
-	}
-	tenant, err := s.Auth.RestoreTenant(ctx, in.TenantID)
+	tenant, err := s.Auth.RestoreTenant(ctx, *a.principal, in.TenantID)
 	if err != nil {
-		return nil, mcpTenantOutput{}, mcpToolError("tenant_not_found", err)
+		return nil, mcpTenantOutput{}, mcpTenantChangeError(err, "internal")
 	}
 	return nil, mcpTenantOutput{Tenant: *tenant}, nil
 }
@@ -307,9 +298,15 @@ func (s *Server) mcpBrowserChannels(ctx context.Context, _ *mcp.CallToolRequest,
 	return nil, out, nil
 }
 
-func mcpAuthorizeTenantError(err error) error {
-	if errors.Is(err, auth.ErrTenantNotFound) {
+// mcpTenantChangeError maps an administrative tenant change failure to a tool
+// error; fallback covers what is left, such as validation or storage errors.
+func mcpTenantChangeError(err error, fallback string) error {
+	switch {
+	case errors.Is(err, auth.ErrTenantNotFound):
 		return mcpToolError("tenant_not_found", err)
+	case errors.Is(err, auth.ErrPersonalTenantFinal), errors.Is(err, auth.ErrTenantDeleted):
+		return mcpToolError("invalid_arguments", err)
+	default:
+		return mcpToolError(fallback, err)
 	}
-	return mcpToolError("internal", err)
 }

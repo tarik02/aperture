@@ -83,7 +83,7 @@ func newProvisionCmd() *cobra.Command {
 				}
 			}
 
-			tenants, err := application.Auth.ListTenants(cmd.Context(), db.TenantFilter{})
+			tenants, err := application.Auth.ListTenants(cmd.Context(), auth.SystemPrincipal(), db.TenantFilter{})
 			if err != nil {
 				return err
 			}
@@ -224,7 +224,7 @@ func newAdminTenantsListCmd() *cobra.Command {
 				return err
 			}
 
-			tenants, err := application.Auth.ListTenants(cmd.Context(), db.TenantFilter{IncludeDeleted: includeDeleted})
+			tenants, err := application.Auth.ListTenants(cmd.Context(), auth.SystemPrincipal(), db.TenantFilter{IncludeDeleted: includeDeleted})
 			if err != nil {
 				return err
 			}
@@ -261,7 +261,7 @@ func newAdminTenantsUpdateCmd() *cobra.Command {
 				return err
 			}
 
-			tenant, err := application.Auth.UpdateTenant(cmd.Context(), tenantID, auth.UpdateTenantInput{
+			tenant, err := application.Auth.UpdateTenant(cmd.Context(), auth.SystemPrincipal(), tenantID, auth.UpdateTenantInput{
 				DisplayName: displayName,
 			})
 			if err != nil {
@@ -297,7 +297,7 @@ func newAdminTenantsDeleteCmd() *cobra.Command {
 				return err
 			}
 
-			tenant, err := application.Auth.DeleteTenant(cmd.Context(), tenantID)
+			tenant, err := application.Auth.DeleteTenant(cmd.Context(), auth.SystemPrincipal(), tenantID)
 			if err != nil {
 				return err
 			}
@@ -329,7 +329,7 @@ func newAdminTenantsRestoreCmd() *cobra.Command {
 				return err
 			}
 
-			tenant, err := application.Auth.RestoreTenant(cmd.Context(), tenantID)
+			tenant, err := application.Auth.RestoreTenant(cmd.Context(), auth.SystemPrincipal(), tenantID)
 			if err != nil {
 				return err
 			}

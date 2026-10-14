@@ -122,6 +122,12 @@ func ResourceIDs(principal Principal, resourceType string) ([]string, bool) {
 	return ids, true
 }
 
+// SystemPrincipal is the trusted local actor: the CLI and the server acting on
+// its own behalf. It sees every tenant.
+func SystemPrincipal() Principal {
+	return Principal{Type: PrincipalTypeSystem}
+}
+
 // WithPrincipal stores principal on ctx.
 func WithPrincipal(ctx context.Context, principal Principal) context.Context {
 	return context.WithValue(ctx, principalContextKey, principal)
@@ -136,8 +142,10 @@ func PrincipalFromContext(ctx context.Context) (Principal, bool) {
 // TenantHeader is the HTTP header used for explicit tenant selection.
 const TenantHeader = "X-Aperture-Tenant-Id"
 
-// ResolveTenantID returns the effective tenant id for a tenant-scoped operation.
-func ResolveTenantID(principal Principal, selectedTenantID string) (string, error) {
+// resolveTenantID returns the effective tenant id for a tenant-scoped operation,
+// without checking that the principal may see the tenant; Service.ResolveTenantID
+// does that.
+func resolveTenantID(principal Principal, selectedTenantID string) (string, error) {
 	switch principal.AuthorityType {
 	case AuthorityTenant:
 		if principal.TenantID == nil {

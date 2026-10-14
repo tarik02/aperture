@@ -27,19 +27,19 @@ func CanSeeTenant(principal Principal, tenant db.Tenant) bool {
 	}
 }
 
-// PersonalTenantScopeFor limits a listing to the tenants CanSeeTenant allows.
+// personalTenantScopeFor limits a listing to the tenants CanSeeTenant allows.
 // A tenant-bound principal is confined to its tenant by the caller already.
-func PersonalTenantScopeFor(principal Principal) db.PersonalTenantScope {
+func personalTenantScopeFor(principal Principal) db.PersonalTenantScope {
 	if principal.Type == PrincipalTypeSystem || principal.AuthorityType == AuthorityTenant {
 		return db.PersonalTenantScope{}
 	}
 	return db.PersonalTenantScope{Restricted: true, OwnerUserID: principal.UserID}
 }
 
-// AuthorizeTenant rejects a tenant the principal may not see with
+// authorizeTenant rejects a tenant the principal may not see with
 // ErrTenantNotFound, so its existence stays hidden. A tenant that does not
 // exist passes; the operation reports it in its own terms.
-func (s *Service) AuthorizeTenant(ctx context.Context, principal Principal, tenantID string) error {
+func (s *Service) authorizeTenant(ctx context.Context, principal Principal, tenantID string) error {
 	tenant, err := s.repo.GetTenantByID(ctx, tenantID)
 	if err != nil {
 		return err
@@ -51,15 +51,15 @@ func (s *Service) AuthorizeTenant(ctx context.Context, principal Principal, tena
 }
 
 // ResolveTenantID returns the effective tenant id for a tenant-scoped
-// operation, like the package-level ResolveTenantID, and rejects a selected
+// operation, like resolveTenantID, and rejects a selected
 // tenant the principal may not see.
 func (s *Service) ResolveTenantID(ctx context.Context, principal Principal, selectedTenantID string) (string, error) {
-	tenantID, err := ResolveTenantID(principal, selectedTenantID)
+	tenantID, err := resolveTenantID(principal, selectedTenantID)
 	if err != nil {
 		return "", err
 	}
 	if principal.AuthorityType == AuthoritySystemAdmin {
-		if err := s.AuthorizeTenant(ctx, principal, tenantID); err != nil {
+		if err := s.authorizeTenant(ctx, principal, tenantID); err != nil {
 			return "", err
 		}
 	}
@@ -87,7 +87,7 @@ func (s *Service) DeletePersonalTenant(ctx context.Context, userID string) (*db.
 	if tenant == nil {
 		return nil, ErrPersonalTenantNotFound
 	}
-	return s.DeleteTenant(ctx, tenant.ID)
+	return s.DeleteTenant(ctx, SystemPrincipal(), tenant.ID)
 }
 
 // PersonalTenantAudit describes a change to a user's personal tenant. It names

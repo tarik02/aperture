@@ -179,7 +179,7 @@ func (s *Service) Bootstrap(ctx context.Context, input BootstrapInput) (CreatedT
 		ExpiresAt:     FormatExpiresAt(input.ExpiresAt),
 	}
 
-	audit, err := s.newAuditEvent(Principal{Type: PrincipalTypeSystem}, AuditInput{
+	audit, err := s.newAuditEvent(SystemPrincipal(), AuditInput{
 		Action:       "token.created",
 		ResourceType: "api_token",
 		ResourceID:   &row.ID,
@@ -222,24 +222,26 @@ func (s *Service) CreateTenant(ctx context.Context, input CreateTenantInput) (*d
 	return tenant, nil
 }
 
-// ListTenants returns tenants for administration.
-func (s *Service) ListTenants(ctx context.Context, filter db.TenantFilter) ([]db.Tenant, error) {
+// ListTenants returns the tenants principal may see, for administration.
+func (s *Service) ListTenants(ctx context.Context, principal Principal, filter db.TenantFilter) ([]db.Tenant, error) {
+	filter.Personal = personalTenantScopeFor(principal)
 	return s.repo.ListTenants(ctx, filter)
 }
 
-// ListTenantsPage returns tenants with cursor pagination.
-func (s *Service) ListTenantsPage(ctx context.Context, filter db.TenantFilter, params db.PageParams) (db.PageResult[db.Tenant], error) {
+// ListTenantsPage returns the tenants principal may see, with cursor pagination.
+func (s *Service) ListTenantsPage(ctx context.Context, principal Principal, filter db.TenantFilter, params db.PageParams) (db.PageResult[db.Tenant], error) {
+	filter.Personal = personalTenantScopeFor(principal)
 	return s.repo.ListTenantsPage(ctx, filter, params)
 }
 
 // UpdateTenant updates tenant metadata for active tenants.
-func (s *Service) UpdateTenant(ctx context.Context, tenantID string, input UpdateTenantInput) (*db.Tenant, error) {
+func (s *Service) UpdateTenant(ctx context.Context, principal Principal, tenantID string, input UpdateTenantInput) (*db.Tenant, error) {
 	displayName := strings.TrimSpace(input.DisplayName)
 	if displayName == "" {
 		return nil, fmt.Errorf("display name is required")
 	}
 
-	tenant, err := s.requireActiveTenant(ctx, tenantID)
+	tenant, err := s.RequireActiveTenant(ctx, principal, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -256,13 +258,10 @@ func (s *Service) UpdateTenant(ctx context.Context, tenantID string, input Updat
 }
 
 // DeleteTenant deactivates a tenant and revokes tenant-scoped tokens.
-func (s *Service) DeleteTenant(ctx context.Context, tenantID string) (*db.Tenant, error) {
-	tenant, err := s.repo.GetTenantByID(ctx, tenantID)
+func (s *Service) DeleteTenant(ctx context.Context, principal Principal, tenantID string) (*db.Tenant, error) {
+	tenant, err := s.GetTenant(ctx, principal, tenantID)
 	if err != nil {
 		return nil, err
-	}
-	if tenant == nil {
-		return nil, ErrTenantNotFound
 	}
 	if tenant.DeletedAt != nil {
 		return tenant, nil
@@ -281,13 +280,13 @@ func (s *Service) DeleteTenant(ctx context.Context, tenantID string) (*db.Tenant
 }
 
 // RestoreTenant clears tenant deactivation.
-func (s *Service) RestoreTenant(ctx context.Context, tenantID string) (*db.Tenant, error) {
-	existing, err := s.repo.GetTenantByID(ctx, tenantID)
+func (s *Service) RestoreTenant(ctx context.Context, principal Principal, tenantID string) (*db.Tenant, error) {
+	existing, err := s.GetTenant(ctx, principal, tenantID)
 	if err != nil {
 		return nil, err
 	}
 	// Deleting a personal tenant is final; its owner starts a new one instead.
-	if existing != nil && existing.OwnerUserID != nil {
+	if existing.OwnerUserID != nil {
 		return nil, ErrPersonalTenantFinal
 	}
 	if err := s.repo.RestoreTenant(ctx, tenantID); err != nil {
@@ -313,14 +312,14 @@ func (s *Service) CreateToken(ctx context.Context, input CreateTokenInput) (Crea
 	if err != nil {
 		return CreatedToken{}, err
 	}
-	return s.createToken(ctx, Principal{Type: PrincipalTypeSystem}, validated)
+	return s.createToken(ctx, SystemPrincipal(), validated)
 }
 
 // DelegateToken creates a token within the authenticated principal's authority.
 func (s *Service) DelegateToken(ctx context.Context, principal Principal, input CreateTokenInput) (CreatedToken, error) {
 	// Before validation, which tells a deleted tenant apart from a missing one.
 	if input.TenantID != nil {
-		if err := s.AuthorizeTenant(ctx, principal, strings.TrimSpace(*input.TenantID)); err != nil {
+		if err := s.authorizeTenant(ctx, principal, strings.TrimSpace(*input.TenantID)); err != nil {
 			return CreatedToken{}, err
 		}
 	}
@@ -441,7 +440,7 @@ func (s *Service) normalizeResourceGrants(ctx context.Context, tenantIDs []strin
 
 // RevokeToken revokes a token as the trusted local system actor.
 func (s *Service) RevokeToken(ctx context.Context, tokenID string, tenantID *string) error {
-	return s.revokeToken(ctx, Principal{Type: PrincipalTypeSystem}, tokenID, tenantID)
+	return s.revokeToken(ctx, SystemPrincipal(), tokenID, tenantID)
 }
 
 // RevokeTokenAs revokes a token and records the authenticated actor.
@@ -464,7 +463,7 @@ func (s *Service) revokeToken(ctx context.Context, principal Principal, tokenID 
 		}
 	}
 	if row.TenantID != nil {
-		if err := s.AuthorizeTenant(ctx, principal, *row.TenantID); err != nil {
+		if err := s.authorizeTenant(ctx, principal, *row.TenantID); err != nil {
 			if errors.Is(err, ErrTenantNotFound) {
 				return ErrTokenNotFound
 			}
@@ -494,9 +493,10 @@ func (s *Service) revokeToken(ctx context.Context, principal Principal, tokenID 
 	return nil
 }
 
-// ListTokens returns API tokens, optionally scoped to a tenant.
-func (s *Service) ListTokens(ctx context.Context, tenantID *string) ([]db.APIToken, error) {
-	tokens, err := s.repo.ListAPITokens(ctx, tenantID)
+// ListTokens returns the API tokens principal may see, optionally scoped to a
+// tenant.
+func (s *Service) ListTokens(ctx context.Context, principal Principal, tenantID *string) ([]db.APIToken, error) {
+	tokens, err := s.repo.ListAPITokens(ctx, db.APITokenFilter{TenantID: tenantID, Personal: personalTenantScopeFor(principal)})
 	if err != nil {
 		return nil, err
 	}
@@ -506,8 +506,10 @@ func (s *Service) ListTokens(ctx context.Context, tenantID *string) ([]db.APITok
 	return tokens, nil
 }
 
-// ListTokensPage returns API tokens with cursor pagination.
-func (s *Service) ListTokensPage(ctx context.Context, filter db.APITokenFilter, params db.PageParams) (db.PageResult[db.APIToken], error) {
+// ListTokensPage returns the API tokens principal may see, with cursor
+// pagination.
+func (s *Service) ListTokensPage(ctx context.Context, principal Principal, filter db.APITokenFilter, params db.PageParams) (db.PageResult[db.APIToken], error) {
+	filter.Personal = personalTenantScopeFor(principal)
 	page, err := s.repo.ListAPITokensPage(ctx, filter, params)
 	if err != nil {
 		return db.PageResult[db.APIToken]{}, err
@@ -533,21 +535,30 @@ func (s *Service) populateTokenResourceGrants(ctx context.Context, tokens []db.A
 	return nil
 }
 
-// GetTenant returns a tenant by id, including deactivated tenants.
-func (s *Service) GetTenant(ctx context.Context, tenantID string) (*db.Tenant, error) {
+// GetTenant returns a tenant principal may see, including deactivated
+// tenants. A tenant hidden from principal answers ErrTenantNotFound, so its
+// existence stays hidden too.
+func (s *Service) GetTenant(ctx context.Context, principal Principal, tenantID string) (*db.Tenant, error) {
 	tenant, err := s.repo.GetTenantByID(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	if tenant == nil {
+	if tenant == nil || !CanSeeTenant(principal, *tenant) {
 		return nil, ErrTenantNotFound
 	}
 	return tenant, nil
 }
 
-// RequireActiveTenant loads a tenant and rejects deleted tenants.
-func (s *Service) RequireActiveTenant(ctx context.Context, tenantID string) (*db.Tenant, error) {
-	return s.requireActiveTenant(ctx, tenantID)
+// RequireActiveTenant is GetTenant that also rejects deleted tenants.
+func (s *Service) RequireActiveTenant(ctx context.Context, principal Principal, tenantID string) (*db.Tenant, error) {
+	tenant, err := s.GetTenant(ctx, principal, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if tenant.DeletedAt != nil {
+		return nil, ErrTenantDeleted
+	}
+	return tenant, nil
 }
 
 // AuthorizeSnapshotName checks a restricted principal's grant for a tenant snapshot name.
