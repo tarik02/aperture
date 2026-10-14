@@ -169,6 +169,13 @@ func (r *wrapperRuntime) currentMediaProducer() *producer {
 	return r.mediaProducer
 }
 
+func (r *wrapperRuntime) mediaCodec() string {
+	if producer := r.currentMediaProducer(); producer != nil {
+		return producer.codec
+	}
+	return r.values.MediaProducerCodec
+}
+
 func (r *wrapperRuntime) claimViewer(viewer *wrapperViewer) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -411,7 +418,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 }
 
 func (r *wrapperRuntime) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeWrapperJSON(w, http.StatusOK, map[string]any{"status": "ok", "sessionId": r.values.SessionID, "gpuMode": r.values.GPUMode, "mediaCodec": r.values.MediaProducerCodec})
+	writeWrapperJSON(w, http.StatusOK, map[string]any{"status": "ok", "sessionId": r.values.SessionID, "gpuMode": r.values.GPUMode, "mediaCodec": r.mediaCodec()})
 }
 
 func (r *wrapperRuntime) handleCollaborationCapabilityRotated(w http.ResponseWriter, req *http.Request) {
@@ -454,6 +461,7 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, req *http.Request) 
 		"proxy":           r.proxyStatusFragmentLocked(),
 	}
 	if r.mediaProducer != nil {
+		status["mediaCodec"] = r.mediaProducer.codec
 		quality := r.mediaProducer.media.Quality()
 		status["mediaQuality"] = map[string]any{
 			"profile":     quality.Profile,
