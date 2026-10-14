@@ -96,6 +96,41 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
+  extensions:
+    name: nightly extension zips
+    needs: nightly
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.0
+
+      - uses: pnpm/action-setup@v6.0.9
+        with:
+          version: 11.27.1
+
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      # Chrome accepts only 1-4 dot-separated integers as an extension version, so the
+      # zips carry the run number instead of the nightly semver.
+      - name: Build and upload extension zips
+        run: |
+          pnpm install --frozen-lockfile
+          node scripts/release-extensions.ts "0.0.0.${GITHUB_RUN_NUMBER}" "$RUNNER_TEMP/extensions"
+          shopt -s nullglob
+          zips=("$RUNNER_TEMP"/extensions/*.zip)
+          if [ ${#zips[@]} -gt 0 ]; then
+            gh release upload "$TAG" "${zips[@]}" --clobber
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ needs.nightly.outputs.version }}
+
   docker:
     name: nightly docker image
     needs: nightly
