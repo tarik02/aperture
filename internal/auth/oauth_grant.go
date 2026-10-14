@@ -70,10 +70,12 @@ func TenantScopes() []string {
 
 // AccessibleTenants returns the active tenants a user can act in, with the
 // scopes they hold there. System administrators hold every tenant scope in
-// every active tenant.
+// every active tenant except other users' personal tenants.
 func (s *Service) AccessibleTenants(ctx context.Context, user *db.User) ([]TenantAccess, error) {
 	if user.IsSystemAdmin {
-		tenants, err := s.repo.ListTenants(ctx, db.TenantFilter{})
+		tenants, err := s.repo.ListTenants(ctx, db.TenantFilter{
+			Personal: db.PersonalTenantScope{Restricted: true, OwnerUserID: &user.ID},
+		})
 		if err != nil {
 			return nil, err
 		}
