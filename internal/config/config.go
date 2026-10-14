@@ -77,6 +77,7 @@ type Config struct {
 	MetricsAddress                   string                   `mapstructure:"metrics_address"`
 	MetricsPerSession                bool                     `mapstructure:"metrics_per_session"`
 	ThumbnailsPersistOnSuspend       bool                     `mapstructure:"thumbnails_persist_on_suspend"`
+	BrowserPIDNamespace              bool                     `mapstructure:"browser_pid_namespace"`
 	BrowserSupervisor                string                   `mapstructure:"browser_supervisor"`
 	SystemdBrowserUnitName           string                   `mapstructure:"systemd_browser_unit_name"`
 	SessionRetentionDays             int                      `mapstructure:"session_retention_days"`
@@ -145,6 +146,7 @@ func Defaults() Config {
 		MetricsAddress:                   "",
 		MetricsPerSession:                true,
 		ThumbnailsPersistOnSuspend:       true,
+		BrowserPIDNamespace:              true,
 		BrowserSupervisor:                BrowserSupervisorSystemd,
 		SystemdBrowserUnitName:           "browser-session@.service",
 		SessionRetentionDays:             7,
@@ -231,6 +233,7 @@ func Load(flags *viper.Viper) (Config, error) {
 	v.SetDefault("listen_address", defaults.ListenAddress)
 	v.SetDefault("metrics_per_session", defaults.MetricsPerSession)
 	v.SetDefault("thumbnails_persist_on_suspend", defaults.ThumbnailsPersistOnSuspend)
+	v.SetDefault("browser_pid_namespace", defaults.BrowserPIDNamespace)
 	v.SetDefault("browser_supervisor", defaults.BrowserSupervisor)
 	v.SetDefault("deploy_color", defaults.DeployColor)
 	v.SetDefault("deploy_blue_url", defaults.DeployBlueURL)
@@ -296,6 +299,7 @@ func Load(flags *viper.Viper) (Config, error) {
 		"metrics_address",
 		"metrics_per_session",
 		"thumbnails_persist_on_suspend",
+		"browser_pid_namespace",
 		"browser_supervisor",
 		"systemd_browser_unit_name",
 		"session_retention_days",

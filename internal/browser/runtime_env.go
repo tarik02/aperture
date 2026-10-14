@@ -36,10 +36,12 @@ type RuntimeEnvValues struct {
 	BrowserDefaultArgs        []string
 	BrowserExtraArgs          []string
 	// ProxyConfig is the session proxy configuration, secrets included.
-	ProxyConfig                proxy.Config
-	CaptureProofExtensionDir   string
-	GPUMode                    string
-	RenderNode                 string
+	ProxyConfig              proxy.Config
+	CaptureProofExtensionDir string
+	GPUMode                  string
+	RenderNode               string
+	// HostPIDNamespace runs the browser without a PID namespace of its own (browser_pid_namespace = false).
+	HostPIDNamespace           bool
 	CompositorEnabled          bool
 	CompositorExecutable       string
 	CompositorBackend          string
@@ -224,6 +226,9 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 	if strings.TrimSpace(values.CaptureProofExtensionDir) != "" {
 		lines = append(lines, "CAPTURE_PROOF_EXTENSION_DIR="+shellQuote(values.CaptureProofExtensionDir))
 	}
+	if values.HostPIDNamespace {
+		lines = append(lines, "BROWSER_PID_NAMESPACE=0")
+	}
 	if values.CompositorEnabled {
 		lines = append(
 			lines,
@@ -319,6 +324,8 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 				return RuntimeEnvValues{}, err
 			}
 			values.ProxyConfig = config
+		case "BROWSER_PID_NAMESPACE":
+			values.HostPIDNamespace = strings.TrimSpace(val) == "0"
 		case "WEBRTC_COMPOSITOR_ENABLED":
 			values.CompositorEnabled = strings.TrimSpace(val) == "1"
 		case "WEBRTC_MEDIA_PRODUCER_ENABLED":

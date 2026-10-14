@@ -264,7 +264,7 @@ type LaunchConfig struct {
 	// must use. Always set by the wrapper; never user-supplied.
 	ProxyServerAddr string
 	// HostPIDNamespace keeps the browser in the wrapper's PID namespace, for hosts where
-	// bwrap cannot mount the procfs of a new one (see probePIDNamespace).
+	// bwrap cannot mount the procfs of a new one, such as containers that mask parts of /proc.
 	HostPIDNamespace bool
 }
 
@@ -674,14 +674,9 @@ func LaunchFromRuntimeEnv() error {
 	if err != nil {
 		return fmt.Errorf("locate bwrap: %w", err)
 	}
-	hostPIDNamespace := false
-	if err := probePIDNamespace(bwrapPath); err != nil {
-		hostPIDNamespace = true
-		fmt.Fprintf(os.Stderr, "browser-session-wrapper: bwrap cannot create a PID namespace, the browser shares the wrapper's: %v\n", err)
-	}
 
 	if values.CompositorEnabled {
-		return launchWithCompositor(values, bwrapPath, hostPIDNamespace)
+		return launchWithCompositor(values, bwrapPath)
 	}
 
 	proxyManager, err := startSessionProxy(values)
@@ -703,7 +698,7 @@ func LaunchFromRuntimeEnv() error {
 		HardwareAcceleration:     values.GPUMode == gpuModeHardware,
 		RenderNode:               values.RenderNode,
 		ProxyServerAddr:          proxyManager.Addr(),
-		HostPIDNamespace:         hostPIDNamespace,
+		HostPIDNamespace:         values.HostPIDNamespace,
 	})
 	if err != nil {
 		return err
@@ -751,7 +746,7 @@ func LaunchFromRuntimeEnv() error {
 	}
 }
 
-func launchWithCompositor(values RuntimeEnvValues, bwrapPath string, hostPIDNamespace bool) error {
+func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	if strings.TrimSpace(values.CompositorExecutable) == "" {
 		return fmt.Errorf("compositor executable is required")
 	}
@@ -1027,7 +1022,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string, hostPIDName
 		RenderNode:               values.RenderNode,
 		NestedWaylandSocket:      socketName,
 		ProxyServerAddr:          proxyManager.Addr(),
-		HostPIDNamespace:         hostPIDNamespace,
+		HostPIDNamespace:         values.HostPIDNamespace,
 	})
 	if err != nil {
 		stopProcess(compositor, compositorDone)
@@ -1571,6 +1566,7 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 		return RuntimeEnvValues{}, err
 	}
 	values.ProxyConfig = proxyConfig
+	values.HostPIDNamespace = strings.TrimSpace(os.Getenv("BROWSER_PID_NAMESPACE")) == "0"
 	values.CompositorEnabled = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_ENABLED")) == "1"
 	values.CompositorExecutable = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_EXECUTABLE"))
 	values.CompositorBackend = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_BACKEND"))
@@ -1650,30 +1646,6 @@ func ensureSessionPaths(values RuntimeEnvValues) error {
 		if !filepath.IsAbs(path) {
 			return fmt.Errorf("%s must be absolute", name)
 		}
-	}
-	return nil
-}
-
-// probePIDNamespace checks that bwrap can give the browser a PID namespace with its own procfs. A
-// container runtime that masks parts of /proc, as Docker and Podman do by default, makes the kernel
-// refuse a new procfs mount in a nested user namespace.
-func probePIDNamespace(bwrapPath string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	probe := exec.CommandContext(
-		ctx,
-		bwrapPath,
-		"--unshare-user-try",
-		"--unshare-pid",
-		"--ro-bind", "/", "/",
-		"--proc", "/proc",
-		"--",
-		bwrapPath, "--version",
-	)
-	probe.Env = []string{}
-	output, err := probe.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return nil
 }

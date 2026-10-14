@@ -564,6 +564,7 @@ func (s *Service) runtimeEnvValues(
 		ProxyConfig:                proxyConfig,
 		CaptureProofExtensionDir:   s.cfg.WebRTCCaptureProofExtensionDir,
 		GPUMode:                    s.cfg.GPUMode,
+		HostPIDNamespace:           !s.cfg.BrowserPIDNamespace,
 		CompositorEnabled:          compositorEnabled,
 		CompositorExecutable:       s.cfg.WebRTCCompositorExecutable,
 		CompositorBackend:          s.cfg.WebRTCCompositorBackend,

@@ -284,7 +284,7 @@ func pathWithin(path string, root string) bool {
 	return path == root || root == "/" || strings.HasPrefix(path, root+string(os.PathSeparator))
 }
 
-func TestBuildBwrapCommandKeepsIsolationInHostPIDNamespace(t *testing.T) {
+func TestBuildBwrapCommandIsolatesSessionWithoutPIDNamespace(t *testing.T) {
 	layout := newSandboxTestLayout(t)
 
 	cmd, err := BuildBwrapCommand(LaunchConfig{
