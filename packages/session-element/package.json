@@ -1,6 +1,6 @@
 {
   "name": "@aperture-browser/session-element",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Custom elements that embed a live Aperture browser session in any page: <aperture-session> with the full session UI, and the headless <aperture-session-view>.",
   "homepage": "https://github.com/tarik02/aperture#readme",
   "bugs": "https://github.com/tarik02/aperture/issues",
