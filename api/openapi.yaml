@@ -1498,7 +1498,7 @@ components:
       name: X-Aperture-Tenant-Id
       in: header
       description: |
-        Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+        Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
       schema: {$ref: '#/components/schemas/UUIDv7'}
       example: 019f6cf0-0000-7000-8000-000000000001
     TenantId:

@@ -69,6 +69,14 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 	c.Set("principal", principal)
 
 	path := c.FullPath()
+	// A user acting without a selected tenant holds no scopes yet; say what is
+	// missing instead of failing the scope checks below.
+	if isTenantScopedPath(path) && principal.Type == auth.PrincipalTypeUser &&
+		principal.AuthorityType == auth.AuthorityTenant && principal.TenantID == nil {
+		WriteError(c, auth.ErrTenantRequired)
+		c.Abort()
+		return
+	}
 	switch {
 	case path == "/api/auth/me":
 	case path == "/api/browser/channels":
@@ -1158,4 +1166,13 @@ func (openAPIPassthroughResponse) VisitDeleteOwnPersonalTenantResponse(http.Resp
 
 func (openAPIPassthroughResponse) VisitRestoreOwnPersonalTenantResponse(http.ResponseWriter) error {
 	return nil
+}
+
+// isTenantScopedPath reports whether a route acts in the selected tenant.
+func isTenantScopedPath(path string) bool {
+	return path == "/api/tenant" ||
+		strings.HasPrefix(path, "/api/tenant/") ||
+		strings.HasPrefix(path, "/api/sessions") ||
+		strings.HasPrefix(path, "/api/snapshots") ||
+		path == "/api/events"
 }

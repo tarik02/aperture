@@ -2939,7 +2939,7 @@ type ListUsersParamsDisabled string
 
 // GetCurrentPrincipalParams defines parameters for GetCurrentPrincipal.
 type GetCurrentPrincipalParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
@@ -2957,7 +2957,7 @@ type ListEventsParams struct {
 	// ResourceId Exact resource identifier within the selected tenant.
 	ResourceId *string `form:"resourceId,omitempty" json:"resourceId,omitempty"`
 
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
@@ -2987,7 +2987,7 @@ type ListSessionsParams struct {
 	// TagOperator Optional operator paired by position with each tag predicate. Omit the entire parameter to use `eq` for every predicate. If supplied, its entry count must match `tagKey`.
 	TagOperator *TagOperator `form:"tagOperator,omitempty" json:"tagOperator,omitempty"`
 
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
@@ -2999,31 +2999,31 @@ type CreateSessionParams struct {
 	// WaitForReady Wait for browser startup and state restoration before returning. Defaults to true.
 	WaitForReady *bool `form:"waitForReady,omitempty" json:"waitForReady,omitempty"`
 
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // GetSessionsBulkParams defines parameters for GetSessionsBulk.
 type GetSessionsBulkParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // DeleteSessionParams defines parameters for DeleteSession.
 type DeleteSessionParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // GetSessionParams defines parameters for GetSession.
 type GetSessionParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // RotateCollaborationCapabilityParams defines parameters for RotateCollaborationCapability.
 type RotateCollaborationCapabilityParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
@@ -3032,13 +3032,13 @@ type RotateCollaborationCapabilityParamsRole string
 
 // GetSessionCursorParams defines parameters for GetSessionCursor.
 type GetSessionCursorParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // SetSessionCursorParams defines parameters for SetSessionCursor.
 type SetSessionCursorParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
@@ -3050,13 +3050,13 @@ type DeleteSessionFileParams struct {
 	// Recursive Delete a directory together with everything below it.
 	Recursive *bool `form:"recursive,omitempty" json:"recursive,omitempty"`
 
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // ListSessionFilesParams defines parameters for ListSessionFiles.
 type ListSessionFilesParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
@@ -3070,133 +3070,133 @@ type UploadSessionFilesParams struct {
 	// Directory Directory below the session files root to store the files in.
 	Directory *string `form:"directory,omitempty" json:"directory,omitempty"`
 
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // CreateSessionDirectoryParams defines parameters for CreateSessionDirectory.
 type CreateSessionDirectoryParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // CreateSessionFileDownloadURLParams defines parameters for CreateSessionFileDownloadURL.
 type CreateSessionFileDownloadURLParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // MoveSessionFileParams defines parameters for MoveSessionFile.
 type MoveSessionFileParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // PromoteSessionParams defines parameters for PromoteSession.
 type PromoteSessionParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // UpdateSessionProxyParams defines parameters for UpdateSessionProxy.
 type UpdateSessionProxyParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // ListSessionRecordingsParams defines parameters for ListSessionRecordings.
 type ListSessionRecordingsParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // CreateSessionRecordingParams defines parameters for CreateSessionRecording.
 type CreateSessionRecordingParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // GetSessionRecordingParams defines parameters for GetSessionRecording.
 type GetSessionRecordingParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // AttentionSessionRecordingParams defines parameters for AttentionSessionRecording.
 type AttentionSessionRecordingParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // CaptionSessionRecordingParams defines parameters for CaptionSessionRecording.
 type CaptionSessionRecordingParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // FocusSessionRecordingParams defines parameters for FocusSessionRecording.
 type FocusSessionRecordingParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // ResetFocusSessionRecordingParams defines parameters for ResetFocusSessionRecording.
 type ResetFocusSessionRecordingParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // RetargetSessionRecordingParams defines parameters for RetargetSessionRecording.
 type RetargetSessionRecordingParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // StopSessionRecordingParams defines parameters for StopSessionRecording.
 type StopSessionRecordingParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // ReopenSessionParams defines parameters for ReopenSession.
 type ReopenSessionParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // RotateSessionTokenParams defines parameters for RotateSessionToken.
 type RotateSessionTokenParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // ExportSessionStorageStateParams defines parameters for ExportSessionStorageState.
 type ExportSessionStorageStateParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // SuspendSessionParams defines parameters for SuspendSession.
 type SuspendSessionParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // ReplaceSessionTagsParams defines parameters for ReplaceSessionTags.
 type ReplaceSessionTagsParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // GetSessionTargetThumbnailParams defines parameters for GetSessionTargetThumbnail.
 type GetSessionTargetThumbnailParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // GetSessionThumbnailParams defines parameters for GetSessionThumbnail.
 type GetSessionThumbnailParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
@@ -3227,7 +3227,7 @@ type ListSnapshotsParams struct {
 	// TagOperator Optional operator paired by position with each tag predicate. Omit the entire parameter to use `eq` for every predicate. If supplied, its entry count must match `tagKey`.
 	TagOperator *TagOperator `form:"tagOperator,omitempty" json:"tagOperator,omitempty"`
 
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
@@ -3239,25 +3239,25 @@ type ListSnapshotsParamsTagOperator string
 
 // DeleteSnapshotParams defines parameters for DeleteSnapshot.
 type DeleteSnapshotParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // UpdateSnapshotParams defines parameters for UpdateSnapshot.
 type UpdateSnapshotParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // RestoreSnapshotParams defines parameters for RestoreSnapshot.
 type RestoreSnapshotParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // ReplaceSnapshotTagsParams defines parameters for ReplaceSnapshotTags.
 type ReplaceSnapshotTagsParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 

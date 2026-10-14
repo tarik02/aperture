@@ -155,10 +155,20 @@ func (s *Server) authenticate(c *gin.Context) (auth.Principal, error) {
 		}
 	} else if s.WebAuth != nil {
 		selectedTenant := selectedTenantID(c)
-		if selectedTenant == "" {
+		remembered := selectedTenant == ""
+		if remembered {
 			selectedTenant = s.WebAuth.SelectedTenantID(c.Request.Context())
 		}
 		principal, err = s.WebAuth.Authenticate(c.Request.Context(), selectedTenant)
+		// The remembered tenant can be deleted, or the user's access to it
+		// removed, by someone else; fall back to the default selection rather
+		// than failing every request of this browser session.
+		if remembered && selectedTenant != "" &&
+			(errors.Is(err, auth.ErrTenantDeleted) || errors.Is(err, auth.ErrTenantForbidden) || errors.Is(err, auth.ErrTenantNotFound)) {
+			s.WebAuth.RememberSelectedTenant(c.Request.Context(), "")
+			selectedTenant = ""
+			principal, err = s.WebAuth.Authenticate(c.Request.Context(), selectedTenant)
+		}
 		if err == nil {
 			c.Set(selectedTenantContextKey, selectedTenant)
 			c.Set(webSessionAuthenticationContextKey, true)

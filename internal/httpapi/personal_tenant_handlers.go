@@ -34,18 +34,7 @@ func (s *Server) createOwnPersonalTenant(c *gin.Context) {
 }
 
 func (s *Server) deleteOwnPersonalTenant(c *gin.Context) {
-	s.changeOwnPersonalTenant(c, http.StatusOK, "deleted", func(ctx context.Context, userID string) (*db.Tenant, error) {
-		tenant, err := s.Auth.DeletePersonalTenant(ctx, userID)
-		if err != nil {
-			return nil, err
-		}
-		// A remembered deleted tenant would fail every later request of this
-		// browser session; fall back to the default selection instead.
-		if c.GetBool(webSessionAuthenticationContextKey) && s.WebAuth.SelectedTenantID(ctx) == tenant.ID {
-			s.WebAuth.RememberSelectedTenant(ctx, "")
-		}
-		return tenant, nil
-	})
+	s.changeOwnPersonalTenant(c, http.StatusOK, "deleted", s.Auth.DeletePersonalTenant)
 }
 
 func (s *Server) restoreOwnPersonalTenant(c *gin.Context) {
