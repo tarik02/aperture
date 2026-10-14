@@ -1,6 +1,6 @@
 {
   "name": "@aperture-browser/session-relay",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Authenticated HTTP and WebSocket relay for Aperture sessions, controlled by the consuming backend.",
   "homepage": "https://github.com/tarik02/aperture#readme",
   "bugs": "https://github.com/tarik02/aperture/issues",
