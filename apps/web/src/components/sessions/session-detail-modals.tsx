@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { useTenantName } from "#/hooks/use-tenant-name.ts";
 import {
   AppWindow,
   Cable,
@@ -211,12 +212,13 @@ function isSessionDetailSection(value: string): value is SessionDetailSection {
 }
 
 function SessionMetadata({ session }: { session: Session }) {
+  const tenantName = useTenantName(session.tenantId);
   return (
     <MetadataGrid
       items={[
         { kind: "text", label: "Label", value: session.label ?? "—" },
         { kind: "identifier", label: "ID", value: session.id },
-        { kind: "identifier", label: "Tenant", value: session.tenantId },
+        { kind: "reference", label: "Tenant", id: session.tenantId, name: tenantName },
         { kind: "text", label: "Channel", value: session.browserChannel ?? "—" },
         { kind: "text", label: "Snapshot", value: session.baseSnapshotName ?? "—" },
         { kind: "text", label: "Created", value: metadataTimestamp(session.createdAt) },

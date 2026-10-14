@@ -27,23 +27,26 @@ func toTokenResponse(token db.APIToken) (tokenResponse, error) {
 
 	resourceGrants := make([]resourceGrantResponse, 0, len(token.ResourceGrants))
 	for _, grant := range token.ResourceGrants {
-		resourceGrants = append(resourceGrants, resourceGrantResponse{ResourceType: grant.ResourceType, ResourceID: grant.ResourceID})
+		resourceGrants = append(resourceGrants, resourceGrantResponse{ResourceType: grant.ResourceType, ResourceID: grant.ResourceID, Label: grant.Label})
 	}
 
 	return tokenResponse{
-		ID:             token.ID,
-		AuthorityType:  token.AuthorityType,
-		TenantID:       token.TenantID,
-		Name:           token.Name,
-		Scopes:         scopes,
-		CreatedAt:      token.CreatedAt,
-		CreatedByType:  token.CreatedByType,
-		CreatedByID:    token.CreatedByID,
-		ParentTokenID:  token.ParentTokenID,
-		ResourceMode:   token.ResourceMode,
-		ResourceGrants: resourceGrants,
-		ExpiresAt:      token.ExpiresAt,
-		RevokedAt:      token.RevokedAt,
+		ID:              token.ID,
+		AuthorityType:   token.AuthorityType,
+		TenantID:        token.TenantID,
+		TenantName:      token.TenantName,
+		Name:            token.Name,
+		Scopes:          scopes,
+		CreatedAt:       token.CreatedAt,
+		CreatedByType:   token.CreatedByType,
+		CreatedByID:     token.CreatedByID,
+		CreatedByName:   token.CreatedByName,
+		ParentTokenID:   token.ParentTokenID,
+		ParentTokenName: token.ParentTokenName,
+		ResourceMode:    token.ResourceMode,
+		ResourceGrants:  resourceGrants,
+		ExpiresAt:       token.ExpiresAt,
+		RevokedAt:       token.RevokedAt,
 	}, nil
 }
 

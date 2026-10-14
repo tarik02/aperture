@@ -1768,6 +1768,10 @@ components:
       properties:
         resourceType: {$ref: '#/components/schemas/ResourceType'}
         resourceId: {$ref: '#/components/schemas/UUIDv7'}
+        label:
+          type: [string, 'null']
+          readOnly: true
+          description: Session label or snapshot name, included on token responses when the resource has one. Ignored on input.
     SessionStatus:
       type: string
       description: |
@@ -2238,6 +2242,10 @@ components:
         tenantId:
           oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
           description: Bound tenant for a tenant token, or `null` for a system administrator token.
+        tenantName:
+          type: [string, 'null']
+          readOnly: true
+          description: Display name of the bound tenant, or `null` for a system administrator token.
         name:
           type: string
           description: Operator-assigned token name, unique within its authority and tenant context.
@@ -2259,9 +2267,17 @@ components:
         createdById:
           oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
           description: User or API token identifier that created the token, or `null` for trusted local system actions.
+        createdByName:
+          type: [string, 'null']
+          readOnly: true
+          description: Display name of the creating user, or name of the creating API token; `null` for trusted local system actions or when it no longer exists.
         parentTokenId:
           oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
           description: API token used to delegate this token, or `null` when a user or trusted local system created it.
+        parentTokenName:
+          type: [string, 'null']
+          readOnly: true
+          description: Name of the parent token, or `null` when there is none or it no longer exists.
         resourceMode: {$ref: '#/components/schemas/ResourceMode'}
         resourceGrants:
           type: array
@@ -3582,9 +3598,17 @@ components:
         parentSnapshotId:
           allOf: [{$ref: '#/components/schemas/UUIDv7'}]
           description: Base snapshot from which the source session was created. Omitted for snapshots without a parent.
+        parentSnapshotName:
+          type: string
+          readOnly: true
+          description: Name of the parent snapshot. Omitted without a parent or when it no longer exists.
         promotedFromSessionId:
           allOf: [{$ref: '#/components/schemas/UUIDv7'}]
           description: Session whose retained overlay produced this snapshot. Omitted when lineage is unavailable.
+        promotedFromSessionLabel:
+          type: string
+          readOnly: true
+          description: Label of the session this snapshot was promoted from. Omitted when that session has no label or lineage is unavailable.
         createdAt:
           type: string
           format: date-time

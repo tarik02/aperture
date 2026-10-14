@@ -1,4 +1,5 @@
 import { EventsPanel } from "#/components/resources/events-panel.tsx";
+import { useTenantName } from "#/hooks/use-tenant-name.ts";
 import { MetadataGrid, metadataTimestamp } from "#/components/resources/metadata-grid.tsx";
 import { SessionStatusBadge } from "#/components/resources/status-badge.tsx";
 import { TagBadges } from "#/components/resources/tag-badges.tsx";
@@ -12,6 +13,7 @@ type SessionInspectorPaneProps = {
 };
 
 export function SessionInspectorPane({ session }: SessionInspectorPaneProps) {
+  const tenantName = useTenantName(session?.tenantId);
   if (!session) {
     return (
       <div className="aperture:flex aperture:h-full aperture:items-center aperture:justify-center aperture:border-l aperture:p-4 aperture:text-sm aperture:text-muted-foreground">
@@ -46,7 +48,7 @@ export function SessionInspectorPane({ session }: SessionInspectorPaneProps) {
           items={[
             { kind: "text", label: "Label", value: session.label ?? "—" },
             { kind: "identifier", label: "ID", value: session.id },
-            { kind: "identifier", label: "Tenant", value: session.tenantId },
+            { kind: "reference", label: "Tenant", id: session.tenantId, name: tenantName },
             { kind: "text", label: "Channel", value: session.browserChannel ?? "—" },
             { kind: "text", label: "Snapshot", value: session.baseSnapshotName ?? "—" },
             { kind: "text", label: "Created", value: metadataTimestamp(session.createdAt) },

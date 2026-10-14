@@ -282,24 +282,28 @@ type browserChannelsResponse struct {
 }
 
 type tokenResponse struct {
-	ID             string                  `json:"id"`
-	AuthorityType  string                  `json:"authorityType"`
-	TenantID       *string                 `json:"tenantId"`
-	Name           string                  `json:"name"`
-	Scopes         []string                `json:"scopes"`
-	CreatedAt      string                  `json:"createdAt"`
-	CreatedByType  string                  `json:"createdByType"`
-	CreatedByID    *string                 `json:"createdById"`
-	ParentTokenID  *string                 `json:"parentTokenId"`
-	ResourceMode   string                  `json:"resourceMode"`
-	ResourceGrants []resourceGrantResponse `json:"resourceGrants"`
-	ExpiresAt      *string                 `json:"expiresAt"`
-	RevokedAt      *string                 `json:"revokedAt"`
+	ID              string                  `json:"id"`
+	AuthorityType   string                  `json:"authorityType"`
+	TenantID        *string                 `json:"tenantId"`
+	TenantName      *string                 `json:"tenantName"`
+	Name            string                  `json:"name"`
+	Scopes          []string                `json:"scopes"`
+	CreatedAt       string                  `json:"createdAt"`
+	CreatedByType   string                  `json:"createdByType"`
+	CreatedByID     *string                 `json:"createdById"`
+	CreatedByName   *string                 `json:"createdByName"`
+	ParentTokenID   *string                 `json:"parentTokenId"`
+	ParentTokenName *string                 `json:"parentTokenName"`
+	ResourceMode    string                  `json:"resourceMode"`
+	ResourceGrants  []resourceGrantResponse `json:"resourceGrants"`
+	ExpiresAt       *string                 `json:"expiresAt"`
+	RevokedAt       *string                 `json:"revokedAt"`
 }
 
 type resourceGrantResponse struct {
-	ResourceType string `json:"resourceType"`
-	ResourceID   string `json:"resourceId"`
+	ResourceType string  `json:"resourceType"`
+	ResourceID   string  `json:"resourceId"`
+	Label        *string `json:"label,omitempty"`
 }
 
 type createTokenResponse struct {
@@ -639,16 +643,18 @@ func (r promoteSessionRequest) Validate() error {
 }
 
 type snapshotResponse struct {
-	ID                    string            `json:"id"`
-	Name                  string            `json:"name"`
-	Description           *string           `json:"description"`
-	TenantID              string            `json:"tenantId"`
-	ParentSnapshotID      *string           `json:"parentSnapshotId,omitempty"`
-	PromotedFromSessionID *string           `json:"promotedFromSessionId,omitempty"`
-	CreatedAt             string            `json:"createdAt"`
-	DeletedAt             *string           `json:"deletedAt"`
-	ExpiresAt             *string           `json:"expiresAt,omitempty"`
-	Tags                  map[string]string `json:"tags,omitempty"`
+	ID                       string            `json:"id"`
+	Name                     string            `json:"name"`
+	Description              *string           `json:"description"`
+	TenantID                 string            `json:"tenantId"`
+	ParentSnapshotID         *string           `json:"parentSnapshotId,omitempty"`
+	PromotedFromSessionID    *string           `json:"promotedFromSessionId,omitempty"`
+	ParentSnapshotName       *string           `json:"parentSnapshotName,omitempty"`
+	PromotedFromSessionLabel *string           `json:"promotedFromSessionLabel,omitempty"`
+	CreatedAt                string            `json:"createdAt"`
+	DeletedAt                *string           `json:"deletedAt"`
+	ExpiresAt                *string           `json:"expiresAt,omitempty"`
+	Tags                     map[string]string `json:"tags,omitempty"`
 }
 
 type snapshotListItemResponse = snapshotResponse

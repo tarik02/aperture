@@ -451,6 +451,7 @@ type mcpCreateTenantOutput struct {
 type mcpCreateTokenInput struct {
 	AuthorityType  string             `json:"authorityType"`
 	TenantID       *string            `json:"tenantId,omitempty"`
+	TenantName     *string            `json:"tenantName,omitempty"`
 	Name           string             `json:"name"`
 	Scopes         []string           `json:"scopes"`
 	ResourceMode   string             `json:"resourceMode,omitempty"`
@@ -475,19 +476,22 @@ type mcpListTokensInput struct {
 	Limit    int     `json:"limit,omitempty"`
 }
 type mcpToken struct {
-	ID             string             `json:"id"`
-	AuthorityType  string             `json:"authorityType"`
-	TenantID       *string            `json:"tenantId,omitempty"`
-	Name           string             `json:"name"`
-	Scopes         []string           `json:"scopes"`
-	CreatedAt      string             `json:"createdAt"`
-	CreatedByType  string             `json:"createdByType"`
-	CreatedByID    *string            `json:"createdById"`
-	ParentTokenID  *string            `json:"parentTokenId"`
-	ResourceMode   string             `json:"resourceMode"`
-	ResourceGrants []mcpResourceGrant `json:"resourceGrants"`
-	ExpiresAt      *string            `json:"expiresAt,omitempty"`
-	RevokedAt      *string            `json:"revokedAt,omitempty"`
+	ID              string             `json:"id"`
+	AuthorityType   string             `json:"authorityType"`
+	TenantID        *string            `json:"tenantId,omitempty"`
+	TenantName      *string            `json:"tenantName,omitempty"`
+	Name            string             `json:"name"`
+	Scopes          []string           `json:"scopes"`
+	CreatedAt       string             `json:"createdAt"`
+	CreatedByType   string             `json:"createdByType"`
+	CreatedByID     *string            `json:"createdById"`
+	CreatedByName   *string            `json:"createdByName,omitempty"`
+	ParentTokenID   *string            `json:"parentTokenId"`
+	ParentTokenName *string            `json:"parentTokenName,omitempty"`
+	ResourceMode    string             `json:"resourceMode"`
+	ResourceGrants  []mcpResourceGrant `json:"resourceGrants"`
+	ExpiresAt       *string            `json:"expiresAt,omitempty"`
+	RevokedAt       *string            `json:"revokedAt,omitempty"`
 }
 type mcpResourceGrant struct {
 	ResourceType string `json:"resourceType"`
@@ -508,19 +512,22 @@ func mcpTokenView(token db.APIToken) (mcpToken, error) {
 		grants = append(grants, mcpResourceGrant{ResourceType: grant.ResourceType, ResourceID: grant.ResourceID})
 	}
 	return mcpToken{
-		ID:             token.ID,
-		AuthorityType:  token.AuthorityType,
-		TenantID:       token.TenantID,
-		Name:           token.Name,
-		Scopes:         scopes,
-		CreatedAt:      token.CreatedAt,
-		CreatedByType:  token.CreatedByType,
-		CreatedByID:    token.CreatedByID,
-		ParentTokenID:  token.ParentTokenID,
-		ResourceMode:   token.ResourceMode,
-		ResourceGrants: grants,
-		ExpiresAt:      token.ExpiresAt,
-		RevokedAt:      token.RevokedAt,
+		ID:              token.ID,
+		AuthorityType:   token.AuthorityType,
+		TenantID:        token.TenantID,
+		TenantName:      token.TenantName,
+		Name:            token.Name,
+		Scopes:          scopes,
+		CreatedAt:       token.CreatedAt,
+		CreatedByType:   token.CreatedByType,
+		CreatedByID:     token.CreatedByID,
+		CreatedByName:   token.CreatedByName,
+		ParentTokenID:   token.ParentTokenID,
+		ParentTokenName: token.ParentTokenName,
+		ResourceMode:    token.ResourceMode,
+		ResourceGrants:  grants,
+		ExpiresAt:       token.ExpiresAt,
+		RevokedAt:       token.RevokedAt,
 	}, nil
 }
 

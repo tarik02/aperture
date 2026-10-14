@@ -528,7 +528,12 @@ function TokenViewModal({
                     label: "Authority",
                     value: token.authorityType === "system_admin" ? "System admin" : "Tenant",
                   },
-                  { kind: "identifier", label: "Tenant", value: token.tenantId },
+                  {
+                    kind: "reference",
+                    label: "Tenant",
+                    id: token.tenantId,
+                    name: token.tenantName,
+                  },
                   { kind: "text", label: "Scopes", value: <ScopeList scopes={token.scopes} /> },
                   {
                     kind: "text",
@@ -541,15 +546,21 @@ function TokenViewModal({
                       ),
                   },
                   { kind: "text", label: "Created", value: metadataTimestamp(token.createdAt) },
+                  token.createdByType === "system"
+                    ? { kind: "text", label: "Created by", value: "System" }
+                    : {
+                        kind: "reference",
+                        label: "Created by",
+                        type: token.createdByType === "user" ? "User" : "API token",
+                        id: token.createdById,
+                        name: token.createdByName,
+                      },
                   {
-                    kind: "text",
-                    label: "Created by",
-                    value:
-                      token.createdByType === "system"
-                        ? "System"
-                        : `${token.createdByType === "user" ? "User" : "API token"} · ${token.createdById ?? "—"}`,
+                    kind: "reference",
+                    label: "Parent token",
+                    id: token.parentTokenId,
+                    name: token.parentTokenName,
                   },
-                  { kind: "identifier", label: "Parent token", value: token.parentTokenId },
                   { kind: "text", label: "Expires", value: metadataTimestamp(token.expiresAt) },
                   { kind: "text", label: "Revoked", value: metadataTimestamp(token.revokedAt) },
                 ]}
@@ -646,8 +657,11 @@ function ResourceGrantList({ grants }: { grants: readonly ResourceGrant[] }) {
           >
             {grant.resourceType}
           </Badge>
-          <span className="aperture:min-w-0 aperture:break-all aperture:font-mono aperture:text-xs">
-            {grant.resourceId}
+          <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
+            {grant.label ? <span className="aperture:break-words">{grant.label}</span> : null}
+            <span className="aperture:break-all aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
+              {grant.resourceId}
+            </span>
           </span>
         </div>
       ))}

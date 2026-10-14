@@ -195,6 +195,10 @@ func (s *Server) listSnapshots(c *gin.Context) {
 	for _, view := range page.Items {
 		items = append(items, toSnapshotListItem(view))
 	}
+	if err := s.addSnapshotReferenceNames(c.Request.Context(), items); err != nil {
+		WriteError(c, err)
+		return
+	}
 	c.JSON(http.StatusOK, paginatedResponse[snapshotListItemResponse]{Data: items, Meta: page.Meta})
 }
 

@@ -532,7 +532,76 @@ func (s *Service) populateTokenResourceGrants(ctx context.Context, tokens []db.A
 	for i := range tokens {
 		tokens[i].ResourceGrants = grants[tokens[i].ID]
 	}
+	return s.populateTokenNames(ctx, tokens)
+}
+
+// populateTokenNames fills in the display names of what tokens refer to: their
+// tenant, the user or token that created them, and their granted resources.
+func (s *Service) populateTokenNames(ctx context.Context, tokens []db.APIToken) error {
+	var refs db.ReferenceIDs
+	for _, token := range tokens {
+		if token.TenantID != nil {
+			refs.Tenants = append(refs.Tenants, *token.TenantID)
+		}
+		if token.CreatedByID != nil {
+			switch token.CreatedByType {
+			case PrincipalTypeUser:
+				refs.Users = append(refs.Users, *token.CreatedByID)
+			case PrincipalTypeAPIToken:
+				refs.APITokens = append(refs.APITokens, *token.CreatedByID)
+			}
+		}
+		if token.ParentTokenID != nil {
+			refs.APITokens = append(refs.APITokens, *token.ParentTokenID)
+		}
+		for _, grant := range token.ResourceGrants {
+			switch grant.ResourceType {
+			case ResourceTypeSession:
+				refs.Sessions = append(refs.Sessions, grant.ResourceID)
+			case ResourceTypeSnapshot:
+				refs.Snapshots = append(refs.Snapshots, grant.ResourceID)
+			}
+		}
+	}
+	names, err := s.repo.ResolveReferenceNames(ctx, refs)
+	if err != nil {
+		return err
+	}
+	for i := range tokens {
+		token := &tokens[i]
+		if token.TenantID != nil {
+			token.TenantName = lookupName(names.Tenants, *token.TenantID)
+		}
+		if token.CreatedByID != nil {
+			switch token.CreatedByType {
+			case PrincipalTypeUser:
+				token.CreatedByName = lookupName(names.Users, *token.CreatedByID)
+			case PrincipalTypeAPIToken:
+				token.CreatedByName = lookupName(names.APITokens, *token.CreatedByID)
+			}
+		}
+		if token.ParentTokenID != nil {
+			token.ParentTokenName = lookupName(names.APITokens, *token.ParentTokenID)
+		}
+		for j := range token.ResourceGrants {
+			grant := &token.ResourceGrants[j]
+			switch grant.ResourceType {
+			case ResourceTypeSession:
+				grant.Label = lookupName(names.Sessions, grant.ResourceID)
+			case ResourceTypeSnapshot:
+				grant.Label = lookupName(names.Snapshots, grant.ResourceID)
+			}
+		}
+	}
 	return nil
+}
+
+func lookupName(names map[string]string, id string) *string {
+	name, ok := names[id]
+	if !ok {
+		return nil
+	}
+	return &name
 }
 
 // GetTenant returns a tenant principal may see, including deactivated
@@ -671,7 +740,11 @@ func (s *Service) createToken(ctx context.Context, principal Principal, input Cr
 		return CreatedToken{}, err
 	}
 
-	return CreatedToken{Raw: raw, Token: *row}, nil
+	created := []db.APIToken{*row}
+	if err := s.populateTokenNames(ctx, created); err != nil {
+		return CreatedToken{}, err
+	}
+	return CreatedToken{Raw: raw, Token: created[0]}, nil
 }
 
 func validateTokenDelegation(principal Principal, input CreateTokenInput) error {
