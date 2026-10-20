@@ -574,6 +574,7 @@ type sessionResponse struct {
 	SessionToken     string                            `json:"sessionToken,omitempty"`
 	Collaboration    *sessionCollaborationCapabilities `json:"collaboration,omitempty"`
 	Thumbnail        *sessionThumbnailResponse         `json:"thumbnail,omitempty"`
+	Favicon          *sessionFaviconResponse           `json:"favicon,omitempty"`
 	Proxy            *sessionProxyView                 `json:"proxy,omitempty"`
 }
 

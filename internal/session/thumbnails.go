@@ -420,6 +420,9 @@ func (s *Service) persistThumbnails(ctx context.Context, sessionRow *db.Session)
 			}
 		}
 	}
+	if err := s.persistFavicons(ctx, sessionRow, staging, &manifest); err != nil {
+		return err
+	}
 	manifestBody, err := json.Marshal(manifest)
 	if err != nil {
 		return err

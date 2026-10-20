@@ -361,6 +361,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/thumbnail", r.handleThumbnail)
 	mux.HandleFunc("/thumbnail/targets", r.handleThumbnailTargets)
 	mux.HandleFunc("/thumbnail/manifest", r.handlePageManifest)
+	mux.HandleFunc("/favicon", r.handleFavicon)
 	mux.HandleFunc("/proxy/config", r.handleProxyConfig)
 	mux.HandleFunc("/tunnel", r.handleLocalTunnel)
 	mux.HandleFunc("/targets", r.handleTargets)
@@ -372,8 +373,8 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch req.URL.Path {
-		// Thumbnails are captured for hovers and suspension; they must not keep a session awake.
-		case "/health", "/status", "/activity", "/stats", "/thumbnail", "/thumbnail/targets", "/thumbnail/manifest":
+		// Thumbnails and favicons are read for hovers and suspension; they must not keep a session awake.
+		case "/health", "/status", "/activity", "/stats", "/thumbnail", "/thumbnail/targets", "/thumbnail/manifest", "/favicon":
 			mux.ServeHTTP(w, req)
 			return
 		}

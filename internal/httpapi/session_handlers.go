@@ -146,6 +146,7 @@ func (s *Server) getSession(c *gin.Context) {
 
 	response := toSessionResponse(view)
 	response.Thumbnail = s.sessionThumbnailLinks(view.Session)
+	response.Favicon = s.sessionFaviconLinks(view.Session)
 	c.JSON(http.StatusOK, response)
 }
 

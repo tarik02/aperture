@@ -96,6 +96,7 @@ type liveSession struct {
 	// lastActiveTargetID is the target most recently shown to any client; the session thumbnail shows it.
 	lastActiveTargetID string
 	thumbnails         wrapperThumbnailCache
+	favicons           wrapperFaviconCache
 }
 
 type liveSessionClient struct {
