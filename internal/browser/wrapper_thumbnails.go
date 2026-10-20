@@ -62,6 +62,7 @@ type PageManifestEntry struct {
 	Title              string        `json:"title"`
 	URL                string        `json:"url"`
 	State              string        `json:"state"`
+	Loading            bool          `json:"loading"`
 	Viewport           *PageViewport `json:"viewport,omitempty"`
 	ThumbnailAvailable bool          `json:"thumbnailAvailable"`
 }
@@ -130,6 +131,7 @@ func (session *liveSession) pageManifest() (PageManifest, error) {
 			Title:    target.Title,
 			URL:      target.URL,
 			State:    state,
+			Loading:  target.Loading,
 			Viewport: viewport,
 		})
 	}

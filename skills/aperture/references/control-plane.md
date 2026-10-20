@@ -24,6 +24,7 @@ Tenant tokens carry `resourceMode: "all"` or `"allowlist"` with grants `{ "resou
 - `creating` → `running` → `suspended` ⇄ `running`; `deleted`, `failed` and `expired` are terminal unless reopened. `reopen` applies to retained `deleted` and `failed` sessions. A `suspended` session is never reopened: any browser call, MCP browser tool or authorized data-plane request wakes it.
 - `POST /api/sessions?waitForReady=false` returns the session and its credentials in `creating` while the browser starts.
 - Session reads include `cdpUrl` and `sessionToken` only while live access is retained; treat them as secrets. `session-token/rotate` invalidates every URL built with the old token.
+- `GET /api/sessions/:sessionId/tabs` lists top-level tabs in display order with the IDs the tab thumbnail route takes: live for a running session, saved at suspension for a suspended one (also when `thumbnails_persist_on_suspend` is off), empty with `source: "unavailable"` otherwise. It never wakes the session.
 - `GET /sessions/:sessionId/browser/status` and the thumbnail routes read retained state without waking or touching retention. `source` is `live` for a running session, `persisted` for the page set saved at suspension, `unavailable` when nothing was saved. Persisted target IDs are historical and may change after resume.
 - Promotion makes a snapshot from a session's filesystem; session files never enter it, and a session created from a snapshot starts with none. `force: true` may replace a deleted snapshot tombstone of the same name.
 

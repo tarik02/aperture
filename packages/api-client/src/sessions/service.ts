@@ -21,6 +21,7 @@ import type {
   SessionMutationResponse,
   SessionRecording,
   SessionsBulkResponse,
+  SessionTabs,
   SetViewportInput,
   TargetViewport,
   UpdateProxyConfig,
@@ -161,6 +162,11 @@ export class SessionsApi extends Context.Service<
       sessionId: string,
       input: PromoteSessionInput,
     ) => Call<PromoteSessionResponse>;
+    /**
+     * Top-level tabs, live or as saved when the session suspended, in display order. Never wakes a
+     * suspended session. IDs match `getSessionThumbnail` target IDs.
+     */
+    readonly listSessionTabs: (credentials: ApiCredentials, sessionId: string) => Call<SessionTabs>;
     readonly getSessionCursor: (
       credentials: ApiCredentials,
       sessionId: string,

@@ -878,6 +878,31 @@ paths:
             image/jpeg:
               schema: {type: string, format: binary}
         default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/tabs:
+    get:
+      operationId: listSessionTabs
+      tags: [sessions]
+      summary: List a session's tabs
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:read]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, resource_access_denied, session_not_found, session_expired, session_service_unavailable, browser_control_failed]
+      description: |
+        Returns the session's top-level tabs in the order the live session shows them. Tab IDs are the
+        target IDs accepted by the tab thumbnail route and the live session. A running session reports
+        its current tabs (`source: live`). A suspended session reports the tabs saved when it suspended
+        (`source: persisted`), with the same IDs as its saved tab thumbnails; the list is saved even when
+        `thumbnails_persist_on_suspend` is disabled, but then no tab has a thumbnail. A suspended session
+        with nothing saved, and a session in any other retained state, returns no tabs
+        (`source: unavailable`). Tab IDs change when the browser restarts. The request never wakes the
+        session or extends its retention.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200': {description: Session tabs, content: {application/json: {schema: {$ref: '#/components/schemas/SessionTabs'}}}}
+        default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/storage-state:
     post:
       operationId: exportSessionStorageState
@@ -3173,6 +3198,51 @@ components:
           x-sensitive: true
           description: Current raw session access secret. Omitted by operations that do not expose or replace credentials.
           example: aps_019f6cf0000070008000000000000010_REDACTED
+    SessionTabs:
+      type: object
+      description: Top-level tabs of a session, live or as saved when it suspended.
+      required: [sessionId, status, source, tabs]
+      properties:
+        sessionId: {$ref: '#/components/schemas/UUIDv7'}
+        status: {$ref: '#/components/schemas/SessionStatus'}
+        source:
+          type: string
+          enum: [live, persisted, unavailable]
+          description: |
+            - `live`: the running browser's current tabs.
+            - `persisted`: the tabs saved when the session suspended.
+            - `unavailable`: no tab list exists for the session's current state.
+        capturedAt:
+          type: string
+          format: date-time
+          description: When the tab list was read; absent when `source` is `unavailable`.
+        tabs:
+          type: array
+          description: Tabs in the order the live session shows them.
+          items: {$ref: '#/components/schemas/SessionTab'}
+    SessionTab:
+      type: object
+      description: One top-level browser tab.
+      required: [targetId, title, url, state, loading, active, thumbnailAvailable]
+      properties:
+        targetId:
+          type: string
+          description: Target ID used by the tab thumbnail route and the live session. It changes when the browser restarts.
+        title: {type: string}
+        url: {type: string}
+        state:
+          type: string
+          enum: [pending, ready, unavailable, closed]
+          description: Whether the live session can show the tab. Only `ready` tabs have thumbnails.
+        loading:
+          type: boolean
+          description: Whether the tab is loading a page. Always false for saved tabs.
+        active:
+          type: boolean
+          description: Whether this is the tab the session thumbnail shows, the one most recently shown to a live-session client or else the first tab.
+        thumbnailAvailable:
+          type: boolean
+          description: Whether the tab thumbnail route can serve this tab.
     CursorVisibility:
       type: object
       description: Whether the remote browser cursor is composited into session media.

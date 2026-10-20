@@ -65,6 +65,24 @@ func (s *Service) BrowserOverview(ctx context.Context, tenantID, sessionID strin
 	return s.sessionBrowserOverview(ctx, sessionRow)
 }
 
+// TabsOverview is BrowserOverview for the account tab list: a session that is neither running nor
+// suspended has no tabs rather than failing.
+func (s *Service) TabsOverview(ctx context.Context, tenantID, sessionID string) (BrowserOverview, error) {
+	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
+	if err != nil {
+		return BrowserOverview{}, err
+	}
+	if sessionRow.Status != db.SessionStatusRunning && sessionRow.Status != db.SessionStatusSuspended {
+		return BrowserOverview{
+			SessionID: sessionRow.ID,
+			Status:    sessionRow.Status,
+			Source:    "unavailable",
+			Pages:     []browser.PageManifestEntry{},
+		}, nil
+	}
+	return s.sessionBrowserOverview(ctx, sessionRow)
+}
+
 // AuthorizedBrowserOverview is BrowserOverview for a session token or collaboration capability.
 func (s *Service) AuthorizedBrowserOverview(ctx context.Context, routeSessionID, authorization string) (BrowserOverview, error) {
 	sessionRow, err := s.authorizedPassiveSession(ctx, routeSessionID, authorization)
@@ -341,15 +359,14 @@ func (s *Service) thumbnailDir(sessionID string) (string, error) {
 	return filepath.Join(filepath.Dir(layout.Files.Root), "thumbnails"), nil
 }
 
-// persistThumbnails saves one page-metadata and thumbnail generation before the browser stops. It
-// replaces the previous generation, or removes it when persistence is disabled.
+// persistThumbnails saves one page-metadata and thumbnail generation before the browser stops,
+// replacing the previous generation. The page list is saved even when thumbnail persistence is
+// disabled: it only names tabs whose titles and URLs the retained profile already holds, while
+// thumbnails keep page pixels outside the profile.
 func (s *Service) persistThumbnails(ctx context.Context, sessionRow *db.Session) (retErr error) {
 	dir, err := s.thumbnailDir(sessionRow.ID)
 	if err != nil {
 		return err
-	}
-	if !s.cfg.ThumbnailsPersistOnSuspend {
-		return os.RemoveAll(dir)
 	}
 	// Once a capture attempt starts, an older generation must not survive a failed attempt and look
 	// like the metadata captured for this suspension.
@@ -396,7 +413,7 @@ func (s *Service) persistThumbnails(ctx context.Context, sessionRow *db.Session)
 	}
 	for index := range manifest.Pages {
 		page := &manifest.Pages[index]
-		if page.State != "ready" || !thumbnailTargetIDPattern.MatchString(page.TargetID) {
+		if !s.cfg.ThumbnailsPersistOnSuspend || page.State != "ready" || !thumbnailTargetIDPattern.MatchString(page.TargetID) {
 			continue
 		}
 		thumbnail, err := s.liveThumbnail(ctx, sessionRow, page.TargetID)

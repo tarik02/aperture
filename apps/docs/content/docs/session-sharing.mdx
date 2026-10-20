@@ -132,7 +132,31 @@ The `/api` routes need `sessions:read` and accept API tokens or a signed-in brow
 
 `GET /api/sessions` and `GET /api/sessions/<session-id>` return signed URLs under `thumbnail` for image elements: `url` for the session and `targetUrlTemplate`, whose literal `{targetId}` placeholder takes a tab ID. They expire after `signed_file_url_ttl` (15 minutes by default); every response carries fresh ones. `thumbnail` is omitted when the session has nothing to show.
 
-When a session suspends, Aperture saves the thumbnails of the session and its tabs, and serves them until the session runs again. Tab IDs change when the browser restarts. Set `thumbnails_persist_on_suspend = false` (`APERTURE_THUMBNAILS_PERSIST_ON_SUSPEND=false`) to skip saving them; suspended sessions then have no thumbnail. Responses carry `Last-Modified`, so clients can revalidate with `If-Modified-Since`.
+When a session suspends, Aperture saves the thumbnails of the session and its tabs, and serves them until the session runs again. Tab IDs change when the browser restarts. Set `thumbnails_persist_on_suspend = false` (`APERTURE_THUMBNAILS_PERSIST_ON_SUSPEND=false`) to skip saving them; suspended sessions then have no thumbnail, but their tab list is still saved. Responses carry `Last-Modified`, so clients can revalidate with `If-Modified-Since`.
+
+## Session tabs
+
+`GET /api/sessions/<session-id>/tabs` needs `sessions:read` and lists the session's top-level tabs in display order: `targetId`, `title`, `url`, `state`, `loading`, `active` (the tab the session thumbnail shows) and `thumbnailAvailable`. A running session reports its current tabs with `source: "live"`; a suspended session reports the tabs saved when it suspended with `source: "persisted"`, under the same IDs as its saved tab thumbnails. Other states, and suspended sessions with nothing saved, return `source: "unavailable"` and no tabs. The request never wakes the session.
+
+```json
+{
+  "sessionId": "019f6cf0-0000-7000-8000-000000000010",
+  "status": "suspended",
+  "source": "persisted",
+  "capturedAt": "2026-08-01T12:00:00Z",
+  "tabs": [
+    {
+      "targetId": "6B1F0C2E9A7D4E5F8C3B2A1D0E9F8A7B",
+      "title": "Example Domain",
+      "url": "https://example.com/",
+      "state": "ready",
+      "loading": false,
+      "active": true,
+      "thumbnailAvailable": true
+    }
+  ]
+}
+```
 
 ## Passive browser status
 
@@ -140,7 +164,7 @@ When a session suspends, Aperture saves the thumbnails of the session and its ta
 
 A running session returns `source: "live"`; a suspended session returns `source: "persisted"` with the page metadata and thumbnail availability saved as one suspension generation. `capturedAt` identifies that generation, and `representativeTargetId` identifies the page used for the session thumbnail. Pages remain in the manifest even when their thumbnail capture failed.
 
-Older suspended sessions have no page manifest. Persistence may also be disabled or fail within its best-effort suspension budget. Those cases return `source: "unavailable"`, an empty page list, and no `capturedAt` rather than waking the browser or presenting an older generation as new. Target IDs in persisted data are historical references for that generation; Chromium may assign different IDs after resume.
+Older suspended sessions have no page manifest. Persistence may also fail within its best-effort suspension budget. Those cases return `source: "unavailable"`, an empty page list, and no `capturedAt` rather than waking the browser or presenting an older generation as new. Target IDs in persisted data are historical references for that generation; Chromium may assign different IDs after resume.
 
 ## Limits and audit events
 
