@@ -48,7 +48,7 @@ tags:
     description: Tenant-scoped audit and lifecycle events.
   - name: live-session
     description: |
-      Data-plane routes served by the running session itself rather than by the API. They exist only while the session is `running`; otherwise they answer `404` without a body. Aperture checks authorization before forwarding, so authorization failures use the API error envelope, while failures inside the session use `{ "error": "<message>" }`. Besides API credentials, they accept the session's `sessionToken` and, where an operation says so, an editor collaboration capability.
+      Data-plane routes served by the running session itself rather than by the API. They exist only while the session is `running`; otherwise they answer `404` without a body. Aperture checks authorization before forwarding, so authorization failures use the API error envelope, while failures inside the session use `{ "error": "<message>" }`. Besides API credentials, they accept the session's `sessionToken` and, where an operation says so, an editor collaboration capability. `browser/status` is the exception: Aperture answers it itself from retained state, also for a `suspended` session, without waking it, and it also accepts a viewer capability.
 paths:
   /api/health:
     get:
@@ -1419,6 +1419,62 @@ paths:
       responses:
         '200': {description: Applied viewport, content: {application/json: {schema: {$ref: '#/components/schemas/TargetViewport'}}}}
         default: {$ref: '#/components/responses/LiveSessionError'}
+  /sessions/{sessionId}/browser/status:
+    get:
+      operationId: getSessionBrowserStatus
+      tags: [live-session]
+      summary: Read a session's pages without waking it
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:read]
+        tenantResolution: token_tenant_or_required_header
+        sessionCredentials: [session_token, editor_capability, viewer_capability]
+      x-aperture-errors: [resource_access_denied, session_not_found, session_expired, session_not_running, session_service_unavailable, browser_control_failed]
+      security:
+        - bearerAuth: []
+        - webSession: []
+        - sessionToken: []
+      description: |
+        Aperture answers this route itself from retained state, for `running` and `suspended` sessions. It never wakes the browser, mounts its profile, updates activity or retention, or prevents idle suspension. Other states fail with `409` / `session_not_running`. An invalid, revoked, or foreign session token or capability gets `401` without a body.
+
+        - `source: live`: a running session's current top-level pages. A page's `thumbnailAvailable` is true when it is `ready`.
+        - `source: persisted`: a suspended session's pages as saved when it suspended. The list is saved even when `thumbnails_persist_on_suspend` is disabled; then no page has a thumbnail.
+        - `source: unavailable`: a suspended session with no saved list for its last run, because it suspended before page lists were saved or saving failed within the suspension budget. `pages` is empty and `capturedAt` is absent.
+
+        Page `targetId`s are the IDs the per-tab thumbnail routes take. They change when the browser restarts, so persisted IDs identify the saved generation only.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200':
+          description: Page metadata of the session.
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SessionBrowserStatus'}
+              examples:
+                persisted:
+                  summary: Suspended session
+                  value:
+                    sessionId: 019f6cf0-0000-7000-8000-000000000010
+                    status: suspended
+                    source: persisted
+                    capturedAt: '2026-08-01T12:00:00Z'
+                    representativeTargetId: 6B1F0C2E9A7D4E5F8C3B2A1D0E9F8A7B
+                    pages:
+                      - targetId: 6B1F0C2E9A7D4E5F8C3B2A1D0E9F8A7B
+                        title: Example Domain
+                        url: https://example.com/
+                        state: ready
+                        viewport: {width: 1280, height: 720, contentWidth: 1280, contentHeight: 720, canvasWidth: 1280, canvasHeight: 768, deviceScaleFactor: 1}
+                        thumbnailAvailable: true
+                    thumbnailAvailable: true
+                    cdpUrl: https://aperture.example/sessions/019f6cf0-0000-7000-8000-000000000010/cdp
+                    media: {mode: auto, webrtcProducer: true}
+        default: {$ref: '#/components/responses/Error'}
 components:
   securitySchemes:
     bearerAuth:
@@ -3536,6 +3592,61 @@ components:
           type: number
           description: Device pixel ratio, rounded to 1/120. Omit or use a non-positive value for 1. The scaled content size may not exceed 16384 pixels.
           example: 1
+    SessionBrowserStatus:
+      type: object
+      description: Passive page metadata of a running or suspended session.
+      required: [sessionId, status, source, pages, thumbnailAvailable, cdpUrl, media]
+      properties:
+        sessionId: {$ref: '#/components/schemas/UUIDv7'}
+        status:
+          type: string
+          enum: [running, suspended]
+          description: Session lifecycle state.
+        source:
+          type: string
+          enum: [live, persisted, unavailable]
+          description: |
+            - `live`: the running browser's current pages.
+            - `persisted`: the pages saved when the session suspended.
+            - `unavailable`: a suspended session with no saved pages for its last run.
+        capturedAt:
+          type: string
+          format: date-time
+          description: When the page list was read or saved. Absent when `source` is `unavailable`.
+        representativeTargetId:
+          type: string
+          description: The page the session thumbnail shows, the one most recently shown to a live-session client while it is ready, else the first selectable page. Absent when there is none.
+        pages:
+          type: array
+          description: Top-level pages in the order the live session shows them.
+          items: {$ref: '#/components/schemas/BrowserPage'}
+        thumbnailAvailable:
+          type: boolean
+          description: Whether the session thumbnail route can serve an image.
+        cdpUrl:
+          type: string
+          description: The session's CDP endpoint base URL, without the session token.
+        media: {$ref: '#/components/schemas/SessionMedia'}
+    BrowserPage:
+      type: object
+      description: One top-level browser page.
+      required: [targetId, title, url, state, thumbnailAvailable]
+      properties:
+        targetId:
+          type: string
+          description: Target ID taken by the per-tab thumbnail routes and the live session. It changes when the browser restarts.
+        title: {type: string}
+        url: {type: string}
+        state:
+          type: string
+          enum: [pending, ready, unavailable, closed]
+          description: Whether the live session can show the page.
+        viewport:
+          description: The page's viewport, when the compositor has one for it.
+          allOf: [{$ref: '#/components/schemas/Viewport'}]
+        thumbnailAvailable:
+          type: boolean
+          description: Whether the per-tab thumbnail route can serve this page.
     TargetViewport:
       type: object
       description: Viewport applied to a top-level target.
