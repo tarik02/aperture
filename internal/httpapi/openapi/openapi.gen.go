@@ -60,6 +60,30 @@ func (e BrowserCookieSameSite) Valid() bool {
 	}
 }
 
+// Defines values for BrowserPageState.
+const (
+	BrowserPageStateClosed      BrowserPageState = "closed"
+	BrowserPageStatePending     BrowserPageState = "pending"
+	BrowserPageStateReady       BrowserPageState = "ready"
+	BrowserPageStateUnavailable BrowserPageState = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the BrowserPageState enum.
+func (e BrowserPageState) Valid() bool {
+	switch e {
+	case BrowserPageStateClosed:
+		return true
+	case BrowserPageStatePending:
+		return true
+	case BrowserPageStateReady:
+		return true
+	case BrowserPageStateUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateAdminTokenInput0AuthorityType.
 const (
 	CreateAdminTokenInput0AuthorityTypeSystemAdmin CreateAdminTokenInput0AuthorityType = "system_admin"
@@ -846,6 +870,45 @@ func (e Scope) Valid() bool {
 	}
 }
 
+// Defines values for SessionBrowserStatusSource.
+const (
+	SessionBrowserStatusSourceLive        SessionBrowserStatusSource = "live"
+	SessionBrowserStatusSourcePersisted   SessionBrowserStatusSource = "persisted"
+	SessionBrowserStatusSourceUnavailable SessionBrowserStatusSource = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the SessionBrowserStatusSource enum.
+func (e SessionBrowserStatusSource) Valid() bool {
+	switch e {
+	case SessionBrowserStatusSourceLive:
+		return true
+	case SessionBrowserStatusSourcePersisted:
+		return true
+	case SessionBrowserStatusSourceUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SessionBrowserStatusStatus.
+const (
+	SessionBrowserStatusStatusRunning   SessionBrowserStatusStatus = "running"
+	SessionBrowserStatusStatusSuspended SessionBrowserStatusStatus = "suspended"
+)
+
+// Valid indicates whether the value is a known member of the SessionBrowserStatusStatus enum.
+func (e SessionBrowserStatusStatus) Valid() bool {
+	switch e {
+	case SessionBrowserStatusStatusRunning:
+		return true
+	case SessionBrowserStatusStatusSuspended:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SessionDirectoryType.
 const (
 	Directory SessionDirectoryType = "directory"
@@ -957,51 +1020,6 @@ func (e SessionStatus) Valid() bool {
 	case SessionStatusRunning:
 		return true
 	case SessionStatusSuspended:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for SessionTabState.
-const (
-	SessionTabStateClosed      SessionTabState = "closed"
-	SessionTabStatePending     SessionTabState = "pending"
-	SessionTabStateReady       SessionTabState = "ready"
-	SessionTabStateUnavailable SessionTabState = "unavailable"
-)
-
-// Valid indicates whether the value is a known member of the SessionTabState enum.
-func (e SessionTabState) Valid() bool {
-	switch e {
-	case SessionTabStateClosed:
-		return true
-	case SessionTabStatePending:
-		return true
-	case SessionTabStateReady:
-		return true
-	case SessionTabStateUnavailable:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for SessionTabsSource.
-const (
-	SessionTabsSourceLive        SessionTabsSource = "live"
-	SessionTabsSourcePersisted   SessionTabsSource = "persisted"
-	SessionTabsSourceUnavailable SessionTabsSource = "unavailable"
-)
-
-// Valid indicates whether the value is a known member of the SessionTabsSource enum.
-func (e SessionTabsSource) Valid() bool {
-	switch e {
-	case SessionTabsSourceLive:
-		return true
-	case SessionTabsSourcePersisted:
-		return true
-	case SessionTabsSourceUnavailable:
 		return true
 	default:
 		return false
@@ -1370,6 +1388,26 @@ type BrowserConfig struct {
 
 // BrowserCookieSameSite defines model for BrowserCookieSameSite.
 type BrowserCookieSameSite string
+
+// BrowserPage One top-level browser page.
+type BrowserPage struct {
+	// State Whether the live session can show the page.
+	State BrowserPageState `json:"state"`
+
+	// TargetId Target ID taken by the per-tab thumbnail routes and the live session. It changes when the browser restarts.
+	TargetId string `json:"targetId"`
+
+	// ThumbnailAvailable Whether the per-tab thumbnail route can serve this page.
+	ThumbnailAvailable bool   `json:"thumbnailAvailable"`
+	Title              string `json:"title"`
+	Url                string `json:"url"`
+
+	// Viewport The page's viewport, when the compositor has one for it.
+	Viewport *Viewport `json:"viewport,omitempty"`
+}
+
+// BrowserPageState Whether the live session can show the page.
+type BrowserPageState string
 
 // BrowserStorageEntry defines model for BrowserStorageEntry.
 type BrowserStorageEntry struct {
@@ -2362,6 +2400,46 @@ type Session struct {
 	Thumbnail *SessionThumbnail `json:"thumbnail,omitempty"`
 }
 
+// SessionBrowserStatus Passive page metadata of a running or suspended session.
+type SessionBrowserStatus struct {
+	// CapturedAt When the page list was read or saved. Absent when `source` is `unavailable`.
+	CapturedAt *time.Time `json:"capturedAt,omitempty"`
+
+	// CdpUrl The session's CDP endpoint base URL, without the session token.
+	CdpUrl string `json:"cdpUrl"`
+
+	// Media Media capabilities currently available for the session.
+	Media SessionMedia `json:"media"`
+
+	// Pages Top-level pages in the order the live session shows them.
+	Pages []BrowserPage `json:"pages"`
+
+	// RepresentativeTargetId The page the session thumbnail shows, the one most recently shown to a live-session client while it is ready, else the first selectable page. Absent when there is none.
+	RepresentativeTargetId *string `json:"representativeTargetId,omitempty"`
+
+	// SessionId Time-ordered UUID version 7 generated by Aperture.
+	SessionId UUIDv7 `json:"sessionId"`
+
+	// Source - `live`: the running browser's current pages.
+	// - `persisted`: the pages saved when the session suspended.
+	// - `unavailable`: a suspended session with no saved pages for its last run.
+	Source SessionBrowserStatusSource `json:"source"`
+
+	// Status Session lifecycle state.
+	Status SessionBrowserStatusStatus `json:"status"`
+
+	// ThumbnailAvailable Whether the session thumbnail route can serve an image.
+	ThumbnailAvailable bool `json:"thumbnailAvailable"`
+}
+
+// SessionBrowserStatusSource - `live`: the running browser's current pages.
+// - `persisted`: the pages saved when the session suspended.
+// - `unavailable`: a suspended session with no saved pages for its last run.
+type SessionBrowserStatusSource string
+
+// SessionBrowserStatusStatus Session lifecycle state.
+type SessionBrowserStatusStatus string
+
 // SessionBulkInput Ordered session IDs for a tenant-scoped bulk lookup. Missing, foreign, and deleted IDs are omitted from the result.
 type SessionBulkInput struct {
 	// Ids Up to 100 unique UUIDv7 values. An empty array is valid.
@@ -2525,61 +2603,6 @@ type SessionProxyUpstream struct {
 // - `expired`: retention elapsed or permanent deletion completed; the session can no longer be used.
 // - `failed`: startup or reopen failed; retained state may still be reopenable.
 type SessionStatus string
-
-// SessionTab One top-level browser tab.
-type SessionTab struct {
-	// Active Whether this is the tab the session thumbnail shows, the one most recently shown to a live-session client or else the first tab.
-	Active bool `json:"active"`
-
-	// Loading Whether the tab is loading a page. Always false for saved tabs.
-	Loading bool `json:"loading"`
-
-	// State Whether the live session can show the tab. Only `ready` tabs have thumbnails.
-	State SessionTabState `json:"state"`
-
-	// TargetId Target ID used by the tab thumbnail route and the live session. It changes when the browser restarts.
-	TargetId string `json:"targetId"`
-
-	// ThumbnailAvailable Whether the tab thumbnail route can serve this tab.
-	ThumbnailAvailable bool   `json:"thumbnailAvailable"`
-	Title              string `json:"title"`
-	Url                string `json:"url"`
-}
-
-// SessionTabState Whether the live session can show the tab. Only `ready` tabs have thumbnails.
-type SessionTabState string
-
-// SessionTabs Top-level tabs of a session, live or as saved when it suspended.
-type SessionTabs struct {
-	// CapturedAt When the tab list was read; absent when `source` is `unavailable`.
-	CapturedAt *time.Time `json:"capturedAt,omitempty"`
-
-	// SessionId Time-ordered UUID version 7 generated by Aperture.
-	SessionId UUIDv7 `json:"sessionId"`
-
-	// Source - `live`: the running browser's current tabs.
-	// - `persisted`: the tabs saved when the session suspended.
-	// - `unavailable`: no tab list exists for the session's current state.
-	Source SessionTabsSource `json:"source"`
-
-	// Status Session lifecycle state:
-	//
-	// - `creating`: browser startup is in progress; the CDP endpoint does not answer yet.
-	// - `running`: browser and routing are available and the CDP endpoint answers.
-	// - `suspended`: browser is intentionally stopped while retained state remains available.
-	// - `deleted`: deletion cleanup is pending; legacy retained soft-deleted sessions may still be reopenable until their retention deadline.
-	// - `expired`: retention elapsed or permanent deletion completed; the session can no longer be used.
-	// - `failed`: startup or reopen failed; retained state may still be reopenable.
-	Status SessionStatus `json:"status"`
-
-	// Tabs Tabs in the order the live session shows them.
-	Tabs []SessionTab `json:"tabs"`
-}
-
-// SessionTabsSource - `live`: the running browser's current tabs.
-// - `persisted`: the tabs saved when the session suspended.
-// - `unavailable`: no tab list exists for the session's current state.
-type SessionTabsSource string
 
 // SessionThumbnail Signed thumbnail URLs for image elements. They need no other credentials and expire after the
 // configured signed URL lifetime; every session response returns fresh ones. Present while the
@@ -3329,12 +3352,6 @@ type ExportSessionStorageStateParams struct {
 
 // SuspendSessionParams defines parameters for SuspendSession.
 type SuspendSessionParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
-	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
-}
-
-// ListSessionTabsParams defines parameters for ListSessionTabs.
-type ListSessionTabsParams struct {
 	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
@@ -4570,20 +4587,6 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /api/sessions/{sessionId}/suspend (the `SuspendSession` operationId).
 	SuspendSession(ctx context.Context, sessionId SessionId, params *SuspendSessionParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// ListSessionTabs List a session's tabs
-	//
-	// Returns the session's top-level tabs in the order the live session shows them. Tab IDs are the
-	// target IDs accepted by the tab thumbnail route and the live session. A running session reports
-	// its current tabs (`source: live`). A suspended session reports the tabs saved when it suspended
-	// (`source: persisted`), with the same IDs as its saved tab thumbnails; the list is saved even when
-	// `thumbnails_persist_on_suspend` is disabled, but then no tab has a thumbnail. A suspended session
-	// with nothing saved, and a session in any other retained state, returns no tabs
-	// (`source: unavailable`). Tab IDs change when the browser restarts. The request never wakes the
-	// session or extends its retention.
-	//
-	// Corresponds with GET /api/sessions/{sessionId}/tabs (the `ListSessionTabs` operationId).
-	ListSessionTabs(ctx context.Context, sessionId SessionId, params *ListSessionTabsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ReplaceSessionTagsWithBody Replace browser session tags
 	//
@@ -6129,30 +6132,6 @@ func (c *Client) ExportSessionStorageState(ctx context.Context, sessionId Sessio
 // Corresponds with POST /api/sessions/{sessionId}/suspend (the `SuspendSession` operationId).
 func (c *Client) SuspendSession(ctx context.Context, sessionId SessionId, params *SuspendSessionParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSuspendSessionRequest(c.Server, sessionId, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// ListSessionTabs List a session's tabs
-//
-// Returns the session's top-level tabs in the order the live session shows them. Tab IDs are the
-// target IDs accepted by the tab thumbnail route and the live session. A running session reports
-// its current tabs (`source: live`). A suspended session reports the tabs saved when it suspended
-// (`source: persisted`), with the same IDs as its saved tab thumbnails; the list is saved even when
-// `thumbnails_persist_on_suspend` is disabled, but then no tab has a thumbnail. A suspended session
-// with nothing saved, and a session in any other retained state, returns no tabs
-// (`source: unavailable`). Tab IDs change when the browser restarts. The request never wakes the
-// session or extends its retention.
-//
-// Corresponds with GET /api/sessions/{sessionId}/tabs (the `ListSessionTabs` operationId).
-func (c *Client) ListSessionTabs(ctx context.Context, sessionId SessionId, params *ListSessionTabsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListSessionTabsRequest(c.Server, sessionId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -9729,55 +9708,6 @@ func NewSuspendSessionRequest(server string, sessionId SessionId, params *Suspen
 	return req, nil
 }
 
-// NewListSessionTabsRequest constructs an http.Request for the ListSessionTabs method
-func NewListSessionTabsRequest(server string, sessionId SessionId, params *ListSessionTabsParams) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionId", sessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/sessions/%s/tabs", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-
-		if params.XApertureTenantId != nil {
-			var headerParam0 string
-
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
-			if err != nil {
-				return nil, err
-			}
-
-			req.Header.Set("X-Aperture-Tenant-Id", headerParam0)
-		}
-
-	}
-
-	return req, nil
-}
-
 // NewReplaceSessionTagsRequest calls the generic ReplaceSessionTags builder with application/json body
 func NewReplaceSessionTagsRequest(server string, sessionId SessionId, params *ReplaceSessionTagsParams, body ReplaceSessionTagsJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -11309,22 +11239,6 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /api/sessions/{sessionId}/suspend (the `SuspendSession` operationId).
 	SuspendSessionWithResponse(ctx context.Context, sessionId SessionId, params *SuspendSessionParams, reqEditors ...RequestEditorFn) (*SuspendSessionResponse, error)
-
-	// ListSessionTabsWithResponse List a session's tabs
-	//
-	// Returns the session's top-level tabs in the order the live session shows them. Tab IDs are the
-	// target IDs accepted by the tab thumbnail route and the live session. A running session reports
-	// its current tabs (`source: live`). A suspended session reports the tabs saved when it suspended
-	// (`source: persisted`), with the same IDs as its saved tab thumbnails; the list is saved even when
-	// `thumbnails_persist_on_suspend` is disabled, but then no tab has a thumbnail. A suspended session
-	// with nothing saved, and a session in any other retained state, returns no tabs
-	// (`source: unavailable`). Tab IDs change when the browser restarts. The request never wakes the
-	// session or extends its retention.
-	//
-	// Returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with GET /api/sessions/{sessionId}/tabs (the `ListSessionTabs` operationId).
-	ListSessionTabsWithResponse(ctx context.Context, sessionId SessionId, params *ListSessionTabsParams, reqEditors ...RequestEditorFn) (*ListSessionTabsResponse, error)
 
 	// ReplaceSessionTagsWithBodyWithResponse Replace browser session tags
 	//
@@ -14168,54 +14082,6 @@ func (r SuspendSessionResponse) ContentType() string {
 	return ""
 }
 
-type ListSessionTabsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *SessionTabs
-	// JSONDefault the response for an HTTP default `application/json` response
-	JSONDefault *Error
-}
-
-// GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r ListSessionTabsResponse) GetJSON200() *SessionTabs {
-	return r.JSON200
-}
-
-// GetJSONDefault returns the response for an HTTP default `application/json` response
-func (r ListSessionTabsResponse) GetJSONDefault() *Error {
-	return r.JSONDefault
-}
-
-// GetBody returns the raw response body bytes
-func (r ListSessionTabsResponse) GetBody() []byte {
-	return r.Body
-}
-
-// Status returns HTTPResponse.Status
-func (r ListSessionTabsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ListSessionTabsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ListSessionTabsResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
 type ReplaceSessionTagsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -15996,28 +15862,6 @@ func (c *ClientWithResponses) SuspendSessionWithResponse(ctx context.Context, se
 		return nil, err
 	}
 	return ParseSuspendSessionResponse(rsp)
-}
-
-// ListSessionTabsWithResponse List a session's tabs
-//
-// Returns the session's top-level tabs in the order the live session shows them. Tab IDs are the
-// target IDs accepted by the tab thumbnail route and the live session. A running session reports
-// its current tabs (`source: live`). A suspended session reports the tabs saved when it suspended
-// (`source: persisted`), with the same IDs as its saved tab thumbnails; the list is saved even when
-// `thumbnails_persist_on_suspend` is disabled, but then no tab has a thumbnail. A suspended session
-// with nothing saved, and a session in any other retained state, returns no tabs
-// (`source: unavailable`). Tab IDs change when the browser restarts. The request never wakes the
-// session or extends its retention.
-//
-// Returns a wrapper object for the known response body format(s).
-//
-// Corresponds with GET /api/sessions/{sessionId}/tabs (the `ListSessionTabs` operationId).
-func (c *ClientWithResponses) ListSessionTabsWithResponse(ctx context.Context, sessionId SessionId, params *ListSessionTabsParams, reqEditors ...RequestEditorFn) (*ListSessionTabsResponse, error) {
-	rsp, err := c.ListSessionTabs(ctx, sessionId, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListSessionTabsResponse(rsp)
 }
 
 // ReplaceSessionTagsWithBodyWithResponse Replace browser session tags
@@ -18147,39 +17991,6 @@ func ParseSuspendSessionResponse(rsp *http.Response) (*SuspendSessionResponse, e
 	return response, nil
 }
 
-// ParseListSessionTabsResponse parses an HTTP response from a ListSessionTabsWithResponse call
-func ParseListSessionTabsResponse(rsp *http.Response) (*ListSessionTabsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ListSessionTabsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest SessionTabs
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
 // ParseReplaceSessionTagsResponse parses an HTTP response from a ReplaceSessionTagsWithResponse call
 func ParseReplaceSessionTagsResponse(rsp *http.Response) (*ReplaceSessionTagsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -18790,9 +18601,6 @@ type ServerInterface interface {
 	// SuspendSession Suspend a browser session
 	// (POST /api/sessions/{sessionId}/suspend)
 	SuspendSession(c *gin.Context, sessionId SessionId, params SuspendSessionParams)
-	// ListSessionTabs List a session's tabs
-	// (GET /api/sessions/{sessionId}/tabs)
-	ListSessionTabs(c *gin.Context, sessionId SessionId, params ListSessionTabsParams)
 	// ReplaceSessionTags Replace browser session tags
 	// (PUT /api/sessions/{sessionId}/tags)
 	ReplaceSessionTags(c *gin.Context, sessionId SessionId, params ReplaceSessionTagsParams)
@@ -21269,55 +21077,6 @@ func (siw *ServerInterfaceWrapper) SuspendSession(c *gin.Context) {
 	siw.Handler.SuspendSession(c, sessionId, params)
 }
 
-// ListSessionTabs operation middleware
-func (siw *ServerInterfaceWrapper) ListSessionTabs(c *gin.Context) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", c.Param("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter sessionId: %w", err), http.StatusBadRequest)
-		return
-	}
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListSessionTabsParams
-
-	headers := c.Request.Header
-
-	// ------------- Optional header parameter "X-Aperture-Tenant-Id" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("X-Aperture-Tenant-Id")]; found {
-		var XApertureTenantId SelectedTenantId
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Aperture-Tenant-Id, got %d", n), http.StatusBadRequest)
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
-		if err != nil {
-			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
-			return
-		}
-
-		params.XApertureTenantId = &XApertureTenantId
-
-	}
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		middleware(c)
-		if c.IsAborted() {
-			return
-		}
-	}
-
-	siw.Handler.ListSessionTabs(c, sessionId, params)
-}
-
 // ReplaceSessionTags operation middleware
 func (siw *ServerInterfaceWrapper) ReplaceSessionTags(c *gin.Context) {
 
@@ -21971,7 +21730,6 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.PUT(options.BaseURL+"/api/sessions/:sessionId/cursor", wrapper.SetSessionCursor)
 	router.GET(options.BaseURL+"/api/sessions/:sessionId/thumbnail", wrapper.GetSessionThumbnail)
 	router.GET(options.BaseURL+"/api/sessions/:sessionId/targets/:targetId/thumbnail", wrapper.GetSessionTargetThumbnail)
-	router.GET(options.BaseURL+"/api/sessions/:sessionId/tabs", wrapper.ListSessionTabs)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/storage-state", wrapper.ExportSessionStorageState)
 	router.GET(options.BaseURL+"/api/sessions/:sessionId/recordings", wrapper.ListSessionRecordings)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/recordings", wrapper.CreateSessionRecording)
@@ -24235,46 +23993,6 @@ func (response SuspendSessiondefaultJSONResponse) VisitSuspendSessionResponse(w 
 	return err
 }
 
-type ListSessionTabsRequestObject struct {
-	SessionId SessionId `json:"sessionId"`
-	Params    ListSessionTabsParams
-}
-
-type ListSessionTabsResponseObject interface {
-	VisitListSessionTabsResponse(w http.ResponseWriter) error
-}
-
-type ListSessionTabs200JSONResponse SessionTabs
-
-func (response ListSessionTabs200JSONResponse) VisitListSessionTabsResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ListSessionTabsdefaultJSONResponse struct {
-	Body       Error
-	StatusCode int
-}
-
-func (response ListSessionTabsdefaultJSONResponse) VisitListSessionTabsResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type ReplaceSessionTagsRequestObject struct {
 	SessionId SessionId `json:"sessionId"`
 	Params    ReplaceSessionTagsParams
@@ -24987,9 +24705,6 @@ type StrictServerInterface interface {
 	// SuspendSession Suspend a browser session
 	// (POST /api/sessions/{sessionId}/suspend)
 	SuspendSession(ctx context.Context, request SuspendSessionRequestObject) (SuspendSessionResponseObject, error)
-	// ListSessionTabs List a session's tabs
-	// (GET /api/sessions/{sessionId}/tabs)
-	ListSessionTabs(ctx context.Context, request ListSessionTabsRequestObject) (ListSessionTabsResponseObject, error)
 	// ReplaceSessionTags Replace browser session tags
 	// (PUT /api/sessions/{sessionId}/tags)
 	ReplaceSessionTags(ctx context.Context, request ReplaceSessionTagsRequestObject) (ReplaceSessionTagsResponseObject, error)
@@ -26732,33 +26447,6 @@ func (sh *strictHandler) SuspendSession(ctx *gin.Context, sessionId SessionId, p
 		sh.options.HandlerErrorFunc(ctx, err)
 	} else if validResponse, ok := response.(SuspendSessionResponseObject); ok {
 		if err := validResponse.VisitSuspendSessionResponse(ctx.Writer); err != nil {
-			sh.options.ResponseErrorHandlerFunc(ctx, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ListSessionTabs operation middleware
-func (sh *strictHandler) ListSessionTabs(ctx *gin.Context, sessionId SessionId, params ListSessionTabsParams) {
-	var request ListSessionTabsRequestObject
-
-	request.SessionId = sessionId
-	request.Params = params
-
-	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
-		return sh.ssi.ListSessionTabs(ctx, request.(ListSessionTabsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListSessionTabs")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		sh.options.HandlerErrorFunc(ctx, err)
-	} else if validResponse, ok := response.(ListSessionTabsResponseObject); ok {
-		if err := validResponse.VisitListSessionTabsResponse(ctx.Writer); err != nil {
 			sh.options.ResponseErrorHandlerFunc(ctx, err)
 		}
 	} else if response != nil {

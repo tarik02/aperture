@@ -65,24 +65,6 @@ func (s *Service) BrowserOverview(ctx context.Context, tenantID, sessionID strin
 	return s.sessionBrowserOverview(ctx, sessionRow)
 }
 
-// TabsOverview is BrowserOverview for the account tab list: a session that is neither running nor
-// suspended has no tabs rather than failing.
-func (s *Service) TabsOverview(ctx context.Context, tenantID, sessionID string) (BrowserOverview, error) {
-	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
-	if err != nil {
-		return BrowserOverview{}, err
-	}
-	if sessionRow.Status != db.SessionStatusRunning && sessionRow.Status != db.SessionStatusSuspended {
-		return BrowserOverview{
-			SessionID: sessionRow.ID,
-			Status:    sessionRow.Status,
-			Source:    "unavailable",
-			Pages:     []browser.PageManifestEntry{},
-		}, nil
-	}
-	return s.sessionBrowserOverview(ctx, sessionRow)
-}
-
 // AuthorizedBrowserOverview is BrowserOverview for a session token or collaboration capability.
 func (s *Service) AuthorizedBrowserOverview(ctx context.Context, routeSessionID, authorization string) (BrowserOverview, error) {
 	sessionRow, err := s.authorizedPassiveSession(ctx, routeSessionID, authorization)

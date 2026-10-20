@@ -193,13 +193,6 @@ export const makeSessionsApi = Effect.gen(function* () {
       .pipe(tenantScoped(credentials));
   });
 
-  const listSessionTabs = Effect.fn("SessionsApi.listSessionTabs")(function* (
-    credentials: ApiCredentials,
-    sessionId: string,
-  ) {
-    return yield* api.listSessionTabs(sessionId, undefined).pipe(tenantScoped(credentials));
-  });
-
   const getSessionCursor = Effect.fn("SessionsApi.getSessionCursor")(function* (
     credentials: ApiCredentials,
     sessionId: string,
@@ -493,7 +486,6 @@ export const makeSessionsApi = Effect.gen(function* () {
     replaceSessionTags,
     updateSessionProxy,
     promoteSession,
-    listSessionTabs,
     getSessionCursor,
     setSessionCursor,
     listSessionRecordings,

@@ -111,7 +111,6 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 		path == "/api/sessions/:sessionId/cursor" && c.Request.Method == http.MethodGet,
 		path == "/api/sessions/:sessionId/thumbnail",
 		path == "/api/sessions/:sessionId/targets/:targetId/thumbnail",
-		path == "/api/sessions/:sessionId/tabs",
 		path == "/api/sessions/:sessionId/storage-state",
 		path == "/api/events":
 		if !s.requireSessionScope(c, auth.ScopeSessionsRead) {
@@ -532,15 +531,6 @@ func (s openAPIServer) GetSessionTargetThumbnail(ctx context.Context, _ generate
 	return openAPIPassthroughResponse{}, nil
 }
 
-func (s openAPIServer) ListSessionTabs(ctx context.Context, _ generated.ListSessionTabsRequestObject) (generated.ListSessionTabsResponseObject, error) {
-	c, ok := ctx.(*gin.Context)
-	if !ok {
-		return nil, errOpenAPIContext
-	}
-	s.server.listSessionTabs(c)
-	return openAPIPassthroughResponse{}, nil
-}
-
 func (s openAPIServer) GetSessionCursor(ctx context.Context, _ generated.GetSessionCursorRequestObject) (generated.GetSessionCursorResponseObject, error) {
 	c, ok := ctx.(*gin.Context)
 	if !ok {
@@ -954,10 +944,6 @@ func (openAPIPassthroughResponse) VisitGetSessionThumbnailResponse(http.Response
 }
 
 func (openAPIPassthroughResponse) VisitGetSessionTargetThumbnailResponse(http.ResponseWriter) error {
-	return nil
-}
-
-func (openAPIPassthroughResponse) VisitListSessionTabsResponse(http.ResponseWriter) error {
 	return nil
 }
 
