@@ -9,10 +9,21 @@ import * as NodeSocket from "@effect/platform-node/NodeSocket";
 // answers), and an EventEmitter error without a listener crashes the process.
 const webSocketConstructor = Layer.effect(
   Socket.WebSocketConstructor,
-  Effect.map(Socket.WebSocketConstructor, (make) => (url, options) => {
-    const socket = make(url, options);
-    socket.addEventListener("error", () => undefined);
-    return socket;
+  Effect.gen(function* () {
+    const make = yield* Socket.WebSocketConstructor;
+    const runFork = Effect.runForkWith(yield* Effect.context<never>());
+
+    return (url, options) => {
+      const socket = make(url, options);
+      socket.addEventListener("error", () => {
+        runFork(
+          Effect.logWarning("Session relay upstream socket error").pipe(
+            Effect.annotateLogs({ url }),
+          ),
+        );
+      });
+      return socket;
+    };
   }),
 ).pipe(Layer.provide(NodeSocket.layerWebSocketConstructorWS));
 
