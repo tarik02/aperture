@@ -812,7 +812,10 @@ func RunningSessionsFromDB(sessions []db.Session) []RunningSession {
 			ID:      session.ID,
 			CDPPort: *session.CurrentCDPPort,
 		}
-		if session.RuntimeEnvPath != nil {
+		// Rows written before the database kept the wrapper port name it only in their runtime env.
+		if session.CurrentWrapperPort != nil {
+			view.WrapperPort = *session.CurrentWrapperPort
+		} else if session.RuntimeEnvPath != nil {
 			body, err := os.ReadFile(*session.RuntimeEnvPath)
 			if err == nil {
 				values, err := browser.ParseRuntimeEnv(body)

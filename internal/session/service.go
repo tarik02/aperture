@@ -293,6 +293,7 @@ func (s *Service) create(
 	sessionRow.DeletedAt = nil
 	sessionRow.RuntimeEnvPath = &runtimePath
 	sessionRow.CurrentCDPPort = &port
+	sessionRow.CurrentWrapperPort = &wrapperPort
 
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
 		_ = s.cleanupPreparedRuntime(ctx, sessionID)
@@ -504,6 +505,7 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 	sessionRow.SuspendedAt = nil
 	sessionRow.RuntimeEnvPath = nil
 	sessionRow.CurrentCDPPort = nil
+	sessionRow.CurrentWrapperPort = nil
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
 		return nil, err
 	}
@@ -617,6 +619,7 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 	sessionRow.ExpiresAt = expiresAt
 	sessionRow.RuntimeEnvPath = &runtimePath
 	sessionRow.CurrentCDPPort = &port
+	sessionRow.CurrentWrapperPort = &wrapperPort
 	sessionRow.LastConnectedAt = &startedAt
 
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
@@ -1018,13 +1021,66 @@ func (s *Service) ReconcileStartup(ctx context.Context) error {
 	if err := s.removeStaleRuntimeEnvFiles(ctx); err != nil {
 		return err
 	}
+	if err := s.persistWrapperPorts(ctx); err != nil {
+		return err
+	}
 
 	return s.traefik.Reconcile(ctx)
 }
 
-// ReconcileRoutes refreshes active-owned live session routes without changing session state.
+// ReconcileRoutes refreshes active-owned live session routes. A color that activates without
+// restarting skips ReconcileStartup, so it also keeps wrapper ports here.
 func (s *Service) ReconcileRoutes(ctx context.Context) error {
+	if err := s.persistWrapperPorts(ctx); err != nil {
+		return err
+	}
 	return s.traefik.Reconcile(ctx)
+}
+
+// persistWrapperPorts records the wrapper port of sessions written before the database kept it.
+// A suspended session whose runtime env is gone, as after a host reboot, takes a fresh port pair:
+// without one it has no live routes, so opening it cannot wake it.
+func (s *Service) persistWrapperPorts(ctx context.Context) error {
+	sessions, err := s.repo.ListSessionsByStatuses(ctx, []string{db.SessionStatusRunning, db.SessionStatusSuspended})
+	if err != nil {
+		return err
+	}
+	for _, listed := range sessions {
+		if listed.CurrentWrapperPort != nil {
+			continue
+		}
+		if err := s.persistWrapperPort(ctx, listed.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) persistWrapperPort(ctx context.Context, sessionID string) error {
+	unlock := s.repo.LockSession(sessionID)
+	defer unlock()
+
+	sessionRow, err := s.repo.GetSessionByID(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if sessionRow == nil || sessionRow.CurrentWrapperPort != nil {
+		return nil
+	}
+
+	if wrapperPort := sessionWrapperPort(sessionRow); sessionRow.CurrentCDPPort != nil && wrapperPort > 0 {
+		sessionRow.CurrentWrapperPort = &wrapperPort
+	} else if sessionRow.Status == db.SessionStatusSuspended {
+		port, wrapperPort, err := s.allocatePorts(ctx, sessionID)
+		if err != nil {
+			return err
+		}
+		sessionRow.CurrentCDPPort = &port
+		sessionRow.CurrentWrapperPort = &wrapperPort
+	} else {
+		return nil
+	}
+	return s.repo.UpdateSession(ctx, sessionRow)
 }
 
 func (s *Service) reconcileOrphanRuntimeUnits(ctx context.Context) error {
@@ -1216,6 +1272,7 @@ func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session
 	sessionRow.SuspendedAt = nil
 	sessionRow.RuntimeEnvPath = nil
 	sessionRow.CurrentCDPPort = nil
+	sessionRow.CurrentWrapperPort = nil
 	if err := s.repo.UpdateSession(cleanupCtx, sessionRow); err != nil {
 		return err
 	}
@@ -1245,6 +1302,7 @@ func (s *Service) markReopenFailedRetained(ctx context.Context, sessionRow *db.S
 	sessionRow.SuspendedAt = nil
 	sessionRow.RuntimeEnvPath = nil
 	sessionRow.CurrentCDPPort = nil
+	sessionRow.CurrentWrapperPort = nil
 	if err := s.repo.UpdateSession(cleanupCtx, sessionRow); err != nil {
 		return err
 	}
