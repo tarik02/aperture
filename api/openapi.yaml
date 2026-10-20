@@ -878,6 +878,58 @@ paths:
             image/jpeg:
               schema: {type: string, format: binary}
         default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/targets/{targetId}/favicon:
+    get:
+      operationId: getSessionTargetFavicon
+      tags: [sessions]
+      summary: Get a tab favicon
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:read]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [resource_access_denied, session_not_found, session_expired, session_not_running, favicon_not_found, session_service_unavailable, browser_control_failed]
+      description: |
+        Returns the icon Chromium shows for one top-level tab. The browser loads it through the tab's
+        own network context, so icons of private or signed-in sites work and the site never sees the
+        caller. Internal pages such as `chrome://` have none. Icons are at most 64 KiB and are PNG, ICO,
+        GIF, JPEG, WebP, or SVG; SVG is served with a `Content-Security-Policy` that blocks scripts and
+        loads. A suspended session serves the favicons saved when it suspended, unless
+        `thumbnails_persist_on_suspend` is disabled. The request never wakes the session.
+
+        Pass the page's `faviconVersion` as `v` to cache the response indefinitely: a changed icon gets
+        a new version and so a new URL. Without a matching `v`, the response must be revalidated with
+        `If-None-Match`.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - name: targetId
+          in: path
+          required: true
+          description: Top-level target ID from the session's page list.
+          schema: {type: string, pattern: '^[A-Za-z0-9_-]{1,128}$'}
+        - name: v
+          in: query
+          required: false
+          description: The page's `faviconVersion`. When it matches the served icon, the response is immutable.
+          schema: {type: string}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200':
+          description: Tab favicon
+          headers:
+            ETag: {schema: {type: string}, description: Quoted favicon version.}
+            Cache-Control:
+              schema: {type: string}
+              description: '`private, max-age=31536000, immutable` when `v` matches the version, otherwise `private, no-cache`.'
+          content:
+            image/png: {schema: {type: string, format: binary}}
+            image/x-icon: {schema: {type: string, format: binary}}
+            image/gif: {schema: {type: string, format: binary}}
+            image/jpeg: {schema: {type: string, format: binary}}
+            image/webp: {schema: {type: string, format: binary}}
+            image/svg+xml: {schema: {type: string, format: binary}}
+        '304':
+          description: The icon matches `If-None-Match`.
+        default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/storage-state:
     post:
       operationId: exportSessionStorageState
@@ -1875,6 +1927,7 @@ components:
         - recording_invalid_state
         - recording_codec_unavailable
         - thumbnail_not_found
+        - favicon_not_found
         - storage_export_unsupported
         - session_file_not_found
         - session_file_busy
@@ -1944,6 +1997,7 @@ components:
         recording_invalid_state: 409
         recording_codec_unavailable: 422
         thumbnail_not_found: 404
+        favicon_not_found: 404
         storage_export_unsupported: 422
         session_file_not_found: 404
         session_file_busy: 409
@@ -3083,6 +3137,8 @@ components:
           $ref: '#/components/schemas/SessionCollaborationCapabilities'
         thumbnail:
           $ref: '#/components/schemas/SessionThumbnail'
+        favicon:
+          $ref: '#/components/schemas/SessionFavicon'
         proxy:
           $ref: '#/components/schemas/SessionProxy'
     SessionThumbnail:
@@ -3102,6 +3158,23 @@ components:
           type: string
           x-sensitive: true
           description: Tab thumbnail URL with a literal `{targetId}` placeholder for a top-level target ID.
+        expiresAt:
+          type: string
+          format: date-time
+    SessionFavicon:
+      type: object
+      description: |
+        Signed tab favicon URL template for image elements. It needs no other credentials and expires
+        after the configured signed URL lifetime; every session response returns a fresh one. Present
+        while the session is running or suspended; each page's `faviconAvailable` says whether it has one.
+      required: [targetUrlTemplate, expiresAt]
+      properties:
+        targetUrlTemplate:
+          type: string
+          x-sensitive: true
+          description: |
+            Tab favicon URL with a literal `{targetId}` placeholder for a top-level target ID. Append
+            `&v=` and the page's `faviconVersion` to make the response cacheable indefinitely.
         expiresAt:
           type: string
           format: date-time

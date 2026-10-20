@@ -134,6 +134,10 @@ message names the reason. Failures return no partial state. The JSON response us
 
 `getSessionThumbnail(credentials, sessionId, targetId?)` returns a JPEG `Blob` of the session, or of one tab. It never wakes a suspended session. For image elements, use the signed `session.thumbnail.url` and `session.thumbnail.targetUrlTemplate` from `getSession` or the session list instead; see [Thumbnails](/docs/session-sharing#thumbnails).
 
+### Favicons
+
+`getSessionFavicon(credentials, sessionId, targetId, version?)` returns a tab's icon as a `Blob` typed by its response. It never wakes a suspended session. Pass the page's `faviconVersion` so the HTTP cache can keep the response. For image elements, use the signed `session.favicon.targetUrlTemplate`; see [Favicons](/docs/session-sharing#favicons).
+
 ### Passive browser status
 
 `getBrowserStatus(credentials, sessionId, sessionToken?)` reads page metadata without waking the browser, mounting its profile, updating retention activity, or preventing idle suspension. Account credentials need `sessions:read`; the optional bearer credential may instead be the owner session token or an editor or viewer capability.

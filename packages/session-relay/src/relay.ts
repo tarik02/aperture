@@ -51,6 +51,11 @@ const targetParams = Schema.Struct({
   targetId: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[a-zA-Z0-9_-]{1,128}$/))),
 });
 
+const faviconParams = Schema.Struct({
+  targetId: Schema.String.check(Schema.isPattern(/^[a-zA-Z0-9_-]{1,128}$/)),
+  v: Schema.optionalKey(Schema.String),
+});
+
 /** Ends a handler early with a finished response. */
 class Respond extends Data.TaggedError("Respond")<{
   readonly response: HttpServerResponse.HttpServerResponse;
@@ -240,6 +245,47 @@ export function sessionRelay<R>(options: SessionRelayOptions<R>) {
         });
       });
 
+      // Aperture decides cacheability from `v` and guards SVG icons, so its headers pass through.
+      const favicon = Effect.gen(function* () {
+        const { request, grant, capability } = yield* admit(false);
+        const { targetId, v } = yield* HttpRouter.schemaParams(faviconParams);
+        const url = upstreamURL(grant.sessionId, `targets/${encodeURIComponent(targetId)}/favicon`);
+        if (v !== undefined) url.searchParams.set("v", v);
+        const ifNoneMatch = request.headers["if-none-match"];
+        const response = yield* upstreamGet(
+          url,
+          capability,
+          ifNoneMatch === undefined ? {} : { "if-none-match": ifNoneMatch },
+        );
+        const headers: Record<string, string> = {};
+        for (const name of [
+          "cache-control",
+          "etag",
+          "content-security-policy",
+          "x-content-type-options",
+        ]) {
+          const value = response.headers[name];
+          if (value !== undefined) headers[name] = value;
+        }
+        if (response.status === 304) {
+          return HttpServerResponse.empty({ status: 304, headers });
+        }
+        if (response.status === 404) {
+          return relayError(404, "favicon_not_found", "Favicon not found");
+        }
+        if (isTerminalStatus(response.status)) {
+          return yield* rejectAccess(request, false, response.status);
+        }
+        if (response.status !== 200) {
+          return relayError(502, "upstream_unavailable", "Aperture is unavailable");
+        }
+        const image = yield* response.arrayBuffer.pipe(Effect.timeout("15 seconds"));
+        return HttpServerResponse.uint8Array(new Uint8Array(image), {
+          contentType: response.headers["content-type"] ?? "application/octet-stream",
+          headers,
+        });
+      });
+
       const routes = [
         { path: "browser/status", websocket: false, handler: status },
         { path: "session", websocket: true, handler: socket("session") },
@@ -247,6 +293,7 @@ export function sessionRelay<R>(options: SessionRelayOptions<R>) {
         { path: "recordings/:recordingId/content", websocket: false, handler: recording },
         { path: "thumbnail", websocket: false, handler: thumbnail },
         { path: "targets/:targetId/thumbnail", websocket: false, handler: thumbnail },
+        { path: "targets/:targetId/favicon", websocket: false, handler: favicon },
       ];
       const prefixed = router.prefixed(prefix);
       for (const { path, websocket, handler } of routes) {

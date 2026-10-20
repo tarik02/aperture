@@ -142,6 +142,19 @@ A running session returns `source: "live"`; a suspended session returns `source:
 
 Older suspended sessions have no page manifest. Persistence may also be disabled or fail within its best-effort suspension budget. Those cases return `source: "unavailable"`, an empty page list, and no `capturedAt` rather than waking the browser or presenting an older generation as new. Target IDs in persisted data are historical references for that generation; Chromium may assign different IDs after resume.
 
+## Favicons
+
+Each top-level tab can serve the icon Chromium shows for it. The browser loads the icon through the tab's own network context, so icons of private or signed-in sites work and the site never sees the client. Internal pages such as `chrome://` have none. Icons are at most 64 KiB and are PNG, ICO, GIF, JPEG, WebP, or SVG; SVG is served with a `Content-Security-Policy` that blocks scripts and loads. Favicon requests never wake a suspended session and do not count as session activity.
+
+```text
+GET /api/sessions/<session-id>/targets/<target-id>/favicon
+GET /sessions/<session-id>/targets/<target-id>/favicon
+```
+
+The routes accept the same credentials as the thumbnail routes. Session reads return a signed `favicon.targetUrlTemplate` for image elements, with the same lifetime as thumbnail URLs.
+
+Each page in the browser status lists `faviconAvailable` and `faviconVersion`, a short content hash. Add `v=<faviconVersion>` to the favicon URL and the response is cached with `Cache-Control: private, max-age=31536000, immutable`; a changed icon gets a new version. Without a matching `v` the response is `private, no-cache` with the version as its `ETag`, so clients revalidate with `If-None-Match`. Suspension saves favicons with the tab thumbnails, and `thumbnails_persist_on_suspend = false` skips both.
+
 ## Limits and audit events
 
 The default per-file upload limit is 100 MiB. Before accepting an upload, Aperture measures writable session data under the overlay upper directory, the session files, and the cache. The default admission limit is 1 GiB. The merged overlay and base snapshot are not double-counted. Browser activity can exceed the limit after admission; this is not a filesystem-enforced quota.
