@@ -26,21 +26,26 @@ const (
 // suspended session's ports, or a starting session's, to another session.
 type portAllocator struct {
 	mu      sync.Mutex
-	claimed map[int]time.Time
+	claimed map[int]portClaim
 	now     func() time.Time
 }
 
-func newPortAllocator() *portAllocator {
-	return &portAllocator{claimed: make(map[int]time.Time), now: time.Now}
+type portClaim struct {
+	sessionID string
+	at        time.Time
 }
 
-// allocate returns count free ports and claims them.
-func (a *portAllocator) allocate(reserved map[int]bool, count int) ([]int, error) {
+func newPortAllocator() *portAllocator {
+	return &portAllocator{claimed: make(map[int]portClaim), now: time.Now}
+}
+
+// allocate returns count free ports and claims them for a session.
+func (a *portAllocator) allocate(sessionID string, reserved map[int]bool, count int) ([]int, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := a.now()
-	for port, at := range a.claimed {
-		if now.Sub(at) > portClaimTTL {
+	for port, claim := range a.claimed {
+		if now.Sub(claim.at) > portClaimTTL {
 			delete(a.claimed, port)
 		}
 	}
@@ -63,16 +68,18 @@ func (a *portAllocator) allocate(reserved map[int]bool, count int) ([]int, error
 		return nil, fmt.Errorf("no available port in range %d-%d", cdpPortMin, cdpPortMax)
 	}
 	for _, port := range ports {
-		a.claimed[port] = now
+		a.claimed[port] = portClaim{sessionID: sessionID, at: now}
 	}
 	return ports, nil
 }
 
-// free reports whether a port is neither listened on nor claimed by another start.
-func (a *portAllocator) free(port int) bool {
+// free reports whether a port is neither listened on nor claimed by another session's start. The
+// session's own claim does not count, so a session suspended within the claim TTL wakes on its
+// ports instead of moving to new ones.
+func (a *portAllocator) free(sessionID string, port int) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if at, claimed := a.claimed[port]; claimed && a.now().Sub(at) <= portClaimTTL {
+	if claim, claimed := a.claimed[port]; claimed && claim.sessionID != sessionID && a.now().Sub(claim.at) <= portClaimTTL {
 		return false
 	}
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
@@ -89,7 +96,7 @@ func (s *Service) allocatePorts(ctx context.Context, sessionID string) (int, int
 	if err != nil {
 		return 0, 0, err
 	}
-	ports, err := s.ports.allocate(reserved, 2)
+	ports, err := s.ports.allocate(sessionID, reserved, 2)
 	if err != nil {
 		return 0, 0, err
 	}

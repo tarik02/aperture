@@ -30,13 +30,50 @@ func (s *Server) sessionTokenForwardAuth(c *gin.Context) {
 	credential := sessionTokenForwardAuthCredential(c)
 	role, err := s.validateCDPForwardAuth(c.Request.Context(), sessionID, credential)
 	if err != nil {
-		s.recordAuthFailure(authMethodSessionToken, err)
-		status, _ := mapForwardAuthError(err)
-		c.Status(status)
+		if !errors.Is(err, session.ErrEndpointMoved) {
+			s.recordAuthFailure(authMethodSessionToken, err)
+		}
+		writeCDPError(c, err)
 		return
 	}
 	c.Header(forwardedCollaborationRoleHeader, role)
 	c.Status(http.StatusOK)
+}
+
+// cdpWithoutRoute answers CDP requests the edge proxy has no session route for: sessions that are
+// gone, failed or expired, and suspended sessions whose endpoint is not routed yet. A suspended
+// session wakes here and the client retries once its routes exist.
+func (s *Server) cdpWithoutRoute(c *gin.Context) {
+	if s.Sessions == nil {
+		WriteError(c, errSessionServiceUnavailable)
+		return
+	}
+	credential := ""
+	if token, _, _ := strings.Cut(strings.TrimPrefix(c.Param("rest"), "/"), "/"); isSessionAccessToken(token) {
+		credential = "Bearer " + token
+	}
+	_, err := s.validateCDPForwardAuth(c.Request.Context(), c.Param("sessionId"), credential)
+	if err == nil {
+		err = session.ErrEndpointMoved
+	}
+	if !errors.Is(err, session.ErrEndpointMoved) {
+		s.recordAuthFailure(authMethodSessionToken, err)
+	}
+	writeCDPError(c, err)
+}
+
+// writeCDPError writes a typed JSON error for the CDP data plane. Traefik returns a failed
+// ForwardAuth response to the client as is, so clients see the same body from both handlers.
+func writeCDPError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, session.ErrSessionTokenMissing), errors.Is(err, session.ErrSessionTokenInvalid), errors.Is(err, session.ErrSessionTokenRevoked), errors.Is(err, auth.ErrScopeDenied):
+		c.Set(apiErrorCodeContextKey, "invalid_session_token")
+		c.JSON(http.StatusUnauthorized, errorBody{Error: apiErrorDetail{Code: "invalid_session_token", Message: "session token authorization failed"}})
+		return
+	case errors.Is(err, session.ErrEndpointMoved):
+		c.Header("Retry-After", "1")
+	}
+	WriteError(c, err)
 }
 
 func (s *Server) validateCDPForwardAuth(ctx context.Context, sessionID, credential string) (string, error) {
@@ -235,6 +272,8 @@ func mapForwardAuthError(err error) (int, string) {
 		return http.StatusConflict, err.Error()
 	case errors.Is(err, session.ErrExpired):
 		return http.StatusGone, err.Error()
+	case errors.Is(err, session.ErrEndpointMoved):
+		return http.StatusServiceUnavailable, err.Error()
 	default:
 		return http.StatusUnauthorized, "session token authorization failed"
 	}

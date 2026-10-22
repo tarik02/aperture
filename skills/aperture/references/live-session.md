@@ -72,6 +72,18 @@ curl -fsS "$CDP_URL/$SESSION_TOKEN/json/list"
 
 The `webSocketDebuggerUrl`s in those answers are rewritten onto the same tokenized path; connect to them with no `Authorization` header and no subprotocol. Rotating the session token (`POST /api/sessions/:id/session-token/rotate`, `sessions.session_token_rotate`) breaks every URL built with the old one.
 
+Any CDP request wakes a `suspended` session, discovery included, and answers once the browser is ready. Failures are JSON `{"error": {"code", "message"}}`:
+
+| Status | `code` | Meaning |
+|---|---|---|
+| 503 + `Retry-After` | `session_endpoint_moved` | The session woke on a new endpoint; retry the same request. |
+| 409 | `session_not_running` | `failed`, `deleted` or not yet `running`. Read it with `GET /api/sessions/:id`; a `failed` session's browser could not be restored, so restore into a new session. |
+| 409 | `session_overlay_missing` | The suspended session lost its browser profile and is now `failed`. |
+| 502 | `browser_start_failed` | The wake failed and the session is now `failed`. |
+| 410 | `session_expired` | Retention ran out. |
+| 404 | `session_not_found` | No such session. |
+| 401 | `invalid_session_token` | Missing, wrong or rotated token. |
+
 ## Local tunnel
 
 A local tunnel lets the browser reach services on the client's machine, such as a dev server. The session's [proxy rules](control-plane.md#egress-proxy) decide what it carries: connections whose rule says `"via": "local"`, for example `{"match": "localhost:3000", "via": "local"}`; the browser addresses them as `localhost`.
