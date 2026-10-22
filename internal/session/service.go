@@ -1015,6 +1015,19 @@ func (s *Service) ReconcileStartup(ctx context.Context) error {
 		}
 	}
 
+	suspended, err := s.repo.ListSessionsByStatus(ctx, db.SessionStatusSuspended)
+	if err != nil {
+		return err
+	}
+	for _, sessionRow := range suspended {
+		if s.overlayPresent(&sessionRow) {
+			continue
+		}
+		if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation found suspended session without overlay", ErrOverlayMissing); err != nil {
+			return err
+		}
+	}
+
 	if err := s.reconcileOrphanRuntimeUnits(ctx); err != nil {
 		return err
 	}

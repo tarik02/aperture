@@ -183,6 +183,8 @@ func mapError(err error) (int, string, string) {
 		return http.StatusConflict, "session_invalid_state", err.Error()
 	case errors.Is(err, session.ErrNotRunning):
 		return http.StatusConflict, "session_not_running", err.Error()
+	case errors.Is(err, session.ErrEndpointMoved):
+		return http.StatusServiceUnavailable, "session_endpoint_moved", err.Error()
 	case errors.Is(err, session.ErrThumbnailNotFound):
 		return http.StatusNotFound, "thumbnail_not_found", "thumbnail not found"
 	case errors.Is(err, session.ErrThumbnailCapture):
