@@ -36,6 +36,8 @@ import { CollaborationPresence } from "./collaboration-presence.tsx";
 interface BrowserToolbarProps {
   control: UseBrowserControlResult;
   leading?: ReactNode;
+  toolbarLeading?: ReactNode;
+  toolbarTrailing?: ReactNode;
   features: ResolvedSessionFeatures;
   collaborationRole: CollaborationRole;
   cdpUrl: string | null;
@@ -55,6 +57,8 @@ interface BrowserToolbarProps {
 export function BrowserToolbar({
   control,
   leading,
+  toolbarLeading,
+  toolbarTrailing,
   features,
   collaborationRole,
   cdpUrl,
@@ -141,12 +145,19 @@ export function BrowserToolbar({
           ) : null}
         </div>
       ) : null}
-      {features.navigation ||
+      {toolbarLeading ||
+      toolbarTrailing ||
+      features.navigation ||
       features.addressBar ||
       features.drawing ||
       features.devTools ||
       features.menus ? (
         <div className="aperture:flex aperture:h-9 aperture:items-center aperture:gap-1 aperture:px-1.5">
+          {toolbarLeading ? (
+            <div className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-0.5">
+              {toolbarLeading}
+            </div>
+          ) : null}
           {features.navigation ? (
             <div className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-0.5">
               <ToolbarButton
@@ -250,6 +261,11 @@ export function BrowserToolbar({
               onSessionDetails={onSessionDetails}
               now={recordingNow}
             />
+          ) : null}
+          {toolbarTrailing ? (
+            <div className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-0.5">
+              {toolbarTrailing}
+            </div>
           ) : null}
         </div>
       ) : null}
