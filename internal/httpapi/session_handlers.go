@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/aperture/aperture/internal/auth"
@@ -10,10 +11,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func toSessionResponse(view *session.SessionView) sessionResponse {
+func (s *Server) sessionWebURL(sessionID string) string {
+	return strings.TrimRight(s.Config.ExternalBaseURL, "/") + "/-/sessions/" + url.PathEscape(sessionID)
+}
+
+func (s *Server) toSessionResponse(view *session.SessionView) sessionResponse {
 	resp := sessionResponse{
 		ID:               view.Session.ID,
 		TenantID:         view.Session.TenantID,
+		WebURL:           s.sessionWebURL(view.Session.ID),
 		BaseSnapshotName: view.BaseSnapshotName,
 		Label:            view.Session.Label,
 		Status:           view.Session.Status,
@@ -58,7 +64,7 @@ func (s *Server) rotateCollaborationCapability(c *gin.Context, role session.Coll
 		WriteError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, sessionMutationResponse{Session: toSessionResponse(view)})
+	c.JSON(http.StatusOK, sessionMutationResponse{Session: s.toSessionResponse(view)})
 }
 
 func toICEServerResponses(servers []config.WebRTCICEServer) []iceServerResponse {
@@ -126,7 +132,7 @@ func (s *Server) createSession(c *gin.Context, waitForReady bool) {
 	}
 
 	c.JSON(http.StatusCreated, createSessionResponse{
-		Session:      toSessionResponse(view),
+		Session:      s.toSessionResponse(view),
 		CDPURL:       view.CDPURL,
 		SessionToken: view.SessionToken,
 	})
@@ -144,7 +150,7 @@ func (s *Server) getSession(c *gin.Context) {
 		return
 	}
 
-	response := toSessionResponse(view)
+	response := s.toSessionResponse(view)
 	response.Thumbnail = s.sessionThumbnailLinks(view.Session)
 	c.JSON(http.StatusOK, response)
 }
@@ -162,7 +168,7 @@ func (s *Server) deleteSession(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sessionMutationResponse{
-		Session: toSessionResponse(view),
+		Session: s.toSessionResponse(view),
 	})
 }
 
@@ -185,7 +191,7 @@ func (s *Server) replaceSessionTags(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sessionMutationResponse{
-		Session: toSessionResponse(view),
+		Session: s.toSessionResponse(view),
 	})
 }
 
@@ -218,7 +224,7 @@ func (s *Server) updateSessionProxy(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sessionMutationResponse{
-		Session: toSessionResponse(view),
+		Session: s.toSessionResponse(view),
 	})
 }
 
@@ -235,7 +241,7 @@ func (s *Server) suspendSession(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sessionMutationResponse{
-		Session:      toSessionResponse(view),
+		Session:      s.toSessionResponse(view),
 		CDPURL:       view.CDPURL,
 		SessionToken: view.SessionToken,
 	})
@@ -254,7 +260,7 @@ func (s *Server) reopenSession(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sessionMutationResponse{
-		Session:      toSessionResponse(view),
+		Session:      s.toSessionResponse(view),
 		CDPURL:       view.CDPURL,
 		SessionToken: view.SessionToken,
 	})

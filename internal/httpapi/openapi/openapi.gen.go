@@ -2398,6 +2398,9 @@ type Session struct {
 	// configured signed URL lifetime; every session response returns fresh ones. Present while the
 	// session is running, or while suspended when thumbnails were saved.
 	Thumbnail *SessionThumbnail `json:"thumbnail,omitempty"`
+
+	// WebUrl The session's page in the Aperture web UI. Give this link to people who should open the session in a browser.
+	WebUrl string `json:"webUrl"`
 }
 
 // SessionBrowserStatus Passive page metadata of a running or suspended session.
