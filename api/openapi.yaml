@@ -3065,7 +3065,7 @@ components:
     Session:
       type: object
       description: Browser session state, retention metadata, tags, and currently available access credentials.
-      required: [id, tenantId, status, media, createdAt, expiresAt]
+      required: [id, tenantId, webUrl, status, media, createdAt, expiresAt]
       properties:
         id:
           allOf: [{$ref: '#/components/schemas/UUIDv7'}]
@@ -3073,6 +3073,11 @@ components:
         tenantId:
           allOf: [{$ref: '#/components/schemas/UUIDv7'}]
           description: Tenant that owns the session.
+        webUrl:
+          type: string
+          format: uri
+          description: The session's page in the Aperture web UI. Give this link to people who should open the session in a browser.
+          example: https://aperture.example/-/sessions/019f6cf0-0000-7000-8000-000000000010
         baseSnapshotName:
           type: string
           description: Snapshot name used as the session base. Omitted for a blank session.

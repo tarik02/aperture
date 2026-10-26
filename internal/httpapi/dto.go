@@ -557,6 +557,7 @@ func toSessionProxyView(config proxy.Config) *sessionProxyView {
 type sessionResponse struct {
 	ID               string                            `json:"id"`
 	TenantID         string                            `json:"tenantId"`
+	WebURL           string                            `json:"webUrl"`
 	BaseSnapshotName *string                           `json:"baseSnapshotName,omitempty"`
 	Label            *string                           `json:"label,omitempty"`
 	Status           string                            `json:"status"`

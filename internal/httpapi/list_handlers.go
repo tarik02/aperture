@@ -13,10 +13,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func toSessionListItem(view session.SessionView) sessionListItemResponse {
+func (s *Server) toSessionListItem(view session.SessionView) sessionListItemResponse {
 	resp := sessionListItemResponse{
 		ID:               view.Session.ID,
 		TenantID:         view.Session.TenantID,
+		WebURL:           s.sessionWebURL(view.Session.ID),
 		BaseSnapshotName: view.BaseSnapshotName,
 		Label:            view.Session.Label,
 		Status:           view.Session.Status,
@@ -121,7 +122,7 @@ func (s *Server) listSessions(c *gin.Context) {
 
 	items := make([]sessionListItemResponse, 0, len(page.Items))
 	for _, view := range page.Items {
-		item := toSessionListItem(view)
+		item := s.toSessionListItem(view)
 		item.Thumbnail = s.sessionThumbnailLinks(view.Session)
 		items = append(items, item)
 	}
@@ -149,7 +150,7 @@ func (s *Server) getSessionsBulk(c *gin.Context) {
 
 	sessions := make([]sessionResponse, 0, len(views))
 	for _, view := range views {
-		item := toSessionListItem(view)
+		item := s.toSessionListItem(view)
 		item.Thumbnail = s.sessionThumbnailLinks(view.Session)
 		sessions = append(sessions, item)
 	}
