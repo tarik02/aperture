@@ -14,7 +14,12 @@ import {
 
 type BrowserControlPaneProps = {
   control: UseBrowserControlResult;
+  /** Rendered at the start of the title bar row, before the tab strip. */
   leading?: ReactNode;
+  /** Rendered at the start of the toolbar row, before the navigation buttons. */
+  toolbarLeading?: ReactNode;
+  /** Rendered at the end of the toolbar row, after the menus. */
+  toolbarTrailing?: ReactNode;
   features?: SessionFeatures;
   collaborationRole: CollaborationRole;
   cdpUrl: string | null;
@@ -27,6 +32,8 @@ const LOCAL_CURSOR_STORAGE_KEY = "aperture.workbench.localCursorEnabled";
 export function BrowserControlPane({
   control,
   leading,
+  toolbarLeading,
+  toolbarTrailing,
   features: featureOverrides,
   collaborationRole,
   cdpUrl,
@@ -121,6 +128,8 @@ export function BrowserControlPane({
       <BrowserToolbar
         control={control}
         leading={leading}
+        toolbarLeading={toolbarLeading}
+        toolbarTrailing={toolbarTrailing}
         features={features}
         collaborationRole={collaborationRole}
         cdpUrl={cdpUrl}
