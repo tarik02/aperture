@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import * as Effect from "effect/Effect";
+import * as Equal from "effect/Equal";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
@@ -130,13 +131,17 @@ const pointerButtonCode: Record<"left" | "right" | "middle", number> = {
 };
 
 export function useLiveSession({
-  access,
+  access: accessOption,
   displayName = null,
   enabled,
   webrtcSupported,
-  iceServers,
+  iceServers: iceServersOption,
   autoSize,
 }: UseLiveSessionOptions): LiveSessionControl {
+  // Callers often rebuild these from refetched data, such as a session refetched on window
+  // focus; only a change in value may reopen the connection.
+  const access = useEqualValue(accessOption);
+  const iceServers = useEqualValue(iceServersOption);
   const identity = useMemo(() => collaborationIdentity(displayName), [displayName]);
   const [role, setRole] = useState<CollaborationRole>("viewer");
   const runtime = useRuntime();
@@ -987,3 +992,12 @@ export type {
   CollaborationPhase,
   CollaborationRole,
 };
+
+/** Returns the previous value while the new one is equal by value. */
+function useEqualValue<A>(value: A): A {
+  const ref = useRef(value);
+  if (!Equal.equals(ref.current, value)) {
+    ref.current = value;
+  }
+  return ref.current;
+}
