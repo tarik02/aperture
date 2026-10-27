@@ -4,11 +4,13 @@ import { ScrollArea } from "./scroll-area.tsx";
 import { cn } from "../utils.ts";
 
 type TableContextValue = {
+  stickyHeader: boolean;
   stickyFirstColumn: boolean;
   stickyLastColumn: boolean;
 };
 
 const TableContext = React.createContext<TableContextValue>({
+  stickyHeader: false,
   stickyFirstColumn: false,
   stickyLastColumn: false,
 });
@@ -20,6 +22,10 @@ type TableProps = React.ComponentProps<"table"> & {
   stickyFirstColumn?: boolean;
   /** Keep the last column visible while scrolling horizontally. */
   stickyLastColumn?: boolean;
+  /** Alias for `stickyLastColumn`, for tables whose last column holds row actions. */
+  stickyActionColumn?: boolean;
+  /** Keep the header visible while scrolling vertically. On by default. */
+  stickyHeader?: boolean;
   /**
    * Wrap the table in a scroll area with edge shadows. Turn it off for small inline tables
    * that size to their content.
@@ -106,7 +112,7 @@ function useScrollBoundaries<Content extends HTMLElement>() {
 }
 
 const shadowClassName =
-  "aperture:pointer-events-none aperture:absolute aperture:z-35 aperture:opacity-0 aperture:transition-[opacity,left,right,top] aperture:duration-120 aperture:ease-out aperture:from-foreground/10 aperture:to-transparent";
+  "aperture:pointer-events-none aperture:absolute aperture:z-35 aperture:opacity-0 aperture:transition-[opacity,left,right,top] aperture:duration-120 aperture:ease-out aperture:from-foreground/12 aperture:to-transparent";
 
 function Table({ scrollable = true, ...props }: TableProps) {
   if (scrollable) {
@@ -119,6 +125,8 @@ function Table({ scrollable = true, ...props }: TableProps) {
     containerClassName,
     stickyFirstColumn: _stickyFirstColumn,
     stickyLastColumn: _stickyLastColumn,
+    stickyActionColumn: _stickyActionColumn,
+    stickyHeader: _stickyHeader,
     ...tableProps
   } = props;
   return (
@@ -139,13 +147,16 @@ function ScrollingTable({
   className,
   containerClassName,
   stickyFirstColumn = false,
-  stickyLastColumn = false,
+  stickyLastColumn: stickyLastColumnProp = false,
+  stickyActionColumn = false,
+  stickyHeader = true,
   ...props
 }: Omit<TableProps, "scrollable">) {
   const { shellRef, viewportRef, contentRef } = useScrollBoundaries<HTMLTableElement>();
+  const stickyLastColumn = stickyLastColumnProp || stickyActionColumn;
   const context = React.useMemo(
-    () => ({ stickyFirstColumn, stickyLastColumn }),
-    [stickyFirstColumn, stickyLastColumn],
+    () => ({ stickyHeader, stickyFirstColumn, stickyLastColumn }),
+    [stickyHeader, stickyFirstColumn, stickyLastColumn],
   );
 
   // Shadows sit outside the scrolled content, so they need the sticky geometry as variables.
@@ -161,7 +172,10 @@ function ScrollingTable({
       const headerCells = header?.rows[0]?.cells;
       const firstCell = headerCells?.[0];
       const lastCell = headerCells?.[headerCells.length - 1];
-      shell.style.setProperty("--table-header-height", `${header?.offsetHeight ?? 0}px`);
+      shell.style.setProperty(
+        "--table-header-height",
+        `${stickyHeader ? (header?.offsetHeight ?? 0) : 0}px`,
+      );
       shell.style.setProperty(
         "--table-sticky-start-width",
         `${stickyFirstColumn ? (firstCell?.offsetWidth ?? 0) : 0}px`,
@@ -180,7 +194,7 @@ function ScrollingTable({
       resizeObserver.observe(table.tHead);
     }
     return () => resizeObserver.disconnect();
-  }, [contentRef, shellRef, stickyFirstColumn, stickyLastColumn]);
+  }, [contentRef, shellRef, stickyHeader, stickyFirstColumn, stickyLastColumn]);
 
   return (
     <TableContext.Provider value={context}>
@@ -205,6 +219,9 @@ function ScrollingTable({
           <table
             ref={contentRef}
             data-slot="table"
+            data-sticky-header={stickyHeader || undefined}
+            data-sticky-first-column={stickyFirstColumn || undefined}
+            data-sticky-last-column={stickyLastColumn || undefined}
             className={cn(
               "aperture:w-full aperture:min-w-max aperture:caption-bottom aperture:text-sm",
               className,
@@ -212,13 +229,15 @@ function ScrollingTable({
             {...props}
           />
         </ScrollArea>
-        <div
-          aria-hidden="true"
-          className={cn(
-            shadowClassName,
-            "aperture:top-(--table-header-height) aperture:right-0 aperture:left-0 aperture:h-3 aperture:bg-linear-to-b aperture:[[data-can-scroll-top=true]>&]:opacity-100 aperture:[[data-can-scroll-left=true]>&]:left-(--table-sticky-start-width) aperture:[[data-can-scroll-right=true]>&]:right-(--table-sticky-end-width)",
-          )}
-        />
+        {stickyHeader ? (
+          <div
+            aria-hidden="true"
+            className={cn(
+              shadowClassName,
+              "aperture:top-(--table-header-height) aperture:right-0 aperture:left-0 aperture:h-3 aperture:bg-linear-to-b aperture:[[data-can-scroll-top=true]>&]:opacity-100 aperture:[[data-can-scroll-left=true]>&]:left-(--table-sticky-start-width) aperture:[[data-can-scroll-right=true]>&]:right-(--table-sticky-end-width)",
+            )}
+          />
+        ) : null}
         {stickyFirstColumn ? (
           <div
             aria-hidden="true"
@@ -280,7 +299,7 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
     <tr
       data-slot="table-row"
       className={cn(
-        "aperture:border-b aperture:transition-colors aperture:[&:has([aria-expanded=true])>td]:bg-muted aperture:[&:hover>td]:bg-muted aperture:data-[state=selected]:[&>td]:bg-muted",
+        "aperture:group/table-row aperture:border-b aperture:[&:has([aria-expanded=true])>td]:bg-muted/50 aperture:[&:hover>td]:bg-[color-mix(in_oklch,var(--background),var(--muted)_50%)] aperture:data-[state=selected]:[&>td]:bg-muted aperture:data-[state=selected]:[&:hover>td]:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_6%)]",
         className,
       )}
       {...props}
@@ -289,15 +308,18 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
 }
 
 function TableHead({ className, ...props }: React.ComponentProps<"th">) {
-  const { stickyFirstColumn, stickyLastColumn } = React.useContext(TableContext);
+  const { stickyHeader, stickyFirstColumn, stickyLastColumn } = React.useContext(TableContext);
 
   return (
     <th
       data-slot="table-head"
       className={cn(
-        "aperture:sticky aperture:top-0 aperture:z-30 aperture:h-10 aperture:bg-background aperture:px-2 aperture:text-left aperture:align-middle aperture:font-medium aperture:whitespace-nowrap aperture:text-foreground aperture:[&:has([role=checkbox])]:pr-0",
-        stickyFirstColumn && "aperture:first:left-0 aperture:first:z-40",
-        stickyLastColumn && "aperture:last:right-0 aperture:last:z-40",
+        "aperture:h-10 aperture:bg-muted aperture:px-2 aperture:text-left aperture:align-middle aperture:font-medium aperture:whitespace-nowrap aperture:text-foreground aperture:[&:has([role=checkbox])]:pr-0",
+        stickyHeader && "aperture:sticky aperture:top-0 aperture:z-20",
+        stickyFirstColumn &&
+          "aperture:first:sticky aperture:first:left-0 aperture:first:z-40 aperture:first:border-r aperture:first:border-border",
+        stickyLastColumn &&
+          "aperture:last:sticky aperture:last:right-0 aperture:last:z-40 aperture:last:border-l aperture:last:border-border",
         className,
       )}
       {...props}
@@ -314,9 +336,9 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
       className={cn(
         "aperture:p-2 aperture:align-middle aperture:whitespace-nowrap aperture:transition-colors aperture:[&:has([role=checkbox])]:pr-0",
         stickyFirstColumn &&
-          "aperture:first:sticky aperture:first:left-0 aperture:first:z-10 aperture:first:bg-background",
+          "aperture:first:sticky aperture:first:left-0 aperture:first:z-10 aperture:first:border-r aperture:first:border-border aperture:first:bg-background",
         stickyLastColumn &&
-          "aperture:last:sticky aperture:last:right-0 aperture:last:z-10 aperture:last:bg-background",
+          "aperture:last:sticky aperture:last:right-0 aperture:last:z-10 aperture:last:border-l aperture:last:border-border aperture:last:bg-background",
         className,
       )}
       {...props}

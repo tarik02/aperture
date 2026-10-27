@@ -67,7 +67,7 @@ function ScrollBar({
     >
       <ScrollAreaPrimitive.Thumb
         data-slot="scroll-area-thumb"
-        className="aperture:relative aperture:flex-1 aperture:rounded-full aperture:bg-foreground/35 aperture:transition-colors aperture:hover:bg-foreground/55"
+        className="aperture:relative aperture:flex-1 aperture:rounded-full aperture:bg-border aperture:transition-colors aperture:hover:bg-foreground/35"
       />
     </ScrollAreaPrimitive.Scrollbar>
   );

@@ -12,7 +12,8 @@ import {
 import { RevokedBadge } from "#/components/resources/status-badge.tsx";
 import { Badge } from "@aperture-browser/ui/components/badge";
 import { Button } from "@aperture-browser/ui/components/button";
-import { Checkbox } from "@aperture-browser/ui/components/checkbox";
+import { TableSelectAll, TableSelectRow } from "#/components/resources/table-selection.tsx";
+import { useRowSelection, type RowSelectionDragControls } from "#/hooks/use-row-selection.ts";
 import {
   Dialog,
   DialogContent,
@@ -91,6 +92,8 @@ const TOKEN_SKELETON_COLUMNS = [
   },
 ] as const;
 
+const getTokenId = (token: ApiToken) => token.id;
+
 export function TokenListPage() {
   const credentials = useApiCredentials();
   const principal = useAuthSessionStore(selectPrincipal);
@@ -125,16 +128,27 @@ export function TokenListPage() {
   const revokeMutation = useRevokeTokenMutation();
   const initCreateTokenForm = useTokenCreateFormStore((state) => state.initForm);
   const openCreateTokenModal = useTokenCreateModalStore((state) => state.openModal);
-  const selectedTokens = useTokenListPageStore((state) => state.selectedTokens);
   const confirmAction = useTokenListPageStore((state) => state.confirmAction);
-  const toggleTokenSelection = useTokenListPageStore((state) => state.toggleTokenSelection);
-  const clearSelectedTokens = useTokenListPageStore((state) => state.clearSelectedTokens);
-  const removeSelectedToken = useTokenListPageStore((state) => state.removeSelectedToken);
   const setConfirmAction = useTokenListPageStore((state) => state.setConfirmAction);
   const [viewToken, setViewToken] = useState<ApiToken | null>(null);
   const [viewTokenOpen, setViewTokenOpen] = useState(false);
   const [confirmActionOpen, setConfirmActionOpen] = useState(false);
-  const selectedTokenItems = useMemo(() => Object.values(selectedTokens), [selectedTokens]);
+  // Only tokens that can still be revoked are selectable.
+  const selectableTokens = useMemo(
+    () =>
+      canCreate
+        ? (query.data?.pages.flatMap((page) => page.data) ?? []).filter((token) => !token.revokedAt)
+        : [],
+    [canCreate, query.data?.pages],
+  );
+  const selection = useRowSelection({
+    tableKey: "tokens",
+    rows: selectableTokens,
+    getId: getTokenId,
+  });
+  const selectedTokenItems = selection.selectedItems;
+  const clearSelectedTokens = selection.clear;
+  const removeSelectedToken = selection.remove;
   const revokableTokenItems = selectedTokenItems.filter((token) => !token.revokedAt);
 
   function openViewToken(token: ApiToken) {
@@ -352,7 +366,12 @@ export function TokenListPage() {
           <Table stickyFirstColumn stickyLastColumn>
             <TableHeader>
               <TableRow>
-                <TableHead className="aperture:w-8" />
+                <TableSelectAll
+                  allSelected={selection.allSelected}
+                  someSelected={selection.someSelected}
+                  disabled={selectableTokens.length === 0}
+                  onCheckedChange={selection.toggleAll}
+                />
                 <TableHead>Name</TableHead>
                 <TableHead>ID</TableHead>
                 <TableHead>Authority</TableHead>
@@ -369,8 +388,11 @@ export function TokenListPage() {
                   key={token.id}
                   token={token}
                   canRevoke={canCreate}
-                  selected={Boolean(selectedTokens[token.id])}
-                  onSelectedChange={(selected) => toggleTokenSelection(token, selected)}
+                  selected={selection.isSelected(token.id)}
+                  selectionDrag={selection.drag}
+                  onSelectedChange={(selected, shiftKey) =>
+                    selection.toggleOne(token.id, selected, shiftKey)
+                  }
                   onView={() => openViewToken(token)}
                   onRevoke={() => openConfirmAction({ kind: "revoke", token })}
                 />
@@ -410,7 +432,8 @@ interface TokenRowProps {
   token: ApiToken;
   canRevoke: boolean;
   selected: boolean;
-  onSelectedChange: (selected: boolean) => void;
+  selectionDrag: RowSelectionDragControls;
+  onSelectedChange: (selected: boolean, shiftKey: boolean) => void;
   onView: () => void;
   onRevoke: () => void;
 }
@@ -419,6 +442,7 @@ function TokenRow({
   token,
   canRevoke,
   selected,
+  selectionDrag,
   onSelectedChange,
   onView,
   onRevoke,
@@ -429,23 +453,14 @@ function TokenRow({
       className="aperture:cursor-pointer"
       onClick={onView}
     >
-      <TableCell
-        className={canRevoke && !token.revokedAt ? "aperture:cursor-pointer" : undefined}
-        onClick={(event) => {
-          event.stopPropagation();
-          if (canRevoke && !token.revokedAt) {
-            onSelectedChange(!selected);
-          }
-        }}
-      >
-        <Checkbox
-          aria-label={`Select token ${token.name}`}
-          checked={selected}
-          disabled={!canRevoke || Boolean(token.revokedAt)}
-          onClick={(event) => event.stopPropagation()}
-          onCheckedChange={onSelectedChange}
-        />
-      </TableCell>
+      <TableSelectRow
+        rowId={token.id}
+        checked={selected}
+        label={`Select token ${token.name}`}
+        disabled={!canRevoke || Boolean(token.revokedAt)}
+        drag={selectionDrag}
+        onCheckedChange={onSelectedChange}
+      />
       <TableCell>
         <span className="aperture:flex aperture:items-center aperture:gap-2">
           {token.name}

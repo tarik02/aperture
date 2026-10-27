@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { AppWindow, Building2, Camera, KeyRound, Users } from "lucide-react";
+import { AppWindow, Building2, KeyRound, Users } from "lucide-react";
 
 export type NavItem = {
   title: string;
@@ -12,7 +12,6 @@ export type NavItem = {
 
 export const primaryNavItems: NavItem[] = [
   { title: "Sessions", to: "/-/sessions", icon: AppWindow, tenantScoped: true },
-  { title: "Snapshots", to: "/-/snapshots", icon: Camera, tenantScoped: true },
   { title: "Tokens", to: "/-/tokens", icon: KeyRound, tenantScoped: true },
   { title: "Tenants", to: "/-/tenants", icon: Building2, adminOnly: true },
   { title: "Users", to: "/-/users", icon: Users, adminOnly: true },

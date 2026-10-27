@@ -3,6 +3,7 @@ import { useTenantName } from "#/hooks/use-tenant-name.ts";
 import {
   AppWindow,
   Cable,
+  Camera,
   ChevronDown,
   Clock3,
   Copy,
@@ -13,7 +14,6 @@ import {
   RotateCcw,
   Tags,
   Trash2,
-  Upload,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { EventsPanel } from "#/components/resources/events-panel.tsx";
@@ -57,7 +57,7 @@ type SessionDetailModalsProps = {
 
 type SessionDetailActions = {
   canWrite: boolean;
-  canPromote: boolean;
+  canSaveSnapshot: boolean;
   deletePending: boolean;
   reopenPending: boolean;
   suspendPending: boolean;
@@ -66,7 +66,7 @@ type SessionDetailActions = {
   copySharePending: boolean;
   onDelete: (session: Session) => void;
   onSaveTags: (session: Session, tags: Record<string, string>) => Promise<Session>;
-  onPromote: (session: Session) => void;
+  onSaveToSnapshot: (session: Session) => void;
   onReopen: (session: Session) => void;
   onSuspend: (session: Session) => void;
   onRotate: (session: Session) => void;
@@ -240,12 +240,8 @@ function SessionDetailActionBar({ session, actions }: SessionDetailActionBarProp
   const canOpen = session.status === "running" || session.status === "suspended";
   const canReopen =
     actions.canWrite && (session.status === "deleted" || session.status === "failed");
-  const canPromote =
-    actions.canPromote &&
-    (session.status === "running" ||
-      session.status === "suspended" ||
-      session.status === "deleted" ||
-      session.status === "failed");
+  const canSaveSnapshot =
+    actions.canSaveSnapshot && (session.status === "running" || session.status === "suspended");
   const canSuspend = actions.canWrite && session.status === "running";
   const canRotate =
     actions.canWrite && (session.status === "running" || session.status === "suspended");
@@ -301,15 +297,15 @@ function SessionDetailActionBar({ session, actions }: SessionDetailActionBarProp
               Reopen
             </Button>
           ) : null}
-          {canPromote ? (
+          {canSaveSnapshot ? (
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => actions.onPromote(session)}
+              onClick={() => actions.onSaveToSnapshot(session)}
             >
-              <Upload data-icon="inline-start" />
-              Promote
+              <Camera data-icon="inline-start" />
+              Save to snapshot
             </Button>
           ) : null}
           <Button

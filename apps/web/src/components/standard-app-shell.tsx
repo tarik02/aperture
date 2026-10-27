@@ -1,4 +1,6 @@
 import { useRouterState } from "@tanstack/react-router";
+import { useState } from "react";
+import { PageHeaderActionsTarget } from "#/components/page-header-context.ts";
 import { Separator } from "@aperture-browser/ui/components/separator";
 import { SidebarInset, SidebarTrigger } from "@aperture-browser/ui/components/sidebar";
 import { AppSidebar } from "#/components/app-sidebar.tsx";
@@ -12,9 +14,13 @@ type StandardAppShellProps = {
 
 export default function StandardAppShell({ children }: StandardAppShellProps) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const snapshotsView = useRouterState({
+    select: (state) => (state.location.search as { view?: string }).view === "snapshots",
+  });
   const navItem = resolveNavItem(pathname);
-  const pageTitle = navItem?.title ?? "Sessions";
+  const pageTitle = snapshotsView ? "Snapshots" : (navItem?.title ?? "Sessions");
   const auth = useAuthSessionStore(selectAuth);
+  const [headerActions, setHeaderActions] = useState<HTMLDivElement | null>(null);
   // Tenant-scoped requests fail until a tenant is selected, so show why instead.
   const missingTenant =
     (navItem?.tenantScoped ?? true) &&
@@ -36,13 +42,15 @@ export default function StandardAppShell({ children }: StandardAppShellProps) {
             {pageTitle}
           </h1>
           <div
-            id="app-header-actions"
+            ref={setHeaderActions}
             data-no-window-drag
             className="aperture:ml-auto aperture:flex aperture:items-center aperture:gap-2"
           />
         </header>
         <div className="aperture:min-h-0 aperture:flex-1">
-          {missingTenant ? <NoTenantState /> : children}
+          <PageHeaderActionsTarget.Provider value={headerActions}>
+            {missingTenant ? <NoTenantState /> : children}
+          </PageHeaderActionsTarget.Provider>
         </div>
       </SidebarInset>
     </>
