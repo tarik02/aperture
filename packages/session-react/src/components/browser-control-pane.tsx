@@ -25,6 +25,8 @@ type BrowserControlPaneProps = {
   cdpUrl: string | null;
   shareUrls: { editor: string; viewer: string } | null;
   onSessionDetails?: () => void;
+  /** Extra items at the top of the browser menu, such as actions on the session. */
+  menuItems?: ReactNode;
 };
 
 const LOCAL_CURSOR_STORAGE_KEY = "aperture.workbench.localCursorEnabled";
@@ -39,6 +41,7 @@ export function BrowserControlPane({
   cdpUrl,
   shareUrls,
   onSessionDetails,
+  menuItems,
 }: BrowserControlPaneProps) {
   const features = resolveSessionFeatures(featureOverrides);
   const [localCursorEnabled, setLocalCursorEnabled] = useState(true);
@@ -144,6 +147,7 @@ export function BrowserControlPane({
         onDevToolsOpenChange={handleDevToolsOpenChange}
         onDevToolsDockChange={setDevToolsDock}
         onSessionDetails={onSessionDetails}
+        menuItems={menuItems}
       />
       {features.devTools ? (
         <ResizablePanelGroup

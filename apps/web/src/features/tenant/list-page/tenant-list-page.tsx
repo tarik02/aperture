@@ -168,6 +168,10 @@ export function TenantListPage() {
   return (
     <div className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-col">
       <PageHeaderActions>
+        <div className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:gap-2">
+          <SearchInput value={search} onChange={setSearch} placeholder="Search tenants" />
+          <DeletedStatusSelect value={deleted} onChange={setDeleted} />
+        </div>
         <Button
           size="sm"
           onClick={() => {
@@ -179,11 +183,6 @@ export function TenantListPage() {
           Create
         </Button>
       </PageHeaderActions>
-
-      <div className="aperture:flex aperture:shrink-0 aperture:flex-wrap aperture:items-center aperture:gap-2 aperture:p-3">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search tenants" />
-        <DeletedStatusSelect value={deleted} onChange={setDeleted} />
-      </div>
 
       <BatchActionBar selectedCount={selectedTenantItems.length} onClear={clearSelectedTenants}>
         <Button

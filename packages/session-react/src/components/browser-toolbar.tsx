@@ -52,6 +52,7 @@ interface BrowserToolbarProps {
   onDevToolsOpenChange: (open: boolean) => void;
   onDevToolsDockChange: (dock: DevToolsDock) => void;
   onSessionDetails?: () => void;
+  menuItems?: ReactNode;
 }
 
 export function BrowserToolbar({
@@ -73,6 +74,7 @@ export function BrowserToolbar({
   onDevToolsOpenChange,
   onDevToolsDockChange,
   onSessionDetails,
+  menuItems,
 }: BrowserToolbarProps) {
   const [urlDraft, setUrlDraft] = useState<string | null>(null);
 
@@ -259,6 +261,7 @@ export function BrowserToolbar({
               onLocalCursorChange={onLocalCursorChange}
               onReconnect={() => control.reconnect()}
               onSessionDetails={onSessionDetails}
+              menuItems={menuItems}
               now={recordingNow}
             />
           ) : null}

@@ -1,7 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { PlugZap } from "lucide-react";
 import { useState } from "react";
-import { AuthMenu } from "#/components/auth-menu.tsx";
+import { AccountSidebarGroup, AuthMenu, ThemeToggle } from "#/components/auth-menu.tsx";
 import { SelectedTenantControl } from "#/components/selected-tenant-control.tsx";
 import { McpSetupDialog } from "#/features/mcp/mcp-setup-dialog.tsx";
 import { RecentSessionsSidebarGroup } from "#/features/session/recent-sessions-sidebar-group.tsx";
@@ -58,25 +58,24 @@ export function AppSidebar() {
         />
       </SidebarHeader>
       <SidebarContent>
-        <NavGroup label="Workspace" items={workspaceItems} activeItem={activeItem}>
-          <SidebarMenuItem>
-            <SidebarMenuButton tooltip="Connect an MCP client" onClick={() => setMcpOpen(true)}>
-              <PlugZap />
-              <span data-sidebar-collapse-label>Connect MCP</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </NavGroup>
+        <NavGroup label="Workspace" items={workspaceItems} activeItem={activeItem} />
+        <RecentSessionsSidebarGroup pathname={pathname} />
         {adminItems.length > 0 ? (
           <NavGroup label="Administration" items={adminItems} activeItem={activeItem} />
         ) : null}
-        <RecentSessionsSidebarGroup pathname={pathname} />
-      </SidebarContent>
-      <SidebarFooter>
-        <SidebarMenu>
+        <NavGroup label="Integrations" items={[]} activeItem={activeItem}>
           <SidebarMenuItem>
-            <AuthMenu />
+            <SidebarMenuButton tooltip="Connect an MCP client" onClick={() => setMcpOpen(true)}>
+              <PlugZap />
+              <span data-sidebar-collapse-label>Connect an MCP client</span>
+            </SidebarMenuButton>
           </SidebarMenuItem>
-        </SidebarMenu>
+        </NavGroup>
+        <AccountSidebarGroup />
+      </SidebarContent>
+      <SidebarFooter className="aperture:gap-2">
+        <ThemeToggle />
+        <AuthMenu />
       </SidebarFooter>
       <SidebarRail />
       <McpSetupDialog open={mcpOpen} onOpenChange={setMcpOpen} />

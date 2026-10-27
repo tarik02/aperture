@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { LayoutGrid, Pin, PinOff, Plus, SearchIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
+import { EdgePanel } from "#/features/workbench/edge-panel.tsx";
 import { flattenInfinitePages, type Session } from "@aperture-browser/api-client";
 import { Badge } from "@aperture-browser/ui/components/badge";
 import { Button } from "@aperture-browser/ui/components/button";
@@ -22,10 +23,6 @@ import {
 } from "#/features/session/session-display.ts";
 import { useSessionsInfiniteQuery } from "#/features/session/session.queries.ts";
 
-const openDelayMs = 120;
-const closeDelayMs = 280;
-const pinnedStorageKey = "aperture.workbench.switcherPinned";
-
 type SessionSwitcherProps = {
   currentSessionId: string;
   pinned: boolean;
@@ -33,99 +30,28 @@ type SessionSwitcherProps = {
   onNewSession?: () => void;
 };
 
-export function loadSwitcherPinned() {
-  try {
-    return window.localStorage.getItem(pinnedStorageKey) === "true";
-  } catch {
-    return false;
-  }
-}
-
-export function saveSwitcherPinned(pinned: boolean) {
-  try {
-    window.localStorage.setItem(pinnedStorageKey, String(pinned));
-  } catch {
-    // The preference lasts for this page when storage is unavailable.
-  }
-}
-
-/**
- * A session list along the left edge. It slides over the browser while the pointer rests on the
- * edge, or stays docked beside it when pinned.
- */
+/** The session list along the left edge of the workbench. */
 export function SessionSwitcher({
   currentSessionId,
   pinned,
   onPinnedChange,
   onNewSession,
 }: SessionSwitcherProps) {
-  const [hoverOpen, setHoverOpen] = useState(false);
-  const timer = useRef<number | null>(null);
-  const open = pinned || hoverOpen;
-
-  useEffect(
-    () => () => {
-      if (timer.current !== null) {
-        window.clearTimeout(timer.current);
-      }
-    },
-    [],
-  );
-
-  function schedule(next: boolean) {
-    if (timer.current !== null) {
-      window.clearTimeout(timer.current);
-    }
-    timer.current = window.setTimeout(
-      () => {
-        timer.current = null;
-        setHoverOpen(next);
-      },
-      next ? openDelayMs : closeDelayMs,
-    );
-  }
-
-  const panel = (
-    <SessionSwitcherPanel
-      currentSessionId={currentSessionId}
-      pinned={pinned}
-      onPinnedChange={(next) => {
-        onPinnedChange(next);
-        setHoverOpen(false);
-      }}
-      onNewSession={onNewSession}
-      onNavigate={() => setHoverOpen(false)}
-    />
-  );
-
-  if (pinned) {
-    return (
-      <aside className="aperture:flex aperture:w-72 aperture:shrink-0 aperture:flex-col aperture:border-r aperture:bg-sidebar">
-        {panel}
-      </aside>
-    );
-  }
-
   return (
-    <div
-      className="aperture:absolute aperture:inset-y-0 aperture:left-0 aperture:z-40 aperture:flex"
-      onPointerEnter={() => schedule(true)}
-      onPointerLeave={() => schedule(false)}
-    >
-      {/* The hot zone: a few pixels along the edge that reveal the list on hover. */}
-      <div aria-hidden className="aperture:w-1.5" />
-      <aside
-        aria-hidden={!open}
-        className={cn(
-          "aperture:absolute aperture:inset-y-0 aperture:left-0 aperture:flex aperture:w-72 aperture:flex-col aperture:border-r aperture:bg-sidebar aperture:shadow-xl aperture:transition-transform aperture:duration-200 aperture:ease-out",
-          open
-            ? "aperture:translate-x-0"
-            : "aperture:pointer-events-none aperture:-translate-x-full",
-        )}
-      >
-        {panel}
-      </aside>
-    </div>
+    <EdgePanel side="left" pinned={pinned}>
+      {(close) => (
+        <SessionSwitcherPanel
+          currentSessionId={currentSessionId}
+          pinned={pinned}
+          onPinnedChange={(next) => {
+            onPinnedChange(next);
+            close();
+          }}
+          onNewSession={onNewSession}
+          onNavigate={close}
+        />
+      )}
+    </EdgePanel>
   );
 }
 

@@ -36,13 +36,13 @@ export default function StandardAppShell({ children }: StandardAppShellProps) {
           className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:border-b"
         >
           <SidebarTrigger className="aperture:-ml-1" />
-          <h1 className="aperture:min-w-0 aperture:truncate aperture:text-sm aperture:font-semibold">
+          <h1 className="aperture:shrink-0 aperture:truncate aperture:pr-2 aperture:text-sm aperture:font-semibold aperture:max-sm:sr-only">
             {pageTitle}
           </h1>
           <div
             ref={setHeaderActions}
             data-no-window-drag
-            className="aperture:ml-auto aperture:flex aperture:items-center aperture:gap-2"
+            className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:justify-end aperture:gap-2"
           />
         </header>
         <div className="aperture:min-h-0 aperture:flex-1">

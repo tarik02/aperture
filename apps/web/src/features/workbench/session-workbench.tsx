@@ -2,15 +2,7 @@ import type { SessionAccess } from "@aperture-browser/live-session";
 import { useIsMutating } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import * as Redacted from "effect/Redacted";
-import {
-  AppWindow,
-  Camera,
-  LayoutGrid,
-  MoreHorizontal,
-  Network,
-  PanelLeft,
-  RotateCcw,
-} from "lucide-react";
+import { AppWindow, Camera, FolderOpen, LayoutGrid, PanelLeft, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ApiRequestError, type IceServer, type Session } from "@aperture-browser/api-client";
 import { Button } from "@aperture-browser/ui/components/button";
@@ -35,21 +27,26 @@ import { TenantRequiredNotice } from "#/components/resources/tenant-required.tsx
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { useTenantSelection } from "#/hooks/use-tenant-selection.ts";
 import { useWorkbenchSession } from "#/hooks/use-workbench-session.ts";
-import { describeProxy, isProxyConfigured } from "#/features/proxy/proxy-config.ts";
 import { useAnnounceOpenSession } from "#/features/session/open-sessions.ts";
 import { useRecentSessionsStore } from "#/features/session/recent-sessions.store.ts";
-import { SessionActionsMenu } from "#/features/session/session-actions-menu.tsx";
-import { useSessionDialogs } from "#/features/session/session-dialogs.tsx";
+import {
+  SessionActionItems,
+  type SessionActionKey,
+} from "#/features/session/session-actions-menu.tsx";
+import {
+  useSessionDialogs,
+  type SessionActions,
+  type SessionPermissions,
+} from "#/features/session/session-dialogs.tsx";
+import { useSessionQuery } from "#/features/session/session.queries.ts";
 import {
   saveToSnapshotMutationKey,
   type SaveToSnapshotInput,
 } from "#/features/session/session.mutations.ts";
-import { isReopenable, isSaveable, sessionLabel } from "#/features/session/session-display.ts";
-import {
-  SessionSwitcher,
-  loadSwitcherPinned,
-  saveSwitcherPinned,
-} from "#/features/workbench/session-switcher.tsx";
+import { isReopenable, isSaveable } from "#/features/session/session-display.ts";
+import { SessionSwitcher } from "#/features/workbench/session-switcher.tsx";
+import { EdgePanel, loadPinned, savePinned } from "#/features/workbench/edge-panel.tsx";
+import { SessionFilesPanel } from "#/features/workbench/files/session-files-panel.tsx";
 import { selectAuth, useAuthSessionStore } from "#/stores/auth-session.ts";
 
 type SessionWorkbenchProps = {
@@ -69,6 +66,10 @@ const emptyIceServers: readonly IceServer[] = [];
 /** How long a hidden tab keeps its live connection before letting it go. */
 const hiddenDisconnectMs = 30_000;
 
+/**
+ * The workbench layout. It stays mounted while switching sessions, so the edge panels and open
+ * dialogs survive; only the connection to the browser is per session.
+ */
 export function SessionWorkbench({
   sessionId,
   media,
@@ -76,12 +77,9 @@ export function SessionWorkbench({
   navigation = true,
 }: SessionWorkbenchProps) {
   const navigate = useNavigate();
-  const credentials = useApiCredentials();
-  const auth = useAuthSessionStore(selectAuth);
-  const { selectTenant, switching } = useTenantSelection();
-  const tenantReady = isTenantScopedQueryReady(credentials);
-  const recordRecentSession = useRecentSessionsStore((state) => state.recordSession);
+  const session = useSessionQuery(sessionId).data ?? null;
   const [switcherPinned, setSwitcherPinned] = useState(false);
+  const [filesPinned, setFilesPinned] = useState(false);
   const { actions, dialogs, permissions } = useSessionDialogs({
     currentSessionId: sessionId,
     onSessionDeleted: () => {
@@ -91,8 +89,102 @@ export function SessionWorkbench({
     },
   });
 
+  useEffect(() => {
+    setSwitcherPinned(loadPinned(switcherPinnedKey));
+    setFilesPinned(loadPinned(filesPinnedKey));
+  }, []);
+
+  const changeSwitcherPinned = (pinned: boolean) => {
+    savePinned(switcherPinnedKey, pinned);
+    setSwitcherPinned(pinned);
+  };
+  const changeFilesPinned = (pinned: boolean) => {
+    savePinned(filesPinnedKey, pinned);
+    setFilesPinned(pinned);
+  };
+
+  return (
+    <div className="aperture:relative aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-1 aperture:overflow-hidden aperture:bg-background">
+      {navigation ? (
+        <SessionSwitcher
+          currentSessionId={sessionId}
+          pinned={switcherPinned}
+          onPinnedChange={changeSwitcherPinned}
+          onNewSession={permissions.canWrite ? () => actions.newSession() : undefined}
+        />
+      ) : null}
+      <WorkbenchSession
+        key={sessionId}
+        sessionId={sessionId}
+        media={media}
+        openNewTab={openNewTab}
+        navigation={navigation}
+        actions={actions}
+        permissions={permissions}
+        leading={
+          navigation ? (
+            <PanelToggle
+              side="left"
+              pinned={switcherPinned}
+              label="session list"
+              onToggle={() => changeSwitcherPinned(!switcherPinned)}
+            />
+          ) : undefined
+        }
+        filesToggle={
+          <PanelToggle
+            side="right"
+            pinned={filesPinned}
+            label="files"
+            onToggle={() => changeFilesPinned(!filesPinned)}
+          />
+        }
+      />
+      {session && isRetained(session.status) ? (
+        <EdgePanel side="right" pinned={filesPinned} className="aperture:w-80">
+          {() => <SessionFilesPanel session={session} />}
+        </EdgePanel>
+      ) : null}
+      {dialogs}
+    </div>
+  );
+}
+
+const switcherPinnedKey = "aperture.workbench.switcherPinned";
+const filesPinnedKey = "aperture.workbench.filesPinned";
+
+function isRetained(status: Session["status"]) {
+  return status !== "deleted" && status !== "expired";
+}
+
+type WorkbenchSessionProps = Required<Omit<SessionWorkbenchProps, "media">> & {
+  media?: "cdp";
+  actions: SessionActions;
+  permissions: SessionPermissions;
+  leading: ReactNode;
+  filesToggle: ReactNode;
+};
+
+/** One session: its connection, toolbar and full-page states. */
+function WorkbenchSession({
+  sessionId,
+  media,
+  openNewTab,
+  navigation,
+  actions,
+  permissions,
+  leading,
+  filesToggle,
+}: WorkbenchSessionProps) {
+  const navigate = useNavigate();
+  const credentials = useApiCredentials();
+  const auth = useAuthSessionStore(selectAuth);
+  const { selectTenant, switching } = useTenantSelection();
+  const tenantReady = isTenantScopedQueryReady(credentials);
+  const recordRecentSession = useRecentSessionsStore((state) => state.recordSession);
   const {
     session,
+    provisional,
     owningTenant,
     isResolvingRoute,
     error: lookupError,
@@ -107,10 +199,6 @@ export function SessionWorkbench({
       predicate: (mutation) =>
         (mutation.state.variables as SaveToSnapshotInput | undefined)?.session.id === sessionId,
     }) > 0;
-
-  useEffect(() => {
-    setSwitcherPinned(loadSwitcherPinned());
-  }, []);
 
   useEffect(() => {
     if (session) {
@@ -154,7 +242,8 @@ export function SessionWorkbench({
     access,
     displayName: auth?.principal.name ?? null,
     // A tab hidden for a while lets the connection go; showing it again starts a fresh one.
-    enabled: permissions.canWrite && tenantReady && connectable && !hiddenLong && !saving,
+    enabled:
+      permissions.canWrite && tenantReady && connectable && !provisional && !hiddenLong && !saving,
     webrtcProducerSupported:
       media !== "cdp" && session?.media.mode === "auto" && session.media.webrtcProducer,
     webrtcIceServers: session?.media.iceServers ?? emptyIceServers,
@@ -279,20 +368,22 @@ export function SessionWorkbench({
       <BrowserControlPane
         key={session.id}
         control={control}
-        leading={
-          navigation ? (
-            <SwitcherToggle
-              pinned={switcherPinned}
-              onToggle={() => {
-                saveSwitcherPinned(!switcherPinned);
-                setSwitcherPinned(!switcherPinned);
-              }}
-            />
-          ) : undefined
-        }
-        toolbarLeading={navigation ? <AllSessionsToolbarButton /> : undefined}
+        leading={leading}
         toolbarTrailing={
-          <WorkbenchActions session={session} actions={actions} permissions={permissions} />
+          <WorkbenchActions
+            session={session}
+            actions={actions}
+            permissions={permissions}
+            filesToggle={filesToggle}
+          />
+        }
+        menuItems={
+          <SessionActionItems
+            session={session}
+            actions={actions}
+            permissions={permissions}
+            exclude={workbenchMenuExcludes}
+          />
         }
         collaborationRole="owner"
         cdpUrl={cdpUrl}
@@ -303,38 +394,30 @@ export function SessionWorkbench({
   }
 
   return (
-    <div className="aperture:relative aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-1 aperture:overflow-hidden aperture:bg-background">
-      {navigation && session ? (
-        <SessionSwitcher
-          currentSessionId={session.id}
-          pinned={switcherPinned}
-          onPinnedChange={(pinned) => {
-            saveSwitcherPinned(pinned);
-            setSwitcherPinned(pinned);
-          }}
-          onNewSession={permissions.canWrite ? () => actions.newSession() : undefined}
-        />
-      ) : null}
-      <div className="aperture:flex aperture:min-h-0 aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:overflow-hidden">
-        {content}
-      </div>
-      {dialogs}
+    <div className="aperture:flex aperture:min-h-0 aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:overflow-hidden">
+      {content}
     </div>
   );
 }
+
+// The browser menu has its own details, viewer link and copy items; the toolbar saves snapshots.
+const workbenchMenuExcludes: ReadonlySet<SessionActionKey> = new Set([
+  "save",
+  "details",
+  "viewer-link",
+]);
 
 function WorkbenchActions({
   session,
   actions,
   permissions,
+  filesToggle,
 }: {
   session: Session;
-  actions: ReturnType<typeof useSessionDialogs>["actions"];
-  permissions: ReturnType<typeof useSessionDialogs>["permissions"];
+  actions: SessionActions;
+  permissions: SessionPermissions;
+  filesToggle: ReactNode;
 }) {
-  const proxyConfigured = isProxyConfigured(session.proxy);
-  const proxySummary = describeProxy(session.proxy);
-
   return (
     <>
       {permissions.canSaveSnapshots && isSaveable(session.status) ? (
@@ -343,64 +426,35 @@ function WorkbenchActions({
             render={
               <Button
                 variant="ghost"
-                size="sm"
-                className="aperture:h-7 aperture:px-2"
+                size="icon-sm"
                 aria-label="Save to snapshot"
                 onClick={() => actions.saveToSnapshot(session)}
               />
             }
           >
-            <Camera data-icon="inline-start" />
-            <span className="aperture:max-xl:hidden">Save to snapshot</span>
+            <Camera />
           </TooltipTrigger>
-          <TooltipContent side="bottom">
-            Save this session's logins and browser state for new sessions
-          </TooltipContent>
+          <TooltipContent side="bottom">Save to snapshot</TooltipContent>
         </Tooltip>
       ) : null}
-      {permissions.canWrite ? (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant={proxyConfigured ? "secondary" : "ghost"}
-                size="icon-sm"
-                className="aperture:relative"
-                aria-label="Proxy"
-                onClick={() => actions.editProxy(session)}
-              />
-            }
-          >
-            <Network />
-            {proxyConfigured ? (
-              <span className="aperture:absolute aperture:top-1 aperture:right-1 aperture:size-1.5 aperture:rounded-full aperture:bg-primary" />
-            ) : null}
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            {proxySummary ? `Proxy: ${proxySummary}` : "Proxy: direct connection"}
-          </TooltipContent>
-        </Tooltip>
-      ) : null}
-      <SessionActionsMenu
-        session={session}
-        actions={actions}
-        permissions={permissions}
-        trigger={
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Actions for ${sessionLabel(session)}`}
-            title={sessionLabel(session)}
-          >
-            <MoreHorizontal />
-          </Button>
-        }
-      />
+      {filesToggle}
     </>
   );
 }
 
-function SwitcherToggle({ pinned, onToggle }: { pinned: boolean; onToggle: () => void }) {
+/** Pins or unpins an edge panel; hovering that edge shows it either way. */
+function PanelToggle({
+  side,
+  pinned,
+  label,
+  onToggle,
+}: {
+  side: "left" | "right";
+  pinned: boolean;
+  label: string;
+  onToggle: () => void;
+}) {
+  const Icon = side === "left" ? PanelLeft : FolderOpen;
   return (
     <Tooltip>
       <TooltipTrigger
@@ -409,41 +463,21 @@ function SwitcherToggle({ pinned, onToggle }: { pinned: boolean; onToggle: () =>
             variant="ghost"
             size="icon-sm"
             className={cn(
-              "aperture:h-full aperture:aspect-square aperture:shrink-0 aperture:rounded-none",
+              side === "left" &&
+                "aperture:h-full aperture:aspect-square aperture:shrink-0 aperture:rounded-none",
               pinned && "aperture:bg-muted",
             )}
-            aria-label={pinned ? "Hide session list" : "Show session list"}
+            aria-label={pinned ? `Hide ${label}` : `Show ${label}`}
             aria-pressed={pinned}
             onClick={onToggle}
           />
         }
       >
-        <PanelLeft />
+        <Icon />
       </TooltipTrigger>
       <TooltipContent side="bottom">
-        {pinned ? "Hide session list" : "Session list (or hover the left edge)"}
+        {pinned ? `Hide ${label}` : `Show ${label} (or hover the ${side} edge)`}
       </TooltipContent>
-    </Tooltip>
-  );
-}
-
-function AllSessionsToolbarButton() {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="All sessions"
-            render={<Link to="/-/sessions" />}
-            nativeButton={false}
-          />
-        }
-      >
-        <LayoutGrid />
-      </TooltipTrigger>
-      <TooltipContent side="bottom">All sessions</TooltipContent>
     </Tooltip>
   );
 }

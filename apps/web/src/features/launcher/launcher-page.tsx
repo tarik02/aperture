@@ -1,16 +1,5 @@
 import { skipToken, useQueries } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
-import {
-  AppWindow,
-  ArrowLeft,
-  Check,
-  ChevronDown,
-  Layers,
-  ListFilter,
-  Plus,
-  PlugZap,
-  SearchIcon,
-} from "lucide-react";
+import { AppWindow, Check, ChevronDown, Layers, ListFilter, Plus, SearchIcon } from "lucide-react";
 import { useDeferredValue, useEffect, useMemo, type ReactNode } from "react";
 import { BatchActionBar } from "#/components/resources/batch-action-bar.tsx";
 import {
@@ -30,7 +19,6 @@ import {
   type Session,
   type Snapshot,
 } from "@aperture-browser/api-client";
-import { Badge } from "@aperture-browser/ui/components/badge";
 import { Button } from "@aperture-browser/ui/components/button";
 import {
   DropdownMenu,
@@ -52,6 +40,7 @@ import { Input } from "@aperture-browser/ui/components/input";
 import { ScrollArea } from "@aperture-browser/ui/components/scroll-area";
 import { Spinner } from "@aperture-browser/ui/components/spinner";
 import { cn } from "@aperture-browser/ui/utils";
+import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { SelectedTenantControl } from "#/components/selected-tenant-control.tsx";
 import { useFailureNotice } from "#/hooks/use-failure-notice.ts";
 import { usePageSearchShortcut } from "#/hooks/use-page-search-shortcut.ts";
@@ -83,7 +72,6 @@ const statusFilters: Array<{ value: SessionStatusFilter; label: string }> = [
 ];
 
 export function LauncherPage({ view }: { view: LauncherView }) {
-  const navigate = useNavigate();
   const api = useTenantApi();
   const scopes = useActiveScopes();
   const canWriteSnapshots = hasScope(scopes, "snapshots:write");
@@ -126,7 +114,6 @@ export function LauncherPage({ view }: { view: LauncherView }) {
     () => flattenInfinitePages(snapshotsQuery.data?.pages),
     [snapshotsQuery.data?.pages],
   );
-  const activeSnapshotCount = snapshots.filter((snapshot) => !snapshot.deletedAt).length;
 
   // Page lists load inside the cards; reading them from the cache makes page titles and URLs
   // searchable without fetching anything here.
@@ -253,14 +240,76 @@ export function LauncherPage({ view }: { view: LauncherView }) {
     );
   }
 
-  const setView = (next: LauncherView) =>
-    void navigate({ to: "/-/sessions", search: next === "snapshots" ? { view: next } : {} });
-
   const visibleSessionCount = visibleSessionIds === null ? sessions.length : visibleSessionIds.size;
 
   return (
     <div className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-col">
-      <ScrollArea className="aperture:group/launcher aperture:min-h-0 aperture:flex-1">
+      <PageHeaderActions>
+        {view === "sessions" ? (
+          <div className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:justify-end aperture:gap-2">
+            <SearchBox
+              inputRef={searchRef}
+              label="Search sessions"
+              value={sessionSearch}
+              onChange={setSessionSearch}
+            />
+            <StatusFilterMenu value={sessionStatus} onChange={setSessionStatus} />
+            {permissions.canWrite ? (
+              <ToolbarButton
+                label="New session"
+                icon={<Plus />}
+                onClick={() => actions.newSession()}
+              >
+                New session
+              </ToolbarButton>
+            ) : null}
+          </div>
+        ) : (
+          <div className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:justify-end aperture:gap-2">
+            <SearchBox
+              inputRef={searchRef}
+              label="Search snapshots"
+              value={snapshotSearch}
+              onChange={setSnapshotSearch}
+            />
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant={showDeletedSnapshots ? "secondary" : "ghost"}
+                    size="icon"
+                    aria-label="Filter snapshots"
+                    title="Filter snapshots"
+                  >
+                    <ListFilter />
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="end" className="aperture:min-w-44">
+                <DropdownMenuItem onClick={() => setShowDeletedSnapshots(!showDeletedSnapshots)}>
+                  <Check className={cn(!showDeletedSnapshots && "aperture:invisible")} />
+                  Show deleted
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {permissions.canSaveSnapshots ? (
+              <SessionPickerMenu
+                sessions={saveableSessions}
+                titleOf={titleOf}
+                onPick={(session) => actions.saveToSnapshot(session)}
+                trigger={
+                  <Button title="New snapshot" aria-label="New snapshot">
+                    <Plus data-icon="inline-start" />
+                    <span className="aperture:max-md:sr-only">New snapshot</span>
+                    <ChevronDown data-icon="inline-end" />
+                  </Button>
+                }
+              />
+            ) : null}
+          </div>
+        )}
+      </PageHeaderActions>
+      <ScrollArea className="aperture:min-h-0 aperture:flex-1">
         <div
           className={cn(
             "aperture:mx-auto aperture:grid aperture:w-full aperture:max-w-6xl aperture:gap-4 aperture:p-4",
@@ -268,101 +317,6 @@ export function LauncherPage({ view }: { view: LauncherView }) {
             hasSelection && "aperture:pb-20",
           )}
         >
-          <div className="aperture:@container aperture:sticky aperture:top-0 aperture:z-10 aperture:-mx-4 aperture:-mt-4 aperture:-mb-2 aperture:border-b aperture:border-transparent aperture:bg-background aperture:px-4 aperture:pt-4 aperture:pb-2 aperture:group-data-[overflow-y-start]/launcher:border-border">
-            {view === "sessions" ? (
-              <div className="aperture:flex aperture:items-center aperture:gap-2">
-                <SearchBox
-                  inputRef={searchRef}
-                  label="Search sessions"
-                  value={sessionSearch}
-                  onChange={setSessionSearch}
-                />
-                <StatusFilterMenu value={sessionStatus} onChange={setSessionStatus} />
-                <ToolbarButton
-                  variant="outline"
-                  label="Connect an MCP client"
-                  icon={<PlugZap />}
-                  onClick={() => actions.connectMcp()}
-                >
-                  MCP
-                </ToolbarButton>
-                <ToolbarButton
-                  variant="outline"
-                  label="Snapshots"
-                  icon={<Layers />}
-                  onClick={() => setView("snapshots")}
-                >
-                  Snapshots
-                  <Badge variant="secondary" className="aperture:@max-md:hidden">
-                    {snapshotsQuery.hasNextPage ? `${activeSnapshotCount}+` : activeSnapshotCount}
-                  </Badge>
-                </ToolbarButton>
-                {permissions.canWrite ? (
-                  <ToolbarButton
-                    label="New session"
-                    icon={<Plus />}
-                    onClick={() => actions.newSession()}
-                  >
-                    New session
-                  </ToolbarButton>
-                ) : null}
-              </div>
-            ) : (
-              <div className="aperture:flex aperture:items-center aperture:gap-2">
-                <ToolbarButton
-                  variant="outline"
-                  label="Sessions"
-                  icon={<ArrowLeft />}
-                  onClick={() => setView("sessions")}
-                >
-                  Sessions
-                </ToolbarButton>
-                <SearchBox
-                  inputRef={searchRef}
-                  label="Search snapshots"
-                  value={snapshotSearch}
-                  onChange={setSnapshotSearch}
-                />
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={
-                      <Button
-                        variant={showDeletedSnapshots ? "secondary" : "ghost"}
-                        size="icon"
-                        aria-label="Filter snapshots"
-                        title="Filter snapshots"
-                      >
-                        <ListFilter />
-                      </Button>
-                    }
-                  />
-                  <DropdownMenuContent align="end" className="aperture:min-w-44">
-                    <DropdownMenuItem
-                      onClick={() => setShowDeletedSnapshots(!showDeletedSnapshots)}
-                    >
-                      <Check className={cn(!showDeletedSnapshots && "aperture:invisible")} />
-                      Show deleted
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                {permissions.canSaveSnapshots ? (
-                  <SessionPickerMenu
-                    sessions={saveableSessions}
-                    titleOf={titleOf}
-                    onPick={(session) => actions.saveToSnapshot(session)}
-                    trigger={
-                      <Button title="New snapshot" aria-label="New snapshot">
-                        <Plus data-icon="inline-start" />
-                        <span className="aperture:@max-md:sr-only">New snapshot</span>
-                        <ChevronDown data-icon="inline-end" />
-                      </Button>
-                    }
-                  />
-                ) : null}
-              </div>
-            )}
-          </div>
-
           {view === "sessions" ? (
             <>
               {sessions.map((session) => (
@@ -468,7 +422,7 @@ function SearchBox({
   onChange: (value: string) => void;
 }) {
   return (
-    <div className="aperture:relative aperture:min-w-0 aperture:flex-1">
+    <div className="aperture:relative aperture:min-w-0 aperture:max-w-md aperture:flex-1">
       <SearchIcon className="aperture:pointer-events-none aperture:absolute aperture:top-1/2 aperture:left-2.5 aperture:size-4 aperture:-translate-y-1/2 aperture:text-muted-foreground" />
       <Input
         ref={inputRef}
@@ -501,7 +455,7 @@ function ToolbarButton({
       <span data-icon="inline-start" className="aperture:contents">
         {icon}
       </span>
-      <span className="aperture:flex aperture:items-center aperture:gap-1.5 aperture:@max-md:sr-only">
+      <span className="aperture:flex aperture:items-center aperture:gap-1.5 aperture:max-md:sr-only">
         {children}
       </span>
     </Button>

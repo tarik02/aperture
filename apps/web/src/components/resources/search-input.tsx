@@ -21,7 +21,9 @@ export function SearchInput({
   const inputRef = usePageSearchShortcut();
 
   return (
-    <InputGroup className={cn("aperture:h-7 aperture:w-full aperture:sm:w-64", className)}>
+    <InputGroup
+      className={cn("aperture:h-8 aperture:w-full aperture:min-w-0 aperture:max-w-80", className)}
+    >
       <InputGroupInput
         ref={inputRef}
         type="search"
@@ -30,8 +32,6 @@ export function SearchInput({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         aria-label={placeholder}
-        // Each list page mounts its own search, so this focuses it after every page navigation.
-        autoFocus
       />
       <InputGroupAddon align="inline-start">
         <Search />

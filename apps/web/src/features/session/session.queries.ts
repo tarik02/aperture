@@ -1,4 +1,9 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+  type InfiniteData,
+} from "@tanstack/react-query";
 import {
   ApiRequestError,
   defaultListLimit,
@@ -7,6 +12,7 @@ import {
   SessionsApi,
   type ApiCredentials,
   type Session,
+  type SessionsPage,
 } from "@aperture-browser/api-client";
 import { isTenantScopedQueryReady } from "#/hooks/use-api-credentials.ts";
 import { resolveTenantKey, useTenantApi } from "#/hooks/use-tenant-api.ts";
@@ -75,6 +81,7 @@ export function useSessionsBulkQuery(sessionIds: string[]) {
 
 export function useSessionQuery(sessionId: string | undefined) {
   const api = useTenantApi();
+  const queryClient = useQueryClient();
 
   return useQuery({
     queryKey: queryKeys.session(api.tenantKey, sessionId ?? "none"),
@@ -85,6 +92,21 @@ export function useSessionQuery(sessionId: string | undefined) {
         { signal },
       ),
     enabled: Boolean(sessionId && api.ready),
+    // Switching sessions shows the listed copy at once while the full one, with credentials,
+    // loads; callers wait for real data before connecting.
+    placeholderData: () => {
+      for (const [, data] of queryClient.getQueriesData<InfiniteData<SessionsPage>>({
+        queryKey: ["sessions", api.tenantKey],
+      })) {
+        const listed = data?.pages
+          .flatMap((page) => page.data)
+          .find((session) => session.id === sessionId);
+        if (listed) {
+          return listed;
+        }
+      }
+      return undefined;
+    },
     retry: (failureCount, error) =>
       failureCount < 3 &&
       !(error instanceof ApiRequestError && (error.status === 403 || error.status === 404)),

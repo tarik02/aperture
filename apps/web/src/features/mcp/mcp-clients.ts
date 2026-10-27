@@ -21,11 +21,15 @@ export type McpSetupStep = {
   code?: McpCodeBlock;
 };
 
+export type McpField = { label: string; value: string };
+
 export type McpClient = {
   id: string;
   name: string;
   description: string;
   steps: (input: McpSetupInput) => McpSetupStep[];
+  /** Values to paste into a client by hand, shown instead of steps when present. */
+  fields?: (input: McpSetupInput) => McpField[];
 };
 
 export const MCP_TOKEN_ENV = "APERTURE_TOKEN";
@@ -268,46 +272,16 @@ const gemini: McpClient = {
 const generic: McpClient = {
   id: "generic",
   name: "Other clients",
-  description: "Any Streamable HTTP client",
-  steps: (input) => {
-    const bearer = input.token ?? `$${MCP_TOKEN_ENV}`;
-    const steps: McpSetupStep[] = [
-      {
-        text: "Add a remote MCP server with the Streamable HTTP transport and this URL.",
-        code: { language: "bash", value: input.url },
-      },
-    ];
-    if (input.auth === "oauth") {
-      steps.push({
-        text: "Clients with MCP OAuth support need only the URL: they discover the authorization server here and register themselves.",
-        code: { language: "bash", value: mcpOAuthDiscoveryUrl(input.url) },
-      });
-    } else {
-      steps.push(...envExportStep(input), {
-        text: "Send the token in the Authorization header. Cookie sign-in from the web app does not work for MCP.",
-        code: { language: "bash", value: `Authorization: Bearer ${input.token ?? "<token>"}` },
-      });
-    }
-    steps.push({
-      text: "Test the endpoint with a token from the shell.",
-      code: {
-        language: "bash",
-        value: [
-          `curl -s ${shellQuote(input.url)}`,
-          `  -H ${input.token === null ? `"Authorization: Bearer ${bearer}"` : shellQuote(`Authorization: Bearer ${bearer}`)}`,
-          `  -H "Content-Type: application/json"`,
-          `  -H "Accept: application/json, text/event-stream"`,
-          `  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`,
-        ].join(" \\\n"),
-      },
-    });
-    if (new URL(input.url).pathname === "/mcp") {
-      steps.push({
-        text: "Tokens that reach several tenants (system administrator tokens, multi-tenant OAuth grants) pass tenantId in tool arguments.",
-      });
-    }
-    return steps;
-  },
+  description: "Any client that speaks Streamable HTTP",
+  steps: () => [],
+  fields: (input) => [
+    { label: "Name", value: input.serverName },
+    { label: "Transport", value: "Streamable HTTP" },
+    { label: "URL", value: input.url },
+    ...(input.auth === "oauth"
+      ? [{ label: "OAuth discovery", value: mcpOAuthDiscoveryUrl(input.url) }]
+      : [{ label: "Header", value: `Authorization: Bearer ${input.token ?? "<API token>"}` }]),
+  ],
 };
 
 export const mcpClients: readonly McpClient[] = [

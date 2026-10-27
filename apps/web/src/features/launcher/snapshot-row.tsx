@@ -2,10 +2,7 @@ import { format, formatDistanceToNow } from "date-fns";
 import { Camera, MoreHorizontal, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import type { ReactElement } from "react";
 import type { Session, Snapshot } from "@aperture-browser/api-client";
-import {
-  SelectionCheckbox,
-  type ItemSelection,
-} from "#/components/resources/selection-checkbox.tsx";
+import { SelectionLabel, type ItemSelection } from "#/components/resources/selection-checkbox.tsx";
 import { Badge } from "@aperture-browser/ui/components/badge";
 import { Button } from "@aperture-browser/ui/components/button";
 import {
@@ -52,18 +49,23 @@ export function SnapshotRow({
           "aperture:bg-muted/40 aperture:opacity-100 aperture:ring-2 aperture:ring-primary",
       )}
     >
-      {selection ? (
-        <SelectionCheckbox
-          selection={selection}
-          label={`Select ${snapshot.name}`}
-          className="aperture:mt-0.5"
-        />
-      ) : null}
       <div className="aperture:grid aperture:min-w-0 aperture:flex-1 aperture:gap-0.5">
         <div className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-2">
-          <span className="aperture:truncate aperture:text-sm aperture:font-medium">
-            {snapshot.name}
-          </span>
+          {selection ? (
+            <SelectionLabel
+              selection={selection}
+              label={`Select ${snapshot.name}`}
+              className="aperture:flex-none"
+            >
+              <span className="aperture:truncate aperture:text-sm aperture:font-medium">
+                {snapshot.name}
+              </span>
+            </SelectionLabel>
+          ) : (
+            <span className="aperture:truncate aperture:text-sm aperture:font-medium">
+              {snapshot.name}
+            </span>
+          )}
           {deleted ? <Badge variant="outline">deleted</Badge> : null}
         </div>
         <p

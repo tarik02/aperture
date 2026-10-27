@@ -1,6 +1,11 @@
-import { useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
+import { ScrollArea } from "@aperture-browser/ui/components/scroll-area";
+import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
+import { useTokenCreateFormStore } from "#/features/token/create-form/token-create-form.store.ts";
+import { useTokenCreateModalStore } from "#/features/token/create-modal/token-create-modal.store.ts";
+import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
 import * as Redacted from "effect/Redacted";
 import { KeyRound, TriangleAlert } from "lucide-react";
 import { Button } from "@aperture-browser/ui/components/button";
@@ -95,19 +100,55 @@ export function McpSetupDialog({
   onOpenChangeComplete,
   session,
 }: McpSetupDialogProps) {
+  const [openCount, setOpenCount] = useState(0);
+  const [mounted, setMounted] = useState(open);
+  const createToken = useCreateTokenShortcut();
+  useEffect(() => {
+    if (open) {
+      setOpenCount((count) => count + 1);
+      setMounted(true);
+    }
+  }, [open]);
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} onOpenChangeComplete={onOpenChangeComplete}>
-      <DialogContent className="aperture:sm:max-w-3xl">
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      onOpenChangeComplete={(next) => {
+        if (!next) {
+          setMounted(false);
+        }
+        onOpenChangeComplete?.(next);
+      }}
+    >
+      <DialogContent className="aperture:h-[min(42rem,calc(100svh-2rem))] aperture:grid-rows-[auto_minmax(0,1fr)] aperture:overflow-hidden aperture:sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Connect an MCP client</DialogTitle>
         </DialogHeader>
-        {open ? <McpSetupBody session={session ?? null} /> : null}
+        {/* Kept mounted while closing so the exit animation shows the content; a new key on
+            every open starts from fresh settings. */}
+        {mounted ? (
+          <McpSetupBody
+            key={openCount}
+            session={session ?? null}
+            onCreateToken={() => {
+              onOpenChange(false);
+              createToken();
+            }}
+          />
+        ) : null}
       </DialogContent>
     </Dialog>
   );
 }
 
-function McpSetupBody({ session }: { session: Session | null }) {
+function McpSetupBody({
+  session,
+  onCreateToken,
+}: {
+  session: Session | null;
+  onCreateToken: () => void;
+}) {
   const oauth = useOAuthAvailable();
   const oauthAvailable = oauth.data === true;
 
@@ -156,7 +197,7 @@ function McpSetupBody({ session }: { session: Session | null }) {
       orientation="vertical"
       value={clientId}
       onValueChange={(value) => selectClient(String(value))}
-      className="aperture:min-w-0 aperture:gap-5"
+      className="aperture:h-full aperture:min-h-0 aperture:min-w-0 aperture:gap-5"
     >
       <TabsList
         variant="line"
@@ -169,7 +210,7 @@ function McpSetupBody({ session }: { session: Session | null }) {
         ))}
       </TabsList>
 
-      <div className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:gap-3">
+      <div className="aperture:flex aperture:min-h-0 aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:gap-3">
         <Select
           items={clientItems}
           value={clientId}
@@ -248,7 +289,10 @@ function McpSetupBody({ session }: { session: Session | null }) {
           </label>
         </div>
 
-        <CopyField value={url} label="Endpoint" />
+        {/* The generic client lists the URL among its fields. */}
+        {mcpClients.find((client) => client.id === clientId)?.fields ? null : (
+          <CopyField value={url} label="Endpoint" />
+        )}
 
         {auth === "token" ? (
           <div className="aperture:flex aperture:flex-wrap aperture:items-center aperture:gap-x-3 aperture:gap-y-2 aperture:rounded-lg aperture:border aperture:px-3 aperture:py-2">
@@ -271,12 +315,7 @@ function McpSetupBody({ session }: { session: Session | null }) {
               </label>
             ) : null}
             {embedSessionToken ? null : (
-              <Button
-                variant="outline"
-                size="sm"
-                render={<Link to="/-/tokens" />}
-                nativeButton={false}
-              >
+              <Button variant="outline" size="sm" onClick={onCreateToken}>
                 <KeyRound data-icon="inline-start" />
                 Create token
               </Button>
@@ -284,23 +323,45 @@ function McpSetupBody({ session }: { session: Session | null }) {
           </div>
         ) : null}
 
-        {mcpClients.map((client) => (
-          <TabsContent key={client.id} value={client.id} className="aperture:min-w-0">
-            <ol className="aperture:flex aperture:flex-col aperture:gap-4">
-              {client.steps(input).map((step, index) => (
-                <li key={index} className="aperture:flex aperture:min-w-0 aperture:gap-3">
-                  <span className="aperture:flex aperture:size-5 aperture:shrink-0 aperture:items-center aperture:justify-center aperture:rounded-full aperture:bg-muted aperture:text-xs aperture:font-medium">
-                    {index + 1}
-                  </span>
-                  <div className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:gap-2">
-                    <p className="aperture:leading-5">{step.text}</p>
-                    {step.code ? <CodeBlock code={step.code} /> : null}
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </TabsContent>
-        ))}
+        <ScrollArea className="aperture:min-h-0 aperture:flex-1" viewportClassName="aperture:pr-3">
+          {mcpClients.map((client) => (
+            <TabsContent key={client.id} value={client.id} className="aperture:min-w-0">
+              {client.fields ? (
+                <dl className="aperture:grid aperture:grid-cols-[auto_minmax(0,1fr)] aperture:items-center aperture:gap-x-4 aperture:gap-y-2">
+                  {client.fields(input).map((field) => (
+                    <Fragment key={field.label}>
+                      <dt className="aperture:text-sm aperture:text-muted-foreground">
+                        {field.label}
+                      </dt>
+                      <dd className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-1 aperture:rounded-md aperture:bg-muted aperture:py-1 aperture:pr-1 aperture:pl-2.5">
+                        <code
+                          className="aperture:min-w-0 aperture:flex-1 aperture:truncate aperture:font-mono aperture:text-xs"
+                          title={field.value}
+                        >
+                          {field.value}
+                        </code>
+                        <CopyButton value={field.value} />
+                      </dd>
+                    </Fragment>
+                  ))}
+                </dl>
+              ) : null}
+              <ol className="aperture:flex aperture:flex-col aperture:gap-4">
+                {client.steps(input).map((step, index) => (
+                  <li key={index} className="aperture:flex aperture:min-w-0 aperture:gap-3">
+                    <span className="aperture:flex aperture:size-5 aperture:shrink-0 aperture:items-center aperture:justify-center aperture:rounded-full aperture:bg-muted aperture:text-xs aperture:font-medium">
+                      {index + 1}
+                    </span>
+                    <div className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:gap-2">
+                      <p className="aperture:leading-5">{step.text}</p>
+                      {step.code ? <CodeBlock code={step.code} /> : null}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </TabsContent>
+          ))}
+        </ScrollArea>
       </div>
     </Tabs>
   );
@@ -325,4 +386,18 @@ function CodeBlock({ code }: { code: McpCodeBlock }) {
       </div>
     </div>
   );
+}
+
+/** Opens the token form on the Tokens page, prefilled for the current tenant. */
+function useCreateTokenShortcut() {
+  const navigate = useNavigate();
+  const credentials = useApiCredentials();
+  const principal = useAuthSessionStore(selectPrincipal);
+  const initForm = useTokenCreateFormStore((state) => state.initForm);
+  const openModal = useTokenCreateModalStore((state) => state.openModal);
+  return () => {
+    initForm(credentials?.selectedTenantId ?? "", principal?.resourceMode ?? "all");
+    openModal();
+    void navigate({ to: "/-/tokens" });
+  };
 }

@@ -4,7 +4,9 @@ import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { TokenCreateModal } from "#/features/token/create-modal/token-create-modal.tsx";
 import { BatchActionBar } from "#/components/resources/batch-action-bar.tsx";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
-import { MetadataGrid, metadataTimestamp } from "#/components/resources/metadata-grid.tsx";
+import { DetailList, DetailRow, DetailSection } from "#/components/details/detail-list.tsx";
+import { ReferenceValue, reference, relativeTime } from "#/components/details/detail-values.tsx";
+import { IdChip } from "#/components/details/id-chip.tsx";
 import {
   InfiniteTableShell,
   TableSkeletonRows,
@@ -17,7 +19,6 @@ import { useRowSelection, type RowSelectionDragControls } from "#/hooks/use-row-
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -213,6 +214,101 @@ export function TokenListPage() {
 
   return (
     <div className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-col">
+      <PageHeaderActions>
+        <div className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:gap-2">
+          <SearchInput value={name} onChange={setName} placeholder="Search tokens" />
+          <Select
+            items={revokedFilterOptions}
+            value={revoked}
+            onValueChange={(nextValue) => {
+              if (nextValue === "active" || nextValue === "revoked" || nextValue === "all") {
+                setRevoked(nextValue);
+              }
+            }}
+          >
+            <SelectTrigger size="sm" className="aperture:w-28">
+              <SelectValue>
+                {(selectedValue: unknown) =>
+                  revokedFilterOptions.find((option) => option.value === selectedValue)?.label ??
+                  "Status"
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent align="start">
+              <SelectGroup>
+                {revokedFilterOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          {isAdmin ? (
+            <Select
+              items={authorityFilterOptions}
+              value={authorityType}
+              onValueChange={(nextValue) => {
+                if (
+                  nextValue === ALL_AUTHORITY ||
+                  nextValue === "system_admin" ||
+                  nextValue === "tenant"
+                ) {
+                  setAuthorityType(nextValue);
+                }
+              }}
+            >
+              <SelectTrigger size="sm" className="aperture:w-40">
+                <SelectValue>
+                  {(selectedValue: unknown) =>
+                    authorityFilterOptions.find((option) => option.value === selectedValue)
+                      ?.label ?? "Authority"
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent align="start">
+                <SelectGroup>
+                  {authorityFilterOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          ) : null}
+          <Select
+            items={scopeFilterOptions}
+            value={scope}
+            onValueChange={(nextValue) => {
+              if (typeof nextValue === "string") {
+                setScope(nextValue);
+              }
+            }}
+          >
+            <SelectTrigger size="sm" className="aperture:w-40">
+              <SelectValue>
+                {(selectedValue: unknown) =>
+                  selectedValue === ALL_SCOPES
+                    ? "All scopes"
+                    : (scopeFilterOptions.find((option) => option.value === selectedValue)?.label ??
+                      "All scopes")
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent align="start">
+              <SelectGroup>
+                <SelectItem value={ALL_SCOPES}>All scopes</SelectItem>
+                {scopeFilterOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+      </PageHeaderActions>
       {canCreate ? (
         <PageHeaderActions>
           <Button
@@ -230,100 +326,6 @@ export function TokenListPage() {
           </Button>
         </PageHeaderActions>
       ) : null}
-
-      <div className="aperture:flex aperture:shrink-0 aperture:flex-wrap aperture:items-center aperture:gap-2 aperture:p-3">
-        <SearchInput value={name} onChange={setName} placeholder="Search tokens" />
-        <Select
-          items={revokedFilterOptions}
-          value={revoked}
-          onValueChange={(nextValue) => {
-            if (nextValue === "active" || nextValue === "revoked" || nextValue === "all") {
-              setRevoked(nextValue);
-            }
-          }}
-        >
-          <SelectTrigger size="sm" className="aperture:w-28">
-            <SelectValue>
-              {(selectedValue: unknown) =>
-                revokedFilterOptions.find((option) => option.value === selectedValue)?.label ??
-                "Status"
-              }
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent align="start">
-            <SelectGroup>
-              {revokedFilterOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-        {isAdmin ? (
-          <Select
-            items={authorityFilterOptions}
-            value={authorityType}
-            onValueChange={(nextValue) => {
-              if (
-                nextValue === ALL_AUTHORITY ||
-                nextValue === "system_admin" ||
-                nextValue === "tenant"
-              ) {
-                setAuthorityType(nextValue);
-              }
-            }}
-          >
-            <SelectTrigger size="sm" className="aperture:w-40">
-              <SelectValue>
-                {(selectedValue: unknown) =>
-                  authorityFilterOptions.find((option) => option.value === selectedValue)?.label ??
-                  "Authority"
-                }
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent align="start">
-              <SelectGroup>
-                {authorityFilterOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        ) : null}
-        <Select
-          items={scopeFilterOptions}
-          value={scope}
-          onValueChange={(nextValue) => {
-            if (typeof nextValue === "string") {
-              setScope(nextValue);
-            }
-          }}
-        >
-          <SelectTrigger size="sm" className="aperture:w-40">
-            <SelectValue>
-              {(selectedValue: unknown) =>
-                selectedValue === ALL_SCOPES
-                  ? "All scopes"
-                  : (scopeFilterOptions.find((option) => option.value === selectedValue)?.label ??
-                    "All scopes")
-              }
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent align="start">
-            <SelectGroup>
-              <SelectItem value={ALL_SCOPES}>All scopes</SelectItem>
-              {scopeFilterOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-      </div>
 
       <BatchActionBar selectedCount={selectedTokenItems.length} onClear={clearSelectedTokens}>
         <Button
@@ -519,76 +521,69 @@ function TokenViewModal({
   onOpenChange,
   onRevoke,
 }: TokenViewModalProps) {
+  const createdBy = token?.createdBy;
   return (
     <Dialog open={open && token !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="aperture:flex aperture:max-h-[min(80vh,640px)] aperture:flex-col aperture:overflow-hidden aperture:sm:max-w-2xl">
+      <DialogContent className="aperture:flex aperture:max-h-[min(80svh,640px)] aperture:flex-col aperture:gap-3 aperture:overflow-hidden aperture:sm:max-w-lg">
         {token ? (
           <>
-            <DialogHeader>
-              <DialogTitle className="aperture:flex aperture:items-center aperture:gap-2">
-                {token.name}
+            <DialogHeader className="aperture:gap-1.5 aperture:pr-8 aperture:pb-0">
+              <DialogTitle className="aperture:flex aperture:min-w-0 aperture:flex-wrap aperture:items-center aperture:gap-2">
+                <span className="aperture:min-w-0 aperture:truncate">{token.name}</span>
                 <RevokedBadge revokedAt={token.revokedAt} />
+                {token.authorityType === "system_admin" ? (
+                  <Badge variant="secondary">system admin</Badge>
+                ) : null}
               </DialogTitle>
-              <DialogDescription className="aperture:break-all aperture:font-mono">
-                {token.id}
-              </DialogDescription>
+              <IdChip value={token.id} label="token ID" />
             </DialogHeader>
-            <ScrollArea className="aperture:min-h-0 aperture:flex-1">
-              <MetadataGrid
-                items={[
-                  { kind: "identifier", label: "ID", value: token.id },
-                  { kind: "text", label: "Name", value: token.name },
-                  {
-                    kind: "text",
-                    label: "Authority",
-                    value: token.authorityType === "system_admin" ? "System admin" : "Tenant",
-                  },
-                  {
-                    kind: "reference",
-                    label: "Tenant",
-                    id: token.tenant?.id,
-                    name: token.tenant?.name,
-                  },
-                  { kind: "text", label: "Scopes", value: <ScopeList scopes={token.scopes} /> },
-                  {
-                    kind: "text",
-                    label: "Resource access",
-                    value:
-                      token.resourceMode === "all" ? (
-                        "All resources"
-                      ) : (
-                        <ResourceGrantList grants={token.resourceGrants} />
-                      ),
-                  },
-                  { kind: "text", label: "Created", value: metadataTimestamp(token.createdAt) },
-                  token.createdBy.type === "system"
-                    ? { kind: "text", label: "Created by", value: "System" }
-                    : {
-                        kind: "reference",
-                        label: "Created by",
-                        type: token.createdBy.type === "user" ? "User" : "API token",
-                        id: token.createdBy.id,
-                        name: token.createdBy.name,
-                      },
-                  {
-                    kind: "reference",
-                    label: "Parent token",
-                    id: token.parentToken?.id,
-                    name: token.parentToken?.name,
-                  },
-                  { kind: "text", label: "Expires", value: metadataTimestamp(token.expiresAt) },
-                  { kind: "text", label: "Revoked", value: metadataTimestamp(token.revokedAt) },
-                ]}
-              />
+            <ScrollArea
+              className="aperture:min-h-0 aperture:flex-1"
+              viewportClassName="aperture:data-[has-overflow-y]:pr-3"
+            >
+              <DetailList className="aperture:py-1">
+                <DetailSection title="Access">
+                  <DetailRow label="Authority">
+                    {token.authorityType === "system_admin" ? "System admin" : "Tenant"}
+                  </DetailRow>
+                  <DetailRow label="Tenant">{reference(token.tenant)}</DetailRow>
+                  <DetailRow label="Scopes">
+                    <ScopeList scopes={token.scopes} />
+                  </DetailRow>
+                  <DetailRow label="Resources">
+                    {token.resourceMode === "all" ? (
+                      "All resources"
+                    ) : (
+                      <ResourceGrantList grants={token.resourceGrants} />
+                    )}
+                  </DetailRow>
+                </DetailSection>
+                <DetailSection title="Lifecycle">
+                  <DetailRow label="Created">{relativeTime(token.createdAt)}</DetailRow>
+                  <DetailRow label="Created by">
+                    {createdBy?.type !== "system" && createdBy?.id
+                      ? reference(
+                          { id: createdBy.id, name: createdBy.name },
+                          createdBy.type === "user" ? "User" : "API token",
+                        )
+                      : "System"}
+                  </DetailRow>
+                  <DetailRow label="Parent token">{reference(token.parentToken)}</DetailRow>
+                  <DetailRow label="Expires">{relativeTime(token.expiresAt) ?? "Never"}</DetailRow>
+                  <DetailRow label="Revoked">{relativeTime(token.revokedAt)}</DetailRow>
+                </DetailSection>
+              </DetailList>
             </ScrollArea>
-            <DialogFooter showCloseButton>
+            <DialogFooter showCloseButton className="aperture:mt-1">
               {canRevoke && !token.revokedAt ? (
                 <Button
                   type="button"
-                  variant="destructive"
+                  variant="ghost"
+                  className="aperture:text-destructive aperture:hover:bg-destructive/10 aperture:hover:text-destructive"
                   onClick={() => onRevoke(token)}
                   disabled={revokePending}
                 >
+                  <Ban data-icon="inline-start" />
                   Revoke
                 </Button>
               ) : null}
@@ -602,7 +597,7 @@ function TokenViewModal({
 
 function ScopeList({ scopes }: { scopes: readonly string[] }) {
   if (scopes.length === 0) {
-    return "—";
+    return "None";
   }
 
   return (
@@ -660,26 +655,23 @@ function ResourceGrantList({ grants }: { grants: readonly ResourceGrant[] }) {
   }
 
   return (
-    <div className="aperture:flex aperture:flex-col aperture:gap-1.5">
+    <ul className="aperture:flex aperture:flex-col aperture:gap-1">
       {grants.map((grant) => (
-        <div
+        <li
           key={`${grant.resourceType}:${grant.resourceId}`}
-          className="aperture:flex aperture:min-w-0 aperture:gap-2"
+          className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-2"
         >
           <Badge
-            variant="secondary"
+            variant="outline"
             className="aperture:shrink-0 aperture:font-normal aperture:capitalize"
           >
             {grant.resourceType}
           </Badge>
-          <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
-            {grant.label ? <span className="aperture:break-words">{grant.label}</span> : null}
-            <span className="aperture:break-all aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
-              {grant.resourceId}
-            </span>
+          <span className="aperture:min-w-0">
+            <ReferenceValue id={grant.resourceId} name={grant.label} />
           </span>
-        </div>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }

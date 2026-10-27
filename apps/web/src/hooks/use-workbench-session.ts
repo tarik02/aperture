@@ -35,6 +35,8 @@ export function useWorkbenchSession(sessionId: string) {
 
   return {
     session: sessionQuery.data ?? null,
+    /** The session comes from a list, without credentials yet. */
+    provisional: sessionQuery.isPlaceholderData,
     owningTenant: tenantQuery.data ?? null,
     isResolvingRoute: sessionQuery.isLoading || tenantQuery.isLoading,
     error: tenantQuery.error ?? lookupError,

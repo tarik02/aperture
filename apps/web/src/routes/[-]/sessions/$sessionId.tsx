@@ -28,7 +28,6 @@ function SessionWorkbenchRoute() {
   const search = Route.useSearch();
   return (
     <SessionWorkbench
-      key={sessionId}
       sessionId={sessionId}
       media={search.media}
       openNewTab={search.newTab === true}

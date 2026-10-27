@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useState } from "react";
+import { Fragment, useEffect, useId, useState, type ReactNode } from "react";
 import {
   Circle,
   Copy,
@@ -93,6 +93,7 @@ export function BrowserMenus({
   onLocalCursorChange,
   onReconnect,
   onSessionDetails,
+  menuItems,
   now,
 }: {
   control: UseBrowserControlResult;
@@ -104,6 +105,7 @@ export function BrowserMenus({
   onLocalCursorChange: (enabled: boolean) => void;
   onReconnect: () => void;
   onSessionDetails?: () => void;
+  menuItems?: ReactNode;
   now: number;
 }) {
   const { settings, updateSettings } = useRecordingSettings();
@@ -155,6 +157,12 @@ export function BrowserMenus({
             </TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end" className="aperture:w-72">
+            {menuItems ? (
+              <>
+                {menuItems}
+                <DropdownMenuSeparator />
+              </>
+            ) : null}
             <RestMenuItems
               control={control}
               cdpUrl={cdpUrl}
@@ -270,7 +278,13 @@ export function BrowserMenus({
             </TooltipTrigger>
             <TooltipContent side="bottom">More browser actions</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent align="end" className="aperture:w-48">
+          <DropdownMenuContent align="end" className="aperture:w-56">
+            {menuItems ? (
+              <>
+                {menuItems}
+                <DropdownMenuSeparator />
+              </>
+            ) : null}
             <RestMenuItems
               control={control}
               cdpUrl={cdpUrl}

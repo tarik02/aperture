@@ -1,6 +1,5 @@
 import { useForm, useStore } from "@tanstack/react-form";
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { flattenInfinitePages } from "@aperture-browser/api-client";
 import { Button } from "@aperture-browser/ui/components/button";
@@ -25,7 +24,6 @@ import {
   FieldDescription,
   FieldGroup,
   FieldLabel,
-  FieldSeparator,
 } from "@aperture-browser/ui/components/field";
 import { Input } from "@aperture-browser/ui/components/input";
 import {
@@ -36,7 +34,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@aperture-browser/ui/components/select";
+import { ScrollArea } from "@aperture-browser/ui/components/scroll-area";
 import { Spinner } from "@aperture-browser/ui/components/spinner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@aperture-browser/ui/components/tabs";
 import {
   TagEditor,
   entriesToTags,
@@ -75,7 +75,7 @@ export function SessionCreateDialog({
 }: SessionCreateDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange} onOpenChangeComplete={onOpenChangeComplete}>
-      <DialogContent className="aperture:sm:max-w-xl">
+      <DialogContent className="aperture:gap-0 aperture:sm:max-w-xl">
         {request ? (
           <SessionCreateForm request={request} onDone={() => onOpenChange(false)} />
         ) : null}
@@ -98,6 +98,15 @@ const noSnapshot: SnapshotOption = {
 
 const formId = "session-create-form";
 
+type SessionCreateTab = "general" | "proxy" | "advanced";
+
+function isSessionCreateTab(value: unknown): value is SessionCreateTab {
+  return value === "general" || value === "proxy" || value === "advanced";
+}
+
+const tabTriggerClassName =
+  "aperture:h-full aperture:flex-none aperture:rounded-none aperture:px-2 aperture:text-[13px]";
+
 function SessionCreateForm({
   request,
   onDone,
@@ -109,7 +118,7 @@ function SessionCreateForm({
   const channelsQuery = useBrowserChannelsQuery();
   const snapshotsQuery = useSnapshotsInfiniteQuery({ limit: 100 });
   const mutation = useCreateSessionMutation();
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [tab, setTab] = useState<SessionCreateTab>("general");
 
   const channels = channelsQuery.data?.channels ?? [];
   const snapshots = useMemo(
@@ -175,177 +184,212 @@ function SessionCreateForm({
         void form.handleSubmit();
       }}
     >
-      <DialogHeader>
+      <DialogHeader className="aperture:pb-3">
         <DialogTitle>New session</DialogTitle>
       </DialogHeader>
-      <FieldGroup>
-        <form.Field name="label">
-          {(field) => (
-            <Field>
-              <FieldLabel htmlFor="session-label">Label</FieldLabel>
-              <Input
-                id="session-label"
-                autoFocus
-                value={field.state.value}
-                onChange={(event) => field.handleChange(event.target.value)}
-                placeholder="Optional"
-                disabled={submitting}
-                autoComplete="off"
-              />
-            </Field>
-          )}
-        </form.Field>
-
-        {channels.length > 1 ? (
-          <form.Field name="channel">
-            {(field) => (
-              <Field>
-                <FieldLabel>Browser</FieldLabel>
-                <Select
-                  items={channels.map((channel) => ({ value: channel.name, label: channel.name }))}
-                  value={field.state.value || channels[0]?.name}
-                  onValueChange={(value) => field.handleChange(value ?? "")}
-                  disabled={submitting}
-                >
-                  <SelectTrigger className="aperture:w-full">
-                    <SelectValue placeholder="Browser" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {channels.map((channel) => (
-                        <SelectItem key={channel.name} value={channel.name}>
-                          {channel.name}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
-            )}
-          </form.Field>
-        ) : null}
-
-        {snapshotOptions.length > 1 ? (
-          <form.Field name="baseSnapshot">
-            {(field) => {
-              const selected =
-                snapshotOptions.find((option) => option.value === field.state.value) ?? noSnapshot;
-              return (
-                <Field>
-                  <FieldLabel>Snapshot</FieldLabel>
-                  <Combobox
-                    items={snapshotOptions}
-                    value={selected}
-                    itemToStringLabel={(option: SnapshotOption) => option.label}
-                    isItemEqualToValue={(left: SnapshotOption, right: SnapshotOption) =>
-                      left.value === right.value
-                    }
-                    onValueChange={(option: SnapshotOption | null) =>
-                      field.handleChange(option?.value ?? null)
-                    }
-                  >
-                    <ComboboxTrigger
-                      render={
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="aperture:w-full aperture:min-w-0 aperture:justify-between aperture:font-normal"
-                          disabled={submitting}
-                        />
-                      }
-                    >
-                      <span
-                        className={cn(
-                          "aperture:min-w-0 aperture:truncate",
-                          selected.value === null && "aperture:text-muted-foreground",
-                        )}
-                      >
-                        {selected.value === null
-                          ? "None — Blank browser, no saved logins"
-                          : selected.label}
-                      </span>
-                    </ComboboxTrigger>
-                    <ComboboxContent align="start" className="aperture:w-(--anchor-width)">
-                      <ComboboxInput
-                        placeholder="Search snapshots"
-                        showTrigger={false}
-                        className="aperture:w-auto"
-                      />
-                      <ComboboxEmpty>No snapshots match.</ComboboxEmpty>
-                      <ComboboxList>
-                        {(option: SnapshotOption) => (
-                          <ComboboxItem key={option.value ?? ""} value={option}>
-                            <span className="aperture:grid aperture:min-w-0">
-                              <span className="aperture:truncate">{option.label}</span>
-                              <span className="aperture:truncate aperture:text-xs aperture:text-muted-foreground">
-                                {option.description}
-                              </span>
-                            </span>
-                          </ComboboxItem>
-                        )}
-                      </ComboboxList>
-                    </ComboboxContent>
-                  </Combobox>
-                  <FieldDescription>
-                    The session starts with a copy of the snapshot. Changes made in the session do
-                    not change the snapshot.
-                  </FieldDescription>
-                </Field>
-              );
-            }}
-          </form.Field>
-        ) : null}
-
-        <FieldSeparator />
-        <button
-          type="button"
-          className="aperture:flex aperture:items-center aperture:gap-1.5 aperture:text-sm aperture:font-medium aperture:text-muted-foreground aperture:hover:text-foreground"
-          aria-expanded={advancedOpen}
-          onClick={() => setAdvancedOpen((open) => !open)}
+      <Tabs
+        value={tab}
+        onValueChange={(value) => {
+          if (isSessionCreateTab(value)) {
+            setTab(value);
+          }
+        }}
+        className="aperture:min-h-0 aperture:gap-0"
+      >
+        <TabsList
+          variant="line"
+          className="aperture:-mx-4 aperture:h-9 aperture:w-[calc(100%+2rem)] aperture:shrink-0 aperture:justify-start aperture:gap-0.5 aperture:border-b aperture:px-3 aperture:py-0"
         >
-          <ChevronRight
-            className={cn(
-              "aperture:size-4 aperture:transition-transform",
-              advancedOpen && "aperture:rotate-90",
-            )}
-          />
-          Proxy, browser arguments and tags
-        </button>
-        {advancedOpen ? (
-          <>
-            <form.Field name="proxy">
-              {(field) => (
-                <ProxyEditor
-                  value={field.state.value}
-                  onChange={field.handleChange}
-                  errors={proxyErrors}
-                  disabled={submitting}
+          <TabsTrigger value="general" className={tabTriggerClassName}>
+            General
+          </TabsTrigger>
+          <TabsTrigger value="proxy" className={tabTriggerClassName}>
+            Proxy
+            {proxyInvalid ? (
+              <>
+                <span
+                  aria-hidden
+                  className="aperture:size-1.5 aperture:rounded-full aperture:bg-destructive"
                 />
-              )}
-            </form.Field>
-            <form.Field name="browserArgs">
-              {(field) => (
-                <BrowserArgsEditor
-                  args={field.state.value}
-                  onChange={field.handleChange}
-                  disabled={submitting}
-                />
-              )}
-            </form.Field>
-            <form.Field name="tagEntries">
-              {(field) => (
-                <TagEditor
-                  entries={field.state.value}
-                  onChange={field.handleChange}
-                  disabled={submitting}
-                />
-              )}
-            </form.Field>
-          </>
-        ) : null}
-      </FieldGroup>
+                <span className="aperture:sr-only">(has errors)</span>
+              </>
+            ) : null}
+          </TabsTrigger>
+          <TabsTrigger value="advanced" className={tabTriggerClassName}>
+            Advanced
+          </TabsTrigger>
+        </TabsList>
+        <div className="aperture:-mx-4 aperture:h-[min(26rem,60svh)] aperture:min-h-0">
+          <TabsContent value="general" className="aperture:h-full aperture:min-h-0">
+            <ScrollArea className="aperture:h-full" viewportClassName="aperture:px-4 aperture:py-4">
+              <FieldGroup>
+                <form.Field name="label">
+                  {(field) => (
+                    <Field>
+                      <FieldLabel htmlFor="session-label">Label</FieldLabel>
+                      <Input
+                        id="session-label"
+                        autoFocus
+                        value={field.state.value}
+                        onChange={(event) => field.handleChange(event.target.value)}
+                        placeholder="Optional"
+                        disabled={submitting}
+                        autoComplete="off"
+                      />
+                    </Field>
+                  )}
+                </form.Field>
+
+                {channels.length > 1 ? (
+                  <form.Field name="channel">
+                    {(field) => (
+                      <Field>
+                        <FieldLabel>Browser</FieldLabel>
+                        <Select
+                          items={channels.map((channel) => ({
+                            value: channel.name,
+                            label: channel.name,
+                          }))}
+                          value={field.state.value || channels[0]?.name}
+                          onValueChange={(value) => field.handleChange(value ?? "")}
+                          disabled={submitting}
+                        >
+                          <SelectTrigger className="aperture:w-full">
+                            <SelectValue placeholder="Browser" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              {channels.map((channel) => (
+                                <SelectItem key={channel.name} value={channel.name}>
+                                  {channel.name}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                    )}
+                  </form.Field>
+                ) : null}
+
+                {snapshotOptions.length > 1 ? (
+                  <form.Field name="baseSnapshot">
+                    {(field) => {
+                      const selected =
+                        snapshotOptions.find((option) => option.value === field.state.value) ??
+                        noSnapshot;
+                      return (
+                        <Field>
+                          <FieldLabel>Snapshot</FieldLabel>
+                          <Combobox
+                            items={snapshotOptions}
+                            value={selected}
+                            itemToStringLabel={(option: SnapshotOption) => option.label}
+                            isItemEqualToValue={(left: SnapshotOption, right: SnapshotOption) =>
+                              left.value === right.value
+                            }
+                            onValueChange={(option: SnapshotOption | null) =>
+                              field.handleChange(option?.value ?? null)
+                            }
+                          >
+                            <ComboboxTrigger
+                              render={
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="aperture:w-full aperture:min-w-0 aperture:justify-between aperture:font-normal"
+                                  disabled={submitting}
+                                />
+                              }
+                            >
+                              <span
+                                className={cn(
+                                  "aperture:min-w-0 aperture:truncate",
+                                  selected.value === null && "aperture:text-muted-foreground",
+                                )}
+                              >
+                                {selected.value === null
+                                  ? "None — Blank browser, no saved logins"
+                                  : selected.label}
+                              </span>
+                            </ComboboxTrigger>
+                            <ComboboxContent align="start" className="aperture:w-(--anchor-width)">
+                              <ComboboxInput
+                                placeholder="Search snapshots"
+                                showTrigger={false}
+                                className="aperture:w-auto"
+                              />
+                              <ComboboxEmpty>No snapshots match.</ComboboxEmpty>
+                              <ComboboxList>
+                                {(option: SnapshotOption) => (
+                                  <ComboboxItem key={option.value ?? ""} value={option}>
+                                    <span className="aperture:grid aperture:min-w-0">
+                                      <span className="aperture:truncate">{option.label}</span>
+                                      <span className="aperture:truncate aperture:text-xs aperture:text-muted-foreground">
+                                        {option.description}
+                                      </span>
+                                    </span>
+                                  </ComboboxItem>
+                                )}
+                              </ComboboxList>
+                            </ComboboxContent>
+                          </Combobox>
+                          <FieldDescription>
+                            The session starts with a copy of the snapshot. Changes made in the
+                            session do not change the snapshot.
+                          </FieldDescription>
+                        </Field>
+                      );
+                    }}
+                  </form.Field>
+                ) : null}
+              </FieldGroup>
+            </ScrollArea>
+          </TabsContent>
+          <TabsContent value="proxy" className="aperture:h-full aperture:min-h-0">
+            <ScrollArea className="aperture:h-full" viewportClassName="aperture:px-4 aperture:py-4">
+              <form.Field name="proxy">
+                {(field) => (
+                  <ProxyEditor
+                    value={field.state.value}
+                    onChange={field.handleChange}
+                    errors={proxyErrors}
+                    disabled={submitting}
+                  />
+                )}
+              </form.Field>
+            </ScrollArea>
+          </TabsContent>
+          <TabsContent value="advanced" className="aperture:h-full aperture:min-h-0">
+            <ScrollArea className="aperture:h-full" viewportClassName="aperture:px-4 aperture:py-4">
+              <FieldGroup>
+                <form.Field name="browserArgs">
+                  {(field) => (
+                    <BrowserArgsEditor
+                      args={field.state.value}
+                      onChange={field.handleChange}
+                      disabled={submitting}
+                    />
+                  )}
+                </form.Field>
+                <form.Field name="tagEntries">
+                  {(field) => (
+                    <TagEditor
+                      entries={field.state.value}
+                      onChange={field.handleChange}
+                      disabled={submitting}
+                    />
+                  )}
+                </form.Field>
+              </FieldGroup>
+            </ScrollArea>
+          </TabsContent>
+        </div>
+      </Tabs>
       {mutation.error ? (
-        <p className="aperture:text-sm aperture:text-destructive">{mutation.error.message}</p>
+        <p className="aperture:pb-3 aperture:text-sm aperture:text-destructive">
+          {mutation.error.message}
+        </p>
       ) : null}
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onDone} disabled={submitting}>
