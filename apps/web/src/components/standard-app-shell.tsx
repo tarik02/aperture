@@ -1,10 +1,9 @@
 import { useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
 import { PageHeaderActionsTarget } from "#/components/page-header-context.ts";
-import { Separator } from "@aperture-browser/ui/components/separator";
 import { SidebarInset, SidebarTrigger } from "@aperture-browser/ui/components/sidebar";
 import { AppSidebar } from "#/components/app-sidebar.tsx";
-import { primaryNavItems } from "#/lib/navigation.ts";
+import { resolveNavItem } from "#/lib/navigation.ts";
 import { NoTenantState } from "#/features/tenant/no-tenant-state.tsx";
 import { selectAuth, useAuthSessionStore } from "#/stores/auth-session.ts";
 
@@ -14,11 +13,11 @@ type StandardAppShellProps = {
 
 export default function StandardAppShell({ children }: StandardAppShellProps) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const snapshotsView = useRouterState({
-    select: (state) => (state.location.search as { view?: string }).view === "snapshots",
+  const view = useRouterState({
+    select: (state) => (state.location.search as { view?: string }).view,
   });
-  const navItem = resolveNavItem(pathname);
-  const pageTitle = snapshotsView ? "Snapshots" : (navItem?.title ?? "Sessions");
+  const navItem = resolveNavItem(pathname, view);
+  const pageTitle = navItem?.title ?? "Sessions";
   const auth = useAuthSessionStore(selectAuth);
   const [headerActions, setHeaderActions] = useState<HTMLDivElement | null>(null);
   // Tenant-scoped requests fail until a tenant is selected, so show why instead.
@@ -37,7 +36,6 @@ export default function StandardAppShell({ children }: StandardAppShellProps) {
           className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:border-b"
         >
           <SidebarTrigger className="aperture:-ml-1" />
-          <Separator orientation="vertical" className="aperture:h-4" />
           <h1 className="aperture:min-w-0 aperture:truncate aperture:text-sm aperture:font-semibold">
             {pageTitle}
           </h1>
@@ -55,13 +53,4 @@ export default function StandardAppShell({ children }: StandardAppShellProps) {
       </SidebarInset>
     </>
   );
-}
-
-function resolveNavItem(pathname: string) {
-  return primaryNavItems.find((navItem) => {
-    if (navItem.to === "/") {
-      return pathname === "/";
-    }
-    return pathname === navItem.to || pathname.startsWith(`${navItem.to}/`);
-  });
 }

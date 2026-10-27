@@ -110,6 +110,16 @@ export function useRowSelection<T>({
     [entries, orderedIds, setRows, tableKey, toggleOne],
   );
 
+  const toggleAll = useCallback(
+    (checked: boolean) => setRows(tableKey, entries(orderedIds), checked, null),
+    [entries, orderedIds, setRows, tableKey],
+  );
+  const remove = useCallback(
+    (id: string) => setRows(tableKey, [[id, undefined]], false),
+    [setRows, tableKey],
+  );
+  const clear = useCallback(() => clearSelection(tableKey), [clearSelection, tableKey]);
+
   const selectedCount = Object.keys(selection).length;
   const visibleSelected = orderedIds.filter((id) => id in selection).length;
   const allSelected = orderedIds.length > 0 && visibleSelected === orderedIds.length;
@@ -121,9 +131,9 @@ export function useRowSelection<T>({
     allSelected,
     someSelected: visibleSelected > 0 && !allSelected,
     toggleOne,
-    toggleAll: (checked: boolean) => setRows(tableKey, entries(orderedIds), checked, null),
-    remove: (id: string) => setRows(tableKey, [[id, undefined]], false),
-    clear: () => clearSelection(tableKey),
+    toggleAll,
+    remove,
+    clear,
     drag,
   };
 }

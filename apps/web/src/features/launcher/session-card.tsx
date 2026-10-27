@@ -1,6 +1,10 @@
 import { useNavigate } from "@tanstack/react-router";
 import { MoreHorizontal, PlusIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
+import {
+  SelectionCheckbox,
+  type ItemSelection,
+} from "#/components/resources/selection-checkbox.tsx";
 import type { BrowserPage, Session } from "@aperture-browser/api-client";
 import { Badge } from "@aperture-browser/ui/components/badge";
 import { Button } from "@aperture-browser/ui/components/button";
@@ -39,6 +43,9 @@ type SessionCardProps = {
   actions: SessionActions;
   permissions: SessionPermissions;
   actionsPending: boolean;
+  selection?: ItemSelection;
+  /** Wraps the card, e.g. in a context menu for the current selection. */
+  wrap?: (card: ReactElement) => ReactElement;
 };
 
 export function SessionCard({
@@ -48,6 +55,8 @@ export function SessionCard({
   actions,
   permissions,
   actionsPending,
+  selection,
+  wrap,
 }: SessionCardProps) {
   const navigate = useNavigate();
   const statusQuery = useBrowserStatusQuery(session);
@@ -121,16 +130,20 @@ export function SessionCard({
     );
   }
 
-  return (
+  const card = (
     <article
       className={cn(
-        "aperture:flex aperture:min-w-0 aperture:flex-col aperture:overflow-hidden aperture:rounded-xl aperture:bg-card aperture:ring-1 aperture:ring-foreground/10 aperture:sm:flex-row",
+        "aperture:group/item aperture:flex aperture:min-w-0 aperture:flex-col aperture:overflow-hidden aperture:rounded-xl aperture:bg-card aperture:ring-1 aperture:ring-foreground/10 aperture:sm:flex-row",
         openElsewhere && "aperture:ring-primary/40",
+        selection?.selected && "aperture:bg-muted/40 aperture:ring-2 aperture:ring-primary",
         hidden && "aperture:hidden",
       )}
     >
       <div className="aperture:flex aperture:shrink-0 aperture:flex-col aperture:gap-1 aperture:border-b aperture:px-3 aperture:py-2 aperture:sm:w-56 aperture:sm:border-r aperture:sm:border-b-0">
-        <div className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-1">
+        <div className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-2">
+          {selection ? (
+            <SelectionCheckbox selection={selection} label={`Select ${sessionLabel(session)}`} />
+          ) : null}
           <h3 className="aperture:min-w-0 aperture:flex-1 aperture:truncate aperture:text-sm aperture:font-medium">
             {sessionLabel(session)}
           </h3>
@@ -195,6 +208,8 @@ export function SessionCard({
       </ScrollArea>
     </article>
   );
+
+  return wrap ? wrap(card) : card;
 }
 
 function targetThumbnail(session: Session, targetId: string, version: number) {

@@ -26,6 +26,8 @@ export function BatchActionBar({ selectedCount, onClear, children }: BatchAction
 
   return (
     <div
+      role="status"
+      aria-live="polite"
       className="aperture:pointer-events-none aperture:fixed aperture:bottom-5 aperture:z-50 aperture:flex aperture:justify-center"
       style={insetStyle}
     >
