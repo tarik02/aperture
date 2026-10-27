@@ -3,23 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import * as Redacted from "effect/Redacted";
 import { KeyRound, TriangleAlert } from "lucide-react";
-import { Alert, AlertDescription } from "@aperture-browser/ui/components/alert";
 import { Button } from "@aperture-browser/ui/components/button";
 import { Checkbox } from "@aperture-browser/ui/components/checkbox";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@aperture-browser/ui/components/dialog";
-import {
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldLabel,
-  FieldTitle,
-} from "@aperture-browser/ui/components/field";
 import {
   Select,
   SelectContent,
@@ -31,7 +22,6 @@ import {
 import { Switch } from "@aperture-browser/ui/components/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@aperture-browser/ui/components/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@aperture-browser/ui/components/toggle-group";
-import { cn } from "@aperture-browser/ui/utils";
 import type { Session } from "@aperture-browser/api-client";
 import { CopyButton } from "#/components/resources/copy-button.tsx";
 import { CopyField } from "#/components/resources/copy-field.tsx";
@@ -110,9 +100,6 @@ export function McpSetupDialog({
       <DialogContent className="aperture:sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Connect an MCP client</DialogTitle>
-          <DialogDescription>
-            Let AI agents create and drive browser sessions in Aperture.
-          </DialogDescription>
         </DialogHeader>
         {open ? <McpSetupBody session={session ?? null} /> : null}
       </DialogContent>
@@ -165,16 +152,55 @@ function McpSetupBody({ session }: { session: Session | null }) {
   }
 
   return (
-    <div className="aperture:flex aperture:min-w-0 aperture:flex-col aperture:gap-4">
-      <div className="aperture:grid aperture:gap-4 aperture:sm:grid-cols-2">
-        {session ? (
-          <Field>
-            <FieldLabel>Scope</FieldLabel>
+    <Tabs
+      orientation="vertical"
+      value={clientId}
+      onValueChange={(value) => selectClient(String(value))}
+      className="aperture:min-w-0 aperture:gap-5"
+    >
+      <TabsList
+        variant="line"
+        className="aperture:hidden aperture:w-36 aperture:shrink-0 aperture:items-stretch aperture:self-start aperture:sm:flex"
+      >
+        {mcpClients.map((client) => (
+          <TabsTrigger key={client.id} value={client.id}>
+            {client.name}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+
+      <div className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:gap-3">
+        <Select
+          items={clientItems}
+          value={clientId}
+          onValueChange={(value) => {
+            if (value) {
+              selectClient(value);
+            }
+          }}
+        >
+          <SelectTrigger className="aperture:w-full aperture:sm:hidden" aria-label="MCP client">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {clientItems.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+
+        <div className="aperture:flex aperture:flex-wrap aperture:items-center aperture:gap-x-4 aperture:gap-y-2">
+          {session ? (
             <ToggleGroup
               variant="outline"
               size="sm"
               spacing={0}
               value={[scope]}
+              aria-label="Scope"
               onValueChange={(value) => {
                 const next = value[0];
                 if (next === "tenant" || next === "session") {
@@ -185,43 +211,16 @@ function McpSetupBody({ session }: { session: Session | null }) {
               <ToggleGroupItem value="session">This session</ToggleGroupItem>
               <ToggleGroupItem value="tenant">All sessions</ToggleGroupItem>
             </ToggleGroup>
-          </Field>
-        ) : null}
-
-        <Field>
-          <FieldLabel>Authentication</FieldLabel>
-          {oauthAvailable ? (
-            <ToggleGroup
-              variant="outline"
-              size="sm"
-              spacing={0}
-              value={[authChoice]}
-              onValueChange={(value) => {
-                const next = value[0];
-                if (next === "oauth" || next === "token") {
-                  setAuthChoice(next);
-                }
-              }}
-            >
-              <ToggleGroupItem value="oauth">Sign in with OAuth (recommended)</ToggleGroupItem>
-              <ToggleGroupItem value="token">API token</ToggleGroupItem>
-            </ToggleGroup>
-          ) : (
-            <FieldDescription>
-              {oauth.isPending
-                ? "Checking sign-in options…"
-                : "OAuth sign-in is not configured on this instance, so clients need a token."}
-            </FieldDescription>
-          )}
-        </Field>
-
-        <Field className={cn(!session && "aperture:sm:col-span-2")}>
-          <FieldTitle>Browser tools</FieldTitle>
-          <div className="aperture:flex aperture:flex-wrap aperture:gap-2">
+          ) : null}
+          <div
+            role="group"
+            aria-label="Browser tools"
+            className="aperture:flex aperture:flex-wrap aperture:items-center aperture:gap-1.5"
+          >
             {browserToolOptions.map((option) => (
               <label
                 key={option.value}
-                className="aperture:flex aperture:items-center aperture:gap-2 aperture:rounded-lg aperture:border aperture:px-2.5 aperture:py-1 aperture:text-xs aperture:has-disabled:opacity-60"
+                className="aperture:flex aperture:h-7 aperture:items-center aperture:gap-1.5 aperture:rounded-md aperture:border aperture:px-2 aperture:text-xs aperture:has-disabled:opacity-60"
               >
                 <Checkbox
                   checked={tools.includes(option.value)}
@@ -232,113 +231,78 @@ function McpSetupBody({ session }: { session: Session | null }) {
               </label>
             ))}
           </div>
-        </Field>
-      </div>
+          <label
+            className="aperture:ml-auto aperture:flex aperture:items-center aperture:gap-2 aperture:text-sm"
+            title={
+              oauthAvailable
+                ? "Off: clients sign in with OAuth. On: clients send an API token."
+                : "OAuth sign-in is not configured on this instance, so clients need a token."
+            }
+          >
+            <Switch
+              checked={auth === "token"}
+              disabled={!oauthAvailable}
+              onCheckedChange={(checked) => setAuthChoice(checked ? "token" : "oauth")}
+            />
+            API token
+          </label>
+        </div>
 
-      {auth === "token" ? (
-        <div className="aperture:flex aperture:flex-col aperture:gap-2">
-          {sessionToken !== null ? (
-            <Field orientation="horizontal">
-              <FieldContent>
-                <FieldTitle>Use this session's token</FieldTitle>
-                <FieldDescription>
-                  Embed the session token instead of an API token.
-                </FieldDescription>
-              </FieldContent>
-              <Switch
-                checked={useSessionToken}
-                onCheckedChange={setUseSessionToken}
-                aria-label="Use this session's token"
-              />
-            </Field>
-          ) : null}
-          {embedSessionToken ? (
-            <Alert>
-              <TriangleAlert />
-              <AlertDescription>
+        <CopyField value={url} label="Endpoint" />
+
+        {auth === "token" ? (
+          <div className="aperture:flex aperture:flex-wrap aperture:items-center aperture:gap-x-3 aperture:gap-y-2 aperture:rounded-lg aperture:border aperture:px-3 aperture:py-2">
+            {embedSessionToken ? (
+              <span className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:gap-2 aperture:text-xs aperture:text-muted-foreground">
+                <TriangleAlert className="aperture:size-4 aperture:shrink-0 aperture:text-amber-600" />
                 Anyone with this config can control this session. It stops working when the session
                 token is rotated.
-              </AlertDescription>
-            </Alert>
-          ) : (
-            <div className="aperture:flex aperture:flex-wrap aperture:items-center aperture:justify-between aperture:gap-2 aperture:rounded-lg aperture:border aperture:px-3 aperture:py-2">
-              <span className="aperture:min-w-0 aperture:flex-1 aperture:text-xs aperture:text-muted-foreground">
-                Use an API token with the sessions:read and sessions:write scopes. Snapshot tools
-                also need snapshot scopes.
               </span>
-              <Button variant="outline" size="sm" render={<Link to="/-/tokens" />}>
-                <KeyRound />
-                Create an API token
+            ) : (
+              <span className="aperture:min-w-0 aperture:flex-1 aperture:text-xs aperture:text-muted-foreground">
+                {oauthAvailable ? "" : "OAuth sign-in isn't configured here. "}
+                Use an API token with the sessions:read and sessions:write scopes.
+              </span>
+            )}
+            {sessionToken !== null ? (
+              <label className="aperture:flex aperture:items-center aperture:gap-2 aperture:text-xs">
+                <Switch size="sm" checked={useSessionToken} onCheckedChange={setUseSessionToken} />
+                Use this session's token
+              </label>
+            ) : null}
+            {embedSessionToken ? null : (
+              <Button
+                variant="outline"
+                size="sm"
+                render={<Link to="/-/tokens" />}
+                nativeButton={false}
+              >
+                <KeyRound data-icon="inline-start" />
+                Create token
               </Button>
-            </div>
-          )}
-        </div>
-      ) : null}
+            )}
+          </div>
+        ) : null}
 
-      <CopyField value={url} label="Endpoint" />
-
-      <Tabs
-        orientation="vertical"
-        value={clientId}
-        onValueChange={(value) => selectClient(String(value))}
-        className="aperture:min-w-0 aperture:gap-4"
-      >
-        <TabsList
-          variant="line"
-          className="aperture:hidden aperture:w-40 aperture:shrink-0 aperture:items-stretch aperture:sm:flex"
-        >
-          {mcpClients.map((client) => (
-            <TabsTrigger key={client.id} value={client.id}>
-              {client.name}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-        <div className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:gap-3">
-          <Select
-            items={clientItems}
-            value={clientId}
-            onValueChange={(value) => {
-              if (value) {
-                selectClient(value);
-              }
-            }}
-          >
-            <SelectTrigger className="aperture:w-full aperture:sm:hidden" aria-label="MCP client">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {clientItems.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-          {mcpClients.map((client) => (
-            <TabsContent key={client.id} value={client.id} className="aperture:min-w-0">
-              <p className="aperture:mb-3 aperture:text-xs aperture:text-muted-foreground">
-                {client.description}
-              </p>
-              <ol className="aperture:flex aperture:flex-col aperture:gap-4">
-                {client.steps(input).map((step, index) => (
-                  <li key={index} className="aperture:flex aperture:min-w-0 aperture:gap-3">
-                    <span className="aperture:flex aperture:size-5 aperture:shrink-0 aperture:items-center aperture:justify-center aperture:rounded-full aperture:bg-muted aperture:text-xs aperture:font-medium">
-                      {index + 1}
-                    </span>
-                    <div className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:gap-2">
-                      <p className="aperture:leading-5">{step.text}</p>
-                      {step.code ? <CodeBlock code={step.code} /> : null}
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            </TabsContent>
-          ))}
-        </div>
-      </Tabs>
-    </div>
+        {mcpClients.map((client) => (
+          <TabsContent key={client.id} value={client.id} className="aperture:min-w-0">
+            <ol className="aperture:flex aperture:flex-col aperture:gap-4">
+              {client.steps(input).map((step, index) => (
+                <li key={index} className="aperture:flex aperture:min-w-0 aperture:gap-3">
+                  <span className="aperture:flex aperture:size-5 aperture:shrink-0 aperture:items-center aperture:justify-center aperture:rounded-full aperture:bg-muted aperture:text-xs aperture:font-medium">
+                    {index + 1}
+                  </span>
+                  <div className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:gap-2">
+                    <p className="aperture:leading-5">{step.text}</p>
+                    {step.code ? <CodeBlock code={step.code} /> : null}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </TabsContent>
+        ))}
+      </div>
+    </Tabs>
   );
 }
 
