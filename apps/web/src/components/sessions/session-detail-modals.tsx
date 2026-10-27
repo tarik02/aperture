@@ -99,8 +99,8 @@ export function SessionDetailModals({
                   {displayedSession.label ?? "Session"}
                 </span>
                 <SessionStatusBadge status={displayedSession.status} />
+                <IdChip value={displayedSession.id} label="session ID" />
               </DialogTitle>
-              <IdChip value={displayedSession.id} label="session ID" />
             </DialogHeader>
             <Tabs
               value={displayedSection}

@@ -1,36 +1,4 @@
-import {
-  sessionFileRootDirectories,
-  sessionFileTree,
-  type SessionFileEntry,
-  type SessionFileTreeNode,
-} from "@aperture-browser/api-client";
-
-export type SessionFileKind =
-  | "directory"
-  | "video"
-  | "image"
-  | "audio"
-  | "archive"
-  | "text"
-  | "file";
-
-const videoExtensions = new Set(["mp4", "webm", "mkv", "mov", "avi", "m4v", "ogv"]);
-const imageExtensions = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "bmp", "ico"]);
-const audioExtensions = new Set(["mp3", "wav", "ogg", "oga", "m4a", "flac", "aac", "opus"]);
-const archiveExtensions = new Set(["zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar", "zst"]);
-const textExtensions = new Set(["txt", "md", "log", "json", "csv", "yaml", "yml", "xml", "html"]);
-
-/** The kind of a file as far as its icon is concerned, judged by its extension. */
-export function fileKind(name: string): Exclude<SessionFileKind, "directory"> {
-  const dot = name.lastIndexOf(".");
-  const extension = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
-  if (videoExtensions.has(extension)) return "video";
-  if (imageExtensions.has(extension)) return "image";
-  if (audioExtensions.has(extension)) return "audio";
-  if (archiveExtensions.has(extension)) return "archive";
-  if (textExtensions.has(extension)) return "text";
-  return "file";
-}
+import { sessionFileRootDirectories, type SessionFileEntry } from "@aperture-browser/api-client";
 
 const sizeUnits = ["B", "KB", "MB", "GB", "TB"] as const;
 
@@ -45,6 +13,33 @@ export function formatBytes(bytes: number): string {
   return `${value.toFixed(digits)} ${sizeUnits[unit]}`;
 }
 
+const minute = 60_000;
+const hour = 60 * minute;
+const day = 24 * hour;
+const shortDate = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+const shortDateWithYear = new Intl.DateTimeFormat(undefined, {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+});
+const fullDate = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
+
+/** A compact age for a row: `now`, `5m`, `3h`, `2d`, then the date. */
+export function formatShortAge(date: Date, now = Date.now()): string {
+  const elapsed = Math.max(0, now - date.getTime());
+  if (elapsed < minute) return "now";
+  if (elapsed < hour) return `${Math.floor(elapsed / minute)}m`;
+  if (elapsed < day) return `${Math.floor(elapsed / hour)}h`;
+  if (elapsed < 7 * day) return `${Math.floor(elapsed / day)}d`;
+  return new Date(now).getFullYear() === date.getFullYear()
+    ? shortDate.format(date)
+    : shortDateWithYear.format(date);
+}
+
+export function formatFullDate(date: Date): string {
+  return fullDate.format(date);
+}
+
 export function joinPath(directory: string, name: string): string {
   return directory === "" ? name : `${directory}/${name}`;
 }
@@ -54,14 +49,8 @@ export function parentPath(relativePath: string): string {
   return slash === -1 ? "" : relativePath.slice(0, slash);
 }
 
-/** Every ancestor of `relativePath` from the top down, the path itself included. */
-export function pathCrumbs(relativePath: string): Array<{ name: string; path: string }> {
-  if (relativePath === "") return [];
-  const segments = relativePath.split("/");
-  return segments.map((name, index) => ({
-    name,
-    path: segments.slice(0, index + 1).join("/"),
-  }));
+export function baseName(relativePath: string): string {
+  return relativePath.slice(relativePath.lastIndexOf("/") + 1);
 }
 
 /** The fixed top-level directories cannot be deleted, moved or renamed. */
@@ -78,35 +67,55 @@ export function validateEntryName(name: string): string | null {
   return null;
 }
 
-/**
- * The entries directly inside `directory`, directories first and then files by name, or
- * `null` when the directory does not exist in the listing.
+/*
+ * The tree identifies entries by path, marking directories with a trailing slash
+ * (`uploads/invoices/`) so empty ones still show as folders. The API uses plain relative
+ * paths (`uploads/invoices`).
  */
-export function directoryChildren(
-  entries: ReadonlyArray<SessionFileEntry>,
-  directory: string,
-): ReadonlyArray<SessionFileTreeNode> | null {
-  let nodes = sessionFileTree(entries);
-  for (const crumb of pathCrumbs(directory)) {
-    const next = nodes.find(
-      (node) => node.kind === "directory" && node.relativePath === crumb.path,
-    );
-    if (next === undefined || next.kind !== "directory") return null;
-    nodes = next.children;
-  }
-  return nodes;
+
+export function toTreeDirectory(relativePath: string): string {
+  return `${relativePath}/`;
 }
 
-/** The deepest ancestor of `directory`, itself included, that the listing still contains. */
-export function nearestExistingDirectory(
-  entries: ReadonlyArray<SessionFileEntry>,
-  directory: string,
-): string {
-  let candidate = directory;
-  while (candidate !== "" && directoryChildren(entries, candidate) === null) {
-    candidate = parentPath(candidate);
+export function isTreeDirectory(treePath: string): boolean {
+  return treePath.endsWith("/");
+}
+
+/** The API path of a tree path, file or directory. */
+export function fromTreePath(treePath: string): string {
+  return isTreeDirectory(treePath) ? treePath.slice(0, -1) : treePath;
+}
+
+/** Every entry as a tree path, the fixed top-level directories always included. */
+export function treePaths(entries: ReadonlyArray<SessionFileEntry>): Array<string> {
+  const paths = new Set(sessionFileRootDirectories.map(toTreeDirectory));
+  for (const entry of entries) {
+    paths.add(
+      entry.type === "directory" ? toTreeDirectory(entry.relativePath) : entry.relativePath,
+    );
   }
-  return candidate;
+  return [...paths];
+}
+
+/** Changes whenever an entry is added, removed, resized or touched. */
+export function entriesSignature(entries: ReadonlyArray<SessionFileEntry>): string {
+  return entries
+    .map((entry) =>
+      entry.type === "file"
+        ? `f:${entry.relativePath}:${entry.size}:${entry.modifiedAt}`
+        : `d:${entry.relativePath}:${entry.modifiedAt}`,
+    )
+    .sort()
+    .join("\n");
+}
+
+/** `name`, or `name 2`, `name 3`… when a sibling already uses it. */
+export function uniqueName(name: string, taken: (candidate: string) => boolean): string {
+  if (!taken(name)) return name;
+  for (let index = 2; ; index += 1) {
+    const candidate = `${name} ${index}`;
+    if (!taken(candidate)) return candidate;
+  }
 }
 
 export function errorMessage(error: unknown, fallback = "Something went wrong"): string {

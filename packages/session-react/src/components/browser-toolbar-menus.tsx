@@ -10,6 +10,10 @@ import {
   LockOpen,
   Maximize2,
   MoreVertical,
+  PanelBottom,
+  PanelRight,
+  Pencil,
+  Wrench,
   Monitor,
   MonitorPause,
   Eye,
@@ -50,6 +54,7 @@ import { toast } from "sonner";
 import type { RecordingSettings } from "@aperture-browser/api-client";
 import { useRecordingSettings } from "../hooks/use-recording-settings.ts";
 import { RecordingSettingsMenuItems } from "./recording-settings-menu.tsx";
+import type { DevToolsDock } from "./browser-devtools-pane.tsx";
 
 const STREAM_PRESETS = [
   {
@@ -83,6 +88,26 @@ const VIEWPORT_LIMITS = {
   deviceScaleFactor: { min: 0.25, max: 4 },
 } as const;
 
+export interface BrowserMenuDrawing {
+  readonly enabled: boolean;
+  readonly available: boolean;
+  readonly onChange: (enabled: boolean) => void;
+}
+
+export interface BrowserMenuDevTools {
+  readonly open: boolean;
+  readonly dock: DevToolsDock;
+  readonly available: boolean;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly onDockChange: (dock: DevToolsDock) => void;
+}
+
+/**
+ * One menu for everything the toolbar does not show as a button: the embedder's own items
+ * first, then control and tools, recording and viewport submenus, sharing, and the embedder's
+ * closing items (such as deleting the session) last. Recording gets a toolbar button only while
+ * one runs.
+ */
 export function BrowserMenus({
   control,
   cdpUrl,
@@ -94,6 +119,10 @@ export function BrowserMenus({
   onReconnect,
   onSessionDetails,
   menuItems,
+  shareMenuItems,
+  menuFooterItems,
+  drawing,
+  devTools,
   now,
 }: {
   control: UseBrowserControlResult;
@@ -106,6 +135,10 @@ export function BrowserMenus({
   onReconnect: () => void;
   onSessionDetails?: () => void;
   menuItems?: ReactNode;
+  shareMenuItems?: ReactNode;
+  menuFooterItems?: ReactNode;
+  drawing: BrowserMenuDrawing | null;
+  devTools: BrowserMenuDevTools | null;
   now: number;
 }) {
   const { settings, updateSettings } = useRecordingSettings();
@@ -129,9 +162,21 @@ export function BrowserMenus({
     }
   }
 
+  const recordingItems = (
+    <RecordingMenuItems
+      control={control}
+      connected={connected}
+      runningRecordings={runningRecordings}
+      now={now}
+      settings={settings}
+      onSettingsChange={updateSettings}
+      onStartRecording={startRecording}
+    />
+  );
+
   return (
-    <>
-      <div className="aperture:shrink-0 aperture:sm:hidden">
+    <div className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-0.5">
+      {recordingActive ? (
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger
@@ -140,174 +185,162 @@ export function BrowserMenus({
                   render={
                     <Button
                       type="button"
-                      variant={recordingActive ? "destructive" : "ghost"}
+                      variant="destructive"
                       size="icon-sm"
-                      aria-label={
-                        recordingActive ? "Browser menu, recording active" : "Browser menu"
-                      }
+                      aria-label="Recording in progress"
                     />
                   }
                 />
               }
             >
-              {recordingActive ? <Circle fill="currentColor" /> : <MoreVertical />}
+              <Circle fill="currentColor" />
             </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {recordingActive ? "Browser menu, recording active" : "Browser menu"}
-            </TooltipContent>
+            <TooltipContent side="bottom">Recording in progress</TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end" className="aperture:w-72">
-            {menuItems ? (
-              <>
-                {menuItems}
-                <DropdownMenuSeparator />
-              </>
+            {recordingItems}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
+      <ViewportPausedIndicator control={control} connected={viewportConnected} />
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <DropdownMenuTrigger
+                render={
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label="Browser menu" />
+                }
+              />
+            }
+          >
+            <MoreVertical />
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Browser menu</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="end" className="aperture:w-60">
+          {menuItems ? (
+            <>
+              {menuItems}
+              <DropdownMenuSeparator />
+            </>
+          ) : null}
+          <DropdownMenuGroup>
+            {onSessionDetails ? (
+              <DropdownMenuItem onClick={onSessionDetails}>
+                <Info />
+                Session details
+              </DropdownMenuItem>
             ) : null}
-            <RestMenuItems
-              control={control}
-              cdpUrl={cdpUrl}
-              shareUrls={shareUrls}
-              onSessionDetails={onSessionDetails}
-            />
-            <DropdownMenuSeparator />
-            <RecordingMenuItems
-              control={control}
-              connected={connected}
-              runningRecordings={runningRecordings}
-              now={now}
-              settings={settings}
-              onSettingsChange={updateSettings}
-              onStartRecording={startRecording}
-            />
-            <DropdownMenuSeparator />
-            <ViewportStreamMenuItems
-              control={control}
-              connected={viewportConnected}
-              localCursorEnabled={localCursorEnabled}
-              onLocalCursorChange={onLocalCursorChange}
-              busy={busy}
-              onReconnect={onReconnect}
-            />
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-      <div className="aperture:hidden aperture:shrink-0 aperture:items-center aperture:gap-0.5 aperture:sm:flex">
-        <DropdownMenu>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      type="button"
-                      variant={recordingActive ? "destructive" : "ghost"}
-                      size="icon-sm"
-                      aria-label={recordingActive ? "Recording in progress" : "Recording"}
-                    />
-                  }
-                />
-              }
-            >
-              <Circle fill={recordingActive ? "currentColor" : "none"} />
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {recordingActive ? "Recording in progress" : "Recording"}
-            </TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="end" className="aperture:w-72">
-            <RecordingMenuItems
-              control={control}
-              connected={connected}
-              runningRecordings={runningRecordings}
-              now={now}
-              settings={settings}
-              onSettingsChange={updateSettings}
-              onStartRecording={startRecording}
-            />
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <ViewportPausedIndicator control={control} connected={viewportConnected} />
-        <DropdownMenu>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Viewport and stream"
-                    />
-                  }
-                />
-              }
-            >
-              <Monitor />
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Viewport and stream</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="end" className="aperture:w-56">
-            <ViewportStreamMenuItems
-              control={control}
-              connected={viewportConnected}
-              localCursorEnabled={localCursorEnabled}
-              onLocalCursorChange={onLocalCursorChange}
-              busy={busy}
-              onReconnect={onReconnect}
-            />
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <DropdownMenu>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="More browser actions"
-                    />
-                  }
-                />
-              }
-            >
-              <MoreVertical />
-            </TooltipTrigger>
-            <TooltipContent side="bottom">More browser actions</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="end" className="aperture:w-56">
-            {menuItems ? (
-              <>
-                {menuItems}
-                <DropdownMenuSeparator />
-              </>
+            <InputControlMenuItem control={control} />
+            {drawing ? (
+              <DropdownMenuCheckboxItem
+                checked={drawing.enabled}
+                disabled={!drawing.enabled && !drawing.available}
+                onCheckedChange={drawing.onChange}
+              >
+                <Pencil />
+                Draw on this tab
+              </DropdownMenuCheckboxItem>
             ) : null}
-            <RestMenuItems
-              control={control}
-              cdpUrl={cdpUrl}
-              shareUrls={shareUrls}
-              onSessionDetails={onSessionDetails}
-            />
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </>
+            {devTools ? (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger disabled={!devTools.open && !devTools.available}>
+                  <Wrench />
+                  Developer tools
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="aperture:w-44">
+                  <DropdownMenuCheckboxItem
+                    checked={devTools.open}
+                    disabled={!devTools.open && !devTools.available}
+                    onCheckedChange={devTools.onOpenChange}
+                  >
+                    Open DevTools
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>Dock side</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup
+                      value={devTools.dock}
+                      onValueChange={(value) => {
+                        if (value === "bottom" || value === "right") {
+                          devTools.onDockChange(value);
+                        }
+                      }}
+                    >
+                      <DropdownMenuRadioItem value="bottom">
+                        <PanelBottom />
+                        Bottom
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="right">
+                        <PanelRight />
+                        Right
+                      </DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuGroup>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            ) : null}
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Circle
+                  fill={recordingActive ? "currentColor" : "none"}
+                  className={recordingActive ? "aperture:text-destructive" : undefined}
+                />
+                Recording
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="aperture:w-72">
+                {recordingItems}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Monitor />
+                Viewport and stream
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="aperture:w-56">
+                <ViewportStreamMenuItems
+                  control={control}
+                  connected={viewportConnected}
+                  localCursorEnabled={localCursorEnabled}
+                  onLocalCursorChange={onLocalCursorChange}
+                  busy={busy}
+                  onReconnect={onReconnect}
+                />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Share2 />
+                Share and connect
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="aperture:w-56">
+                {shareMenuItems}
+                <ShareMenuItems cdpUrl={cdpUrl} shareUrls={shareUrls} />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </DropdownMenuGroup>
+          {menuFooterItems ? (
+            <>
+              <DropdownMenuSeparator />
+              {menuFooterItems}
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
 
-function RestMenuItems({
-  control,
+function ShareMenuItems({
   cdpUrl,
   shareUrls,
-  onSessionDetails,
 }: {
-  control: UseBrowserControlResult;
   cdpUrl: string | null;
   shareUrls: { editor: string; viewer: string } | null;
-  onSessionDetails?: () => void;
 }) {
   const copy = useEffectCallback(
     (value: string, copied: string) => copyTextWithToast(value, () => toast.success(copied)),
@@ -316,48 +349,23 @@ function RestMenuItems({
 
   return (
     <DropdownMenuGroup>
-      <InputControlMenuItem control={control} />
-      {onSessionDetails ? (
-        <DropdownMenuItem onClick={onSessionDetails}>
-          <Info />
-          Session details
-        </DropdownMenuItem>
-      ) : null}
       <DropdownMenuItem
-        disabled={!cdpUrl}
-        onClick={() => {
-          if (!cdpUrl) {
-            return;
-          }
-          copy(cdpUrl, "CDP URL copied");
-        }}
+        disabled={!shareUrls}
+        onClick={() => shareUrls && copy(shareUrls.editor, "Editor link copied")}
       >
         <Copy />
+        Copy editor link
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        disabled={!shareUrls}
+        onClick={() => shareUrls && copy(shareUrls.viewer, "Viewer link copied")}
+      >
+        <Copy />
+        Copy viewer link
+      </DropdownMenuItem>
+      <DropdownMenuItem disabled={!cdpUrl} onClick={() => cdpUrl && copy(cdpUrl, "CDP URL copied")}>
+        <Copy />
         Copy CDP URL
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        disabled={!shareUrls}
-        onClick={() => {
-          if (!shareUrls) {
-            return;
-          }
-          copy(shareUrls.editor, "Editor URL copied");
-        }}
-      >
-        <Share2 />
-        Copy editor URL
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        disabled={!shareUrls}
-        onClick={() => {
-          if (!shareUrls) {
-            return;
-          }
-          copy(shareUrls.viewer, "Viewer URL copied");
-        }}
-      >
-        <Share2 />
-        Copy viewer URL
       </DropdownMenuItem>
     </DropdownMenuGroup>
   );

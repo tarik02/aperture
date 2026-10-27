@@ -109,7 +109,6 @@ export function SessionWorkbench({
         <SessionSwitcher
           currentSessionId={sessionId}
           pinned={switcherPinned}
-          onPinnedChange={changeSwitcherPinned}
           onNewSession={permissions.canWrite ? () => actions.newSession() : undefined}
         />
       ) : null}
@@ -364,6 +363,7 @@ function WorkbenchSession({
       </FullPageState>
     );
   } else {
+    const menuProps = { session, actions, permissions, exclude: workbenchMenuExcludes };
     content = (
       <BrowserControlPane
         key={session.id}
@@ -377,14 +377,9 @@ function WorkbenchSession({
             filesToggle={filesToggle}
           />
         }
-        menuItems={
-          <SessionActionItems
-            session={session}
-            actions={actions}
-            permissions={permissions}
-            exclude={workbenchMenuExcludes}
-          />
-        }
+        menuItems={<SessionActionItems part="primary" {...menuProps} />}
+        shareMenuItems={<SessionActionItems part="share" {...menuProps} />}
+        menuFooterItems={<SessionActionItems part="danger" {...menuProps} />}
         collaborationRole="owner"
         cdpUrl={cdpUrl}
         shareUrls={shareUrls}

@@ -19,6 +19,7 @@
     "@aperture-browser/ui": "workspace:*",
     "@atlaskit/pragmatic-drag-and-drop": "catalog:",
     "@base-ui/react": "catalog:",
+    "@pierre/trees": "catalog:",
     "@simplewebauthn/browser": "catalog:",
     "@tailwindcss/vite": "catalog:",
     "@tanstack/react-form": "catalog:",

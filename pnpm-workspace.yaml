@@ -42,6 +42,7 @@ catalog:
   "@tailwindcss/vite": "^4.3.2"
   "@scalar/api-reference": "^1.71.0"
   "@scalar/api-reference-react": "^0.9.73"
+  "@pierre/trees": "1.0.0-beta.6"
   "@tanstack/react-hotkeys": "^0.10.0"
   "@tanstack/react-query": "^5.101.2"
   "@tanstack/react-router": "^1.170.17"

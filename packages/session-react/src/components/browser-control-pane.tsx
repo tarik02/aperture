@@ -18,7 +18,7 @@ type BrowserControlPaneProps = {
   leading?: ReactNode;
   /** Rendered at the start of the toolbar row, before the navigation buttons. */
   toolbarLeading?: ReactNode;
-  /** Rendered at the end of the toolbar row, after the menus. */
+  /** Rendered at the end of the toolbar row, before the browser menu. */
   toolbarTrailing?: ReactNode;
   features?: SessionFeatures;
   collaborationRole: CollaborationRole;
@@ -27,6 +27,10 @@ type BrowserControlPaneProps = {
   onSessionDetails?: () => void;
   /** Extra items at the top of the browser menu, such as actions on the session. */
   menuItems?: ReactNode;
+  /** Extra items in the menu's "Share and connect" submenu. */
+  shareMenuItems?: ReactNode;
+  /** Items at the end of the browser menu, such as deleting the session. */
+  menuFooterItems?: ReactNode;
 };
 
 const LOCAL_CURSOR_STORAGE_KEY = "aperture.workbench.localCursorEnabled";
@@ -42,6 +46,8 @@ export function BrowserControlPane({
   shareUrls,
   onSessionDetails,
   menuItems,
+  shareMenuItems,
+  menuFooterItems,
 }: BrowserControlPaneProps) {
   const features = resolveSessionFeatures(featureOverrides);
   const [localCursorEnabled, setLocalCursorEnabled] = useState(true);
@@ -148,6 +154,8 @@ export function BrowserControlPane({
         onDevToolsDockChange={setDevToolsDock}
         onSessionDetails={onSessionDetails}
         menuItems={menuItems}
+        shareMenuItems={shareMenuItems}
+        menuFooterItems={menuFooterItems}
       />
       {features.devTools ? (
         <ResizablePanelGroup

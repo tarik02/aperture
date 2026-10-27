@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { LayoutGrid, Pin, PinOff, Plus, SearchIcon } from "lucide-react";
+import { LayoutGrid, Plus, SearchIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { EdgePanel } from "#/features/workbench/edge-panel.tsx";
 import { flattenInfinitePages, type Session } from "@aperture-browser/api-client";
@@ -25,28 +25,18 @@ import { useSessionsInfiniteQuery } from "#/features/session/session.queries.ts"
 
 type SessionSwitcherProps = {
   currentSessionId: string;
+  /** Docked beside the browser; the workbench title bar toggles it. */
   pinned: boolean;
-  onPinnedChange: (pinned: boolean) => void;
   onNewSession?: () => void;
 };
 
 /** The session list along the left edge of the workbench. */
-export function SessionSwitcher({
-  currentSessionId,
-  pinned,
-  onPinnedChange,
-  onNewSession,
-}: SessionSwitcherProps) {
+export function SessionSwitcher({ currentSessionId, pinned, onNewSession }: SessionSwitcherProps) {
   return (
     <EdgePanel side="left" pinned={pinned}>
       {(close) => (
         <SessionSwitcherPanel
           currentSessionId={currentSessionId}
-          pinned={pinned}
-          onPinnedChange={(next) => {
-            onPinnedChange(next);
-            close();
-          }}
           onNewSession={onNewSession}
           onNavigate={close}
         />
@@ -57,14 +47,10 @@ export function SessionSwitcher({
 
 function SessionSwitcherPanel({
   currentSessionId,
-  pinned,
-  onPinnedChange,
   onNewSession,
   onNavigate,
 }: {
   currentSessionId: string;
-  pinned: boolean;
-  onPinnedChange: (pinned: boolean) => void;
   onNewSession?: () => void;
   onNavigate: () => void;
 }) {
@@ -112,15 +98,6 @@ function SessionSwitcherPanel({
             <Plus />
           </Button>
         ) : null}
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label={pinned ? "Unpin session list" : "Pin session list"}
-          title={pinned ? "Unpin session list" : "Pin session list"}
-          onClick={() => onPinnedChange(!pinned)}
-        >
-          {pinned ? <PinOff /> : <Pin />}
-        </Button>
       </div>
       <div className="aperture:relative aperture:shrink-0 aperture:p-2">
         <SearchIcon className="aperture:pointer-events-none aperture:absolute aperture:top-1/2 aperture:left-4.5 aperture:size-4 aperture:-translate-y-1/2 aperture:text-muted-foreground" />
