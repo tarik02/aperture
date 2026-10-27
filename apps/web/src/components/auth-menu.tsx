@@ -5,36 +5,39 @@ import {
   Building2,
   ChevronsUpDown,
   Fingerprint,
-  KeyRound,
   LogOut,
+  Palette,
   ShieldCheck,
-  UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
-import { Button } from "@aperture-browser/ui/components/button";
+import { Avatar, AvatarFallback } from "@aperture-browser/ui/components/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@aperture-browser/ui/components/dropdown-menu";
+import { SidebarMenuButton } from "@aperture-browser/ui/components/sidebar";
+import { themeOptions, useThemeMode } from "#/components/theme-mode.ts";
 import { ConnectedAppsModal } from "#/features/oauth/connected-apps-modal.tsx";
 import { PasskeyModal } from "#/features/passkey/passkey-modal.tsx";
 import { SecurityModal } from "#/features/security/security-modal.tsx";
 import { PersonalTenantModal } from "#/features/tenant/personal-tenant-modal.tsx";
-import { cn } from "@aperture-browser/ui/utils";
 import { selectAuth, selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
 import { AuthApi } from "@aperture-browser/api-client";
 import { useRunApi } from "@aperture-browser/session-react";
 
-interface AuthMenuProps {
-  className?: string;
-}
-
-export function AuthMenu({ className }: AuthMenuProps) {
+/** The account block at the foot of the sidebar: who is signed in, account settings and theme. */
+export function AuthMenu() {
   const runApi = useRunApi();
   const queryClient = useQueryClient();
   const principal = useAuthSessionStore(selectPrincipal);
@@ -46,6 +49,7 @@ export function AuthMenu({ className }: AuthMenuProps) {
   const [securityOpen, setSecurityOpen] = useState(false);
   const [connectedAppsOpen, setConnectedAppsOpen] = useState(false);
   const [personalTenantOpen, setPersonalTenantOpen] = useState(false);
+  const { mode, changeMode } = useThemeMode();
 
   async function handleLogout() {
     setLoggingOut(true);
@@ -62,43 +66,53 @@ export function AuthMenu({ className }: AuthMenuProps) {
   }
 
   const accountBacked = principal?.type === "user";
+  const name = principal?.name ?? "Account";
+  const subtitle = !principal
+    ? ""
+    : principal.authorityType === "system_admin"
+      ? "System admin"
+      : accountBacked
+        ? "Member"
+        : "API token";
 
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
-            <Button
-              variant="outline"
-              size="default"
-              className={cn(
-                "aperture:w-full aperture:min-w-0 aperture:justify-start aperture:group-data-[collapsible=icon]:gap-0",
-                className,
-              )}
+            <SidebarMenuButton
+              size="lg"
+              tooltip={name}
               disabled={!principal}
+              className="aperture:data-popup-open:bg-sidebar-accent"
             />
           }
         >
-          {accountBacked ? (
-            <UserRound data-icon="inline-start" />
-          ) : (
-            <KeyRound data-icon="inline-start" />
-          )}
+          <Avatar className="aperture:size-8 aperture:rounded-lg">
+            <AvatarFallback className="aperture:rounded-lg aperture:text-xs">
+              {initials(name)}
+            </AvatarFallback>
+          </Avatar>
           <span
             data-sidebar-collapse-label
-            className="aperture:min-w-0 aperture:flex-1 aperture:truncate aperture:text-left"
+            className="aperture:grid aperture:min-w-0 aperture:flex-1"
           >
-            {principal?.name ?? "Account"}
+            <span className="aperture:truncate aperture:font-medium">{name}</span>
+            <span className="aperture:truncate aperture:text-xs aperture:text-sidebar-foreground/60">
+              {subtitle}
+            </span>
           </span>
           <ChevronsUpDown
-            data-icon="inline-end"
             data-sidebar-collapse-label
-            className="aperture:opacity-60"
+            className="aperture:ml-auto aperture:opacity-60"
           />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" side="top" className="aperture:w-64">
-          <DropdownMenuLabel className="aperture:truncate">
-            {principal?.name ?? "Account"}
+        <DropdownMenuContent align="end" side="right" className="aperture:w-60">
+          <DropdownMenuLabel className="aperture:grid aperture:font-normal">
+            <span className="aperture:truncate aperture:font-medium aperture:text-foreground">
+              {name}
+            </span>
+            <span className="aperture:truncate aperture:text-xs">{subtitle}</span>
           </DropdownMenuLabel>
           {accountBacked ? (
             <>
@@ -123,6 +137,25 @@ export function AuthMenu({ className }: AuthMenuProps) {
               ) : null}
             </>
           ) : null}
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Palette />
+                Theme
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="aperture:w-36">
+                <DropdownMenuRadioGroup value={mode} onValueChange={changeMode}>
+                  {themeOptions.map((option) => (
+                    <DropdownMenuRadioItem key={option.value} value={option.value}>
+                      <option.icon />
+                      {option.label}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </DropdownMenuGroup>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => setLogoutOpen(true)}>
             <LogOut />
@@ -153,4 +186,11 @@ export function AuthMenu({ className }: AuthMenuProps) {
       />
     </>
   );
+}
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const letters =
+    parts.length > 1 ? `${parts[0]?.[0] ?? ""}${parts.at(-1)?.[0] ?? ""}` : name.slice(0, 2);
+  return letters.toUpperCase() || "?";
 }

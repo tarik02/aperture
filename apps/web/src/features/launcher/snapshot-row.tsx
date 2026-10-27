@@ -1,6 +1,11 @@
 import { format, formatDistanceToNow } from "date-fns";
 import { Camera, MoreHorizontal, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import type { ReactElement } from "react";
 import type { Session, Snapshot } from "@aperture-browser/api-client";
+import {
+  SelectionCheckbox,
+  type ItemSelection,
+} from "#/components/resources/selection-checkbox.tsx";
 import { Badge } from "@aperture-browser/ui/components/badge";
 import { Button } from "@aperture-browser/ui/components/button";
 import {
@@ -21,6 +26,8 @@ type SnapshotRowProps = {
   actions: SessionActions;
   permissions: SessionPermissions;
   canWriteSnapshots: boolean;
+  selection?: ItemSelection;
+  wrap?: (row: ReactElement) => ReactElement;
 };
 
 export function SnapshotRow({
@@ -30,17 +37,28 @@ export function SnapshotRow({
   actions,
   permissions,
   canWriteSnapshots,
+  selection,
+  wrap,
 }: SnapshotRowProps) {
   const deleted = Boolean(snapshot.deletedAt);
   const createdAt = new Date(snapshot.createdAt);
 
-  return (
+  const row = (
     <div
       className={cn(
-        "aperture:flex aperture:min-w-0 aperture:items-start aperture:gap-3 aperture:rounded-xl aperture:bg-card aperture:px-3 aperture:py-2.5 aperture:ring-1 aperture:ring-foreground/10",
+        "aperture:group/item aperture:flex aperture:min-w-0 aperture:items-start aperture:gap-3 aperture:rounded-xl aperture:bg-card aperture:px-3 aperture:py-2.5 aperture:ring-1 aperture:ring-foreground/10",
         deleted && "aperture:opacity-70",
+        selection?.selected &&
+          "aperture:bg-muted/40 aperture:opacity-100 aperture:ring-2 aperture:ring-primary",
       )}
     >
+      {selection ? (
+        <SelectionCheckbox
+          selection={selection}
+          label={`Select ${snapshot.name}`}
+          className="aperture:mt-0.5"
+        />
+      ) : null}
       <div className="aperture:grid aperture:min-w-0 aperture:flex-1 aperture:gap-0.5">
         <div className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-2">
           <span className="aperture:truncate aperture:text-sm aperture:font-medium">
@@ -133,4 +151,6 @@ export function SnapshotRow({
       ) : null}
     </div>
   );
+
+  return wrap ? wrap(row) : row;
 }

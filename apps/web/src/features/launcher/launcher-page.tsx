@@ -11,11 +11,24 @@ import {
   PlugZap,
   SearchIcon,
 } from "lucide-react";
-import { useDeferredValue, useMemo, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useMemo, type ReactNode } from "react";
+import { BatchActionBar } from "#/components/resources/batch-action-bar.tsx";
+import {
+  BulkActionButtons,
+  SelectionContextMenu,
+  type BulkAction,
+} from "#/components/resources/selection-context-menu.tsx";
+import type { ItemSelection } from "#/components/resources/selection-checkbox.tsx";
+import { useRowSelection } from "#/hooks/use-row-selection.ts";
+import {
+  useSessionBulkActions,
+  useSnapshotBulkActions,
+} from "#/features/launcher/use-bulk-actions.tsx";
 import {
   flattenInfinitePages,
   type BrowserStatus,
   type Session,
+  type Snapshot,
 } from "@aperture-browser/api-client";
 import { Badge } from "@aperture-browser/ui/components/badge";
 import { Button } from "@aperture-browser/ui/components/button";
@@ -155,16 +168,71 @@ export function LauncherPage({ view }: { view: LauncherView }) {
   }, [pagesById, sessionNeedle, sessions]);
 
   const snapshotNeedle = useDeferredValue(snapshotSearch.trim().toLowerCase());
-  const visibleSnapshots = snapshotNeedle
-    ? snapshots.filter((snapshot) =>
-        matchesSearch(snapshotNeedle, [snapshot.name, snapshot.description]),
-      )
-    : snapshots;
+  const visibleSnapshots = useMemo(
+    () =>
+      snapshotNeedle
+        ? snapshots.filter((snapshot) =>
+            matchesSearch(snapshotNeedle, [snapshot.name, snapshot.description]),
+          )
+        : snapshots,
+    [snapshotNeedle, snapshots],
+  );
 
   const saveableSessions = useMemo(
     () => sessions.filter((session) => isSaveable(session.status)).sort(compareSaveable),
     [sessions],
   );
+
+  const visibleSessions = useMemo(
+    () =>
+      visibleSessionIds === null
+        ? sessions
+        : sessions.filter((session) => visibleSessionIds.has(session.id)),
+    [sessions, visibleSessionIds],
+  );
+  const sessionSelection = useRowSelection({
+    tableKey: "launcher-sessions",
+    rows: visibleSessions,
+    getId: getItemId,
+  });
+  const snapshotSelection = useRowSelection({
+    tableKey: "launcher-snapshots",
+    rows: visibleSnapshots,
+    getId: getItemId,
+  });
+  const sessionBulk = useSessionBulkActions(sessionSelection.selectedItems, sessionSelection.clear);
+  const snapshotBulk = useSnapshotBulkActions(
+    snapshotSelection.selectedItems,
+    snapshotSelection.clear,
+  );
+  const current =
+    view === "sessions"
+      ? { selection: sessionSelection, bulk: sessionBulk }
+      : { selection: snapshotSelection, bulk: snapshotBulk };
+
+  // Another status filter shows other sessions; a selection the list no longer shows would
+  // still be acted on.
+  const clearSessionSelection = sessionSelection.clear;
+  useEffect(() => clearSessionSelection(), [clearSessionSelection, sessionStatus]);
+
+  const clearCurrent = current.selection.clear;
+  const hasSelection = current.selection.selectedCount > 0;
+  useEffect(() => {
+    if (!hasSelection) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key === "Escape" &&
+        !event.defaultPrevented &&
+        document.querySelector("[role=dialog]") === null
+      ) {
+        clearCurrent();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [clearCurrent, hasSelection]);
 
   if (!api.ready) {
     return (
@@ -193,7 +261,13 @@ export function LauncherPage({ view }: { view: LauncherView }) {
   return (
     <div className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-col">
       <ScrollArea className="aperture:group/launcher aperture:min-h-0 aperture:flex-1">
-        <div className="aperture:mx-auto aperture:grid aperture:w-full aperture:max-w-6xl aperture:gap-4 aperture:p-4">
+        <div
+          className={cn(
+            "aperture:mx-auto aperture:grid aperture:w-full aperture:max-w-6xl aperture:gap-4 aperture:p-4",
+            // Room for the floating selection bar, so it never covers the last item.
+            hasSelection && "aperture:pb-20",
+          )}
+        >
           <div className="aperture:@container aperture:sticky aperture:top-0 aperture:z-10 aperture:-mx-4 aperture:-mt-4 aperture:-mb-2 aperture:border-b aperture:border-transparent aperture:bg-background aperture:px-4 aperture:pt-4 aperture:pb-2 aperture:group-data-[overflow-y-start]/launcher:border-border">
             {view === "sessions" ? (
               <div className="aperture:flex aperture:items-center aperture:gap-2">
@@ -300,7 +374,11 @@ export function LauncherPage({ view }: { view: LauncherView }) {
                   openInfo={openSessions.get(session.id)}
                   actions={actions}
                   permissions={permissions}
-                  actionsPending={pending}
+                  actionsPending={pending || sessionBulk.pending}
+                  selection={
+                    permissions.canWrite ? itemSelection(sessionSelection, session.id) : undefined
+                  }
+                  wrap={selectionMenu(sessionSelection, session.id, sessionBulk.actions)}
                 />
               ))}
               {sessionsQuery.isPending ? (
@@ -333,6 +411,10 @@ export function LauncherPage({ view }: { view: LauncherView }) {
                   actions={actions}
                   permissions={permissions}
                   canWriteSnapshots={canWriteSnapshots}
+                  selection={
+                    canWriteSnapshots ? itemSelection(snapshotSelection, snapshot.id) : undefined
+                  }
+                  wrap={selectionMenu(snapshotSelection, snapshot.id, snapshotBulk.actions)}
                 />
               ))}
               {snapshotsQuery.isPending ? (
@@ -361,7 +443,15 @@ export function LauncherPage({ view }: { view: LauncherView }) {
           )}
         </div>
       </ScrollArea>
+      <BatchActionBar
+        selectedCount={current.selection.selectedCount}
+        onClear={current.selection.clear}
+      >
+        <BulkActionButtons actions={current.bulk.actions} />
+      </BatchActionBar>
       {dialogs}
+      {sessionBulk.dialog}
+      {snapshotBulk.dialog}
     </div>
   );
 }
@@ -481,5 +571,29 @@ function LoadMore({
         Load more
       </Button>
     </div>
+  );
+}
+
+const getItemId = (item: Session | Snapshot) => item.id;
+
+type Selection =
+  | ReturnType<typeof useRowSelection<Session>>
+  | ReturnType<typeof useRowSelection<Snapshot>>;
+
+function itemSelection(selection: Selection, id: string): ItemSelection {
+  return {
+    selected: selection.isSelected(id),
+    active: selection.selectedCount > 0,
+    onChange: (checked, shiftKey) => selection.toggleOne(id, checked, shiftKey),
+  };
+}
+
+/** Right-clicking a selected item opens the actions for the whole selection. */
+function selectionMenu(selection: Selection, id: string, actions: readonly BulkAction[]) {
+  if (!selection.isSelected(id)) {
+    return undefined;
+  }
+  return (item: React.ReactElement) => (
+    <SelectionContextMenu itemCount={selection.selectedCount} actions={actions} trigger={item} />
   );
 }
