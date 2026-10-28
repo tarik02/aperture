@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/aperture/aperture/internal/db"
@@ -18,19 +17,18 @@ type sessionFaviconResponse struct {
 	ExpiresAt         string `json:"expiresAt"`
 }
 
-// sessionFaviconLinks signs a fresh favicon URL template with a thumbnail token, or returns nil when
-// the session has no pages to show. Each page says whether it has a favicon.
+// sessionFaviconLinks signs a favicon URL template with the session's asset token, or returns nil
+// when the session has no pages to show. Each page says whether it has a favicon.
 func (s *Server) sessionFaviconLinks(sessionRow db.Session) *sessionFaviconResponse {
 	if s.Sessions == nil || s.jobToken == "" ||
 		(sessionRow.Status != db.SessionStatusRunning && sessionRow.Status != db.SessionStatusSuspended) {
 		return nil
 	}
-	expiresAt := time.Now().Add(s.Config.SignedFileURLTTL).UTC()
-	token, err := issueThumbnailToken(s.jobToken, sessionRow.ID, expiresAt)
-	if err != nil {
+	token, expiresAt, ok := s.sessionAssetToken(sessionRow.ID)
+	if !ok {
 		return nil
 	}
-	base := strings.TrimRight(s.Config.ExternalBaseURL, "/") + "/sessions/" + url.PathEscape(sessionRow.ID)
+	base := s.sessionAssetBase(sessionRow.ID)
 	return &sessionFaviconResponse{
 		TargetURLTemplate: base + "/targets/{targetId}/favicon?token=" + url.QueryEscape(token),
 		ExpiresAt:         expiresAt.Format(time.RFC3339),

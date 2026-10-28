@@ -140,13 +140,12 @@ func (session *liveSession) pageManifest() (PageManifest, error) {
 	for _, page := range pages {
 		pageIDs = append(pageIDs, page.TargetID)
 	}
-	// Favicons are best effort; a page listing must not fail because an icon could not load.
-	if favicons, err := session.currentFavicons(pageIDs); err == nil {
-		for index := range pages {
-			if favicon, ok := favicons[pages[index].TargetID]; ok {
-				pages[index].FaviconAvailable = true
-				pages[index].FaviconVersion = favicon.version
-			}
+	// Favicons come from the cache, so a listing never waits for an icon to load.
+	favicons := session.cachedFavicons(pageIDs)
+	for index := range pages {
+		if favicon, ok := favicons[pages[index].TargetID]; ok {
+			pages[index].FaviconAvailable = true
+			pages[index].FaviconVersion = favicon.version
 		}
 	}
 

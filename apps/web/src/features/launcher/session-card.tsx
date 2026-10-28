@@ -23,6 +23,7 @@ import {
   openPages,
   sessionLabel,
   sessionThumbnailUrl,
+  targetFaviconUrl,
   targetThumbnailUrl,
   versionedUrl,
 } from "#/features/session/session-display.ts";
@@ -120,6 +121,7 @@ export function SessionCard({
       <PageTile
         key={page.targetId}
         page={page}
+        favicon={targetFaviconUrl(session, page)}
         thumbnail={
           page.thumbnailAvailable ? targetThumbnail(session, page.targetId, version) : null
         }
@@ -260,10 +262,16 @@ type LinkProps = {
 
 function PageTile({
   page,
+  favicon,
   thumbnail,
   active,
   ...link
-}: { page: BrowserPage; thumbnail: string | null; active: boolean } & LinkProps) {
+}: {
+  page: BrowserPage;
+  favicon: string | null;
+  thumbnail: string | null;
+  active: boolean;
+} & LinkProps) {
   return (
     <a
       className={cn(tile, tileHover, active && "aperture:after:ring-2 aperture:after:ring-primary")}
@@ -271,7 +279,7 @@ function PageTile({
       {...link}
     >
       <SessionThumbnail src={thumbnail} />
-      <Caption title={page.title || "Untitled"} subtitle={page.url} />
+      <Caption title={page.title || "Untitled"} subtitle={page.url} icon={favicon} />
     </a>
   );
 }
@@ -332,13 +340,46 @@ function PlaceholderTile({
   );
 }
 
-function Caption({ title, subtitle }: { title: string; subtitle: string }) {
+function Caption({
+  title,
+  subtitle,
+  icon = null,
+}: {
+  title: string;
+  subtitle: string;
+  icon?: string | null;
+}) {
   return (
-    <div className="aperture:absolute aperture:inset-x-0 aperture:bottom-0 aperture:grid aperture:bg-linear-to-t aperture:from-black/85 aperture:via-black/55 aperture:to-transparent aperture:px-2 aperture:pt-4 aperture:pb-1.5 aperture:text-white">
-      <span className="aperture:truncate aperture:text-[0.7rem] aperture:font-medium">{title}</span>
-      <span className="aperture:truncate aperture:text-[0.62rem] aperture:text-white/70">
-        {subtitle}
-      </span>
+    <div className="aperture:absolute aperture:inset-x-0 aperture:bottom-0 aperture:flex aperture:items-center aperture:gap-1.5 aperture:bg-linear-to-t aperture:from-black/85 aperture:via-black/55 aperture:to-transparent aperture:px-2 aperture:pt-4 aperture:pb-1.5 aperture:text-white">
+      {icon ? <CaptionIcon src={icon} /> : null}
+      <div className="aperture:grid aperture:min-w-0">
+        <span className="aperture:truncate aperture:text-[0.7rem] aperture:font-medium">
+          {title}
+        </span>
+        <span className="aperture:truncate aperture:text-[0.62rem] aperture:text-white/70">
+          {subtitle}
+        </span>
+      </div>
     </div>
+  );
+}
+
+/** A tab's icon on a light chip, so dark icons stay visible over the caption shade. */
+function CaptionIcon({ src }: { src: string }) {
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  if (failedSrc === src) {
+    return null;
+  }
+  return (
+    <span className="aperture:grid aperture:size-5 aperture:shrink-0 aperture:place-items-center aperture:rounded aperture:bg-white/90">
+      <img
+        src={src}
+        alt=""
+        draggable={false}
+        loading="lazy"
+        className="aperture:size-3.5"
+        onError={() => setFailedSrc(src)}
+      />
+    </span>
   );
 }

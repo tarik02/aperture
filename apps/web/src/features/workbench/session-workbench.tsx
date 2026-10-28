@@ -38,12 +38,12 @@ import {
   type SessionActions,
   type SessionPermissions,
 } from "#/features/session/session-dialogs.tsx";
-import { useSessionQuery } from "#/features/session/session.queries.ts";
+import { useBrowserStatusQuery, useSessionQuery } from "#/features/session/session.queries.ts";
 import {
   saveToSnapshotMutationKey,
   type SaveToSnapshotInput,
 } from "#/features/session/session.mutations.ts";
-import { isReopenable } from "#/features/session/session-display.ts";
+import { isReopenable, targetFaviconUrl } from "#/features/session/session-display.ts";
 import { EdgePanel, loadPinned, savePinned } from "#/features/workbench/edge-panel.tsx";
 import { SessionFilesPanel } from "#/features/workbench/files/session-files-panel.tsx";
 import { selectAuth, useAuthSessionStore } from "#/stores/auth-session.ts";
@@ -225,6 +225,20 @@ function WorkbenchSession({
     onNotice: showNotice,
   });
 
+  // The page listing names each tab's captured icon; tabs show those instead of loading the sites'.
+  const statusPages = useBrowserStatusQuery(session, { enabled: connectable && !provisional }).data
+    ?.pages;
+  const tabFavicon = useMemo(() => {
+    if (!session?.favicon) {
+      return undefined;
+    }
+    const pages = new Map(statusPages?.map((page) => [page.targetId, page]));
+    return (targetId: string) => {
+      const page = pages.get(targetId);
+      return page ? targetFaviconUrl(session, page) : null;
+    };
+  }, [session, statusPages]);
+
   useAnnounceOpenSession(session?.id ?? null, control.activeTargetId, control.activateTarget);
   useDeepLinkTargets(
     control,
@@ -349,6 +363,7 @@ function WorkbenchSession({
         menuItems={<SessionActionItems part="primary" {...menuProps} />}
         shareMenuItems={<SessionActionItems part="share" {...menuProps} />}
         menuFooterItems={<SessionActionItems part="closing" {...menuProps} />}
+        targetFaviconUrl={tabFavicon}
         collaborationRole="owner"
         cdpUrl={cdpUrl}
         shareUrls={shareUrls}

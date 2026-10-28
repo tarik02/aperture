@@ -129,21 +129,26 @@ export function useSessionQuery(sessionId: string | undefined) {
  * listing never opens a live connection or wakes the browser.
  */
 export function useBrowserStatusQuery(
-  session: Session,
+  session: Session | null,
   options: { enabled?: boolean; poll?: boolean } = {},
 ) {
   const api = useTenantApi();
-  const running = session.status === "running" && options.poll !== false;
+  const running = session?.status === "running" && options.poll !== false;
 
   return useQuery({
-    queryKey: queryKeys.browserStatus(api.tenantKey, session.id, session.status),
+    queryKey: queryKeys.browserStatus(
+      api.tenantKey,
+      session?.id ?? "none",
+      session?.status ?? "deleted",
+    ),
     queryFn: ({ signal }) =>
       api.run(
         (credentials) =>
-          SessionsApi.use((sessions) => sessions.getBrowserStatus(credentials, session.id)),
+          SessionsApi.use((sessions) => sessions.getBrowserStatus(credentials, session!.id)),
         { signal },
       ),
-    enabled: api.ready && isOpenable(session.status) && options.enabled !== false,
+    enabled:
+      session !== null && api.ready && isOpenable(session.status) && options.enabled !== false,
     refetchInterval: (query) => (running && query.state.status !== "error" ? pollInterval : false),
     retry: 1,
   });

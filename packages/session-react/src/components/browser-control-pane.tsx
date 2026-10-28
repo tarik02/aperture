@@ -33,6 +33,8 @@ type BrowserControlPaneProps = {
   shareMenuItems?: ReactNode;
   /** Items at the end of the browser menu, such as deleting the session. */
   menuFooterItems?: ReactNode;
+  /** The icon Aperture captured for a tab; without it tabs load the site's own `/favicon.ico`. */
+  targetFaviconUrl?: (targetId: string) => string | null;
 };
 
 const LOCAL_CURSOR_STORAGE_KEY = "aperture.workbench.localCursorEnabled";
@@ -51,6 +53,7 @@ export function BrowserControlPane({
   menuItems,
   shareMenuItems,
   menuFooterItems,
+  targetFaviconUrl,
 }: BrowserControlPaneProps) {
   const features = resolveSessionFeatures(featureOverrides);
   const [localCursorEnabled, setLocalCursorEnabled] = useState(true);
@@ -160,6 +163,7 @@ export function BrowserControlPane({
         menuItems={menuItems}
         shareMenuItems={shareMenuItems}
         menuFooterItems={menuFooterItems}
+        targetFaviconUrl={targetFaviconUrl}
       />
       {features.devTools ? (
         <ResizablePanelGroup
