@@ -136,12 +136,12 @@ func (session *liveSession) pageManifest() (PageManifest, error) {
 		})
 	}
 
-	pageIDs := make([]string, 0, len(pages))
+	pageURLs := make(map[string]string, len(pages))
 	for _, page := range pages {
-		pageIDs = append(pageIDs, page.TargetID)
+		pageURLs[page.TargetID] = page.URL
 	}
 	// Favicons come from the cache, so a listing never waits for an icon to load.
-	favicons := session.cachedFavicons(pageIDs, true)
+	favicons := session.cachedFavicons(pageURLs, true)
 	for index := range pages {
 		if favicon, ok := favicons[pages[index].TargetID]; ok {
 			pages[index].FaviconAvailable = true

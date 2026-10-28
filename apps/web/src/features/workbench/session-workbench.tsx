@@ -239,12 +239,17 @@ function WorkbenchSession({
       return undefined;
     }
     const pages = new Map(statusPages?.map((page) => [page.targetId, page]));
-    // A tab missing from the listing isn't known yet, so the tab strip uses its fallback.
+    const liveUrls = new Map(control.targets.map((target) => [target.id, target.url]));
+    // A tab missing from the listing, or listed on another site than it shows now, isn't known
+    // yet, so the tab strip uses its fallback until the listing catches up.
     return (targetId: string) => {
       const page = pages.get(targetId);
-      return page ? targetFaviconUrl(session, page) : undefined;
+      if (!page || siteOf(page.url) !== siteOf(liveUrls.get(targetId) ?? "")) {
+        return undefined;
+      }
+      return targetFaviconUrl(session, page);
     };
-  }, [session, statusPages]);
+  }, [session, statusPages, control.targets]);
 
   useAnnounceOpenSession(session?.id ?? null, control.activeTargetId, control.activateTarget);
   useDeepLinkTargets(
@@ -451,6 +456,14 @@ function FullPageState({
       ) : null}
     </Empty>
   );
+}
+
+function siteOf(url: string) {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return url;
+  }
 }
 
 /** The live connection reports tabs; the listing is only polled slowly for icons that change. */

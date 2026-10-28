@@ -121,14 +121,23 @@ func FaviconVersion(body []byte) string {
 	return hex.EncodeToString(sum[:8])
 }
 
+// pageOrigin returns a web page's origin, or "" for any other URL.
+func pageOrigin(pageURL string) string {
+	parsed, err := url.Parse(pageURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return ""
+	}
+	return parsed.Scheme + "://" + parsed.Host
+}
+
 // faviconSource returns the icon Chromium resolved for a page. Internal pages and icons that
 // cannot be fetched through the page have none.
 func faviconSource(pageURL, iconURL string) listedIcon {
-	parsedPage, err := url.Parse(pageURL)
-	if err != nil || (parsedPage.Scheme != "http" && parsedPage.Scheme != "https") {
+	origin := pageOrigin(pageURL)
+	if origin == "" {
 		return listedIcon{}
 	}
-	icon := listedIcon{origin: parsedPage.Scheme + "://" + parsedPage.Host}
+	icon := listedIcon{origin: origin}
 	if iconURL == "" {
 		icon.loading = true
 		return icon
@@ -180,18 +189,24 @@ func (session *liveSession) devToolsIconURLs(ctx context.Context) (map[string]li
 	return icons, nil
 }
 
-// cachedFavicons returns the loaded favicons of the given targets without waiting for any fetch.
-// A page listing passes refresh, so a later listing sees new or changed icons; reads of single
-// icons, such as on suspend, don't start one.
-func (session *liveSession) cachedFavicons(targetIDs []string, refresh bool) map[string]wrapperFavicon {
+// cachedFavicons returns the loaded favicons of the given targets, keyed by target ID with the
+// page URL when known, without waiting for any fetch. A page listing passes refresh, so a later
+// listing sees new or changed icons; reads of single icons, such as on suspend, don't start one.
+func (session *liveSession) cachedFavicons(pageURLs map[string]string, refresh bool) map[string]wrapperFavicon {
 	cache := &session.favicons
 	cache.mu.Lock()
-	result := make(map[string]wrapperFavicon, len(targetIDs))
-	for _, targetID := range targetIDs {
-		// An icon from before the tab changed its icon URL belongs to another page.
-		if entry, ok := cache.entries[targetID]; ok && entry.image != nil && entry.iconURL == entry.listedURL {
-			result[targetID] = entry
+	result := make(map[string]wrapperFavicon, len(pageURLs))
+	for targetID, pageURL := range pageURLs {
+		entry, ok := cache.entries[targetID]
+		// An icon from before the tab changed its icon URL, or from before it moved to another
+		// site, belongs to another page.
+		if !ok || entry.image == nil || entry.iconURL != entry.listedURL {
+			continue
 		}
+		if pageURL != "" && pageOrigin(pageURL) != entry.origin {
+			continue
+		}
+		result[targetID] = entry
 	}
 	cache.mu.Unlock()
 	if refresh {
@@ -487,7 +502,7 @@ func (r *wrapperRuntime) handleFavicon(w http.ResponseWriter, req *http.Request)
 	}
 	// Served from the cache: a tab that closed or has no icon yet is simply not found.
 	targetID := req.URL.Query().Get("targetId")
-	favicon, ok := r.liveSession.cachedFavicons([]string{targetID}, false)[targetID]
+	favicon, ok := r.liveSession.cachedFavicons(map[string]string{targetID: ""}, false)[targetID]
 	if targetID == "" || !ok {
 		writeWrapperError(w, http.StatusNotFound, "favicon not found")
 		return
