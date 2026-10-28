@@ -557,6 +557,7 @@ func toSessionProxyView(config proxy.Config) *sessionProxyView {
 type sessionResponse struct {
 	ID               string                            `json:"id"`
 	TenantID         string                            `json:"tenantId"`
+	WebURL           string                            `json:"webUrl"`
 	BaseSnapshotName *string                           `json:"baseSnapshotName,omitempty"`
 	Label            *string                           `json:"label,omitempty"`
 	Status           string                            `json:"status"`
@@ -574,6 +575,7 @@ type sessionResponse struct {
 	SessionToken     string                            `json:"sessionToken,omitempty"`
 	Collaboration    *sessionCollaborationCapabilities `json:"collaboration,omitempty"`
 	Thumbnail        *sessionThumbnailResponse         `json:"thumbnail,omitempty"`
+	Favicon          *sessionFaviconResponse           `json:"favicon,omitempty"`
 	Proxy            *sessionProxyView                 `json:"proxy,omitempty"`
 }
 

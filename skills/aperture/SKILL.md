@@ -19,6 +19,8 @@ export APERTURE_BASE_URL="https://aperture.example.com"
 
 Data-plane routes are served by the session itself. They exist for `running` and `suspended` sessions, and an authorized request wakes a suspended one, CDP discovery included; `browser/status`, `files/*` and the thumbnails are the exceptions that read retained state without waking. `/internal/*` is not public.
 
+To give a person a link to a session, use its `webUrl` (on every session object from the API and MCP), which opens the session in the web UI. Don't build one: `/sessions/<id>` alone is not a page.
+
 ## Credentials
 
 One rule decides every call: which credential is in hand.

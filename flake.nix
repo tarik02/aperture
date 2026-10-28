@@ -572,7 +572,7 @@
           pnpm = pnpmLatest;
           fetcherVersion = 4;
           pnpmWorkspaces = lib.unique (apertureWorkspaces ++ companionWorkspaces);
-          hash = "sha256-emgtzeKmeIgeDkzDT1o08U7CtvffeiypvK4d0uk3KDQ=";
+          hash = "sha256-eBr7bYrtuDznPT1I7dM4RRoa7fSA9DmpadoiGOR+LNo=";
         };
 
         # The Aperture Companion browser extension, unpacked.
@@ -683,6 +683,13 @@
               cp -rL apps/restore-worker/node_modules/playwright apps/restore-worker/node_modules/playwright-core \
                 $out/share/aperture/restore-worker/node_modules/
               cp -rL apps/restore-worker/node_modules/@playwright/mcp $out/share/aperture/restore-worker/node_modules/@playwright/
+              # Playwright MCP runs beside the browser and shares its view of the session
+              # files, but over CDP Playwright assumes a remote browser: it inlines file
+              # contents for uploads and refuses files over 50 MB. Marking the connection
+              # local makes it pass file paths to Chromium instead.
+              chmod u+w $out/share/aperture/restore-worker/node_modules/playwright-core/lib/coreBundle.js
+              substituteInPlace $out/share/aperture/restore-worker/node_modules/playwright-core/lib/coreBundle.js \
+                --replace-fail "headers: config.browser.cdpHeaders," "headers: config.browser.cdpHeaders, isLocal: true,"
               makeWrapper ${nodeRuntime}/bin/node $out/bin/aperture-browser-restore \
                 --add-flags $out/share/aperture/restore-worker/dist/restore.mjs
               makeWrapper ${nodeRuntime}/bin/node $out/bin/playwright-mcp \

@@ -270,6 +270,7 @@ const (
 	ErrorCodeBrowserInitializationFailed      ErrorCode = "browser_initialization_failed"
 	ErrorCodeBrowserStartFailed               ErrorCode = "browser_start_failed"
 	ErrorCodeEventServiceUnavailable          ErrorCode = "event_service_unavailable"
+	ErrorCodeFaviconNotFound                  ErrorCode = "favicon_not_found"
 	ErrorCodeIdentityNotProvisioned           ErrorCode = "identity_not_provisioned"
 	ErrorCodeInsufficientScope                ErrorCode = "insufficient_scope"
 	ErrorCodeInternalError                    ErrorCode = "internal_error"
@@ -352,6 +353,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeBrowserStartFailed:
 		return true
 	case ErrorCodeEventServiceUnavailable:
+		return true
+	case ErrorCodeFaviconNotFound:
 		return true
 	case ErrorCodeIdentityNotProvisioned:
 		return true
@@ -1391,6 +1394,12 @@ type BrowserCookieSameSite string
 
 // BrowserPage One top-level browser page.
 type BrowserPage struct {
+	// FaviconAvailable Whether the per-tab favicon route can serve this page's icon.
+	FaviconAvailable bool `json:"faviconAvailable"`
+
+	// FaviconVersion Short hash of the icon's bytes. Pass it as the favicon route's `v` to cache the icon indefinitely. Omitted when there is no icon.
+	FaviconVersion *string `json:"faviconVersion,omitempty"`
+
 	// State Whether the live session can show the page.
 	State BrowserPageState `json:"state"`
 
@@ -2351,6 +2360,11 @@ type Session struct {
 	// ExpiresAt Retention deadline after which the session and its overlay may be purged. This is not token expiry.
 	ExpiresAt time.Time `json:"expiresAt"`
 
+	// Favicon Signed tab favicon URL template for image elements. It needs no other credentials and expires
+	// after the configured signed URL lifetime; every session response returns a fresh one. Present
+	// while the session is running or suspended; each page's `faviconAvailable` says whether it has one.
+	Favicon *SessionFavicon `json:"favicon,omitempty"`
+
 	// Id Session identifier.
 	Id UUIDv7 `json:"id"`
 
@@ -2398,6 +2412,9 @@ type Session struct {
 	// configured signed URL lifetime; every session response returns fresh ones. Present while the
 	// session is running, or while suspended when thumbnails were saved.
 	Thumbnail *SessionThumbnail `json:"thumbnail,omitempty"`
+
+	// WebUrl The session's page in the Aperture web UI. Give this link to people who should open the session in a browser.
+	WebUrl string `json:"webUrl"`
 }
 
 // SessionBrowserStatus Passive page metadata of a running or suspended session.
@@ -2471,6 +2488,17 @@ type SessionDirectory struct {
 
 // SessionDirectoryType defines model for SessionDirectory.Type.
 type SessionDirectoryType string
+
+// SessionFavicon Signed tab favicon URL template for image elements. It needs no other credentials and expires
+// after the configured signed URL lifetime; every session response returns a fresh one. Present
+// while the session is running or suspended; each page's `faviconAvailable` says whether it has one.
+type SessionFavicon struct {
+	ExpiresAt time.Time `json:"expiresAt"`
+
+	// TargetUrlTemplate Tab favicon URL with a literal `{targetId}` placeholder for a top-level target ID. Append
+	// `&v=` and the page's `faviconVersion` to make the response cacheable indefinitely.
+	TargetUrlTemplate string `json:"targetUrlTemplate"`
+}
 
 // SessionFile Regular file retained with a browser session.
 type SessionFile struct {
@@ -3358,6 +3386,15 @@ type SuspendSessionParams struct {
 
 // ReplaceSessionTagsParams defines parameters for ReplaceSessionTags.
 type ReplaceSessionTagsParams struct {
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
+	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
+}
+
+// GetSessionTargetFaviconParams defines parameters for GetSessionTargetFavicon.
+type GetSessionTargetFaviconParams struct {
+	// V The page's `faviconVersion`. When it matches the served icon, the response is immutable.
+	V *string `form:"v,omitempty" json:"v,omitempty"`
+
 	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden. A personal tenant is selectable only by its owner; for anyone else it does not exist. An account session with no tenant selected and none to default to gets `tenant_selection_required` on tenant-scoped operations.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
@@ -4605,6 +4642,22 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /api/sessions/{sessionId}/tags (the `ReplaceSessionTags` operationId).
 	ReplaceSessionTags(ctx context.Context, sessionId SessionId, params *ReplaceSessionTagsParams, body ReplaceSessionTagsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSessionTargetFavicon Get a tab favicon
+	//
+	// Returns the icon Chromium shows for one top-level tab. The browser loads it through the tab's
+	// own network context, so icons of private or signed-in sites work and the site never sees the
+	// caller. Internal pages such as `chrome://` have none. Icons are at most 64 KiB and are PNG, ICO,
+	// GIF, JPEG, WebP, or SVG; SVG is served with a `Content-Security-Policy` that blocks scripts and
+	// loads. A suspended session serves the favicons saved when it suspended, unless
+	// `thumbnails_persist_on_suspend` is disabled. The request never wakes the session.
+	//
+	// Pass the page's `faviconVersion` as `v` to cache the response indefinitely: a changed icon gets
+	// a new version and so a new URL. Without a matching `v`, the response must be revalidated with
+	// `If-None-Match`.
+	//
+	// Corresponds with GET /api/sessions/{sessionId}/targets/{targetId}/favicon (the `GetSessionTargetFavicon` operationId).
+	GetSessionTargetFavicon(ctx context.Context, sessionId SessionId, targetId string, params *GetSessionTargetFaviconParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetSessionTargetThumbnail Get a tab thumbnail
 	//
@@ -6170,6 +6223,32 @@ func (c *Client) ReplaceSessionTagsWithBody(ctx context.Context, sessionId Sessi
 // Corresponds with PUT /api/sessions/{sessionId}/tags (the `ReplaceSessionTags` operationId).
 func (c *Client) ReplaceSessionTags(ctx context.Context, sessionId SessionId, params *ReplaceSessionTagsParams, body ReplaceSessionTagsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceSessionTagsRequest(c.Server, sessionId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetSessionTargetFavicon Get a tab favicon
+//
+// Returns the icon Chromium shows for one top-level tab. The browser loads it through the tab's
+// own network context, so icons of private or signed-in sites work and the site never sees the
+// caller. Internal pages such as `chrome://` have none. Icons are at most 64 KiB and are PNG, ICO,
+// GIF, JPEG, WebP, or SVG; SVG is served with a `Content-Security-Policy` that blocks scripts and
+// loads. A suspended session serves the favicons saved when it suspended, unless
+// `thumbnails_persist_on_suspend` is disabled. The request never wakes the session.
+//
+// Pass the page's `faviconVersion` as `v` to cache the response indefinitely: a changed icon gets
+// a new version and so a new URL. Without a matching `v`, the response must be revalidated with
+// `If-None-Match`.
+//
+// Corresponds with GET /api/sessions/{sessionId}/targets/{targetId}/favicon (the `GetSessionTargetFavicon` operationId).
+func (c *Client) GetSessionTargetFavicon(ctx context.Context, sessionId SessionId, targetId string, params *GetSessionTargetFaviconParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSessionTargetFaviconRequest(c.Server, sessionId, targetId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -9770,6 +9849,89 @@ func NewReplaceSessionTagsRequestWithBody(server string, sessionId SessionId, pa
 	return req, nil
 }
 
+// NewGetSessionTargetFaviconRequest constructs an http.Request for the GetSessionTargetFavicon method
+func NewGetSessionTargetFaviconRequest(server string, sessionId SessionId, targetId string, params *GetSessionTargetFaviconParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionId", sessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "targetId", targetId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/sessions/%s/targets/%s/favicon", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.V != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "v", *params.V, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.XApertureTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Aperture-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewGetSessionTargetThumbnailRequest constructs an http.Request for the GetSessionTargetThumbnail method
 func NewGetSessionTargetThumbnailRequest(server string, sessionId SessionId, targetId string, params *GetSessionTargetThumbnailParams) (*http.Request, error) {
 	var err error
@@ -11257,6 +11419,24 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PUT /api/sessions/{sessionId}/tags (the `ReplaceSessionTags` operationId).
 	ReplaceSessionTagsWithResponse(ctx context.Context, sessionId SessionId, params *ReplaceSessionTagsParams, body ReplaceSessionTagsJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceSessionTagsResponse, error)
+
+	// GetSessionTargetFaviconWithResponse Get a tab favicon
+	//
+	// Returns the icon Chromium shows for one top-level tab. The browser loads it through the tab's
+	// own network context, so icons of private or signed-in sites work and the site never sees the
+	// caller. Internal pages such as `chrome://` have none. Icons are at most 64 KiB and are PNG, ICO,
+	// GIF, JPEG, WebP, or SVG; SVG is served with a `Content-Security-Policy` that blocks scripts and
+	// loads. A suspended session serves the favicons saved when it suspended, unless
+	// `thumbnails_persist_on_suspend` is disabled. The request never wakes the session.
+	//
+	// Pass the page's `faviconVersion` as `v` to cache the response indefinitely: a changed icon gets
+	// a new version and so a new URL. Without a matching `v`, the response must be revalidated with
+	// `If-None-Match`.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/sessions/{sessionId}/targets/{targetId}/favicon (the `GetSessionTargetFavicon` operationId).
+	GetSessionTargetFaviconWithResponse(ctx context.Context, sessionId SessionId, targetId string, params *GetSessionTargetFaviconParams, reqEditors ...RequestEditorFn) (*GetSessionTargetFaviconResponse, error)
 
 	// GetSessionTargetThumbnailWithResponse Get a tab thumbnail
 	//
@@ -14130,6 +14310,55 @@ func (r ReplaceSessionTagsResponse) ContentType() string {
 	return ""
 }
 
+// GetSessionTargetFaviconResponse200Headers the declared response headers of an HTTP 200 response for GetSessionTargetFavicon
+type GetSessionTargetFaviconResponse200Headers struct {
+	CacheControl *string
+	ETag         *string
+}
+
+type GetSessionTargetFaviconResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetSessionTargetFaviconResponse200Headers
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetSessionTargetFaviconResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetSessionTargetFaviconResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSessionTargetFaviconResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSessionTargetFaviconResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSessionTargetFaviconResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // GetSessionTargetThumbnailResponse200Headers the declared response headers of an HTTP 200 response for GetSessionTargetThumbnail
 type GetSessionTargetThumbnailResponse200Headers struct {
 	LastModified *string
@@ -15892,6 +16121,30 @@ func (c *ClientWithResponses) ReplaceSessionTagsWithResponse(ctx context.Context
 		return nil, err
 	}
 	return ParseReplaceSessionTagsResponse(rsp)
+}
+
+// GetSessionTargetFaviconWithResponse Get a tab favicon
+//
+// Returns the icon Chromium shows for one top-level tab. The browser loads it through the tab's
+// own network context, so icons of private or signed-in sites work and the site never sees the
+// caller. Internal pages such as `chrome://` have none. Icons are at most 64 KiB and are PNG, ICO,
+// GIF, JPEG, WebP, or SVG; SVG is served with a `Content-Security-Policy` that blocks scripts and
+// loads. A suspended session serves the favicons saved when it suspended, unless
+// `thumbnails_persist_on_suspend` is disabled. The request never wakes the session.
+//
+// Pass the page's `faviconVersion` as `v` to cache the response indefinitely: a changed icon gets
+// a new version and so a new URL. Without a matching `v`, the response must be revalidated with
+// `If-None-Match`.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/sessions/{sessionId}/targets/{targetId}/favicon (the `GetSessionTargetFavicon` operationId).
+func (c *ClientWithResponses) GetSessionTargetFaviconWithResponse(ctx context.Context, sessionId SessionId, targetId string, params *GetSessionTargetFaviconParams, reqEditors ...RequestEditorFn) (*GetSessionTargetFaviconResponse, error) {
+	rsp, err := c.GetSessionTargetFavicon(ctx, sessionId, targetId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSessionTargetFaviconResponse(rsp)
 }
 
 // GetSessionTargetThumbnailWithResponse Get a tab thumbnail
@@ -18024,6 +18277,55 @@ func ParseReplaceSessionTagsResponse(rsp *http.Response) (*ReplaceSessionTagsRes
 	return response, nil
 }
 
+// ParseGetSessionTargetFaviconResponse parses an HTTP response from a GetSessionTargetFaviconWithResponse call
+func ParseGetSessionTargetFaviconResponse(rsp *http.Response) (*GetSessionTargetFaviconResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSessionTargetFaviconResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 304:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetSessionTargetFaviconResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		if values := rsp.Header.Values("ETag"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "ETag", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.ETag = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseGetSessionTargetThumbnailResponse parses an HTTP response from a GetSessionTargetThumbnailWithResponse call
 func ParseGetSessionTargetThumbnailResponse(rsp *http.Response) (*GetSessionTargetThumbnailResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -18604,6 +18906,9 @@ type ServerInterface interface {
 	// ReplaceSessionTags Replace browser session tags
 	// (PUT /api/sessions/{sessionId}/tags)
 	ReplaceSessionTags(c *gin.Context, sessionId SessionId, params ReplaceSessionTagsParams)
+	// GetSessionTargetFavicon Get a tab favicon
+	// (GET /api/sessions/{sessionId}/targets/{targetId}/favicon)
+	GetSessionTargetFavicon(c *gin.Context, sessionId SessionId, targetId string, params GetSessionTargetFaviconParams)
 	// GetSessionTargetThumbnail Get a tab thumbnail
 	// (GET /api/sessions/{sessionId}/targets/{targetId}/thumbnail)
 	GetSessionTargetThumbnail(c *gin.Context, sessionId SessionId, targetId string, params GetSessionTargetThumbnailParams)
@@ -21126,6 +21431,72 @@ func (siw *ServerInterfaceWrapper) ReplaceSessionTags(c *gin.Context) {
 	siw.Handler.ReplaceSessionTags(c, sessionId, params)
 }
 
+// GetSessionTargetFavicon operation middleware
+func (siw *ServerInterfaceWrapper) GetSessionTargetFavicon(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", c.Param("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter sessionId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Path parameter "targetId" -------------
+	var targetId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "targetId", c.Param("targetId"), &targetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter targetId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetSessionTargetFaviconParams
+
+	// ------------- Optional query parameter "v" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "v", c.Request.URL.Query(), &params.V, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter v: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	headers := c.Request.Header
+
+	// ------------- Optional header parameter "X-Aperture-Tenant-Id" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Aperture-Tenant-Id")]; found {
+		var XApertureTenantId SelectedTenantId
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Aperture-Tenant-Id, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.XApertureTenantId = &XApertureTenantId
+
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.GetSessionTargetFavicon(c, sessionId, targetId, params)
+}
+
 // GetSessionTargetThumbnail operation middleware
 func (siw *ServerInterfaceWrapper) GetSessionTargetThumbnail(c *gin.Context) {
 
@@ -21730,6 +22101,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.PUT(options.BaseURL+"/api/sessions/:sessionId/cursor", wrapper.SetSessionCursor)
 	router.GET(options.BaseURL+"/api/sessions/:sessionId/thumbnail", wrapper.GetSessionThumbnail)
 	router.GET(options.BaseURL+"/api/sessions/:sessionId/targets/:targetId/thumbnail", wrapper.GetSessionTargetThumbnail)
+	router.GET(options.BaseURL+"/api/sessions/:sessionId/targets/:targetId/favicon", wrapper.GetSessionTargetFavicon)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/storage-state", wrapper.ExportSessionStorageState)
 	router.GET(options.BaseURL+"/api/sessions/:sessionId/recordings", wrapper.ListSessionRecordings)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/recordings", wrapper.CreateSessionRecording)
@@ -24034,6 +24406,208 @@ func (response ReplaceSessionTagsdefaultJSONResponse) VisitReplaceSessionTagsRes
 	return err
 }
 
+type GetSessionTargetFaviconRequestObject struct {
+	SessionId SessionId `json:"sessionId"`
+	TargetId  string    `json:"targetId"`
+	Params    GetSessionTargetFaviconParams
+}
+
+type GetSessionTargetFaviconResponseObject interface {
+	VisitGetSessionTargetFaviconResponse(w http.ResponseWriter) error
+}
+
+type GetSessionTargetFavicon200ResponseHeaders struct {
+	CacheControl *string
+	ETag         *string
+}
+
+type GetSessionTargetFavicon200ImagegifResponse struct {
+	Body          io.Reader
+	Headers       GetSessionTargetFavicon200ResponseHeaders
+	ContentLength int64
+}
+
+func (response GetSessionTargetFavicon200ImagegifResponse) VisitGetSessionTargetFaviconResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "image/gif")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	if response.Headers.CacheControl != nil {
+		w.Header().Set("Cache-Control", fmt.Sprint(*response.Headers.CacheControl))
+	}
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetSessionTargetFavicon200ImagejpegResponse struct {
+	Body          io.Reader
+	Headers       GetSessionTargetFavicon200ResponseHeaders
+	ContentLength int64
+}
+
+func (response GetSessionTargetFavicon200ImagejpegResponse) VisitGetSessionTargetFaviconResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "image/jpeg")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	if response.Headers.CacheControl != nil {
+		w.Header().Set("Cache-Control", fmt.Sprint(*response.Headers.CacheControl))
+	}
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetSessionTargetFavicon200ImagepngResponse struct {
+	Body          io.Reader
+	Headers       GetSessionTargetFavicon200ResponseHeaders
+	ContentLength int64
+}
+
+func (response GetSessionTargetFavicon200ImagepngResponse) VisitGetSessionTargetFaviconResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "image/png")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	if response.Headers.CacheControl != nil {
+		w.Header().Set("Cache-Control", fmt.Sprint(*response.Headers.CacheControl))
+	}
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetSessionTargetFavicon200ImagesvgXmlResponse struct {
+	Body          io.Reader
+	Headers       GetSessionTargetFavicon200ResponseHeaders
+	ContentLength int64
+}
+
+func (response GetSessionTargetFavicon200ImagesvgXmlResponse) VisitGetSessionTargetFaviconResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "image/svg+xml")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	if response.Headers.CacheControl != nil {
+		w.Header().Set("Cache-Control", fmt.Sprint(*response.Headers.CacheControl))
+	}
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetSessionTargetFavicon200ImagewebpResponse struct {
+	Body          io.Reader
+	Headers       GetSessionTargetFavicon200ResponseHeaders
+	ContentLength int64
+}
+
+func (response GetSessionTargetFavicon200ImagewebpResponse) VisitGetSessionTargetFaviconResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "image/webp")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	if response.Headers.CacheControl != nil {
+		w.Header().Set("Cache-Control", fmt.Sprint(*response.Headers.CacheControl))
+	}
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetSessionTargetFavicon200ImagexIconResponse struct {
+	Body          io.Reader
+	Headers       GetSessionTargetFavicon200ResponseHeaders
+	ContentLength int64
+}
+
+func (response GetSessionTargetFavicon200ImagexIconResponse) VisitGetSessionTargetFaviconResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "image/x-icon")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	if response.Headers.CacheControl != nil {
+		w.Header().Set("Cache-Control", fmt.Sprint(*response.Headers.CacheControl))
+	}
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetSessionTargetFavicon304Response struct {
+}
+
+func (response GetSessionTargetFavicon304Response) VisitGetSessionTargetFaviconResponse(w http.ResponseWriter) error {
+	w.WriteHeader(304)
+	return nil
+}
+
+type GetSessionTargetFavicondefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetSessionTargetFavicondefaultJSONResponse) VisitGetSessionTargetFaviconResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetSessionTargetThumbnailRequestObject struct {
 	SessionId SessionId `json:"sessionId"`
 	TargetId  string    `json:"targetId"`
@@ -24708,6 +25282,9 @@ type StrictServerInterface interface {
 	// ReplaceSessionTags Replace browser session tags
 	// (PUT /api/sessions/{sessionId}/tags)
 	ReplaceSessionTags(ctx context.Context, request ReplaceSessionTagsRequestObject) (ReplaceSessionTagsResponseObject, error)
+	// GetSessionTargetFavicon Get a tab favicon
+	// (GET /api/sessions/{sessionId}/targets/{targetId}/favicon)
+	GetSessionTargetFavicon(ctx context.Context, request GetSessionTargetFaviconRequestObject) (GetSessionTargetFaviconResponseObject, error)
 	// GetSessionTargetThumbnail Get a tab thumbnail
 	// (GET /api/sessions/{sessionId}/targets/{targetId}/thumbnail)
 	GetSessionTargetThumbnail(ctx context.Context, request GetSessionTargetThumbnailRequestObject) (GetSessionTargetThumbnailResponseObject, error)
@@ -26481,6 +27058,34 @@ func (sh *strictHandler) ReplaceSessionTags(ctx *gin.Context, sessionId SessionI
 		sh.options.HandlerErrorFunc(ctx, err)
 	} else if validResponse, ok := response.(ReplaceSessionTagsResponseObject); ok {
 		if err := validResponse.VisitReplaceSessionTagsResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSessionTargetFavicon operation middleware
+func (sh *strictHandler) GetSessionTargetFavicon(ctx *gin.Context, sessionId SessionId, targetId string, params GetSessionTargetFaviconParams) {
+	var request GetSessionTargetFaviconRequestObject
+
+	request.SessionId = sessionId
+	request.TargetId = targetId
+	request.Params = params
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSessionTargetFavicon(ctx, request.(GetSessionTargetFaviconRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSessionTargetFavicon")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(GetSessionTargetFaviconResponseObject); ok {
+		if err := validResponse.VisitGetSessionTargetFaviconResponse(ctx.Writer); err != nil {
 			sh.options.ResponseErrorHandlerFunc(ctx, err)
 		}
 	} else if response != nil {

@@ -35,6 +35,10 @@ export const BrowserPage = Schema.Struct({
     }),
   ),
   thumbnailAvailable: Schema.Boolean,
+  /** Absent from servers older than favicons. */
+  faviconAvailable: Schema.optionalKey(Schema.Boolean),
+  /** Content hash of the favicon; pass it to `getSessionFavicon` to make the response cacheable. */
+  faviconVersion: Schema.optionalKey(Schema.String),
 });
 
 const browserStatusCommon = {

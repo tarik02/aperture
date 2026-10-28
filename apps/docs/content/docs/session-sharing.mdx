@@ -111,7 +111,7 @@ The `/api` routes work in every retained state, including suspended and stopped 
 
 `POST /sessions/<session-id>/uploads` reaches the running session itself and stores files in `uploads/`; it also accepts the owner session token.
 
-Playwright MCP's `browser_file_upload` accepts any session file relative path, so a download or recording can be put into a file chooser directly.
+The MCP browser tools accept any session file relative path, of any size, so a download or recording can go straight into a page. `browser_set_input_files` sets files on a file input given by snapshot reference or selector, including hidden inputs, and fails with the input cleared when the page cannot read a file. `browser_file_upload` fills a file chooser a click has opened.
 
 Each upload request accepts at most 100 files, a directory may hold at most 1,000 files, and a session at most 10,000 files and directories. At most three uploads per session stream at once.
 
@@ -141,6 +141,19 @@ When a session suspends, Aperture saves the thumbnails of the session and its ta
 A running session returns `source: "live"`; a suspended session returns `source: "persisted"` with the page metadata and thumbnail availability saved as one suspension generation. `capturedAt` identifies that generation, and `representativeTargetId` identifies the page used for the session thumbnail. Pages remain in the manifest even when their thumbnail capture failed or thumbnails are not saved. Page `targetId`s are the IDs the per-tab thumbnail routes take.
 
 Older suspended sessions have no page manifest. Saving may also fail within its best-effort suspension budget. Those cases return `source: "unavailable"`, an empty page list, and no `capturedAt` rather than waking the browser or presenting an older generation as new. Target IDs in persisted data are historical references for that generation; Chromium may assign different IDs after resume.
+
+## Favicons
+
+Each top-level tab can serve the icon Chromium shows for it. The browser loads the icon through the tab's own network context, so icons of private or signed-in sites work and the site never sees the client. Internal pages such as `chrome://` have none. Icons are at most 64 KiB and are PNG, ICO, GIF, JPEG, WebP, or SVG; SVG is served with a `Content-Security-Policy` that blocks scripts and loads. Favicon requests never wake a suspended session and do not count as session activity.
+
+```text
+GET /api/sessions/<session-id>/targets/<target-id>/favicon
+GET /sessions/<session-id>/targets/<target-id>/favicon
+```
+
+The routes accept the same credentials as the thumbnail routes. Session reads return a signed `favicon.targetUrlTemplate` for image elements, with the same lifetime as thumbnail URLs.
+
+Each page in the browser status lists `faviconAvailable` and `faviconVersion`, a short content hash. Add `v=<faviconVersion>` to the favicon URL and the response is cached with `Cache-Control: private, max-age=31536000, immutable`; a changed icon gets a new version. Without a matching `v` the response is `private, no-cache` with the version as its `ETag`, so clients revalidate with `If-None-Match`. Suspension saves favicons with the tab thumbnails, and `thumbnails_persist_on_suspend = false` skips both.
 
 ## Limits and audit events
 

@@ -1,20 +1,28 @@
 import { useRouterState } from "@tanstack/react-router";
-import { Separator } from "@aperture-browser/ui/components/separator";
+import { useState } from "react";
+import { PageHeaderActionsTarget } from "#/components/page-header-context.ts";
 import { SidebarInset, SidebarTrigger } from "@aperture-browser/ui/components/sidebar";
 import { AppSidebar } from "#/components/app-sidebar.tsx";
-import { primaryNavItems } from "#/lib/navigation.ts";
+import { resolveNavItem } from "#/lib/navigation.ts";
 import { NoTenantState } from "#/features/tenant/no-tenant-state.tsx";
 import { selectAuth, useAuthSessionStore } from "#/stores/auth-session.ts";
+import type { SidebarLayout } from "#/stores/sidebar.ts";
 
 type StandardAppShellProps = {
+  /** A page gets the title bar; the workbench brings its own and only shares the sidebar. */
+  layout: SidebarLayout;
   children: React.ReactNode;
 };
 
-export default function StandardAppShell({ children }: StandardAppShellProps) {
+export default function StandardAppShell({ layout, children }: StandardAppShellProps) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const navItem = resolveNavItem(pathname);
+  const view = useRouterState({
+    select: (state) => (state.location.search as { view?: string }).view,
+  });
+  const navItem = resolveNavItem(pathname, view);
   const pageTitle = navItem?.title ?? "Sessions";
   const auth = useAuthSessionStore(selectAuth);
+  const [headerActions, setHeaderActions] = useState<HTMLDivElement | null>(null);
   // Tenant-scoped requests fail until a tenant is selected, so show why instead.
   const missingTenant =
     (navItem?.tenantScoped ?? true) &&
@@ -22,38 +30,41 @@ export default function StandardAppShell({ children }: StandardAppShellProps) {
     auth.principal.authorityType === "tenant" &&
     auth.selectedTenant === null;
 
+  if (layout === "workbench") {
+    return (
+      <>
+        <AppSidebar collapsible="offcanvas" />
+        <SidebarInset className="aperture:h-full aperture:min-h-0 aperture:overflow-hidden">
+          {children}
+        </SidebarInset>
+      </>
+    );
+  }
+
   return (
     <>
-      <AppSidebar />
+      <AppSidebar collapsible="icon" />
       <SidebarInset className="aperture:h-full aperture:min-h-0 aperture:overflow-hidden">
         <header
           data-app-titlebar
           className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:border-b"
         >
           <SidebarTrigger className="aperture:-ml-1" />
-          <Separator orientation="vertical" className="aperture:h-4" />
-          <h1 className="aperture:min-w-0 aperture:truncate aperture:text-sm aperture:font-semibold">
+          <h1 className="aperture:shrink-0 aperture:truncate aperture:pr-2 aperture:text-sm aperture:font-semibold aperture:max-sm:sr-only">
             {pageTitle}
           </h1>
           <div
-            id="app-header-actions"
+            ref={setHeaderActions}
             data-no-window-drag
-            className="aperture:ml-auto aperture:flex aperture:items-center aperture:gap-2"
+            className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:justify-end aperture:gap-2"
           />
         </header>
         <div className="aperture:min-h-0 aperture:flex-1">
-          {missingTenant ? <NoTenantState /> : children}
+          <PageHeaderActionsTarget.Provider value={headerActions}>
+            {missingTenant ? <NoTenantState /> : children}
+          </PageHeaderActionsTarget.Provider>
         </div>
       </SidebarInset>
     </>
   );
-}
-
-function resolveNavItem(pathname: string) {
-  return primaryNavItems.find((navItem) => {
-    if (navItem.to === "/") {
-      return pathname === "/";
-    }
-    return pathname === navItem.to || pathname.startsWith(`${navItem.to}/`);
-  });
 }

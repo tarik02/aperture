@@ -14,12 +14,30 @@ import {
 
 type BrowserControlPaneProps = {
   control: UseBrowserControlResult;
+  /** Rendered at the start of the title bar row, before the tab strip. */
   leading?: ReactNode;
+  /** Rendered at the end of the title bar row, after the participants. */
+  trailing?: ReactNode;
+  /** Rendered at the start of the toolbar row, before the navigation buttons. */
+  toolbarLeading?: ReactNode;
+  /** Rendered at the end of the toolbar row, before the browser menu. */
+  toolbarTrailing?: ReactNode;
   features?: SessionFeatures;
   collaborationRole: CollaborationRole;
   cdpUrl: string | null;
   shareUrls: { editor: string; viewer: string } | null;
   onSessionDetails?: () => void;
+  /** Extra items at the top of the browser menu, such as actions on the session. */
+  menuItems?: ReactNode;
+  /** Extra items in the menu's "Share and connect" submenu. */
+  shareMenuItems?: ReactNode;
+  /** Items at the end of the browser menu, such as deleting the session. */
+  menuFooterItems?: ReactNode;
+  /**
+   * The icon Aperture captured for a tab, null for none, or undefined while unknown. Without it
+   * tabs load the site's own `/favicon.ico`.
+   */
+  targetFaviconUrl?: (targetId: string) => string | null | undefined;
 };
 
 const LOCAL_CURSOR_STORAGE_KEY = "aperture.workbench.localCursorEnabled";
@@ -27,11 +45,18 @@ const LOCAL_CURSOR_STORAGE_KEY = "aperture.workbench.localCursorEnabled";
 export function BrowserControlPane({
   control,
   leading,
+  trailing,
+  toolbarLeading,
+  toolbarTrailing,
   features: featureOverrides,
   collaborationRole,
   cdpUrl,
   shareUrls,
   onSessionDetails,
+  menuItems,
+  shareMenuItems,
+  menuFooterItems,
+  targetFaviconUrl,
 }: BrowserControlPaneProps) {
   const features = resolveSessionFeatures(featureOverrides);
   const [localCursorEnabled, setLocalCursorEnabled] = useState(true);
@@ -121,6 +146,9 @@ export function BrowserControlPane({
       <BrowserToolbar
         control={control}
         leading={leading}
+        trailing={trailing}
+        toolbarLeading={toolbarLeading}
+        toolbarTrailing={toolbarTrailing}
         features={features}
         collaborationRole={collaborationRole}
         cdpUrl={cdpUrl}
@@ -135,6 +163,10 @@ export function BrowserControlPane({
         onDevToolsOpenChange={handleDevToolsOpenChange}
         onDevToolsDockChange={setDevToolsDock}
         onSessionDetails={onSessionDetails}
+        menuItems={menuItems}
+        shareMenuItems={shareMenuItems}
+        menuFooterItems={menuFooterItems}
+        targetFaviconUrl={targetFaviconUrl}
       />
       {features.devTools ? (
         <ResizablePanelGroup

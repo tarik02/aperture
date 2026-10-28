@@ -52,6 +52,12 @@ interface BrowserTabStripProps {
     placement: "before" | "after",
   ) => void;
   loadThumbnail?: LoadThumbnail;
+  /**
+   * The icon the browser captured for a tab, served by Aperture: a URL, null for a tab without an
+   * icon, or undefined while it isn't known yet. Without a resolver, or while a tab's icon isn't
+   * known, the tab shows the site's `/favicon.ico`, loaded by the viewer straight from the site.
+   */
+  targetFaviconUrl?: (targetId: string) => string | null | undefined;
 }
 
 interface BrowserTabDragData extends Record<string, unknown> {
@@ -75,6 +81,7 @@ export function BrowserTabStrip({
   onReload,
   onReorder,
   loadThumbnail = null,
+  targetFaviconUrl,
 }: BrowserTabStripProps) {
   const [previewHandle] = useState(() => createHoverCardHandle<string>());
 
@@ -97,6 +104,7 @@ export function BrowserTabStrip({
               <BrowserTab
                 key={target.id}
                 target={target}
+                faviconSrc={faviconSource(target, targetFaviconUrl)}
                 active={active}
                 recording={recordingTargetIds.has(target.id)}
                 devToolsOpen={devToolsTargetIds.has(target.id)}
@@ -134,6 +142,7 @@ export function BrowserTabStrip({
 
 function BrowserTab({
   target,
+  faviconSrc,
   active,
   recording,
   devToolsOpen,
@@ -149,6 +158,7 @@ function BrowserTab({
   closeRightTargetIds,
 }: {
   target: LiveSessionTarget;
+  faviconSrc: string | null;
   active: boolean;
   recording: boolean;
   devToolsOpen: boolean;
@@ -275,7 +285,7 @@ function BrowserTab({
           className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:gap-1.5 aperture:text-left"
           onClick={() => onActivate(target.id)}
         >
-          <TabFavicon url={target.url} />
+          <TabFavicon src={faviconSrc} />
           {devToolsOpen ? (
             <>
               <Wrench
@@ -390,24 +400,27 @@ function NewTabButton({ disabled, onCreate }: { disabled?: boolean; onCreate: ()
   );
 }
 
-function TabFavicon({ url }: { url: string }) {
-  const [failed, setFailed] = useState(false);
-  const faviconUrl = resolveFaviconUrl(url);
+function faviconSource(
+  target: LiveSessionTarget,
+  targetFaviconUrl: ((targetId: string) => string | null | undefined) | undefined,
+): string | null {
+  const captured = targetFaviconUrl?.(target.id);
+  return captured === undefined ? resolveFaviconUrl(target.url) : captured;
+}
 
-  useEffect(() => {
-    setFailed(false);
-  }, [faviconUrl]);
+function TabFavicon({ src }: { src: string | null }) {
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
 
-  if (!faviconUrl || failed) {
+  if (!src || failedSrc === src) {
     return <Globe2 className="aperture:size-4 aperture:shrink-0 aperture:text-muted-foreground" />;
   }
 
   return (
     <img
-      src={faviconUrl}
+      src={src}
       alt=""
       className="aperture:size-4 aperture:shrink-0"
-      onError={() => setFailed(true)}
+      onError={() => setFailedSrc(src)}
     />
   );
 }

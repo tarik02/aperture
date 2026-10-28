@@ -749,13 +749,11 @@ func LaunchFromRuntimeEnv() error {
 	go func() {
 		browserDone <- cmd.Wait()
 	}()
+	go watchBrowserTargets(ctx, values.CDPPort, false)
 
 	select {
 	case err := <-browserDone:
-		if err != nil {
-			return fmt.Errorf("browser exited: %w", err)
-		}
-		return err
+		return browserExitError(err)
 	case err := <-wrapperDone:
 		stopProcess(cmd, browserDone)
 		if err != nil {
@@ -1022,6 +1020,12 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		"--kiosk",
 		fmt.Sprintf("--window-size=%d,%d", values.CompositorWidth, values.CompositorHeight),
 	)
+	if multiTargetEnabled {
+		// Chromium quits when its last window closes, which ends the session. Playwright MCP
+		// closes a crashed tab before it opens a replacement, so a crash in the only tab
+		// stopped the browser. watchBrowserTargets opens a blank tab instead.
+		extraArgs = append(extraArgs, "--keep-alive-for-test")
+	}
 	if hardwareAcceleration {
 		extraArgs = append(extraArgs, "--ignore-gpu-blocklist", "--enable-gpu-rasterization")
 	} else {
@@ -1062,6 +1066,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	go func() {
 		browserDone <- browserCmd.Wait()
 	}()
+	go watchBrowserTargets(ctx, values.CDPPort, multiTargetEnabled)
 
 	var mediaProducer *producer
 	if values.MediaProducerEnabled {
@@ -1085,10 +1090,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 			stopProcess(compositor, compositorDone)
 			stopProcess(wirePlumber, wirePlumberDone)
 			stopProcess(pipeWire, pipeWireDone)
-			if err != nil {
-				return fmt.Errorf("browser exited: %w", err)
-			}
-			return err
+			return browserExitError(err)
 		case err := <-compositorDone:
 			wrapper.liveSession.stopAllRecordings("session_closed")
 			stopMediaProducer(mediaProducer)
@@ -1452,6 +1454,16 @@ func stopMediaProducer(mediaProducer *producer) {
 	if mediaProducer != nil {
 		_ = mediaProducer.Close()
 	}
+}
+
+// browserExitError reports a browser exit the wrapper did not ask for. A clean
+// exit is still an error: the session ends with it, and returning nil would leave
+// the unit stopped with nothing in the journal saying why.
+func browserExitError(err error) error {
+	if err != nil {
+		return fmt.Errorf("browser exited: %w", err)
+	}
+	return errors.New("browser exited on its own with status 0; Chromium quits like this when its last window closes or a CDP client sends Browser.close")
 }
 
 func stopBrowserProcess(cdpPort int, cmd *exec.Cmd, done <-chan error) {

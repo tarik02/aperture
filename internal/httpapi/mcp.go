@@ -259,6 +259,7 @@ type mcpSnapshot struct {
 type mcpSession struct {
 	ID               string            `json:"sessionId"`
 	TenantID         string            `json:"tenantId"`
+	WebURL           string            `json:"webUrl"`
 	Status           string            `json:"status"`
 	BaseSnapshotName *string           `json:"baseSnapshotName,omitempty"`
 	Label            *string           `json:"label,omitempty"`
@@ -276,8 +277,8 @@ type mcpSession struct {
 	Media            sessionMedia      `json:"media"`
 }
 
-func mcpSessionView(view *session.SessionView) mcpSession {
-	return mcpSession{ID: view.Session.ID, TenantID: view.Session.TenantID, Status: view.Session.Status, BaseSnapshotName: view.BaseSnapshotName, Label: view.Session.Label, BrowserChannel: view.Session.BrowserChannel, CDPURL: view.CDPURL, SessionToken: view.SessionToken, CreatedAt: view.Session.CreatedAt, StartedAt: view.Session.StartedAt, StoppedAt: view.Session.StoppedAt, DeletedAt: view.Session.DeletedAt, ExpiresAt: view.Session.ExpiresAt, LastConnectedAt: view.Session.LastConnectedAt, SuspendedAt: view.Session.SuspendedAt, Tags: view.Tags, Media: sessionMedia{Mode: view.Media.Mode, WebRTCProducer: view.Media.WebRTCProducer, ICEServers: toICEServerResponses(view.Media.ICEServers)}}
+func (s *Server) mcpSessionView(view *session.SessionView) mcpSession {
+	return mcpSession{ID: view.Session.ID, TenantID: view.Session.TenantID, WebURL: s.sessionWebURL(view.Session.ID), Status: view.Session.Status, BaseSnapshotName: view.BaseSnapshotName, Label: view.Session.Label, BrowserChannel: view.Session.BrowserChannel, CDPURL: view.CDPURL, SessionToken: view.SessionToken, CreatedAt: view.Session.CreatedAt, StartedAt: view.Session.StartedAt, StoppedAt: view.Session.StoppedAt, DeletedAt: view.Session.DeletedAt, ExpiresAt: view.Session.ExpiresAt, LastConnectedAt: view.Session.LastConnectedAt, SuspendedAt: view.Session.SuspendedAt, Tags: view.Tags, Media: sessionMedia{Mode: view.Media.Mode, WebRTCProducer: view.Media.WebRTCProducer, ICEServers: toICEServerResponses(view.Media.ICEServers)}}
 }
 
 func mcpSnapshotView(view *snapshot.SnapshotView) mcpSnapshot {
@@ -663,6 +664,10 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 			tool := adaptPlaywrightTool(definition, a.pathBound)
 			server.AddTool(tool, s.playwrightToolHandler(name, a.pathBound))
 		}
+		if _, ok := tools["browser_file_upload"]; ok {
+			definition := playwrightmcp.SetInputFilesDefinition()
+			server.AddTool(adaptPlaywrightTool(definition, a.pathBound), s.playwrightToolHandler(definition.Name, a.pathBound))
+		}
 	}
 	return server
 }
@@ -697,7 +702,7 @@ func adaptPlaywrightTool(definition playwrightmcp.Tool, pathBound bool) *mcp.Too
 	}
 	description := definition.Description
 	if definition.Name == "browser_file_upload" {
-		description = "Upload one or multiple session files into a file chooser"
+		description = "Upload one or multiple session files into an open file chooser. To set files on an input without a chooser, such as a hidden input, use browser_set_input_files."
 		if paths, ok := properties["paths"].(map[string]any); ok {
 			paths["description"] = "Session file relative paths, such as uploads/report.pdf or downloads/invoice.pdf, as returned by session_files.list. Omit to cancel the file chooser."
 		}
@@ -985,7 +990,7 @@ func (s *Server) mcpSessionsCreate(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpCreateSessionOutput{}, mcpToolError("session_unavailable", err)
 	}
-	result := mcpCreateSessionOutput{Session: mcpSessionView(view), SessionID: view.Session.ID, Status: view.Session.Status, CDPURL: view.CDPURL, SessionToken: view.SessionToken}
+	result := mcpCreateSessionOutput{Session: s.mcpSessionView(view), SessionID: view.Session.ID, Status: view.Session.Status, CDPURL: view.CDPURL, SessionToken: view.SessionToken}
 	return nil, result, nil
 }
 
@@ -1015,7 +1020,7 @@ func (s *Server) mcpSessionsList(ctx context.Context, _ *mcp.CallToolRequest, in
 	}
 	out := mcpListSessionsOutput{Meta: page.Meta}
 	for _, item := range page.Items {
-		out.Data = append(out.Data, mcpSessionView(&item))
+		out.Data = append(out.Data, s.mcpSessionView(&item))
 	}
 	return nil, out, nil
 }
@@ -1028,7 +1033,7 @@ func (s *Server) mcpSessionsGet(ctx context.Context, _ *mcp.CallToolRequest, in 
 	if err != nil {
 		return nil, mcpSession{}, mcpToolError("session_not_found", err)
 	}
-	return nil, mcpSessionView(view), nil
+	return nil, s.mcpSessionView(view), nil
 }
 func (s *Server) mcpSessionsBulkGet(ctx context.Context, _ *mcp.CallToolRequest, in mcpBulkSessionsInput) (*mcp.CallToolResult, mcpBulkSessionsOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
@@ -1045,7 +1050,7 @@ func (s *Server) mcpSessionsBulkGet(ctx context.Context, _ *mcp.CallToolRequest,
 	}
 	out := mcpBulkSessionsOutput{}
 	for i := range views {
-		out.Sessions = append(out.Sessions, mcpSessionView(&views[i]))
+		out.Sessions = append(out.Sessions, s.mcpSessionView(&views[i]))
 	}
 	return nil, out, nil
 }
@@ -1100,7 +1105,7 @@ func (s *Server) mcpSessionStatus(ctx context.Context, _ *mcp.CallToolRequest, i
 	if err != nil {
 		return nil, mcpStatusOutput{}, err
 	}
-	return nil, mcpStatusOutput{Session: mcpSessionView(view)}, nil
+	return nil, mcpStatusOutput{Session: s.mcpSessionView(view)}, nil
 }
 func (s *Server) mcpSessionConnection(ctx context.Context, _ *mcp.CallToolRequest, in mcpSessionIDInput) (*mcp.CallToolResult, mcpConnectionOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
@@ -1126,7 +1131,7 @@ func (s *Server) mcpSessionSuspend(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpStatusOutput{}, mcpToolError("session_unavailable", err)
 	}
-	return nil, mcpStatusOutput{Session: mcpSessionView(updated)}, nil
+	return nil, mcpStatusOutput{Session: s.mcpSessionView(updated)}, nil
 }
 func (s *Server) mcpSessionDelete(ctx context.Context, _ *mcp.CallToolRequest, in mcpSessionIDInput) (*mcp.CallToolResult, mcpStatusOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
@@ -1141,7 +1146,7 @@ func (s *Server) mcpSessionDelete(ctx context.Context, _ *mcp.CallToolRequest, i
 	if err != nil {
 		return nil, mcpStatusOutput{}, mcpToolError("session_unavailable", err)
 	}
-	return nil, mcpStatusOutput{Session: mcpSessionView(updated)}, nil
+	return nil, mcpStatusOutput{Session: s.mcpSessionView(updated)}, nil
 }
 func (s *Server) mcpSessionTokenRotate(ctx context.Context, _ *mcp.CallToolRequest, in mcpSessionIDInput) (*mcp.CallToolResult, mcpStatusOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
@@ -1156,7 +1161,7 @@ func (s *Server) mcpSessionTokenRotate(ctx context.Context, _ *mcp.CallToolReque
 	if err != nil {
 		return nil, mcpStatusOutput{}, mcpToolError("session_unavailable", err)
 	}
-	return nil, mcpStatusOutput{Session: mcpSessionView(updated)}, nil
+	return nil, mcpStatusOutput{Session: s.mcpSessionView(updated)}, nil
 }
 func (s *Server) mcpSessionsPromote(ctx context.Context, _ *mcp.CallToolRequest, in mcpPromoteInput) (*mcp.CallToolResult, mcpSnapshotOutput, error) {
 	a, err := mcpAuthFromContext(ctx)

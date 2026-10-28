@@ -32,6 +32,7 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 	router.GET("/sessions/:sessionId/files/*relativePath", server.sessionFile)
 	router.GET("/sessions/:sessionId/thumbnail", server.sessionThumbnail)
 	router.GET("/sessions/:sessionId/targets/:targetId/thumbnail", server.sessionThumbnail)
+	router.GET("/sessions/:sessionId/targets/:targetId/favicon", server.sessionFavicon)
 	router.GET("/auth/login-methods", server.listLoginMethods)
 	if server.WebAuth != nil {
 		router.GET("/auth/tenant-context", server.tenantContext)

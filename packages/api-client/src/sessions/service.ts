@@ -289,6 +289,16 @@ export class SessionsApi extends Context.Service<
       sessionId: string,
       targetId?: string,
     ) => Call<Blob>;
+    /**
+     * The icon of one tab, loaded by the browser itself. Never wakes a suspended session. Passing the
+     * page's `faviconVersion` lets the HTTP cache keep the response.
+     */
+    readonly getSessionFavicon: (
+      credentials: ApiCredentials,
+      sessionId: string,
+      targetId: string,
+      version?: string,
+    ) => Call<Blob>;
     /** The recording's bytes as they arrive, for files too large to hold in memory. */
     readonly streamSessionRecording: (
       credentials: ApiCredentials,

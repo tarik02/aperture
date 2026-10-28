@@ -64,6 +64,8 @@ type PageManifestEntry struct {
 	State              string        `json:"state"`
 	Viewport           *PageViewport `json:"viewport,omitempty"`
 	ThumbnailAvailable bool          `json:"thumbnailAvailable"`
+	FaviconAvailable   bool          `json:"faviconAvailable"`
+	FaviconVersion     string        `json:"faviconVersion,omitempty"`
 }
 
 // PageManifest is a point-in-time page listing. Persisted target IDs are historical references
@@ -132,6 +134,19 @@ func (session *liveSession) pageManifest() (PageManifest, error) {
 			State:    state,
 			Viewport: viewport,
 		})
+	}
+
+	pageURLs := make(map[string]string, len(pages))
+	for _, page := range pages {
+		pageURLs[page.TargetID] = page.URL
+	}
+	// Favicons come from the cache, so a listing never waits for an icon to load.
+	favicons := session.cachedFavicons(pageURLs, true)
+	for index := range pages {
+		if favicon, ok := favicons[pages[index].TargetID]; ok {
+			pages[index].FaviconAvailable = true
+			pages[index].FaviconVersion = favicon.version
+		}
 	}
 
 	session.mu.Lock()

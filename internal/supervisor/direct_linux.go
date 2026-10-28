@@ -74,7 +74,9 @@ func (b *directBackend) Start(ctx context.Context, sessionID string) error {
 	process := &directProcess{cmd: cmd, done: make(chan struct{})}
 	b.processes[sessionID] = process
 	go func() {
-		_ = cmd.Wait()
+		if err := cmd.Wait(); err != nil {
+			fmt.Fprintf(os.Stderr, "browser session %s exited: %v\n", sessionID, err)
+		}
 		b.mu.Lock()
 		if b.processes[sessionID] == process {
 			delete(b.processes, sessionID)
