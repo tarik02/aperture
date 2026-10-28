@@ -63,7 +63,6 @@ export function AppSidebar({ collapsible }: { collapsible: "icon" | "offcanvas" 
       </SidebarHeader>
       <SidebarContent>
         <NavGroup label="Workspace" items={workspaceItems} activeItem={activeItem} />
-        <RecentSessionsSidebarGroup pathname={pathname} />
         {adminItems.length > 0 ? (
           <NavGroup label="Administration" items={adminItems} activeItem={activeItem} />
         ) : null}
@@ -76,6 +75,7 @@ export function AppSidebar({ collapsible }: { collapsible: "icon" | "offcanvas" 
           </SidebarMenuItem>
         </NavGroup>
         <AccountSidebarGroup />
+        <RecentSessionsSidebarGroup pathname={pathname} />
       </SidebarContent>
       <SidebarFooter className="aperture:gap-2">
         <ThemeToggle />
