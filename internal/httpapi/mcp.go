@@ -664,6 +664,10 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 			tool := adaptPlaywrightTool(definition, a.pathBound)
 			server.AddTool(tool, s.playwrightToolHandler(name, a.pathBound))
 		}
+		if _, ok := tools["browser_file_upload"]; ok {
+			definition := playwrightmcp.SetInputFilesDefinition()
+			server.AddTool(adaptPlaywrightTool(definition, a.pathBound), s.playwrightToolHandler(definition.Name, a.pathBound))
+		}
 	}
 	return server
 }
@@ -698,7 +702,7 @@ func adaptPlaywrightTool(definition playwrightmcp.Tool, pathBound bool) *mcp.Too
 	}
 	description := definition.Description
 	if definition.Name == "browser_file_upload" {
-		description = "Upload one or multiple session files into a file chooser"
+		description = "Upload one or multiple session files into an open file chooser. To set files on an input without a chooser, such as a hidden input, use browser_set_input_files."
 		if paths, ok := properties["paths"].(map[string]any); ok {
 			paths["description"] = "Session file relative paths, such as uploads/report.pdf or downloads/invoice.pdf, as returned by session_files.list. Omit to cancel the file chooser."
 		}

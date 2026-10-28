@@ -27,7 +27,16 @@ curl -fsS -H "Authorization: Bearer $SESSION_TOKEN" \
   -F "files=@invoice.pdf" "$APERTURE_BASE_URL/sessions/$SESSION_ID/uploads"
 ```
 
-Limits: 100 files per request, 1000 uploads per session, `session_upload_max_file_bytes` per file (100 MiB by default, `413`), `session_storage_quota_bytes` per session (1 GiB by default, `507`), three concurrent uploads per session on the API route (`429`). A rejected request stores nothing. Hand the returned `relativePath` to `browser_file_upload`, which accepts any session file, downloads and recordings included.
+Limits: 100 files per request, 1000 uploads per session, `session_upload_max_file_bytes` per file (100 MiB by default, `413`), `session_storage_quota_bytes` per session (1 GiB by default, `507`), three concurrent uploads per session on the API route (`429`). A rejected request stores nothing.
+
+## Putting files into a page
+
+Both browser tools take session file relative paths, downloads and recordings included, of any size:
+
+- `browser_set_input_files` with `target` (a snapshot ref or selector of an `<input type=file>`) and `paths`. It needs no file chooser, so it suits hidden inputs and inputs that upload on change. It fails, and clears the input, when the page cannot read a file.
+- `browser_file_upload` with `paths`, after a click has opened a file chooser.
+
+Over raw CDP, pass a file's `sandboxPath` to `DOM.setFileInputFiles`, then check `files[i].size` in the page: a size of `0` for a non-empty file means the tab's renderer did not get read access, and Chromium kills the tab when the page reads or submits it. Clear the input (`files: []`) and retry in a new tab.
 
 ## Download
 

@@ -150,6 +150,9 @@ func ToolsForProfilesMetadata(profiles []string) (map[string]Tool, error) {
 var embeddedMetadata = sync.OnceValues(MetadataFromEmbedded)
 
 func HasTool(name string) bool {
+	if name == SetInputFilesTool {
+		return true
+	}
 	metadata, err := embeddedMetadata()
 	if err != nil {
 		return false

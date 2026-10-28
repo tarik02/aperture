@@ -101,6 +101,14 @@ func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments 
 	if !playwrightmcp.HasTool(name) {
 		return nil, fmt.Errorf("playwright tool %q is not exposed", name)
 	}
+	if name == playwrightmcp.SetInputFilesTool {
+		code, err := setInputFilesCode(b.values.FilesDir, arguments)
+		if err != nil {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "### Error\n" + err.Error()}}}, nil
+		}
+		name = playwrightmcp.RunCodeTool
+		arguments = map[string]any{"code": code}
+	}
 
 	b.mu.Lock()
 	defer b.mu.Unlock()

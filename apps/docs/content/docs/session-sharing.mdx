@@ -111,7 +111,7 @@ The `/api` routes work in every retained state, including suspended and stopped 
 
 `POST /sessions/<session-id>/uploads` reaches the running session itself and stores files in `uploads/`; it also accepts the owner session token.
 
-Playwright MCP's `browser_file_upload` accepts any session file relative path, so a download or recording can be put into a file chooser directly.
+The MCP browser tools accept any session file relative path, of any size, so a download or recording can go straight into a page. `browser_set_input_files` sets files on a file input given by snapshot reference or selector, including hidden inputs, and fails with the input cleared when the page cannot read a file. `browser_file_upload` fills a file chooser a click has opened.
 
 Each upload request accepts at most 100 files, a directory may hold at most 1,000 files, and a session at most 10,000 files and directories. At most three uploads per session stream at once.
 
