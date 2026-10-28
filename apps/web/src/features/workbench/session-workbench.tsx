@@ -456,10 +456,10 @@ function FullPageState({
 /** The live connection reports tabs; the listing is only polled slowly for icons that change. */
 const faviconPollMs = 60_000;
 /**
- * After tabs open or navigate, the browser captures their icons in the background; the listing is
- * read again once soon and once after a typical page load.
+ * After tabs open or navigate, the browser captures their icons in the background, a few seconds
+ * after a listing asks; the listing is read again until a typical page load has had time.
  */
-const faviconRefetchDelaysMs = [1_500, 6_000];
+const faviconRefetchDelaysMs = [2_000, 8_000, 15_000];
 
 function useRefetchOnTabChange(
   targets: ReturnType<typeof useBrowserControl>["targets"],

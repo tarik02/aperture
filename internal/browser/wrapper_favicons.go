@@ -200,8 +200,8 @@ func (session *liveSession) cachedFavicons(targetIDs []string, refresh bool) map
 	return result
 }
 
-// requestFaviconRefresh starts a refresh unless one ran moments ago. Requests that arrive while
-// one runs fold into a single follow-up run, which also waits out the interval.
+// requestFaviconRefresh schedules a refresh, at the latest one interval after the previous one.
+// Requests that arrive while one is scheduled or running fold into it or into one follow-up run.
 func (session *liveSession) requestFaviconRefresh() {
 	cache := &session.favicons
 	cache.mu.Lock()
@@ -210,30 +210,37 @@ func (session *liveSession) requestFaviconRefresh() {
 		cache.pending = true
 		return
 	}
-	if time.Since(cache.refreshedAt) < faviconRefreshInterval {
-		return
-	}
 	cache.refreshing = true
+	ctx := session.runtime.ctx
 	go func() {
 		for {
-			if err := session.refreshFavicons(); err != nil && session.runtime.ctx.Err() == nil {
-				fmt.Fprintf(os.Stderr, "aperture: refresh favicons: %v\n", err)
+			cache.mu.Lock()
+			wait := faviconRefreshInterval - time.Since(cache.refreshedAt)
+			cache.mu.Unlock()
+			if wait > 0 {
+				select {
+				case <-time.After(wait):
+				case <-ctx.Done():
+				}
+			}
+			// This run covers every request made until now.
+			cache.mu.Lock()
+			cache.pending = false
+			cache.mu.Unlock()
+			if ctx.Err() == nil {
+				if err := session.refreshFavicons(); err != nil && ctx.Err() == nil {
+					fmt.Fprintf(os.Stderr, "aperture: refresh favicons: %v\n", err)
+				}
 			}
 			cache.mu.Lock()
 			cache.refreshedAt = time.Now()
-			if !cache.pending || session.runtime.ctx.Err() != nil {
+			if !cache.pending || ctx.Err() != nil {
 				cache.refreshing = false
 				cache.pending = false
 				cache.mu.Unlock()
 				return
 			}
-			cache.pending = false
-			wait := faviconRefreshInterval - time.Since(cache.refreshedAt)
 			cache.mu.Unlock()
-			select {
-			case <-time.After(wait):
-			case <-session.runtime.ctx.Done():
-			}
 		}
 	}()
 }
