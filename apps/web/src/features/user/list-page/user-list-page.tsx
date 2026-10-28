@@ -71,41 +71,40 @@ export function UserListPage() {
   return (
     <div className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-col">
       <PageHeaderActions>
+        <div className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:gap-2">
+          <SearchInput value={search} onChange={setSearch} placeholder="Search users" />
+          <Select
+            items={STATUS_OPTIONS}
+            value={status}
+            onValueChange={(value) => {
+              if (value === "active" || value === "disabled" || value === "all") {
+                setStatus(value);
+              }
+            }}
+          >
+            <SelectTrigger size="sm" className="aperture:w-36" aria-label="User status">
+              <SelectValue>
+                {(value: unknown) =>
+                  STATUS_OPTIONS.find((option) => option.value === value)?.label ?? "Status"
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {STATUS_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
         <Button size="sm" onClick={() => setCreateOpen(true)}>
           <Plus data-icon="inline-start" />
           Create
         </Button>
       </PageHeaderActions>
-
-      <div className="aperture:flex aperture:shrink-0 aperture:flex-wrap aperture:items-center aperture:gap-2 aperture:p-3">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search users" />
-        <Select
-          items={STATUS_OPTIONS}
-          value={status}
-          onValueChange={(value) => {
-            if (value === "active" || value === "disabled" || value === "all") {
-              setStatus(value);
-            }
-          }}
-        >
-          <SelectTrigger size="sm" className="aperture:w-36" aria-label="User status">
-            <SelectValue>
-              {(value: unknown) =>
-                STATUS_OPTIONS.find((option) => option.value === value)?.label ?? "Status"
-              }
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {STATUS_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-      </div>
 
       <InfiniteTableShell
         query={query}

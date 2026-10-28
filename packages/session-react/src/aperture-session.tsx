@@ -21,9 +21,11 @@ export interface SessionProps {
   readonly features?: SessionFeatures;
   /** Rendered at the start of the title bar row, before the tab strip. */
   readonly leading?: ReactNode;
+  /** Rendered at the end of the title bar row, after the participants. */
+  readonly trailing?: ReactNode;
   /** Rendered at the start of the toolbar row, before the navigation buttons. */
   readonly toolbarLeading?: ReactNode;
-  /** Rendered at the end of the toolbar row, after the menus. */
+  /** Rendered at the end of the toolbar row, before the menus. */
   readonly toolbarTrailing?: ReactNode;
 }
 
@@ -50,6 +52,7 @@ export function Session({
   access,
   features,
   leading,
+  trailing,
   toolbarLeading,
   toolbarTrailing,
 }: SessionProps) {
@@ -104,6 +107,7 @@ export function Session({
             cdpUrl={null}
             shareUrls={null}
             leading={leading}
+            trailing={trailing}
             toolbarLeading={toolbarLeading}
             toolbarTrailing={toolbarTrailing}
             features={{ devTools: false, ...features }}

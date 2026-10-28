@@ -4,7 +4,9 @@ import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { TokenCreateModal } from "#/features/token/create-modal/token-create-modal.tsx";
 import { BatchActionBar } from "#/components/resources/batch-action-bar.tsx";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
-import { MetadataGrid, metadataTimestamp } from "#/components/resources/metadata-grid.tsx";
+import { DetailList, DetailRow, DetailSection } from "#/components/details/detail-list.tsx";
+import { ReferenceValue, reference, relativeTime } from "#/components/details/detail-values.tsx";
+import { IdChip } from "#/components/details/id-chip.tsx";
 import {
   InfiniteTableShell,
   TableSkeletonRows,
@@ -12,11 +14,11 @@ import {
 import { RevokedBadge } from "#/components/resources/status-badge.tsx";
 import { Badge } from "@aperture-browser/ui/components/badge";
 import { Button } from "@aperture-browser/ui/components/button";
-import { Checkbox } from "@aperture-browser/ui/components/checkbox";
+import { TableSelectAll, TableSelectRow } from "#/components/resources/table-selection.tsx";
+import { useRowSelection, type RowSelectionDragControls } from "#/hooks/use-row-selection.ts";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -49,6 +51,7 @@ import { useRevokeTokenMutation } from "#/features/token/token.mutations.ts";
 import { useTokensInfiniteQuery } from "#/features/token/token.queries.ts";
 import { hasScope, useActiveScopes } from "#/hooks/use-scopes.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
+import { resolveTenantKey } from "#/hooks/use-tenant-api.ts";
 import { formatTimestamp } from "#/lib/format.ts";
 import { adminScopeOptions, scopeLabel, scopePriority, tenantScopeOptions } from "#/lib/scopes.ts";
 import type { TokenRevokedFilterValue, TokensFilters } from "#/lib/api/query-keys.ts";
@@ -91,6 +94,8 @@ const TOKEN_SKELETON_COLUMNS = [
   },
 ] as const;
 
+const getTokenId = (token: ApiToken) => token.id;
+
 export function TokenListPage() {
   const credentials = useApiCredentials();
   const principal = useAuthSessionStore(selectPrincipal);
@@ -125,16 +130,28 @@ export function TokenListPage() {
   const revokeMutation = useRevokeTokenMutation();
   const initCreateTokenForm = useTokenCreateFormStore((state) => state.initForm);
   const openCreateTokenModal = useTokenCreateModalStore((state) => state.openModal);
-  const selectedTokens = useTokenListPageStore((state) => state.selectedTokens);
   const confirmAction = useTokenListPageStore((state) => state.confirmAction);
-  const toggleTokenSelection = useTokenListPageStore((state) => state.toggleTokenSelection);
-  const clearSelectedTokens = useTokenListPageStore((state) => state.clearSelectedTokens);
-  const removeSelectedToken = useTokenListPageStore((state) => state.removeSelectedToken);
   const setConfirmAction = useTokenListPageStore((state) => state.setConfirmAction);
   const [viewToken, setViewToken] = useState<ApiToken | null>(null);
   const [viewTokenOpen, setViewTokenOpen] = useState(false);
   const [confirmActionOpen, setConfirmActionOpen] = useState(false);
-  const selectedTokenItems = useMemo(() => Object.values(selectedTokens), [selectedTokens]);
+  // Only tokens that can still be revoked are selectable.
+  const selectableTokens = useMemo(
+    () =>
+      canCreate
+        ? (query.data?.pages.flatMap((page) => page.data) ?? []).filter((token) => !token.revokedAt)
+        : [],
+    [canCreate, query.data?.pages],
+  );
+  const selection = useRowSelection({
+    // Per tenant: a selection made in one must not act with another tenant's credentials.
+    tableKey: `tokens:${resolveTenantKey(credentials)}`,
+    rows: selectableTokens,
+    getId: getTokenId,
+  });
+  const selectedTokenItems = selection.selectedItems;
+  const clearSelectedTokens = selection.clear;
+  const removeSelectedToken = selection.remove;
   const revokableTokenItems = selectedTokenItems.filter((token) => !token.revokedAt);
 
   function openViewToken(token: ApiToken) {
@@ -199,6 +216,101 @@ export function TokenListPage() {
 
   return (
     <div className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-col">
+      <PageHeaderActions>
+        <div className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:gap-2">
+          <SearchInput value={name} onChange={setName} placeholder="Search tokens" />
+          <Select
+            items={revokedFilterOptions}
+            value={revoked}
+            onValueChange={(nextValue) => {
+              if (nextValue === "active" || nextValue === "revoked" || nextValue === "all") {
+                setRevoked(nextValue);
+              }
+            }}
+          >
+            <SelectTrigger size="sm" className="aperture:w-28">
+              <SelectValue>
+                {(selectedValue: unknown) =>
+                  revokedFilterOptions.find((option) => option.value === selectedValue)?.label ??
+                  "Status"
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent align="start">
+              <SelectGroup>
+                {revokedFilterOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          {isAdmin ? (
+            <Select
+              items={authorityFilterOptions}
+              value={authorityType}
+              onValueChange={(nextValue) => {
+                if (
+                  nextValue === ALL_AUTHORITY ||
+                  nextValue === "system_admin" ||
+                  nextValue === "tenant"
+                ) {
+                  setAuthorityType(nextValue);
+                }
+              }}
+            >
+              <SelectTrigger size="sm" className="aperture:w-40">
+                <SelectValue>
+                  {(selectedValue: unknown) =>
+                    authorityFilterOptions.find((option) => option.value === selectedValue)
+                      ?.label ?? "Authority"
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent align="start">
+                <SelectGroup>
+                  {authorityFilterOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          ) : null}
+          <Select
+            items={scopeFilterOptions}
+            value={scope}
+            onValueChange={(nextValue) => {
+              if (typeof nextValue === "string") {
+                setScope(nextValue);
+              }
+            }}
+          >
+            <SelectTrigger size="sm" className="aperture:w-40">
+              <SelectValue>
+                {(selectedValue: unknown) =>
+                  selectedValue === ALL_SCOPES
+                    ? "All scopes"
+                    : (scopeFilterOptions.find((option) => option.value === selectedValue)?.label ??
+                      "All scopes")
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent align="start">
+              <SelectGroup>
+                <SelectItem value={ALL_SCOPES}>All scopes</SelectItem>
+                {scopeFilterOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+      </PageHeaderActions>
       {canCreate ? (
         <PageHeaderActions>
           <Button
@@ -216,100 +328,6 @@ export function TokenListPage() {
           </Button>
         </PageHeaderActions>
       ) : null}
-
-      <div className="aperture:flex aperture:shrink-0 aperture:flex-wrap aperture:items-center aperture:gap-2 aperture:p-3">
-        <SearchInput value={name} onChange={setName} placeholder="Search tokens" />
-        <Select
-          items={revokedFilterOptions}
-          value={revoked}
-          onValueChange={(nextValue) => {
-            if (nextValue === "active" || nextValue === "revoked" || nextValue === "all") {
-              setRevoked(nextValue);
-            }
-          }}
-        >
-          <SelectTrigger size="sm" className="aperture:w-28">
-            <SelectValue>
-              {(selectedValue: unknown) =>
-                revokedFilterOptions.find((option) => option.value === selectedValue)?.label ??
-                "Status"
-              }
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent align="start">
-            <SelectGroup>
-              {revokedFilterOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-        {isAdmin ? (
-          <Select
-            items={authorityFilterOptions}
-            value={authorityType}
-            onValueChange={(nextValue) => {
-              if (
-                nextValue === ALL_AUTHORITY ||
-                nextValue === "system_admin" ||
-                nextValue === "tenant"
-              ) {
-                setAuthorityType(nextValue);
-              }
-            }}
-          >
-            <SelectTrigger size="sm" className="aperture:w-40">
-              <SelectValue>
-                {(selectedValue: unknown) =>
-                  authorityFilterOptions.find((option) => option.value === selectedValue)?.label ??
-                  "Authority"
-                }
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent align="start">
-              <SelectGroup>
-                {authorityFilterOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        ) : null}
-        <Select
-          items={scopeFilterOptions}
-          value={scope}
-          onValueChange={(nextValue) => {
-            if (typeof nextValue === "string") {
-              setScope(nextValue);
-            }
-          }}
-        >
-          <SelectTrigger size="sm" className="aperture:w-40">
-            <SelectValue>
-              {(selectedValue: unknown) =>
-                selectedValue === ALL_SCOPES
-                  ? "All scopes"
-                  : (scopeFilterOptions.find((option) => option.value === selectedValue)?.label ??
-                    "All scopes")
-              }
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent align="start">
-            <SelectGroup>
-              <SelectItem value={ALL_SCOPES}>All scopes</SelectItem>
-              {scopeFilterOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-      </div>
 
       <BatchActionBar selectedCount={selectedTokenItems.length} onClear={clearSelectedTokens}>
         <Button
@@ -352,7 +370,12 @@ export function TokenListPage() {
           <Table stickyFirstColumn stickyLastColumn>
             <TableHeader>
               <TableRow>
-                <TableHead className="aperture:w-8" />
+                <TableSelectAll
+                  allSelected={selection.allSelected}
+                  someSelected={selection.someSelected}
+                  disabled={selectableTokens.length === 0}
+                  onCheckedChange={selection.toggleAll}
+                />
                 <TableHead>Name</TableHead>
                 <TableHead>ID</TableHead>
                 <TableHead>Authority</TableHead>
@@ -369,8 +392,11 @@ export function TokenListPage() {
                   key={token.id}
                   token={token}
                   canRevoke={canCreate}
-                  selected={Boolean(selectedTokens[token.id])}
-                  onSelectedChange={(selected) => toggleTokenSelection(token, selected)}
+                  selected={selection.isSelected(token.id)}
+                  selectionDrag={selection.drag}
+                  onSelectedChange={(selected, shiftKey) =>
+                    selection.toggleOne(token.id, selected, shiftKey)
+                  }
                   onView={() => openViewToken(token)}
                   onRevoke={() => openConfirmAction({ kind: "revoke", token })}
                 />
@@ -410,7 +436,8 @@ interface TokenRowProps {
   token: ApiToken;
   canRevoke: boolean;
   selected: boolean;
-  onSelectedChange: (selected: boolean) => void;
+  selectionDrag: RowSelectionDragControls;
+  onSelectedChange: (selected: boolean, shiftKey: boolean) => void;
   onView: () => void;
   onRevoke: () => void;
 }
@@ -419,6 +446,7 @@ function TokenRow({
   token,
   canRevoke,
   selected,
+  selectionDrag,
   onSelectedChange,
   onView,
   onRevoke,
@@ -429,23 +457,14 @@ function TokenRow({
       className="aperture:cursor-pointer"
       onClick={onView}
     >
-      <TableCell
-        className={canRevoke && !token.revokedAt ? "aperture:cursor-pointer" : undefined}
-        onClick={(event) => {
-          event.stopPropagation();
-          if (canRevoke && !token.revokedAt) {
-            onSelectedChange(!selected);
-          }
-        }}
-      >
-        <Checkbox
-          aria-label={`Select token ${token.name}`}
-          checked={selected}
-          disabled={!canRevoke || Boolean(token.revokedAt)}
-          onClick={(event) => event.stopPropagation()}
-          onCheckedChange={onSelectedChange}
-        />
-      </TableCell>
+      <TableSelectRow
+        rowId={token.id}
+        checked={selected}
+        label={`Select token ${token.name}`}
+        disabled={!canRevoke || Boolean(token.revokedAt)}
+        drag={selectionDrag}
+        onCheckedChange={onSelectedChange}
+      />
       <TableCell>
         <span className="aperture:flex aperture:items-center aperture:gap-2">
           {token.name}
@@ -504,76 +523,69 @@ function TokenViewModal({
   onOpenChange,
   onRevoke,
 }: TokenViewModalProps) {
+  const createdBy = token?.createdBy;
   return (
     <Dialog open={open && token !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="aperture:flex aperture:max-h-[min(80vh,640px)] aperture:flex-col aperture:overflow-hidden aperture:sm:max-w-2xl">
+      <DialogContent className="aperture:flex aperture:max-h-[min(80svh,640px)] aperture:flex-col aperture:gap-3 aperture:overflow-hidden aperture:sm:max-w-lg">
         {token ? (
           <>
-            <DialogHeader>
-              <DialogTitle className="aperture:flex aperture:items-center aperture:gap-2">
-                {token.name}
+            <DialogHeader className="aperture:gap-1.5 aperture:pr-8 aperture:pb-0">
+              <DialogTitle className="aperture:flex aperture:min-w-0 aperture:flex-wrap aperture:items-center aperture:gap-2">
+                <span className="aperture:min-w-0 aperture:truncate">{token.name}</span>
                 <RevokedBadge revokedAt={token.revokedAt} />
+                {token.authorityType === "system_admin" ? (
+                  <Badge variant="secondary">system admin</Badge>
+                ) : null}
               </DialogTitle>
-              <DialogDescription className="aperture:break-all aperture:font-mono">
-                {token.id}
-              </DialogDescription>
+              <IdChip value={token.id} label="token ID" />
             </DialogHeader>
-            <ScrollArea className="aperture:min-h-0 aperture:flex-1">
-              <MetadataGrid
-                items={[
-                  { kind: "identifier", label: "ID", value: token.id },
-                  { kind: "text", label: "Name", value: token.name },
-                  {
-                    kind: "text",
-                    label: "Authority",
-                    value: token.authorityType === "system_admin" ? "System admin" : "Tenant",
-                  },
-                  {
-                    kind: "reference",
-                    label: "Tenant",
-                    id: token.tenant?.id,
-                    name: token.tenant?.name,
-                  },
-                  { kind: "text", label: "Scopes", value: <ScopeList scopes={token.scopes} /> },
-                  {
-                    kind: "text",
-                    label: "Resource access",
-                    value:
-                      token.resourceMode === "all" ? (
-                        "All resources"
-                      ) : (
-                        <ResourceGrantList grants={token.resourceGrants} />
-                      ),
-                  },
-                  { kind: "text", label: "Created", value: metadataTimestamp(token.createdAt) },
-                  token.createdBy.type === "system"
-                    ? { kind: "text", label: "Created by", value: "System" }
-                    : {
-                        kind: "reference",
-                        label: "Created by",
-                        type: token.createdBy.type === "user" ? "User" : "API token",
-                        id: token.createdBy.id,
-                        name: token.createdBy.name,
-                      },
-                  {
-                    kind: "reference",
-                    label: "Parent token",
-                    id: token.parentToken?.id,
-                    name: token.parentToken?.name,
-                  },
-                  { kind: "text", label: "Expires", value: metadataTimestamp(token.expiresAt) },
-                  { kind: "text", label: "Revoked", value: metadataTimestamp(token.revokedAt) },
-                ]}
-              />
+            <ScrollArea
+              className="aperture:min-h-0 aperture:flex-1"
+              viewportClassName="aperture:data-[has-overflow-y]:pr-3"
+            >
+              <DetailList className="aperture:py-1">
+                <DetailSection title="Access">
+                  <DetailRow label="Authority">
+                    {token.authorityType === "system_admin" ? "System admin" : "Tenant"}
+                  </DetailRow>
+                  <DetailRow label="Tenant">{reference(token.tenant)}</DetailRow>
+                  <DetailRow label="Scopes">
+                    <ScopeList scopes={token.scopes} />
+                  </DetailRow>
+                  <DetailRow label="Resources">
+                    {token.resourceMode === "all" ? (
+                      "All resources"
+                    ) : (
+                      <ResourceGrantList grants={token.resourceGrants} />
+                    )}
+                  </DetailRow>
+                </DetailSection>
+                <DetailSection title="Lifecycle">
+                  <DetailRow label="Created">{relativeTime(token.createdAt)}</DetailRow>
+                  <DetailRow label="Created by">
+                    {createdBy?.type !== "system" && createdBy?.id
+                      ? reference(
+                          { id: createdBy.id, name: createdBy.name },
+                          createdBy.type === "user" ? "User" : "API token",
+                        )
+                      : "System"}
+                  </DetailRow>
+                  <DetailRow label="Parent token">{reference(token.parentToken)}</DetailRow>
+                  <DetailRow label="Expires">{relativeTime(token.expiresAt) ?? "Never"}</DetailRow>
+                  <DetailRow label="Revoked">{relativeTime(token.revokedAt)}</DetailRow>
+                </DetailSection>
+              </DetailList>
             </ScrollArea>
-            <DialogFooter showCloseButton>
+            <DialogFooter showCloseButton className="aperture:mt-1">
               {canRevoke && !token.revokedAt ? (
                 <Button
                   type="button"
-                  variant="destructive"
+                  variant="ghost"
+                  className="aperture:text-destructive aperture:hover:bg-destructive/10 aperture:hover:text-destructive"
                   onClick={() => onRevoke(token)}
                   disabled={revokePending}
                 >
+                  <Ban data-icon="inline-start" />
                   Revoke
                 </Button>
               ) : null}
@@ -587,7 +599,7 @@ function TokenViewModal({
 
 function ScopeList({ scopes }: { scopes: readonly string[] }) {
   if (scopes.length === 0) {
-    return "—";
+    return "None";
   }
 
   return (
@@ -645,26 +657,23 @@ function ResourceGrantList({ grants }: { grants: readonly ResourceGrant[] }) {
   }
 
   return (
-    <div className="aperture:flex aperture:flex-col aperture:gap-1.5">
+    <ul className="aperture:flex aperture:flex-col aperture:gap-1">
       {grants.map((grant) => (
-        <div
+        <li
           key={`${grant.resourceType}:${grant.resourceId}`}
-          className="aperture:flex aperture:min-w-0 aperture:gap-2"
+          className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-2"
         >
           <Badge
-            variant="secondary"
+            variant="outline"
             className="aperture:shrink-0 aperture:font-normal aperture:capitalize"
           >
             {grant.resourceType}
           </Badge>
-          <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
-            {grant.label ? <span className="aperture:break-words">{grant.label}</span> : null}
-            <span className="aperture:break-all aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
-              {grant.resourceId}
-            </span>
+          <span className="aperture:min-w-0">
+            <ReferenceValue id={grant.resourceId} name={grant.label} />
           </span>
-        </div>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }

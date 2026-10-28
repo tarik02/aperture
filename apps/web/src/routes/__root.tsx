@@ -1,6 +1,7 @@
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
 import { AppShell } from "#/components/app-shell.tsx";
 import { AppProviders } from "#/providers/app-providers.tsx";
+import { useDeployWatch } from "#/hooks/use-deploy-watch.ts";
 import "#/styles/globals.css";
 
 export const Route = createRootRoute({
@@ -26,6 +27,8 @@ export const Route = createRootRoute({
 });
 
 function RootLayout() {
+  useDeployWatch();
+
   return (
     <AppShell>
       <Outlet />
