@@ -130,10 +130,11 @@ export function useSessionQuery(sessionId: string | undefined) {
  */
 export function useBrowserStatusQuery(
   session: Session | null,
-  options: { enabled?: boolean; poll?: boolean } = {},
+  options: { enabled?: boolean; poll?: boolean; interval?: number } = {},
 ) {
   const api = useTenantApi();
   const running = session?.status === "running" && options.poll !== false;
+  const interval = options.interval ?? pollInterval;
 
   return useQuery({
     queryKey: queryKeys.browserStatus(
@@ -149,7 +150,7 @@ export function useBrowserStatusQuery(
       ),
     enabled:
       session !== null && api.ready && isOpenable(session.status) && options.enabled !== false,
-    refetchInterval: (query) => (running && query.state.status !== "error" ? pollInterval : false),
+    refetchInterval: (query) => (running && query.state.status !== "error" ? interval : false),
     retry: 1,
   });
 }

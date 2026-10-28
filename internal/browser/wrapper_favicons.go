@@ -45,12 +45,24 @@ const (
 )
 
 type wrapperFavicon struct {
+	// listedURL is the icon URL the tab shows now, and origin the origin of its page. The image
+	// belongs to iconURL; it is only served while the two match.
+	listedURL   string
+	origin      string
 	iconURL     string
 	image       []byte
 	contentType string
 	version     string
 	// fetchedAt is when the icon was last fetched or last failed to load.
 	fetchedAt time.Time
+}
+
+// listedIcon is one tab's icon as the DevTools target list reports it.
+type listedIcon struct {
+	url    string
+	origin string
+	// loading is set for a web page that reports no icon yet, as Chromium does while it loads.
+	loading bool
 }
 
 type wrapperFaviconCache struct {
@@ -66,15 +78,41 @@ type wrapperFaviconCache struct {
 func FaviconContentType(body []byte) (string, bool) {
 	sniffed := http.DetectContentType(body)
 	switch sniffed {
-	case "image/png", "image/x-icon", "image/gif", "image/jpeg", "image/webp":
+	case "image/png", "image/x-icon", "image/gif", "image/jpeg", "image/webp", "image/bmp":
 		return sniffed, true
-	case "text/xml; charset=utf-8", "text/plain; charset=utf-8":
-		trimmed := bytes.TrimLeft(bytes.TrimPrefix(body, []byte("\xef\xbb\xbf")), " \t\r\n")
-		if bytes.HasPrefix(trimmed, []byte("<")) && bytes.Contains(bytes.ToLower(trimmed), []byte("<svg")) {
-			return "image/svg+xml", true
-		}
+	}
+	// Text sniffing calls an SVG that opens with a comment HTML, so SVG is recognised by its first
+	// element instead.
+	if isSVGDocument(body) {
+		return "image/svg+xml", true
 	}
 	return "", false
+}
+
+// isSVGDocument reports whether the document's root element is <svg>, after any byte order mark,
+// XML declaration, processing instructions, comments and doctype.
+func isSVGDocument(body []byte) bool {
+	rest := bytes.TrimPrefix(body, []byte("\xef\xbb\xbf"))
+	for {
+		rest = bytes.TrimLeft(rest, " \t\r\n")
+		var end []byte
+		switch {
+		case bytes.HasPrefix(rest, []byte("<?")):
+			end = []byte("?>")
+		case bytes.HasPrefix(rest, []byte("<!--")):
+			end = []byte("-->")
+		case len(rest) >= 9 && bytes.EqualFold(rest[:9], []byte("<!doctype")):
+			end = []byte(">")
+		default:
+			return len(rest) >= 5 && bytes.EqualFold(rest[:4], []byte("<svg")) &&
+				bytes.ContainsRune([]byte(" \t\r\n>/"), rune(rest[4]))
+		}
+		index := bytes.Index(rest, end)
+		if index < 0 {
+			return false
+		}
+		rest = rest[index+len(end):]
+	}
 }
 
 // FaviconVersion is a short content hash that changes whenever the icon bytes change.
@@ -83,23 +121,27 @@ func FaviconVersion(body []byte) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// faviconSourceURL returns the icon URL Chromium resolved for a page, or "" when the page is
-// internal or the icon cannot be fetched through the page.
-func faviconSourceURL(pageURL, iconURL string) string {
+// faviconSource returns the icon Chromium resolved for a page. Internal pages and icons that
+// cannot be fetched through the page have none.
+func faviconSource(pageURL, iconURL string) listedIcon {
 	parsedPage, err := url.Parse(pageURL)
 	if err != nil || (parsedPage.Scheme != "http" && parsedPage.Scheme != "https") {
-		return ""
+		return listedIcon{}
+	}
+	icon := listedIcon{origin: parsedPage.Scheme + "://" + parsedPage.Host}
+	if iconURL == "" {
+		icon.loading = true
+		return icon
 	}
 	parsedIcon, err := url.Parse(iconURL)
 	if err != nil {
-		return ""
+		return icon
 	}
 	switch parsedIcon.Scheme {
 	case "http", "https", "data":
-		return iconURL
-	default:
-		return ""
+		icon.url = iconURL
 	}
+	return icon
 }
 
 type devToolsListTarget struct {
@@ -111,7 +153,7 @@ type devToolsListTarget struct {
 
 // devToolsIconURLs reads the favicon URL Chromium shows in each tab. CDP target info omits it;
 // only the DevTools HTTP target list carries it.
-func (session *liveSession) devToolsIconURLs(ctx context.Context) (map[string]string, error) {
+func (session *liveSession) devToolsIconURLs(ctx context.Context) (map[string]listedIcon, error) {
 	endpoint := "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(session.runtime.values.CDPPort)) + "/json/list"
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -129,33 +171,37 @@ func (session *liveSession) devToolsIconURLs(ctx context.Context) (map[string]st
 	if err := json.NewDecoder(io.LimitReader(response.Body, faviconListMaxBytes)).Decode(&targets); err != nil {
 		return nil, fmt.Errorf("decode browser target list: %w", err)
 	}
-	icons := make(map[string]string, len(targets))
+	icons := make(map[string]listedIcon, len(targets))
 	for _, listed := range targets {
 		if listed.Type == "page" {
-			icons[listed.ID] = faviconSourceURL(listed.URL, listed.FaviconURL)
+			icons[listed.ID] = faviconSource(listed.URL, listed.FaviconURL)
 		}
 	}
 	return icons, nil
 }
 
-// cachedFavicons returns the loaded favicons of the given targets without waiting for any fetch,
-// and starts a background refresh so a later read sees new or changed icons.
-func (session *liveSession) cachedFavicons(targetIDs []string) map[string]wrapperFavicon {
+// cachedFavicons returns the loaded favicons of the given targets without waiting for any fetch.
+// A page listing passes refresh, so a later listing sees new or changed icons; reads of single
+// icons, such as on suspend, don't start one.
+func (session *liveSession) cachedFavicons(targetIDs []string, refresh bool) map[string]wrapperFavicon {
 	cache := &session.favicons
 	cache.mu.Lock()
 	result := make(map[string]wrapperFavicon, len(targetIDs))
 	for _, targetID := range targetIDs {
-		if entry, ok := cache.entries[targetID]; ok && entry.image != nil {
+		// An icon from before the tab changed its icon URL belongs to another page.
+		if entry, ok := cache.entries[targetID]; ok && entry.image != nil && entry.iconURL == entry.listedURL {
 			result[targetID] = entry
 		}
 	}
 	cache.mu.Unlock()
-	session.requestFaviconRefresh()
+	if refresh {
+		session.requestFaviconRefresh()
+	}
 	return result
 }
 
 // requestFaviconRefresh starts a refresh unless one ran moments ago. Requests that arrive while
-// one runs fold into a single follow-up run.
+// one runs fold into a single follow-up run, which also waits out the interval.
 func (session *liveSession) requestFaviconRefresh() {
 	cache := &session.favicons
 	cache.mu.Lock()
@@ -182,7 +228,12 @@ func (session *liveSession) requestFaviconRefresh() {
 				return
 			}
 			cache.pending = false
+			wait := faviconRefreshInterval - time.Since(cache.refreshedAt)
 			cache.mu.Unlock()
+			select {
+			case <-time.After(wait):
+			case <-session.runtime.ctx.Done():
+			}
 		}
 	}()
 }
@@ -209,12 +260,21 @@ func (session *liveSession) refreshFavicons() error {
 		}
 	}
 	due := make([]string, 0, len(icons))
-	for targetID, iconURL := range icons {
-		cached, ok := cache.entries[targetID]
+	for targetID, icon := range icons {
+		cached := cache.entries[targetID]
+		if icon.loading {
+			// A page still loading keeps its site's icon; another site's icon goes.
+			if cached.origin != icon.origin {
+				cache.entries[targetID] = wrapperFavicon{origin: icon.origin}
+			}
+			continue
+		}
+		cached.listedURL = icon.url
+		cached.origin = icon.origin
+		cache.entries[targetID] = cached
 		switch {
-		case iconURL == "":
-			cache.entries[targetID] = wrapperFavicon{}
-		case !ok || cached.iconURL != iconURL:
+		case icon.url == "":
+		case cached.iconURL != icon.url:
 			due = append(due, targetID)
 		case cached.image == nil && now.Sub(cached.fetchedAt) >= faviconRetryDelay:
 			due = append(due, targetID)
@@ -227,7 +287,7 @@ func (session *liveSession) refreshFavicons() error {
 	var wait sync.WaitGroup
 	slots := make(chan struct{}, faviconConcurrency)
 	for _, targetID := range due {
-		iconURL := icons[targetID]
+		iconURL := icons[targetID].url
 		wait.Go(func() {
 			slots <- struct{}{}
 			defer func() { <-slots }()
@@ -239,22 +299,25 @@ func (session *liveSession) refreshFavicons() error {
 			contentType, valid := FaviconContentType(image)
 			cache.mu.Lock()
 			defer cache.mu.Unlock()
-			entry := cache.entries[targetID]
+			entry, ok := cache.entries[targetID]
+			if !ok {
+				return
+			}
 			switch {
 			case err == nil && valid:
-				entry = wrapperFavicon{
-					iconURL:     iconURL,
-					image:       image,
-					contentType: contentType,
-					version:     FaviconVersion(image),
-					fetchedAt:   time.Now(),
-				}
+				entry.iconURL = iconURL
+				entry.image = image
+				entry.contentType = contentType
+				entry.version = FaviconVersion(image)
 			case entry.iconURL == iconURL && entry.image != nil:
 				// A failed revalidation keeps the icon the tab already showed.
-				entry.fetchedAt = time.Now()
 			default:
-				entry = wrapperFavicon{iconURL: iconURL, fetchedAt: time.Now()}
+				entry.iconURL = iconURL
+				entry.image = nil
+				entry.contentType = ""
+				entry.version = ""
 			}
+			entry.fetchedAt = time.Now()
 			cache.entries[targetID] = entry
 		})
 	}
@@ -376,7 +439,7 @@ func decodeDataURL(raw string) ([]byte, error) {
 	}
 	var body []byte
 	if strings.HasSuffix(strings.ToLower(header), ";base64") {
-		decoded, err := base64.StdEncoding.DecodeString(strings.Join(strings.Fields(payload), ""))
+		decoded, err := decodeLenientBase64(strings.Join(strings.Fields(payload), ""))
 		if err != nil {
 			return nil, fmt.Errorf("decode data URL: %w", err)
 		}
@@ -394,6 +457,16 @@ func decodeDataURL(raw string) ([]byte, error) {
 	return body, nil
 }
 
+// decodeLenientBase64 accepts what browsers accept in data URLs: padded or unpadded, standard or
+// URL-safe alphabet.
+func decodeLenientBase64(payload string) ([]byte, error) {
+	encoding := base64.RawStdEncoding
+	if strings.ContainsAny(payload, "-_") {
+		encoding = base64.RawURLEncoding
+	}
+	return encoding.DecodeString(strings.TrimRight(payload, "="))
+}
+
 // handleFavicon serves one target's favicon. Only the daemon calls it; it never counts as
 // session activity.
 func (r *wrapperRuntime) handleFavicon(w http.ResponseWriter, req *http.Request) {
@@ -407,7 +480,7 @@ func (r *wrapperRuntime) handleFavicon(w http.ResponseWriter, req *http.Request)
 	}
 	// Served from the cache: a tab that closed or has no icon yet is simply not found.
 	targetID := req.URL.Query().Get("targetId")
-	favicon, ok := r.liveSession.cachedFavicons([]string{targetID})[targetID]
+	favicon, ok := r.liveSession.cachedFavicons([]string{targetID}, false)[targetID]
 	if targetID == "" || !ok {
 		writeWrapperError(w, http.StatusNotFound, "favicon not found")
 		return

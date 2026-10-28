@@ -226,16 +226,23 @@ function WorkbenchSession({
   });
 
   // The page listing names each tab's captured icon; tabs show those instead of loading the sites'.
-  const statusPages = useBrowserStatusQuery(session, { enabled: connectable && !provisional }).data
-    ?.pages;
+  const statusEnabled = connectable && !provisional;
+  const statusQuery = useBrowserStatusQuery(session, {
+    enabled: statusEnabled,
+    interval: faviconPollMs,
+  });
+  // refetch() runs even for a disabled query, so it is only passed while the listing is enabled.
+  useRefetchOnTabChange(control.targets, statusEnabled ? statusQuery.refetch : null);
+  const statusPages = statusQuery.data?.pages;
   const tabFavicon = useMemo(() => {
     if (!session?.favicon) {
       return undefined;
     }
     const pages = new Map(statusPages?.map((page) => [page.targetId, page]));
+    // A tab missing from the listing isn't known yet, so the tab strip uses its fallback.
     return (targetId: string) => {
       const page = pages.get(targetId);
-      return page ? targetFaviconUrl(session, page) : null;
+      return page ? targetFaviconUrl(session, page) : undefined;
     };
   }, [session, statusPages]);
 
@@ -444,6 +451,30 @@ function FullPageState({
       ) : null}
     </Empty>
   );
+}
+
+/** The live connection reports tabs; the listing is only polled slowly for icons that change. */
+const faviconPollMs = 60_000;
+/**
+ * After tabs open or navigate, the browser captures their icons in the background; the listing is
+ * read again once soon and once after a typical page load.
+ */
+const faviconRefetchDelaysMs = [1_500, 6_000];
+
+function useRefetchOnTabChange(
+  targets: ReturnType<typeof useBrowserControl>["targets"],
+  refetch: (() => unknown) | null,
+) {
+  const signature = targets.map((target) => `${target.id} ${target.url}`).join("\n");
+  useEffect(() => {
+    if (signature === "" || refetch === null) {
+      return;
+    }
+    const timers = faviconRefetchDelaysMs.map((delay) =>
+      window.setTimeout(() => void refetch(), delay),
+    );
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [signature, refetch]);
 }
 
 /** True once the document has stayed hidden for `ms`; false again as soon as it shows. */

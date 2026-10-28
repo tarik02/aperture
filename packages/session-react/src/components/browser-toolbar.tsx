@@ -55,7 +55,7 @@ interface BrowserToolbarProps {
   menuItems?: ReactNode;
   shareMenuItems?: ReactNode;
   menuFooterItems?: ReactNode;
-  targetFaviconUrl?: (targetId: string) => string | null;
+  targetFaviconUrl?: (targetId: string) => string | null | undefined;
 }
 
 export function BrowserToolbar({

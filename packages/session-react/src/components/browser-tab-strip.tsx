@@ -53,10 +53,11 @@ interface BrowserTabStripProps {
   ) => void;
   loadThumbnail?: LoadThumbnail;
   /**
-   * The icon the browser captured for a tab, served by Aperture. Without it a tab shows the site's
-   * `/favicon.ico`, loaded by the viewer straight from the site.
+   * The icon the browser captured for a tab, served by Aperture: a URL, null for a tab without an
+   * icon, or undefined while it isn't known yet. Without a resolver, or while a tab's icon isn't
+   * known, the tab shows the site's `/favicon.ico`, loaded by the viewer straight from the site.
    */
-  targetFaviconUrl?: (targetId: string) => string | null;
+  targetFaviconUrl?: (targetId: string) => string | null | undefined;
 }
 
 interface BrowserTabDragData extends Record<string, unknown> {
@@ -401,9 +402,10 @@ function NewTabButton({ disabled, onCreate }: { disabled?: boolean; onCreate: ()
 
 function faviconSource(
   target: LiveSessionTarget,
-  targetFaviconUrl: ((targetId: string) => string | null) | undefined,
+  targetFaviconUrl: ((targetId: string) => string | null | undefined) | undefined,
 ): string | null {
-  return targetFaviconUrl ? targetFaviconUrl(target.id) : resolveFaviconUrl(target.url);
+  const captured = targetFaviconUrl?.(target.id);
+  return captured === undefined ? resolveFaviconUrl(target.url) : captured;
 }
 
 function TabFavicon({ src }: { src: string | null }) {

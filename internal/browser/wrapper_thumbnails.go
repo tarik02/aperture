@@ -141,7 +141,7 @@ func (session *liveSession) pageManifest() (PageManifest, error) {
 		pageIDs = append(pageIDs, page.TargetID)
 	}
 	// Favicons come from the cache, so a listing never waits for an icon to load.
-	favicons := session.cachedFavicons(pageIDs)
+	favicons := session.cachedFavicons(pageIDs, true)
 	for index := range pages {
 		if favicon, ok := favicons[pages[index].TargetID]; ok {
 			pages[index].FaviconAvailable = true
