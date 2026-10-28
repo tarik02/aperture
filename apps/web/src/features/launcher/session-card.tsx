@@ -30,7 +30,7 @@ import { useBrowserStatusQuery } from "#/features/session/session.queries.ts";
 import { useInView } from "#/hooks/use-in-view.ts";
 
 const tile =
-  "aperture:group aperture:relative aperture:flex aperture:aspect-video aperture:w-40 aperture:shrink-0 aperture:flex-col aperture:overflow-hidden aperture:text-left aperture:outline-none aperture:focus-visible:ring-3 aperture:focus-visible:ring-ring/50 aperture:disabled:cursor-default aperture:disabled:opacity-60";
+  "aperture:group aperture:relative aperture:flex aperture:aspect-video aperture:w-32 aperture:shrink-0 aperture:flex-col aperture:overflow-hidden aperture:text-left aperture:outline-none aperture:focus-visible:ring-3 aperture:focus-visible:ring-ring/50 aperture:disabled:cursor-default aperture:disabled:opacity-60";
 const tileHover =
   "aperture:after:pointer-events-none aperture:after:absolute aperture:after:inset-0 aperture:after:ring-inset aperture:hover:after:ring-2 aperture:hover:after:ring-foreground/30";
 
@@ -148,7 +148,7 @@ export function SessionCard({
         hidden && "aperture:hidden",
       )}
     >
-      <div className="aperture:flex aperture:shrink-0 aperture:flex-col aperture:gap-1 aperture:border-b aperture:px-3 aperture:py-2 aperture:sm:w-56 aperture:sm:border-r aperture:sm:border-b-0">
+      <div className="aperture:flex aperture:shrink-0 aperture:flex-col aperture:justify-center aperture:gap-0.5 aperture:border-b aperture:px-3 aperture:py-1.5 aperture:sm:w-56 aperture:sm:border-r aperture:sm:border-b-0">
         <div className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-2">
           {selection ? (
             <SelectionLabel selection={selection} label={`Select ${sessionLabel(session)}`}>
@@ -188,18 +188,23 @@ export function SessionCard({
             }
           />
         </div>
-        {subtitle ? (
-          <p className="aperture:truncate aperture:text-xs aperture:text-muted-foreground">
-            {subtitle}
-          </p>
-        ) : null}
-        <div className="aperture:mt-auto aperture:flex aperture:flex-wrap aperture:items-center aperture:gap-1.5 aperture:pt-1">
-          <Badge variant={running ? "default" : "outline"}>{session.status}</Badge>
-          {openElsewhere ? (
-            <span className="aperture:text-xs aperture:text-muted-foreground">
-              Open in {openInfo!.tabs === 1 ? "a tab" : `${openInfo!.tabs} tabs`}
-            </span>
-          ) : null}
+        <div className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-1.5">
+          <Badge
+            variant={running ? "default" : "outline"}
+            className="aperture:h-4 aperture:px-1.5 aperture:text-[11px]"
+          >
+            {session.status}
+          </Badge>
+          <span className="aperture:min-w-0 aperture:truncate aperture:text-xs aperture:text-muted-foreground">
+            {[
+              subtitle,
+              openElsewhere
+                ? `open in ${openInfo!.tabs === 1 ? "a tab" : `${openInfo!.tabs} tabs`}`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
         </div>
       </div>
       <ScrollArea scrollbars="horizontal" className="aperture:min-w-0 aperture:flex-1">

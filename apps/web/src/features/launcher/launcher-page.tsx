@@ -357,7 +357,7 @@ export function LauncherPage({ view }: { view: LauncherView }) {
       <ScrollArea className="aperture:min-h-0 aperture:flex-1">
         <div
           className={cn(
-            "aperture:mx-auto aperture:grid aperture:w-full aperture:max-w-6xl aperture:gap-4 aperture:p-4",
+            "aperture:mx-auto aperture:grid aperture:w-full aperture:max-w-6xl aperture:gap-2 aperture:p-4",
             // Room for the floating selection bar, so it never covers the last item.
             hasSelection && "aperture:pb-20",
           )}
