@@ -16,6 +16,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture-browser/ui/co
 import type { CollaborationControl } from "../hooks/use-live-session.ts";
 import type { CollaborationParticipant } from "@aperture-browser/live-session";
 import { cn } from "@aperture-browser/ui/utils";
+import * as UrlPath from "@aperture-browser/api-client/url-path";
 
 const visibleParticipantCount = 5;
 
@@ -196,7 +197,7 @@ function ParticipantAvatar({
 }
 
 function gravatarURL(hash: string) {
-  return `https://www.gravatar.com/avatar/${encodeURIComponent(hash)}?d=identicon&s=64`;
+  return UrlPath.make`https://www.gravatar.com/avatar/${hash}?d=identicon&s=64`;
 }
 
 function initials(name: string) {

@@ -12,6 +12,7 @@ import {
   type DownloadedFile,
 } from "@aperture-browser/api-client";
 import { LIVE_SESSION_PROTOCOL } from "./protocol.ts";
+import * as UrlPath from "@aperture-browser/api-client/url-path";
 
 /** Where this browser connects, and who authenticates it. */
 export type SessionAccess =
@@ -44,7 +45,7 @@ function mountURL(access: SessionAccess, path: string): URL {
 
 /** Resolve all session endpoints under the same mount. */
 export function sessionURL(access: SessionAccess, route: string): URL {
-  return mountURL(access, `sessions/${encodeURIComponent(access.sessionId)}/${route}`);
+  return mountURL(access, UrlPath.make`sessions/${access.sessionId}/${UrlPath.raw(route)}`);
 }
 
 export function sessionWebSocketURL(access: SessionAccess, route: string): string {
@@ -102,7 +103,7 @@ export const downloadSessionRecording = Effect.fn("downloadSessionRecording")(fu
 ) {
   return yield* sessionGet(
     access,
-    sessionURL(access, `recordings/${encodeURIComponent(recordingId)}/content`),
+    sessionURL(access, UrlPath.make`recordings/${recordingId}/content`),
   ).pipe(
     Effect.flatMap((response) =>
       Effect.map(
@@ -122,7 +123,7 @@ export const getTargetThumbnail = Effect.fn("getTargetThumbnail")(function* (
   access: SessionAccess,
   targetId: string,
 ) {
-  const route = `targets/${encodeURIComponent(targetId)}/thumbnail`;
+  const route = UrlPath.make`targets/${targetId}/thumbnail`;
   const token = directAuthorization(access).token;
   const usesSessionRoute =
     access.kind === "relay" ||
@@ -130,7 +131,7 @@ export const getTargetThumbnail = Effect.fn("getTargetThumbnail")(function* (
       (token.startsWith("aps_") || token.startsWith("ape_") || token.startsWith("apv_")));
   const url = usesSessionRoute
     ? sessionURL(access, route)
-    : mountURL(access, `api/sessions/${encodeURIComponent(access.sessionId)}/${route}`);
+    : mountURL(access, UrlPath.make`api/sessions/${access.sessionId}/${UrlPath.raw(route)}`);
   return yield* sessionGet(access, url).pipe(
     Effect.flatMap((response) =>
       Effect.map(response.arrayBuffer, (body) => new Blob([body], { type: "image/jpeg" })),

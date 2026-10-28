@@ -37,6 +37,7 @@ import {
   type McpCodeBlock,
   type McpSetupInput,
 } from "#/features/mcp/mcp-clients.ts";
+import * as UrlPath from "@aperture-browser/api-client/url-path";
 
 type McpScope = "tenant" | "session";
 
@@ -165,7 +166,7 @@ function McpSetupBody({
     sessionScoped && session.sessionToken ? Redacted.value(session.sessionToken) : null;
   const embedSessionToken = auth === "token" && useSessionToken && sessionToken !== null;
 
-  const path = sessionScoped ? `/sessions/${session.id}/mcp` : "/mcp";
+  const path = sessionScoped ? UrlPath.make`/sessions/${session.id}/mcp` : "/mcp";
   // Always explicit: an operator can change the server's default set.
   const toolsQuery = `?browserTools=${tools.join(",")}`;
   const url = `${origin}${path}${toolsQuery}`;

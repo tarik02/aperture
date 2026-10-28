@@ -36,7 +36,9 @@
     "build": "vp pack",
     "typecheck": "tsgo --noEmit"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@aperture-browser/api-client": "workspace:*"
+  },
   "devDependencies": {
     "@effect/platform-node": "catalog:",
     "effect": "catalog:",

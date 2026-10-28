@@ -18,6 +18,7 @@ import type { Session } from "@aperture-browser/api-client";
 import { useRotateSessionTokenMutation } from "#/features/session/session.mutations.ts";
 import { useSessionQuery } from "#/features/session/session.queries.ts";
 import { useEffect, useMemo, useState } from "react";
+import * as UrlPath from "@aperture-browser/api-client/url-path";
 
 type ConnectionPanelProps = {
   session: Session;
@@ -230,7 +231,7 @@ function publicCdpUrl(rawCdpUrl: string, publicOrigin: string | null) {
 
 function cdpUrlWithToken(cdpUrl: string, sessionToken: string) {
   const url = new URL(cdpUrl);
-  url.pathname = `${url.pathname.replace(/\/$/, "")}/${encodeURIComponent(sessionToken)}`;
+  url.pathname = UrlPath.make`${UrlPath.raw(url.pathname.replace(/\/$/, ""))}/${sessionToken}`;
   url.search = "";
   url.hash = "";
   return url.toString();

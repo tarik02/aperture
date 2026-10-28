@@ -32,12 +32,13 @@ import {
   type UploadSessionFilesOptions,
 } from "./service.ts";
 import { uploadBody } from "./uploads.ts";
+import * as UrlPath from "../url-path.ts";
 
 export const contentDispositionFilename = (header: string | undefined): string | null =>
   header?.match(/filename="([^"]+)"/)?.[1] ?? null;
 
 const recordingContentPath = (sessionId: string, recordingId: string) =>
-  `/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recordingId)}/content`;
+  UrlPath.make`/sessions/${sessionId}/recordings/${recordingId}/content`;
 
 const BULK_SESSION_IDS_LIMIT = 100;
 
@@ -328,7 +329,7 @@ export const makeSessionsApi = Effect.gen(function* () {
     sessionToken?: Redacted.Redacted<string>,
   ) {
     return yield* http
-      .get(`/sessions/${encodeURIComponent(sessionId)}/browser/status`)
+      .get(UrlPath.make`/sessions/${sessionId}/browser/status`)
       .pipe(
         Effect.flatMap(HttpClientResponse.schemaBodyJson(BrowserStatus)),
         authorize({ credentials, bearerToken: sessionToken, tenantHeader: "tenant-scoped" }),
@@ -360,11 +361,11 @@ export const makeSessionsApi = Effect.gen(function* () {
     sessionId: string,
     targetId?: string,
   ) {
-    const session = `/api/sessions/${encodeURIComponent(sessionId)}`;
+    const session = UrlPath.make`/api/sessions/${sessionId}`;
     const path =
       targetId === undefined
         ? `${session}/thumbnail`
-        : `${session}/targets/${encodeURIComponent(targetId)}/thumbnail`;
+        : UrlPath.make`${UrlPath.raw(session)}/targets/${targetId}/thumbnail`;
     return yield* http.get(path).pipe(
       Effect.flatMap((response) =>
         Effect.map(response.arrayBuffer, (body) => new Blob([body], { type: "image/jpeg" })),
@@ -379,7 +380,7 @@ export const makeSessionsApi = Effect.gen(function* () {
     targetId: string,
     version?: string,
   ) {
-    const path = `/api/sessions/${encodeURIComponent(sessionId)}/targets/${encodeURIComponent(targetId)}/favicon`;
+    const path = UrlPath.make`/api/sessions/${sessionId}/targets/${targetId}/favicon`;
     return yield* http.get(path, version === undefined ? {} : { urlParams: { v: version } }).pipe(
       Effect.flatMap((response) =>
         Effect.map(
@@ -417,7 +418,7 @@ export const makeSessionsApi = Effect.gen(function* () {
   ) {
     const body = yield* uploadBody(files);
     const response = yield* http
-      .post(`/api/sessions/${encodeURIComponent(sessionId)}/files`, {
+      .post(UrlPath.make`/api/sessions/${sessionId}/files`, {
         body,
         urlParams: compactQuery({ directory: options.directory }),
       })
@@ -469,7 +470,7 @@ export const makeSessionsApi = Effect.gen(function* () {
   ) {
     const body = yield* uploadBody(files);
     const response = yield* http
-      .post(`/sessions/${encodeURIComponent(sessionId)}/uploads`, { body })
+      .post(UrlPath.make`/sessions/${sessionId}/uploads`, { body })
       .pipe(
         Effect.flatMap(HttpClientResponse.schemaBodyJson(Api.UploadLiveSessionFiles201)),
         authorize({ credentials, bearerToken: sessionToken, tenantHeader: "tenant-scoped" }),

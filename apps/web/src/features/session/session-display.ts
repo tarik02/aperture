@@ -1,5 +1,6 @@
 import * as Redacted from "effect/Redacted";
 import type { BrowserPage, Session, SessionStatus } from "@aperture-browser/api-client";
+import * as UrlPath from "@aperture-browser/api-client/url-path";
 
 /** Statuses whose browser can be opened; connecting wakes a suspended one. */
 export function isOpenable(status: SessionStatus): boolean {
@@ -69,7 +70,7 @@ export function targetFaviconUrl(session: Session, page: BrowserPage): string | 
     return null;
   }
   const url = Redacted.value(template).replace("{targetId}", encodeURIComponent(page.targetId));
-  return page.faviconVersion ? `${url}&v=${encodeURIComponent(page.faviconVersion)}` : url;
+  return page.faviconVersion ? UrlPath.make`${UrlPath.raw(url)}&v=${page.faviconVersion}` : url;
 }
 
 export function matchesSearch(needle: string, values: ReadonlyArray<string | null | undefined>) {

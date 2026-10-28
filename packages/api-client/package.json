@@ -17,7 +17,8 @@
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
-    "./passkeys": "./src/passkeys.ts"
+    "./passkeys": "./src/passkeys.ts",
+    "./url-path": "./src/url-path.ts"
   },
   "publishConfig": {
     "exports": {
@@ -28,6 +29,10 @@
       "./passkeys": {
         "types": "./dist/passkeys.d.ts",
         "default": "./dist/passkeys.js"
+      },
+      "./url-path": {
+        "types": "./dist/url-path.d.ts",
+        "default": "./dist/url-path.js"
       }
     },
     "access": "public"

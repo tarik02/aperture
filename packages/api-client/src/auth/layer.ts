@@ -26,6 +26,7 @@ import {
   TOTPEnrollment,
 } from "./schemas.ts";
 import { AuthApi, type PasskeyCredentialJSON } from "./service.ts";
+import * as UrlPath from "../url-path.ts";
 
 const jsonBody = (body: unknown) => ({ body: HttpBody.jsonUnsafe(body) });
 
@@ -117,7 +118,7 @@ export const makeAuthApi = Effect.gen(function* () {
     sessionId: string,
   ) {
     return yield* http
-      .get(`/auth/sessions/${encodeURIComponent(sessionId)}/tenant`)
+      .get(UrlPath.make`/auth/sessions/${sessionId}/tenant`)
       .pipe(Effect.flatMap(HttpClientResponse.schemaBodyJson(Api.Tenant)), webSession);
   });
 
@@ -158,12 +159,12 @@ export const makeAuthApi = Effect.gen(function* () {
     name: string,
   ) {
     return yield* http
-      .patch(`/auth/passkeys/${encodeURIComponent(passkeyId)}`, jsonBody({ name }))
+      .patch(UrlPath.make`/auth/passkeys/${passkeyId}`, jsonBody({ name }))
       .pipe(Effect.flatMap(HttpClientResponse.schemaBodyJson(PasskeyMutation)), webSession);
   });
 
   const deletePasskey = Effect.fn("AuthApi.deletePasskey")(function* (passkeyId: string) {
-    yield* http.del(`/auth/passkeys/${encodeURIComponent(passkeyId)}`).pipe(webSession);
+    yield* http.del(UrlPath.make`/auth/passkeys/${passkeyId}`).pipe(webSession);
   });
 
   const beginTOTPEnrollment = Effect.fn("AuthApi.beginTOTPEnrollment")(function* () {
@@ -234,7 +235,7 @@ export const makeAuthApi = Effect.gen(function* () {
   });
 
   const revokeOAuthGrant = Effect.fn("AuthApi.revokeOAuthGrant")(function* (grantId: string) {
-    yield* http.del(`/auth/oauth/grants/${encodeURIComponent(grantId)}`).pipe(webSession);
+    yield* http.del(UrlPath.make`/auth/oauth/grants/${grantId}`).pipe(webSession);
   });
 
   return AuthApi.of({
