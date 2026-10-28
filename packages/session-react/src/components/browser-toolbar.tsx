@@ -5,7 +5,6 @@ import {
   Loader2,
   PanelBottom,
   PanelRight,
-  Pencil,
   RefreshCw,
   Square,
   Wrench,
@@ -36,6 +35,7 @@ import { CollaborationPresence } from "./collaboration-presence.tsx";
 interface BrowserToolbarProps {
   control: UseBrowserControlResult;
   leading?: ReactNode;
+  trailing?: ReactNode;
   toolbarLeading?: ReactNode;
   toolbarTrailing?: ReactNode;
   features: ResolvedSessionFeatures;
@@ -60,6 +60,7 @@ interface BrowserToolbarProps {
 export function BrowserToolbar({
   control,
   leading,
+  trailing,
   toolbarLeading,
   toolbarTrailing,
   features,
@@ -124,7 +125,7 @@ export function BrowserToolbar({
 
   return (
     <div className="aperture:flex aperture:min-w-0 aperture:flex-col aperture:bg-background">
-      {leading || features.tabs || features.presence ? (
+      {leading || trailing || features.tabs || features.presence ? (
         <div
           data-workbench-titlebar
           className="aperture:flex aperture:min-w-0 aperture:shrink-0 aperture:items-stretch aperture:border-b aperture:bg-muted/35"
@@ -152,6 +153,7 @@ export function BrowserToolbar({
           {features.presence ? (
             <CollaborationPresence collaboration={control.collaboration} />
           ) : null}
+          {trailing}
         </div>
       ) : null}
       {toolbarLeading ||
@@ -221,30 +223,7 @@ export function BrowserToolbar({
           {busy ? (
             <Loader2 className="aperture:size-4 aperture:shrink-0 aperture:animate-spin aperture:text-muted-foreground" />
           ) : null}
-          {/* Drawing and DevTools live in the browser menu; a button shows only while one is on. */}
-          {features.drawing && paintingEnabled ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    type="button"
-                    variant={paintingEnabled ? "secondary" : "ghost"}
-                    size="icon-sm"
-                    className="aperture:shrink-0"
-                    disabled={!paintingEnabled && !drawingAvailable}
-                    aria-label={paintingEnabled ? "Stop drawing" : "Draw on this tab"}
-                    aria-pressed={paintingEnabled}
-                    onClick={() => onPaintingEnabledChange(!paintingEnabled)}
-                  />
-                }
-              >
-                <Pencil />
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                {paintingEnabled ? "Stop drawing" : "Draw on this tab"}
-              </TooltipContent>
-            </Tooltip>
-          ) : null}
+          {/* DevTools lives in the browser menu; a button shows only while it is open. */}
           {features.devTools && devToolsOpen ? (
             <DevToolsButton
               open={devToolsOpen}

@@ -2,7 +2,7 @@ import type { SessionAccess } from "@aperture-browser/live-session";
 import { useIsMutating } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import * as Redacted from "effect/Redacted";
-import { AppWindow, Camera, FolderOpen, LayoutGrid, PanelLeft, RotateCcw } from "lucide-react";
+import { AppWindow, FolderOpen, LayoutGrid, PanelLeft, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ApiRequestError, type IceServer, type Session } from "@aperture-browser/api-client";
 import { Button } from "@aperture-browser/ui/components/button";
@@ -43,7 +43,7 @@ import {
   saveToSnapshotMutationKey,
   type SaveToSnapshotInput,
 } from "#/features/session/session.mutations.ts";
-import { isReopenable, isSaveable } from "#/features/session/session-display.ts";
+import { isReopenable } from "#/features/session/session-display.ts";
 import { SessionSwitcher } from "#/features/workbench/session-switcher.tsx";
 import { EdgePanel, loadPinned, savePinned } from "#/features/workbench/edge-panel.tsx";
 import { SessionFilesPanel } from "#/features/workbench/files/session-files-panel.tsx";
@@ -369,17 +369,10 @@ function WorkbenchSession({
         key={session.id}
         control={control}
         leading={leading}
-        toolbarTrailing={
-          <WorkbenchActions
-            session={session}
-            actions={actions}
-            permissions={permissions}
-            filesToggle={filesToggle}
-          />
-        }
+        trailing={filesToggle}
         menuItems={<SessionActionItems part="primary" {...menuProps} />}
         shareMenuItems={<SessionActionItems part="share" {...menuProps} />}
-        menuFooterItems={<SessionActionItems part="danger" {...menuProps} />}
+        menuFooterItems={<SessionActionItems part="closing" {...menuProps} />}
         collaborationRole="owner"
         cdpUrl={cdpUrl}
         shareUrls={shareUrls}
@@ -395,47 +388,8 @@ function WorkbenchSession({
   );
 }
 
-// The browser menu has its own details, viewer link and copy items; the toolbar saves snapshots.
-const workbenchMenuExcludes: ReadonlySet<SessionActionKey> = new Set([
-  "save",
-  "details",
-  "viewer-link",
-]);
-
-function WorkbenchActions({
-  session,
-  actions,
-  permissions,
-  filesToggle,
-}: {
-  session: Session;
-  actions: SessionActions;
-  permissions: SessionPermissions;
-  filesToggle: ReactNode;
-}) {
-  return (
-    <>
-      {permissions.canSaveSnapshots && isSaveable(session.status) ? (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Save to snapshot"
-                onClick={() => actions.saveToSnapshot(session)}
-              />
-            }
-          >
-            <Camera />
-          </TooltipTrigger>
-          <TooltipContent side="bottom">Save to snapshot</TooltipContent>
-        </Tooltip>
-      ) : null}
-      {filesToggle}
-    </>
-  );
-}
+// The browser menu has its own details and viewer link items.
+const workbenchMenuExcludes: ReadonlySet<SessionActionKey> = new Set(["details", "viewer-link"]);
 
 /** Pins or unpins an edge panel; hovering that edge shows it either way. */
 function PanelToggle({
@@ -458,8 +412,7 @@ function PanelToggle({
             variant="ghost"
             size="icon-sm"
             className={cn(
-              side === "left" &&
-                "aperture:h-full aperture:aspect-square aperture:shrink-0 aperture:rounded-none",
+              "aperture:h-full aperture:aspect-square aperture:shrink-0 aperture:rounded-none",
               pinned && "aperture:bg-muted",
             )}
             aria-label={pinned ? `Hide ${label}` : `Show ${label}`}

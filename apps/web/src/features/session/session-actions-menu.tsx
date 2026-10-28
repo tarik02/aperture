@@ -52,15 +52,16 @@ export function SessionActionsMenu({ trigger, align = "end", ...props }: Session
 }
 
 /** Actions a surrounding menu already offers some other way. */
-export type SessionActionKey = "save" | "details" | "viewer-link";
+export type SessionActionKey = "details" | "viewer-link";
 
 type SessionActionItemsProps = Omit<SessionActionsMenuProps, "trigger" | "align"> & {
   exclude?: ReadonlySet<SessionActionKey>;
   /**
-   * Which part to render. A host menu with its own sections places the parts itself:
-   * lifecycle and editing, sharing items for its share submenu, and the destructive end.
+   * Which part to render. A host menu with its own sections places the parts itself: opening
+   * and settings, sharing items for its share submenu, and the closing part that changes or
+   * removes the session.
    */
-  part?: "all" | "primary" | "share" | "danger";
+  part?: "all" | "primary" | "share" | "closing";
 };
 
 /** The items of the session menu, for embedding in another menu. */
@@ -71,8 +72,8 @@ export function SessionActionItems({ part = "all", ...props }: SessionActionItem
   if (part === "share") {
     return <ShareItems {...props} />;
   }
-  if (part === "danger") {
-    return <DangerItems {...props} />;
+  if (part === "closing") {
+    return <ClosingItems {...props} />;
   }
   return (
     <>
@@ -92,7 +93,7 @@ export function SessionActionItems({ part = "all", ...props }: SessionActionItem
       {props.permissions.canWrite ? (
         <>
           <DropdownMenuSeparator />
-          <DangerItems {...props} />
+          <ClosingItems {...props} />
         </>
       ) : null}
     </>
@@ -100,7 +101,7 @@ export function SessionActionItems({ part = "all", ...props }: SessionActionItem
 }
 
 function PrimaryItems({ session, actions, permissions, onOpen, exclude }: SessionActionItemsProps) {
-  const { canWrite, canSaveSnapshots } = permissions;
+  const { canWrite } = permissions;
   const shown = (key: SessionActionKey) => exclude?.has(key) !== true;
   const proxyEditable =
     session.status === "creating" || session.status === "running" || session.status === "suspended";
@@ -119,28 +120,10 @@ function PrimaryItems({ session, actions, permissions, onOpen, exclude }: Sessio
           Reopen
         </DropdownMenuItem>
       ) : null}
-      {canWrite && session.status === "running" ? (
-        <DropdownMenuItem onClick={() => actions.suspend(session)}>
-          <Pause />
-          Suspend
-        </DropdownMenuItem>
-      ) : null}
-      {shown("save") && canSaveSnapshots && isSaveable(session.status) ? (
-        <DropdownMenuItem onClick={() => actions.saveToSnapshot(session)}>
-          <Camera />
-          Save to snapshot
-        </DropdownMenuItem>
-      ) : null}
       {canWrite && proxyEditable ? (
         <DropdownMenuItem onClick={() => actions.editProxy(session)}>
           <Network />
           Proxy
-        </DropdownMenuItem>
-      ) : null}
-      {canWrite ? (
-        <DropdownMenuItem onClick={() => actions.details(session, "tags")}>
-          <Tags />
-          Edit tags
         </DropdownMenuItem>
       ) : null}
       {shown("details") ? (
@@ -194,14 +177,36 @@ function ShareItems({
   );
 }
 
-function DangerItems({ session, actions, permissions }: SessionActionItemsProps) {
+/** Edits that change the session's state, ending with deleting it. Needs write access. */
+function ClosingItems({ session, actions, permissions }: SessionActionItemsProps) {
   if (!permissions.canWrite) {
     return null;
   }
   return (
-    <DropdownMenuItem variant="destructive" onClick={() => actions.deleteSession(session)}>
-      <Trash2 />
-      Delete
-    </DropdownMenuItem>
+    <>
+      <DropdownMenuGroup>
+        <DropdownMenuItem onClick={() => actions.details(session, "tags")}>
+          <Tags />
+          Edit tags
+        </DropdownMenuItem>
+        {session.status === "running" ? (
+          <DropdownMenuItem onClick={() => actions.suspend(session)}>
+            <Pause />
+            Suspend
+          </DropdownMenuItem>
+        ) : null}
+        {permissions.canSaveSnapshots && isSaveable(session.status) ? (
+          <DropdownMenuItem onClick={() => actions.saveToSnapshot(session)}>
+            <Camera />
+            Save to snapshot
+          </DropdownMenuItem>
+        ) : null}
+      </DropdownMenuGroup>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem variant="destructive" onClick={() => actions.deleteSession(session)}>
+        <Trash2 />
+        Delete
+      </DropdownMenuItem>
+    </>
   );
 }

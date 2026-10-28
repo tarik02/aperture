@@ -103,10 +103,9 @@ export interface BrowserMenuDevTools {
 }
 
 /**
- * One menu for everything the toolbar does not show as a button: the embedder's own items
- * first, then control and tools, recording and viewport submenus, sharing, and the embedder's
- * closing items (such as deleting the session) last. Recording gets a toolbar button only while
- * one runs.
+ * The toolbar's end: drawing, recording and viewport buttons, then one menu with the embedder's
+ * own items first, control, tools and sharing, and the embedder's closing items (such as
+ * deleting the session) last.
  */
 export function BrowserMenus({
   control,
@@ -174,35 +173,97 @@ export function BrowserMenus({
     />
   );
 
+  const sizeController = viewportSizeController(control);
+  const viewportPaused =
+    control.viewportAutoSync && !control.viewportAutoSizeActive && sizeController !== null;
+
   return (
     <div className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-0.5">
-      {recordingActive ? (
-        <DropdownMenu>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      size="icon-sm"
-                      aria-label="Recording in progress"
-                    />
-                  }
-                />
-              }
-            >
-              <Circle fill="currentColor" />
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Recording in progress</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="end" className="aperture:w-72">
-            {recordingItems}
-          </DropdownMenuContent>
-        </DropdownMenu>
+      {drawing ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant={drawing.enabled ? "secondary" : "ghost"}
+                size="icon-sm"
+                disabled={!drawing.enabled && !drawing.available}
+                aria-label={drawing.enabled ? "Stop drawing" : "Draw on this tab"}
+                aria-pressed={drawing.enabled}
+                onClick={() => drawing.onChange(!drawing.enabled)}
+              />
+            }
+          >
+            <Pencil />
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {drawing.enabled ? "Stop drawing" : "Draw on this tab"}
+          </TooltipContent>
+        </Tooltip>
       ) : null}
-      <ViewportPausedIndicator control={control} connected={viewportConnected} />
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant={recordingActive ? "destructive" : "ghost"}
+                    size="icon-sm"
+                    aria-label={recordingActive ? "Recording in progress" : "Recording"}
+                  />
+                }
+              />
+            }
+          >
+            <Circle fill={recordingActive ? "currentColor" : "none"} />
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {recordingActive ? "Recording in progress" : "Recording"}
+          </TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="end" className="aperture:w-72">
+          {recordingItems}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={
+                      viewportPaused
+                        ? `Viewport and stream. Auto-size paused. ${sizeController}`
+                        : "Viewport and stream"
+                    }
+                  />
+                }
+              />
+            }
+          >
+            {viewportPaused ? <MonitorPause /> : <Monitor />}
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {viewportPaused ? sizeController : "Viewport and stream"}
+          </TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="end" className="aperture:w-56">
+          <ViewportStreamMenuItems
+            control={control}
+            connected={viewportConnected}
+            localCursorEnabled={localCursorEnabled}
+            onLocalCursorChange={onLocalCursorChange}
+            busy={busy}
+            onReconnect={onReconnect}
+          />
+        </DropdownMenuContent>
+      </DropdownMenu>
       <DropdownMenu>
         <Tooltip>
           <TooltipTrigger
@@ -233,16 +294,6 @@ export function BrowserMenus({
               </DropdownMenuItem>
             ) : null}
             <InputControlMenuItem control={control} />
-            {drawing ? (
-              <DropdownMenuCheckboxItem
-                checked={drawing.enabled}
-                disabled={!drawing.enabled && !drawing.available}
-                onCheckedChange={drawing.onChange}
-              >
-                <Pencil />
-                Draw on this tab
-              </DropdownMenuCheckboxItem>
-            ) : null}
             {devTools ? (
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger disabled={!devTools.open && !devTools.available}>
@@ -281,37 +332,6 @@ export function BrowserMenus({
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
             ) : null}
-          </DropdownMenuGroup>
-          <DropdownMenuSeparator />
-          <DropdownMenuGroup>
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <Circle
-                  fill={recordingActive ? "currentColor" : "none"}
-                  className={recordingActive ? "aperture:text-destructive" : undefined}
-                />
-                Recording
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="aperture:w-72">
-                {recordingItems}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <Monitor />
-                Viewport and stream
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="aperture:w-56">
-                <ViewportStreamMenuItems
-                  control={control}
-                  connected={viewportConnected}
-                  localCursorEnabled={localCursorEnabled}
-                  onLocalCursorChange={onLocalCursorChange}
-                  busy={busy}
-                  onReconnect={onReconnect}
-                />
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 <Share2 />
@@ -706,52 +726,6 @@ function viewportSizeController(control: UseBrowserControlResult) {
     return `Size controlled by ${ownerName}`;
   }
   return control.viewportAutoSync ? "Paused: size was set explicitly" : null;
-}
-
-function ViewportPausedIndicator({
-  control,
-  connected,
-}: {
-  control: UseBrowserControlResult;
-  connected: boolean;
-}) {
-  const sizeController = viewportSizeController(control);
-  if (!control.viewportAutoSync || control.viewportAutoSizeActive || sizeController === null) {
-    return null;
-  }
-  return (
-    <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  className="aperture:text-muted-foreground"
-                  aria-label={`Auto-size paused. ${sizeController}`}
-                />
-              }
-            />
-          }
-        >
-          <MonitorPause />
-        </TooltipTrigger>
-        <TooltipContent side="bottom">{sizeController}</TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent align="end" className="aperture:w-56">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>{sizeController}</DropdownMenuLabel>
-          <DropdownMenuItem disabled={!connected} onClick={() => control.takeOverViewport()}>
-            <Hand />
-            Take over size
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
 }
 
 function ViewportMenu({
