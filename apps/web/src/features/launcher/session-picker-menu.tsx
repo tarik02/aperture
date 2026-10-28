@@ -12,6 +12,8 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@aperture-browser/ui/components/dropdown-menu";
+import { SessionThumbnail } from "#/features/launcher/session-thumbnail.tsx";
+import { sessionThumbnailUrl } from "#/features/session/session-display.ts";
 
 type SessionPickerProps = {
   /** Sessions a snapshot can be saved from, in display order. */
@@ -73,7 +75,11 @@ function SessionPickerBody({ sessions, titleOf, onPick }: SessionPickerProps) {
               key={session.id}
               label={`${title} ${session.baseSnapshotName ?? ""} ${session.id}`}
               onClick={() => onPick(session)}
+              className="aperture:gap-2.5"
             >
+              <span className="aperture:relative aperture:aspect-video aperture:w-14 aperture:shrink-0 aperture:overflow-hidden aperture:rounded aperture:ring-1 aperture:ring-foreground/10">
+                <SessionThumbnail src={sessionThumbnailUrl(session)} />
+              </span>
               <span className="aperture:grid aperture:min-w-0 aperture:flex-1">
                 <span className="aperture:truncate">{title}</span>
                 <span className="aperture:truncate aperture:text-xs aperture:text-muted-foreground">
