@@ -65,18 +65,37 @@ func (s *Service) AcquireAuthorizedCDPPort(ctx context.Context, routeSessionID, 
 // woke on another wrapper port, or had no route at all, it returns ErrEndpointMoved: the routes are
 // rewritten and a retry reaches the browser.
 func (s *Service) WakeAuthorizedSession(ctx context.Context, routeSessionID, authorization string) error {
-	before, after, release, err := s.acquireAuthorizedSession(ctx, routeSessionID, authorization)
+	arrived := s.routedEndpoint(ctx, routeSessionID)
+	_, after, release, err := s.acquireAuthorizedSession(ctx, routeSessionID, authorization)
 	if err != nil {
 		return err
 	}
 	release()
-	if before.CurrentCDPPort == nil || sessionWrapperPort(before) != sessionWrapperPort(after) {
+	if endpointMoved(arrived, after) {
 		return ErrEndpointMoved
 	}
 	return nil
 }
 
-// acquireAuthorizedSession returns the authorized session as the request found it and once it runs.
+// routedEndpoint reads the session as it was when a request arrived, before the request waits for
+// the session lock: a wake running concurrently may move it before this request gets the lock, and
+// the edge proxy had already routed the request to the endpoint read here. It returns nil when the
+// session can't be read; the caller authorizes the request separately.
+func (s *Service) routedEndpoint(ctx context.Context, routeSessionID string) *db.Session {
+	sessionRow, err := s.repo.GetSessionByID(ctx, strings.TrimSpace(routeSessionID))
+	if err != nil {
+		return nil
+	}
+	return sessionRow
+}
+
+// endpointMoved reports whether a request routed to arrived's endpoint can't reach the running
+// session: there was no route, or the session now listens on another wrapper port.
+func endpointMoved(arrived, running *db.Session) bool {
+	return arrived == nil || arrived.CurrentCDPPort == nil || sessionWrapperPort(arrived) != sessionWrapperPort(running)
+}
+
+// acquireAuthorizedSession returns the authorized session as it found it and once it runs.
 func (s *Service) acquireAuthorizedSession(ctx context.Context, routeSessionID, authorization string) (*db.Session, *db.Session, func(), error) {
 	routeSessionID = strings.TrimSpace(routeSessionID)
 	unlock := s.repo.LockSession(routeSessionID)
@@ -368,9 +387,14 @@ func (s *Service) runWake(ctx context.Context, sessionID string, wake func() err
 
 func (s *Service) wakeSuspendedSession(ctx context.Context, sessionRow *db.Session) error {
 	// Without its overlay the browser profile is gone for good, so the session fails instead of
-	// staying suspended with nothing to wake.
-	if !s.overlayPresent(sessionRow) {
-		_ = s.markReopenFailedRetained(ctx, sessionRow, ErrOverlayMissing)
+	// staying suspended with nothing to wake. An overlay that can't be checked right now may still
+	// be there; the session stays suspended and a later request retries.
+	present, err := s.overlayExists(sessionRow)
+	if err != nil {
+		return fmt.Errorf("check session overlay: %w", err)
+	}
+	if !present {
+		_ = s.markFailedRetained(ctx, sessionRow, "suspended session overlay is missing", ErrOverlayMissing)
 		return ErrOverlayMissing
 	}
 

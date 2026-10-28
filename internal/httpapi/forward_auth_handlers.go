@@ -30,9 +30,7 @@ func (s *Server) sessionTokenForwardAuth(c *gin.Context) {
 	credential := sessionTokenForwardAuthCredential(c)
 	role, err := s.validateCDPForwardAuth(c.Request.Context(), sessionID, credential)
 	if err != nil {
-		if !errors.Is(err, session.ErrEndpointMoved) {
-			s.recordAuthFailure(authMethodSessionToken, err)
-		}
+		s.recordSessionTokenFailure(err)
 		writeCDPError(c, err)
 		return
 	}
@@ -54,19 +52,38 @@ func (s *Server) cdpWithoutRoute(c *gin.Context) {
 	}
 	_, err := s.validateCDPForwardAuth(c.Request.Context(), c.Param("sessionId"), credential)
 	if err == nil {
+		// The session runs but the proxy had no route for it, as when rewriting routes failed after
+		// a wake. Rebuild them so the retry this answer asks for can reach the browser.
+		if reconcileErr := s.Sessions.ReconcileRoutes(c.Request.Context()); reconcileErr != nil {
+			WriteError(c, reconcileErr)
+			return
+		}
 		err = session.ErrEndpointMoved
 	}
-	if !errors.Is(err, session.ErrEndpointMoved) {
+	s.recordSessionTokenFailure(err)
+	writeCDPError(c, err)
+}
+
+// recordSessionTokenFailure counts a rejected session token. Errors about the session itself, such
+// as one that isn't running, failed to start, or moved, are not authentication failures.
+func (s *Server) recordSessionTokenFailure(err error) {
+	if isSessionTokenRejection(err) {
 		s.recordAuthFailure(authMethodSessionToken, err)
 	}
-	writeCDPError(c, err)
+}
+
+func isSessionTokenRejection(err error) bool {
+	return errors.Is(err, session.ErrSessionTokenMissing) ||
+		errors.Is(err, session.ErrSessionTokenInvalid) ||
+		errors.Is(err, session.ErrSessionTokenRevoked) ||
+		errors.Is(err, auth.ErrScopeDenied)
 }
 
 // writeCDPError writes a typed JSON error for the CDP data plane. Traefik returns a failed
 // ForwardAuth response to the client as is, so clients see the same body from both handlers.
 func writeCDPError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, session.ErrSessionTokenMissing), errors.Is(err, session.ErrSessionTokenInvalid), errors.Is(err, session.ErrSessionTokenRevoked), errors.Is(err, auth.ErrScopeDenied):
+	case isSessionTokenRejection(err):
 		c.Set(apiErrorCodeContextKey, "invalid_session_token")
 		c.JSON(http.StatusUnauthorized, errorBody{Error: apiErrorDetail{Code: "invalid_session_token", Message: "session token authorization failed"}})
 		return
@@ -101,7 +118,12 @@ func (s *Server) liveSessionForwardAuth(c *gin.Context) {
 	if authorization := liveSessionTokenAuthorization(c); authorization != "" {
 		role, generation, err := s.authorizeLiveCapability(c.Request.Context(), c.Param("sessionId"), authorization, c.Param("access"))
 		if err != nil {
-			s.recordAuthFailure(authMethodSessionToken, err)
+			s.recordSessionTokenFailure(err)
+			if errors.Is(err, session.ErrEndpointMoved) {
+				// The same typed answer as CDP, so clients know to retry.
+				writeCDPError(c, err)
+				return
+			}
 			status, _ := mapForwardAuthError(err)
 			c.Status(status)
 			return
