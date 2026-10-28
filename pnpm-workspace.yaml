@@ -8,7 +8,7 @@ onlyBuiltDependencies:
 
 catalog:
   "@atlaskit/pragmatic-drag-and-drop": "^2.0.1"
-  "@base-ui/react": "^1.6.0"
+  "@base-ui/react": "^1.9.0"
   class-variance-authority: "^0.7.1"
   clsx: "^2.1.1"
   devalue: 6.0.2
@@ -42,6 +42,7 @@ catalog:
   "@tailwindcss/vite": "^4.3.2"
   "@scalar/api-reference": "^1.71.0"
   "@scalar/api-reference-react": "^0.9.73"
+  "@pierre/trees": "1.0.0-beta.6"
   "@tanstack/react-hotkeys": "^0.10.0"
   "@tanstack/react-query": "^5.101.2"
   "@tanstack/react-router": "^1.170.17"
@@ -62,6 +63,8 @@ catalog:
   zustand: "^5.0.14"
   tldts: ^7.4.16
   "@effect/vitest": 4.0.0
+  "@tanstack/react-form": "^1.33.5"
+  date-fns: "^4.4.0"
 
 catalogs:
   peers:

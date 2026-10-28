@@ -9,15 +9,11 @@ type TokenListPageState = {
   revoked: TokenRevokedFilterValue;
   authorityType: string;
   scope: string;
-  selectedTokens: Record<string, ApiToken>;
   confirmAction: TokenConfirmAction | null;
   setName: (name: string) => void;
   setRevoked: (revoked: TokenRevokedFilterValue) => void;
   setAuthorityType: (authorityType: string) => void;
   setScope: (scope: string) => void;
-  toggleTokenSelection: (token: ApiToken, selected: boolean) => void;
-  clearSelectedTokens: () => void;
-  removeSelectedToken: (tokenId: string) => void;
   setConfirmAction: (action: TokenConfirmAction | null) => void;
 };
 
@@ -29,28 +25,10 @@ export const useTokenListPageStore = create<TokenListPageState>()((set) => ({
   revoked: "active",
   authorityType: ALL_AUTHORITY,
   scope: ALL_SCOPES,
-  selectedTokens: {},
   confirmAction: null,
   setName: (name) => set({ name }),
   setRevoked: (revoked) => set({ revoked }),
   setAuthorityType: (authorityType) => set({ authorityType }),
   setScope: (scope) => set({ scope }),
-  toggleTokenSelection: (token, selected) =>
-    set((state) => {
-      const selectedTokens = { ...state.selectedTokens };
-      if (selected) {
-        selectedTokens[token.id] = token;
-      } else {
-        delete selectedTokens[token.id];
-      }
-      return { selectedTokens };
-    }),
-  clearSelectedTokens: () => set({ selectedTokens: {} }),
-  removeSelectedToken: (tokenId) =>
-    set((state) => {
-      const selectedTokens = { ...state.selectedTokens };
-      delete selectedTokens[tokenId];
-      return { selectedTokens };
-    }),
   setConfirmAction: (confirmAction) => set({ confirmAction }),
 }));

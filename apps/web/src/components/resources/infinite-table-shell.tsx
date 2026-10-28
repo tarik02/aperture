@@ -37,7 +37,7 @@ export function InfiniteTableShell<T>({
   return (
     <div
       className={cn(
-        "aperture:flex aperture:min-h-0 aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:gap-2 aperture:px-3 aperture:pb-3",
+        "aperture:flex aperture:min-h-0 aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:gap-2 aperture:p-3",
         className,
       )}
     >

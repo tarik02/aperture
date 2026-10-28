@@ -5,7 +5,6 @@ import {
   Loader2,
   PanelBottom,
   PanelRight,
-  Pencil,
   RefreshCw,
   Square,
   Wrench,
@@ -36,6 +35,7 @@ import { CollaborationPresence } from "./collaboration-presence.tsx";
 interface BrowserToolbarProps {
   control: UseBrowserControlResult;
   leading?: ReactNode;
+  trailing?: ReactNode;
   toolbarLeading?: ReactNode;
   toolbarTrailing?: ReactNode;
   features: ResolvedSessionFeatures;
@@ -52,11 +52,15 @@ interface BrowserToolbarProps {
   onDevToolsOpenChange: (open: boolean) => void;
   onDevToolsDockChange: (dock: DevToolsDock) => void;
   onSessionDetails?: () => void;
+  menuItems?: ReactNode;
+  shareMenuItems?: ReactNode;
+  menuFooterItems?: ReactNode;
 }
 
 export function BrowserToolbar({
   control,
   leading,
+  trailing,
   toolbarLeading,
   toolbarTrailing,
   features,
@@ -73,6 +77,9 @@ export function BrowserToolbar({
   onDevToolsOpenChange,
   onDevToolsDockChange,
   onSessionDetails,
+  menuItems,
+  shareMenuItems,
+  menuFooterItems,
 }: BrowserToolbarProps) {
   const [urlDraft, setUrlDraft] = useState<string | null>(null);
 
@@ -113,9 +120,12 @@ export function BrowserToolbar({
     setUrlDraft(null);
   }
 
+  const devToolsAvailable =
+    collaborationRole === "owner" && connected && Boolean(cdpUrl && control.activeTargetId);
+
   return (
     <div className="aperture:flex aperture:min-w-0 aperture:flex-col aperture:bg-background">
-      {leading || features.tabs || features.presence ? (
+      {leading || trailing || features.tabs || features.presence ? (
         <div
           data-workbench-titlebar
           className="aperture:flex aperture:min-w-0 aperture:shrink-0 aperture:items-stretch aperture:border-b aperture:bg-muted/35"
@@ -143,6 +153,7 @@ export function BrowserToolbar({
           {features.presence ? (
             <CollaborationPresence collaboration={control.collaboration} />
           ) : null}
+          {trailing}
         </div>
       ) : null}
       {toolbarLeading ||
@@ -212,41 +223,20 @@ export function BrowserToolbar({
           {busy ? (
             <Loader2 className="aperture:size-4 aperture:shrink-0 aperture:animate-spin aperture:text-muted-foreground" />
           ) : null}
-          {features.drawing ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    type="button"
-                    variant={paintingEnabled ? "secondary" : "ghost"}
-                    size="icon-sm"
-                    className="aperture:shrink-0"
-                    disabled={!paintingEnabled && !drawingAvailable}
-                    aria-label={paintingEnabled ? "Stop drawing" : "Draw on this tab"}
-                    aria-pressed={paintingEnabled}
-                    onClick={() => onPaintingEnabledChange(!paintingEnabled)}
-                  />
-                }
-              >
-                <Pencil />
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                {paintingEnabled ? "Stop drawing" : "Draw on this tab"}
-              </TooltipContent>
-            </Tooltip>
-          ) : null}
-          {features.devTools ? (
+          {/* DevTools lives in the browser menu; a button shows only while it is open. */}
+          {features.devTools && devToolsOpen ? (
             <DevToolsButton
               open={devToolsOpen}
               dock={devToolsDock}
-              available={
-                collaborationRole === "owner" &&
-                connected &&
-                Boolean(cdpUrl && control.activeTargetId)
-              }
+              available={devToolsAvailable}
               onOpenChange={onDevToolsOpenChange}
               onDockChange={onDevToolsDockChange}
             />
+          ) : null}
+          {toolbarTrailing ? (
+            <div className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-0.5">
+              {toolbarTrailing}
+            </div>
           ) : null}
           {features.menus ? (
             <BrowserMenus
@@ -259,13 +249,31 @@ export function BrowserToolbar({
               onLocalCursorChange={onLocalCursorChange}
               onReconnect={() => control.reconnect()}
               onSessionDetails={onSessionDetails}
+              menuItems={menuItems}
+              shareMenuItems={shareMenuItems}
+              menuFooterItems={menuFooterItems}
+              drawing={
+                features.drawing
+                  ? {
+                      enabled: paintingEnabled,
+                      available: drawingAvailable,
+                      onChange: onPaintingEnabledChange,
+                    }
+                  : null
+              }
+              devTools={
+                features.devTools
+                  ? {
+                      open: devToolsOpen,
+                      dock: devToolsDock,
+                      available: devToolsAvailable,
+                      onOpenChange: onDevToolsOpenChange,
+                      onDockChange: onDevToolsDockChange,
+                    }
+                  : null
+              }
               now={recordingNow}
             />
-          ) : null}
-          {toolbarTrailing ? (
-            <div className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-0.5">
-              {toolbarTrailing}
-            </div>
           ) : null}
         </div>
       ) : null}

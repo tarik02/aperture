@@ -66,6 +66,5 @@ export function useUpdateSnapshotMutation() {
         ),
       ),
     onSuccess: invalidate,
-    onError: (error) => toastMutationError(error, "Snapshot update failed"),
   });
 }

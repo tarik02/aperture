@@ -2,7 +2,9 @@ import { Fragment, useMemo, useState } from "react";
 import { Building2, KeyRound, Link2, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
-import { MetadataGrid, metadataTimestamp } from "#/components/resources/metadata-grid.tsx";
+import { DetailRow, DetailSection } from "#/components/details/detail-list.tsx";
+import { ReferenceValue, relativeTime } from "#/components/details/detail-values.tsx";
+import { IdChip } from "#/components/details/id-chip.tsx";
 import { Alert, AlertDescription } from "@aperture-browser/ui/components/alert";
 import { Badge } from "@aperture-browser/ui/components/badge";
 import { Button } from "@aperture-browser/ui/components/button";
@@ -225,9 +227,24 @@ export function UserDetailsSheet({
     <>
       <Sheet open={open} onOpenChange={onOpenChange} onOpenChangeComplete={onOpenChangeComplete}>
         <SheetContent className="aperture:data-[side=right]:w-full aperture:data-[side=right]:sm:max-w-xl">
-          <SheetHeader className="aperture:border-b aperture:pr-12">
-            <SheetTitle>{user?.displayName ?? "User details"}</SheetTitle>
-            <SheetDescription>{user?.email ?? "Account without an email address"}</SheetDescription>
+          <SheetHeader className="aperture:gap-1.5 aperture:border-b aperture:pr-12">
+            <SheetTitle className="aperture:flex aperture:min-w-0 aperture:flex-wrap aperture:items-center aperture:gap-2">
+              <span className="aperture:min-w-0 aperture:truncate">
+                {user?.displayName ?? "User details"}
+              </span>
+              {user?.isSystemAdmin ? <Badge variant="secondary">system admin</Badge> : null}
+              {user?.disabledAt ? (
+                <Badge variant="outline" className="aperture:text-muted-foreground">
+                  disabled
+                </Badge>
+              ) : null}
+            </SheetTitle>
+            <SheetDescription className="aperture:flex aperture:min-w-0 aperture:flex-wrap aperture:items-center aperture:gap-2">
+              <span className="aperture:min-w-0 aperture:truncate">
+                {user?.email ?? "No email address"}
+              </span>
+              {user ? <IdChip value={user.id} label="user ID" /> : null}
+            </SheetDescription>
           </SheetHeader>
           <ScrollArea className="aperture:min-h-0 aperture:flex-1">
             <div className="aperture:flex aperture:flex-col aperture:gap-4 aperture:p-4">
@@ -254,40 +271,23 @@ export function UserDetailsSheet({
                       </CardAction>
                     </CardHeader>
                     <CardContent>
-                      <MetadataGrid
-                        items={[
-                          { kind: "identifier", label: "User ID", value: user.id },
-                          { kind: "text", label: "Email", value: user.email ?? "—" },
-                          {
-                            kind: "text",
-                            label: "Role",
-                            value: user.isSystemAdmin ? (
-                              <Badge>System admin</Badge>
-                            ) : (
-                              <Badge variant="outline">Standard user</Badge>
-                            ),
-                          },
-                          {
-                            kind: "text",
-                            label: "Status",
-                            value: user.disabledAt ? (
-                              <Badge variant="outline">Disabled</Badge>
-                            ) : (
-                              <Badge variant="secondary">Active</Badge>
-                            ),
-                          },
-                          {
-                            kind: "text",
-                            label: "Created",
-                            value: metadataTimestamp(user.createdAt),
-                          },
-                          {
-                            kind: "text",
-                            label: "Updated",
-                            value: metadataTimestamp(user.updatedAt),
-                          },
-                        ]}
-                      />
+                      <DetailSection>
+                        <DetailRow label="Email">{user.email}</DetailRow>
+                        <DetailRow label="Role">
+                          {user.isSystemAdmin ? "System admin" : "Standard user"}
+                        </DetailRow>
+                        <DetailRow label="Status">
+                          {user.disabledAt ? (
+                            <span className="aperture:text-muted-foreground">
+                              Disabled {relativeTime(user.disabledAt)}
+                            </span>
+                          ) : (
+                            "Active"
+                          )}
+                        </DetailRow>
+                        <DetailRow label="Created">{relativeTime(user.createdAt)}</DetailRow>
+                        <DetailRow label="Updated">{relativeTime(user.updatedAt)}</DetailRow>
+                      </DetailSection>
                     </CardContent>
                     <CardFooter className="aperture:justify-end">
                       {user.disabledAt ? (
@@ -449,17 +449,21 @@ export function UserDetailsSheet({
                           {memberships.map((membership, index) => (
                             <Fragment key={membership.tenantId}>
                               {index > 0 ? <Separator /> : null}
-                              <div className="aperture:flex aperture:items-start aperture:gap-3 aperture:py-3 aperture:first:pt-0 aperture:last:pb-0">
+                              <div className="aperture:flex aperture:items-start aperture:gap-3 aperture:py-2.5 aperture:first:pt-0 aperture:last:pb-0">
                                 <div className="aperture:min-w-0 aperture:flex-1">
-                                  <div className="aperture:truncate aperture:font-medium">
-                                    {tenantNames.get(membership.tenantId) ?? "Tenant"}
+                                  <div className="aperture:text-sm aperture:font-medium">
+                                    <ReferenceValue
+                                      id={membership.tenantId}
+                                      name={tenantNames.get(membership.tenantId)}
+                                    />
                                   </div>
-                                  <div className="aperture:truncate aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
-                                    {membership.tenantId}
-                                  </div>
-                                  <div className="aperture:mt-2 aperture:flex aperture:flex-wrap aperture:gap-1">
+                                  <div className="aperture:mt-1.5 aperture:flex aperture:flex-wrap aperture:gap-1">
                                     {membership.scopes.map((scope) => (
-                                      <Badge key={scope} variant="secondary">
+                                      <Badge
+                                        key={scope}
+                                        variant="secondary"
+                                        className="aperture:font-normal"
+                                      >
                                         {scopeLabel(scope)}
                                       </Badge>
                                     ))}

@@ -17,11 +17,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip.tsx";
 import { PanelLeftIcon } from "lucide-react";
 
 const SIDEBAR_WIDTH_MOBILE = "min(15rem, 85vw)";
+const PEEK_OPEN_DELAY_MS = 120;
+const PEEK_CLOSE_DELAY_MS = 280;
 
 function Sidebar({
   side = "left",
   variant = "sidebar",
   collapsible = "offcanvas",
+  peekOnHover = false,
   className,
   children,
   dir,
@@ -30,8 +33,11 @@ function Sidebar({
   side?: "left" | "right";
   variant?: "sidebar" | "floating" | "inset";
   collapsible?: "offcanvas" | "icon" | "none";
+  /** While collapsed off canvas, slide the sidebar over the content when the pointer rests on its edge. */
+  peekOnHover?: boolean;
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
+  const peek = useSidebarPeek(peekOnHover && collapsible === "offcanvas" && state === "collapsed");
 
   if (collapsible === "none") {
     return (
@@ -85,6 +91,15 @@ function Sidebar({
       data-side={side}
       data-slot="sidebar"
     >
+      {peek.enabled ? (
+        <div
+          aria-hidden
+          data-slot="sidebar-peek-zone"
+          className="aperture:fixed aperture:inset-y-0 aperture:z-10 aperture:w-1.5 aperture:data-[side=left]:left-0 aperture:data-[side=right]:right-0"
+          data-side={side}
+          {...peek.handlers}
+        />
+      ) : null}
       {/* This is what handles the sidebar gap on desktop */}
       <div
         data-slot="sidebar-gap"
@@ -98,14 +113,20 @@ function Sidebar({
         )}
       />
       <div
+        ref={peek.containerRef}
         data-slot="sidebar-container"
         data-side={side}
+        data-peek={peek.open || undefined}
+        inert={peek.enabled && !peek.open ? true : undefined}
+        style={peek.open ? { [side]: 0 } : undefined}
+        {...(peek.enabled ? peek.handlers : {})}
         className={cn(
           "aperture:fixed aperture:inset-y-0 aperture:z-10 aperture:hidden aperture:h-svh aperture:w-(--sidebar-width) aperture:transition-[left,right,width] aperture:duration-200 aperture:ease-out aperture:data-[side=left]:left-0 aperture:data-[side=left]:group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] aperture:data-[side=right]:right-0 aperture:data-[side=right]:group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] aperture:md:flex",
           // Adjust the padding for floating and inset variants.
           variant === "floating" || variant === "inset"
             ? "aperture:p-2 aperture:group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]"
             : "aperture:group-data-[collapsible=icon]:w-(--sidebar-width-icon) aperture:group-data-[side=left]:border-r aperture:group-data-[side=right]:border-l",
+          "aperture:data-peek:z-40 aperture:data-peek:shadow-xl",
           className,
         )}
         {...props}
@@ -120,6 +141,53 @@ function Sidebar({
       </div>
     </div>
   );
+}
+
+/** Hover state for a collapsed sidebar that slides out from its edge. */
+function useSidebarPeek(enabled: boolean) {
+  const [open, setOpen] = React.useState(false);
+  const timer = React.useRef<number | null>(null);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  const clear = () => {
+    if (timer.current !== null) {
+      window.clearTimeout(timer.current);
+      timer.current = null;
+    }
+  };
+  const schedule = (next: boolean) => {
+    clear();
+    timer.current = window.setTimeout(
+      () => {
+        timer.current = null;
+        // A menu opened from the sidebar renders outside it; stay out until it closes.
+        if (!next && containerRef.current?.querySelector("[data-popup-open]")) {
+          schedule(false);
+          return;
+        }
+        setOpen(next);
+      },
+      next ? PEEK_OPEN_DELAY_MS : PEEK_CLOSE_DELAY_MS,
+    );
+  };
+
+  React.useEffect(() => {
+    if (!enabled) {
+      clear();
+      setOpen(false);
+    }
+  }, [enabled]);
+  React.useEffect(() => clear, []);
+
+  return {
+    enabled,
+    open: enabled && open,
+    containerRef,
+    handlers: {
+      onPointerEnter: () => schedule(true),
+      onPointerLeave: () => schedule(false),
+    },
+  };
 }
 
 function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<typeof Button>) {

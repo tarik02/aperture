@@ -11,12 +11,8 @@ type TenantListPageState = {
   search: string;
   setSearch: (search: string) => void;
   deleted: DeletedFilterValue;
-  selectedTenants: Record<string, Tenant>;
   confirmAction: TenantConfirmAction | null;
   setDeleted: (deleted: DeletedFilterValue) => void;
-  toggleTenantSelection: (tenant: Tenant, selected: boolean) => void;
-  clearSelectedTenants: () => void;
-  removeSelectedTenant: (tenantId: string) => void;
   setConfirmAction: (action: TenantConfirmAction | null) => void;
 };
 
@@ -24,25 +20,7 @@ export const useTenantListPageStore = create<TenantListPageState>()((set) => ({
   search: "",
   setSearch: (search) => set({ search }),
   deleted: "active",
-  selectedTenants: {},
   confirmAction: null,
   setDeleted: (deleted) => set({ deleted }),
-  toggleTenantSelection: (tenant, selected) =>
-    set((state) => {
-      const selectedTenants = { ...state.selectedTenants };
-      if (selected) {
-        selectedTenants[tenant.id] = tenant;
-      } else {
-        delete selectedTenants[tenant.id];
-      }
-      return { selectedTenants };
-    }),
-  clearSelectedTenants: () => set({ selectedTenants: {} }),
-  removeSelectedTenant: (tenantId) =>
-    set((state) => {
-      const selectedTenants = { ...state.selectedTenants };
-      delete selectedTenants[tenantId];
-      return { selectedTenants };
-    }),
   setConfirmAction: (confirmAction) => set({ confirmAction }),
 }));
