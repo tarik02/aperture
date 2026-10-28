@@ -151,6 +151,8 @@ export function useSessionDialogs(
             void navigate({
               to: "/-/sessions/$sessionId",
               params: { sessionId: result.session.id },
+              // From a workbench, keep how it is shown, such as embedded or without WebRTC.
+              search: options.currentSessionId === undefined ? undefined : true,
             }),
         });
       },

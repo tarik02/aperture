@@ -1,6 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { MoreHorizontal, PlusIcon } from "lucide-react";
-import type { ReactElement, ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { SelectionLabel, type ItemSelection } from "#/components/resources/selection-checkbox.tsx";
 import type { BrowserPage, Session } from "@aperture-browser/api-client";
 import { Badge } from "@aperture-browser/ui/components/badge";
@@ -27,6 +27,7 @@ import {
   versionedUrl,
 } from "#/features/session/session-display.ts";
 import { useBrowserStatusQuery } from "#/features/session/session.queries.ts";
+import { useInView } from "#/hooks/use-in-view.ts";
 
 const tile =
   "aperture:group aperture:relative aperture:flex aperture:aspect-video aperture:w-40 aperture:shrink-0 aperture:flex-col aperture:overflow-hidden aperture:text-left aperture:outline-none aperture:focus-visible:ring-3 aperture:focus-visible:ring-ring/50 aperture:disabled:cursor-default aperture:disabled:opacity-60";
@@ -56,9 +57,19 @@ export function SessionCard({
   wrap,
 }: SessionCardProps) {
   const navigate = useNavigate();
-  const statusQuery = useBrowserStatusQuery(session);
+  const [element, setElement] = useState<HTMLElement | null>(null);
+  // Only cards on screen keep their page list fresh; one scrolled back into view catches up.
+  const inView = useInView(element);
+  const statusQuery = useBrowserStatusQuery(session, { poll: inView });
+  const refetchStatus = statusQuery.refetch;
+  const statusUpdatedAt = statusQuery.dataUpdatedAt;
+  useEffect(() => {
+    if (inView && statusUpdatedAt > 0 && Date.now() - statusUpdatedAt > staleAfterMs) {
+      void refetchStatus();
+    }
+  }, [inView, refetchStatus, statusUpdatedAt]);
   const pages = openPages(statusQuery.data?.pages);
-  const version = statusQuery.dataUpdatedAt;
+  const version = useThumbnailVersion(statusQuery.data, statusUpdatedAt);
   const openable = isOpenable(session.status);
   const running = session.status === "running";
   const openElsewhere = (openInfo?.tabs ?? 0) > 0;
@@ -129,6 +140,7 @@ export function SessionCard({
 
   const card = (
     <article
+      ref={setElement}
       className={cn(
         "aperture:group/item aperture:flex aperture:min-w-0 aperture:flex-col aperture:overflow-hidden aperture:rounded-xl aperture:bg-card aperture:ring-1 aperture:ring-foreground/10 aperture:sm:flex-row",
         openElsewhere && "aperture:ring-primary/40",
@@ -212,6 +224,22 @@ export function SessionCard({
   );
 
   return wrap ? wrap(card) : card;
+}
+
+const staleAfterMs = 10_000;
+const thumbnailRefreshMs = 60_000;
+
+/**
+ * Cache-busts thumbnails when the page list changes, and otherwise at most once a minute, so a
+ * poll that finds nothing new doesn't download every thumbnail again.
+ */
+function useThumbnailVersion(data: unknown, updatedAt: number) {
+  const last = useRef({ data, version: updatedAt });
+  // Query results keep their identity while nothing in them changed.
+  if (data !== last.current.data || updatedAt - last.current.version >= thumbnailRefreshMs) {
+    last.current = { data, version: updatedAt };
+  }
+  return last.current.version;
 }
 
 function targetThumbnail(session: Session, targetId: string, version: number) {

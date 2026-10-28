@@ -57,9 +57,13 @@ export function useSessionsInfiniteQuery(
       previousQuery?.queryKey[1] === tenantKey ? previous : undefined,
     ...listQueryDefaults,
     // Polling pauses while the page is hidden and stops once the list fails, so a broken
-    // connection is not hammered; focusing the window refetches it.
+    // connection is not hammered; focusing the window refetches it. A refetch reloads every
+    // loaded page, so the interval grows with them and the request rate stays the same.
     refetchInterval: options.poll
-      ? (query) => (query.state.status === "error" ? false : pollInterval)
+      ? (query) =>
+          query.state.status === "error"
+            ? false
+            : pollInterval * Math.max(1, query.state.data?.pages.length ?? 1)
       : false,
     refetchOnWindowFocus: options.poll ? "always" : listQueryDefaults.refetchOnWindowFocus,
   });
@@ -124,9 +128,12 @@ export function useSessionQuery(sessionId: string | undefined) {
  * The pages of a running session, or those saved when it suspended. The endpoint is passive:
  * listing never opens a live connection or wakes the browser.
  */
-export function useBrowserStatusQuery(session: Session, options: { enabled?: boolean } = {}) {
+export function useBrowserStatusQuery(
+  session: Session,
+  options: { enabled?: boolean; poll?: boolean } = {},
+) {
   const api = useTenantApi();
-  const running = session.status === "running";
+  const running = session.status === "running" && options.poll !== false;
 
   return useQuery({
     queryKey: queryKeys.browserStatus(api.tenantKey, session.id, session.status),

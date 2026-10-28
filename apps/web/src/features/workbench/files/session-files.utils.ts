@@ -53,6 +53,11 @@ export function baseName(relativePath: string): string {
   return relativePath.slice(relativePath.lastIndexOf("/") + 1);
 }
 
+/** The path with spaces around its last segment removed, as typed names are validated. */
+export function trimBaseName(relativePath: string): string {
+  return joinPath(parentPath(relativePath), baseName(relativePath).trim());
+}
+
 /** The fixed top-level directories cannot be deleted, moved or renamed. */
 export function isRootDirectory(relativePath: string): boolean {
   return (sessionFileRootDirectories as ReadonlyArray<string>).includes(relativePath);

@@ -76,6 +76,9 @@ export function SnapshotRow({
         >
           {snapshot.description ?? "No description"}
         </p>
+        {snapshot.tags && Object.keys(snapshot.tags).length > 0 ? (
+          <TagChips tags={snapshot.tags} />
+        ) : null}
         <p className="aperture:truncate aperture:text-xs aperture:text-muted-foreground">
           <span title={format(createdAt, "yyyy-MM-dd HH:mm")}>
             Saved {formatDistanceToNow(createdAt, { addSuffix: true })}
@@ -123,7 +126,7 @@ export function SnapshotRow({
               <>
                 <DropdownMenuItem onClick={() => actions.editSnapshot(snapshot)}>
                   <Pencil />
-                  Edit description
+                  Edit
                 </DropdownMenuItem>
                 {permissions.canSaveSnapshots ? (
                   <SessionPickerSubmenu
@@ -155,4 +158,43 @@ export function SnapshotRow({
   );
 
   return wrap ? wrap(row) : row;
+}
+
+const visibleTagCount = 6;
+
+function TagChips({ tags }: { tags: Record<string, string> }) {
+  const entries = Object.entries(tags);
+  const hidden = entries.length - visibleTagCount;
+  return (
+    <ul
+      aria-label="Tags"
+      className="aperture:flex aperture:flex-wrap aperture:gap-1 aperture:py-0.5"
+    >
+      {entries.slice(0, visibleTagCount).map(([key, value]) => (
+        <li key={key}>
+          <Badge
+            variant="secondary"
+            title={`${key}=${value}`}
+            className="aperture:max-w-56 aperture:gap-0 aperture:font-normal"
+          >
+            <span className="aperture:truncate aperture:text-muted-foreground">{key}=</span>
+            <span className="aperture:truncate aperture:font-mono">{value}</span>
+          </Badge>
+        </li>
+      ))}
+      {hidden > 0 ? (
+        <li>
+          <Badge
+            variant="outline"
+            title={entries
+              .slice(visibleTagCount)
+              .map(([key, value]) => `${key}=${value}`)
+              .join("\n")}
+          >
+            +{hidden}
+          </Badge>
+        </li>
+      ) : null}
+    </ul>
+  );
 }

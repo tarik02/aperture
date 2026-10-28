@@ -57,6 +57,7 @@ import {
   toTreeDirectory,
   treePaths,
   uniqueName,
+  trimBaseName,
   validateEntryName,
 } from "./session-files.utils.ts";
 
@@ -257,7 +258,7 @@ function SessionFilesTreePanel({ sessionId }: { sessionId: string }) {
         queueMicrotask(() => sync(true));
         return;
       }
-      void moveEntries([{ from: sourcePath, to: destinationPath }], "rename");
+      void moveEntries([{ from: sourcePath, to: trimBaseName(destinationPath) }], "rename");
     },
     drop({ draggedPaths, target }) {
       if (target.directoryPath === null) return;
@@ -315,7 +316,7 @@ function SessionFilesTreePanel({ sessionId }: { sessionId: string }) {
       return;
     }
     try {
-      await createDirectory.mutateAsync(relativePath);
+      await createDirectory.mutateAsync(trimBaseName(relativePath));
     } catch (error) {
       toast.error("Could not create folder", { description: errorMessage(error) });
       sync(true);

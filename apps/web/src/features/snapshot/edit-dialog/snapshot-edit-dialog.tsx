@@ -12,8 +12,17 @@ import {
 } from "@aperture-browser/ui/components/dialog";
 import { Field, FieldLabel } from "@aperture-browser/ui/components/field";
 import { Spinner } from "@aperture-browser/ui/components/spinner";
+import {
+  entriesToTags,
+  TagEditor,
+  tagsToEntries,
+  type TagEntry,
+} from "@aperture-browser/ui/components/tag-editor";
 import { Textarea } from "@aperture-browser/ui/components/textarea";
-import { useUpdateSnapshotMutation } from "#/features/snapshot/snapshot.mutations.ts";
+import {
+  useReplaceSnapshotTagsMutation,
+  useUpdateSnapshotMutation,
+} from "#/features/snapshot/snapshot.mutations.ts";
 
 type SnapshotEditDialogProps = {
   snapshot: Snapshot | null;
@@ -43,20 +52,35 @@ const formId = "snapshot-edit-form";
 
 function SnapshotEditForm({ snapshot, onDone }: { snapshot: Snapshot; onDone: () => void }) {
   const mutation = useUpdateSnapshotMutation();
-  const [defaultValues] = useState(() => ({ description: snapshot.description ?? "" }));
+  const tagsMutation = useReplaceSnapshotTagsMutation();
+  const [defaultValues] = useState(() => ({
+    description: snapshot.description ?? "",
+    tagEntries: tagsToEntries(snapshot.tags ?? {}) as TagEntry[],
+  }));
   const form = useForm({
     defaultValues,
     onSubmit: async ({ value }) => {
-      const description = value.description.trim();
-      const result = await mutation
-        .mutateAsync({ name: snapshot.name, description: description === "" ? null : description })
-        // The failure shows inline from mutation.error.
-        .catch(() => null);
-      if (result) {
+      const description = value.description.trim() || null;
+      const tags = entriesToTags(value.tagEntries);
+      // Each part saves only when it changed; a failure shows inline from the mutation's error.
+      const descriptionSaved =
+        description === (snapshot.description ?? null) ||
+        (await mutation
+          .mutateAsync({ name: snapshot.name, description })
+          .then(() => true)
+          .catch(() => false));
+      const tagsSaved =
+        sameTags(tags, snapshot.tags ?? {}) ||
+        (await tagsMutation
+          .mutateAsync({ name: snapshot.name, tags })
+          .then(() => true)
+          .catch(() => false));
+      if (descriptionSaved && tagsSaved) {
         onDone();
       }
     },
   });
+  const error = mutation.error ?? tagsMutation.error;
   const submitting = useStore(form.store, (state) => state.isSubmitting);
 
   return (
@@ -89,9 +113,16 @@ function SnapshotEditForm({ snapshot, onDone }: { snapshot: Snapshot; onDone: ()
           </Field>
         )}
       </form.Field>
-      {mutation.error ? (
-        <p className="aperture:text-sm aperture:text-destructive">{mutation.error.message}</p>
-      ) : null}
+      <form.Field name="tagEntries">
+        {(field) => (
+          <TagEditor
+            entries={field.state.value}
+            onChange={field.handleChange}
+            disabled={submitting}
+          />
+        )}
+      </form.Field>
+      {error ? <p className="aperture:text-sm aperture:text-destructive">{error.message}</p> : null}
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onDone} disabled={submitting}>
           Cancel
@@ -102,5 +133,13 @@ function SnapshotEditForm({ snapshot, onDone }: { snapshot: Snapshot; onDone: ()
         </Button>
       </DialogFooter>
     </form>
+  );
+}
+
+function sameTags(left: Record<string, string>, right: Record<string, string>) {
+  const leftKeys = Object.keys(left);
+  return (
+    leftKeys.length === Object.keys(right).length &&
+    leftKeys.every((key) => left[key] === right[key])
   );
 }

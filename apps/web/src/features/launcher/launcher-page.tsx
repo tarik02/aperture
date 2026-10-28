@@ -2,6 +2,7 @@ import { skipToken, useQueries } from "@tanstack/react-query";
 import { AppWindow, Check, ChevronDown, Layers, ListFilter, Plus, SearchIcon } from "lucide-react";
 import { useDeferredValue, useEffect, useMemo, type ReactNode } from "react";
 import { BatchActionBar } from "#/components/resources/batch-action-bar.tsx";
+import { TagFilterButton } from "#/components/resources/tag-filter-button.tsx";
 import {
   BulkActionButtons,
   SelectionContextMenu,
@@ -84,33 +85,57 @@ export function LauncherPage({ view }: { view: LauncherView }) {
   const snapshotSearch = useLauncherStore((state) => state.snapshotSearch);
   const sessionStatus = useLauncherStore((state) => state.sessionStatus);
   const showDeletedSnapshots = useLauncherStore((state) => state.showDeletedSnapshots);
+  const sessionTags = useLauncherStore((state) => state.sessionTags);
+  const snapshotTags = useLauncherStore((state) => state.snapshotTags);
+  const setSessionTags = useLauncherStore((state) => state.setSessionTags);
+  const setSnapshotTags = useLauncherStore((state) => state.setSnapshotTags);
   const setSessionSearch = useLauncherStore((state) => state.setSessionSearch);
   const setSnapshotSearch = useLauncherStore((state) => state.setSnapshotSearch);
   const setSessionStatus = useLauncherStore((state) => state.setSessionStatus);
   const setShowDeletedSnapshots = useLauncherStore((state) => state.setShowDeletedSnapshots);
 
-  const sessionsQuery = useSessionsInfiniteQuery(
-    {
-      limit: 100,
-      status: sessionStatus === "active" ? undefined : sessionStatus,
-      includeDeleted: sessionStatus === "deleted",
-    },
-    { poll: true },
+  const sessionFilters = {
+    limit: 100,
+    status: sessionStatus === "active" ? undefined : sessionStatus,
+    includeDeleted: sessionStatus === "deleted",
+    tags: sessionTags,
+  };
+  const sessionsQuery = useSessionsInfiniteQuery(sessionFilters, { poll: true });
+  const sessionNeedle = useDeferredValue(sessionSearch.trim().toLowerCase());
+  // The server searches labels, ids and snapshot names across every session, not only the
+  // loaded pages; page titles and URLs are matched here from what the cards loaded.
+  const searchQuery = useSessionsInfiniteQuery(
+    { ...sessionFilters, query: sessionNeedle },
+    { enabled: sessionNeedle !== "" },
   );
   const snapshotsQuery = useSnapshotsInfiniteQuery({
     limit: 100,
     deleted: showDeletedSnapshots ? "all" : "active",
+    tags: snapshotTags,
   });
   useFailureNotice("sessions-list", "Sessions", sessionsQuery.error);
   useFailureNotice("snapshots-list", "Snapshots", snapshotsQuery.error);
 
+  const searchPages = sessionNeedle ? searchQuery.data?.pages : undefined;
   const sessions = useMemo(() => {
     const now = Date.now();
-    return flattenInfinitePages(sessionsQuery.data?.pages)
+    const byId = new Map<string, Session>();
+    // Search results the loaded pages don't have yet join the list.
+    for (const session of [
+      ...flattenInfinitePages(sessionsQuery.data?.pages),
+      ...flattenInfinitePages(searchPages),
+    ]) {
+      byId.set(session.id, session);
+    }
+    return [...byId.values()]
       .filter((session) => sessionStatus !== "active" || !isExpired(session, now))
       .filter((session) => sessionStatus !== "active" || session.status !== "deleted")
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-  }, [sessionsQuery.data?.pages, sessionStatus]);
+  }, [sessionsQuery.data?.pages, searchPages, sessionStatus]);
+  const serverMatchIds = useMemo(
+    () => new Set(flattenInfinitePages(searchPages).map((session) => session.id)),
+    [searchPages],
+  );
   const snapshots = useMemo(
     () => flattenInfinitePages(snapshotsQuery.data?.pages),
     [snapshotsQuery.data?.pages],
@@ -136,24 +161,25 @@ export function LauncherPage({ view }: { view: LauncherView }) {
   }, [sessions, statuses]);
   const titleOf = (session: Session) => sessionTitle(session, pagesById.get(session.id));
 
-  const sessionNeedle = useDeferredValue(sessionSearch.trim().toLowerCase());
   const visibleSessionIds = useMemo(() => {
     if (!sessionNeedle) {
       return null;
     }
     return new Set(
       sessions
-        .filter((session) =>
-          matchesSearch(sessionNeedle, [
-            session.label,
-            session.baseSnapshotName,
-            session.id,
-            ...(pagesById.get(session.id) ?? []).flatMap((page) => [page.title, page.url]),
-          ]),
+        .filter(
+          (session) =>
+            serverMatchIds.has(session.id) ||
+            matchesSearch(sessionNeedle, [
+              session.label,
+              session.baseSnapshotName,
+              session.id,
+              ...(pagesById.get(session.id) ?? []).flatMap((page) => [page.title, page.url]),
+            ]),
         )
         .map((session) => session.id),
     );
-  }, [pagesById, sessionNeedle, sessions]);
+  }, [pagesById, serverMatchIds, sessionNeedle, sessions]);
 
   const snapshotNeedle = useDeferredValue(snapshotSearch.trim().toLowerCase());
   const visibleSnapshots = useMemo(
@@ -164,6 +190,15 @@ export function LauncherPage({ view }: { view: LauncherView }) {
           )
         : snapshots,
     [snapshotNeedle, snapshots],
+  );
+
+  const sessionTagSets = useMemo(
+    () => sessions.flatMap((session) => (session.tags ? [session.tags] : [])),
+    [sessions],
+  );
+  const snapshotTagSets = useMemo(
+    () => snapshots.flatMap((snapshot) => (snapshot.tags ? [snapshot.tags] : [])),
+    [snapshots],
   );
 
   const saveableSessions = useMemo(
@@ -179,12 +214,13 @@ export function LauncherPage({ view }: { view: LauncherView }) {
     [sessions, visibleSessionIds],
   );
   const sessionSelection = useRowSelection({
-    tableKey: "launcher-sessions",
+    // Per tenant: a selection made in one must not act with another tenant's credentials.
+    tableKey: `launcher-sessions:${api.tenantKey}`,
     rows: visibleSessions,
     getId: getItemId,
   });
   const snapshotSelection = useRowSelection({
-    tableKey: "launcher-snapshots",
+    tableKey: `launcher-snapshots:${api.tenantKey}`,
     rows: visibleSnapshots,
     getId: getItemId,
   });
@@ -201,7 +237,9 @@ export function LauncherPage({ view }: { view: LauncherView }) {
   // Another status filter shows other sessions; a selection the list no longer shows would
   // still be acted on.
   const clearSessionSelection = sessionSelection.clear;
-  useEffect(() => clearSessionSelection(), [clearSessionSelection, sessionStatus]);
+  useEffect(() => clearSessionSelection(), [clearSessionSelection, sessionStatus, sessionTags]);
+  const clearSnapshotSelection = snapshotSelection.clear;
+  useEffect(() => clearSnapshotSelection(), [clearSnapshotSelection, snapshotTags]);
 
   const clearCurrent = current.selection.clear;
   const hasSelection = current.selection.selectedCount > 0;
@@ -254,6 +292,12 @@ export function LauncherPage({ view }: { view: LauncherView }) {
               value={sessionSearch}
               onChange={setSessionSearch}
             />
+            <TagFilterButton
+              label="Filter sessions by tags"
+              value={sessionTags}
+              availableTags={sessionTagSets}
+              onChange={setSessionTags}
+            />
             <StatusFilterMenu value={sessionStatus} onChange={setSessionStatus} />
             {permissions.canWrite ? (
               <NewSessionButton onCustom={(request) => actions.newSession(request)} />
@@ -266,6 +310,12 @@ export function LauncherPage({ view }: { view: LauncherView }) {
               label="Search snapshots"
               value={snapshotSearch}
               onChange={setSnapshotSearch}
+            />
+            <TagFilterButton
+              label="Filter snapshots by tags"
+              value={snapshotTags}
+              availableTags={snapshotTagSets}
+              onChange={setSnapshotTags}
             />
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -330,13 +380,13 @@ export function LauncherPage({ view }: { view: LauncherView }) {
                   wrap={selectionMenu(sessionSelection, session.id, sessionBulk.actions)}
                 />
               ))}
-              {sessionsQuery.isPending ? (
+              {sessionsQuery.isPending || (sessionNeedle !== "" && searchQuery.isPending) ? (
                 <CenteredNote>
                   <Spinner />
                 </CenteredNote>
               ) : visibleSessionCount === 0 ? (
                 <CenteredNote>
-                  {sessionNeedle
+                  {sessionNeedle || sessionTags
                     ? "No sessions match."
                     : sessionStatus === "active"
                       ? "No browser sessions yet."
@@ -370,7 +420,7 @@ export function LauncherPage({ view }: { view: LauncherView }) {
                 <CenteredNote>
                   <Spinner />
                 </CenteredNote>
-              ) : snapshots.length === 0 ? (
+              ) : snapshots.length === 0 && !snapshotTags ? (
                 <div className="aperture:grid aperture:justify-items-center aperture:gap-2 aperture:rounded-xl aperture:border aperture:border-dashed aperture:p-8 aperture:text-center">
                   <Layers className="aperture:size-6 aperture:text-muted-foreground" />
                   <p className="aperture:text-sm aperture:font-medium">No snapshots yet</p>

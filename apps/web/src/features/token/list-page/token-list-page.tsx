@@ -51,6 +51,7 @@ import { useRevokeTokenMutation } from "#/features/token/token.mutations.ts";
 import { useTokensInfiniteQuery } from "#/features/token/token.queries.ts";
 import { hasScope, useActiveScopes } from "#/hooks/use-scopes.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
+import { resolveTenantKey } from "#/hooks/use-tenant-api.ts";
 import { formatTimestamp } from "#/lib/format.ts";
 import { adminScopeOptions, scopeLabel, scopePriority, tenantScopeOptions } from "#/lib/scopes.ts";
 import type { TokenRevokedFilterValue, TokensFilters } from "#/lib/api/query-keys.ts";
@@ -143,7 +144,8 @@ export function TokenListPage() {
     [canCreate, query.data?.pages],
   );
   const selection = useRowSelection({
-    tableKey: "tokens",
+    // Per tenant: a selection made in one must not act with another tenant's credentials.
+    tableKey: `tokens:${resolveTenantKey(credentials)}`,
     rows: selectableTokens,
     getId: getTokenId,
   });
