@@ -13,7 +13,6 @@ import {
 } from "#/components/resources/infinite-table-shell.tsx";
 import { DeletedBadge, PersonalTenantBadge } from "#/components/resources/status-badge.tsx";
 import { Button } from "@aperture-browser/ui/components/button";
-import { Checkbox } from "@aperture-browser/ui/components/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,6 +41,8 @@ import { useTenantFormModalStore } from "#/features/tenant/form-modal/tenant-for
 import { useTenantListPageStore } from "#/features/tenant/list-page/tenant-list-page.store.ts";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
 import { useTenantSelection } from "#/hooks/use-tenant-selection.ts";
+import { useRowSelection } from "#/hooks/use-row-selection.ts";
+import { TableSelectAll, TableSelectRow } from "#/components/resources/table-selection.tsx";
 
 const TENANT_SKELETON_COLUMNS = [
   {
@@ -54,6 +55,8 @@ const TENANT_SKELETON_COLUMNS = [
     skeletonClassName: "aperture:ml-auto aperture:size-7",
   },
 ] as const;
+
+const getTenantId = (tenant: Tenant) => tenant.id;
 
 export function TenantListPage() {
   const { selectTenant: switchTenant } = useTenantSelection();
@@ -75,13 +78,19 @@ export function TenantListPage() {
   const initCreateTenant = useTenantFormStore((state) => state.initCreate);
   const initEditTenant = useTenantFormStore((state) => state.initEdit);
   const openTenantModal = useTenantFormModalStore((state) => state.openModal);
-  const selectedTenants = useTenantListPageStore((state) => state.selectedTenants);
   const confirmAction = useTenantListPageStore((state) => state.confirmAction);
-  const toggleTenantSelection = useTenantListPageStore((state) => state.toggleTenantSelection);
-  const clearSelectedTenants = useTenantListPageStore((state) => state.clearSelectedTenants);
-  const removeSelectedTenant = useTenantListPageStore((state) => state.removeSelectedTenant);
   const setConfirmAction = useTenantListPageStore((state) => state.setConfirmAction);
-  const selectedTenantItems = useMemo(() => Object.values(selectedTenants), [selectedTenants]);
+  const loadedTenants = useMemo(
+    () => query.data?.pages.flatMap((page) => page.data) ?? [],
+    [query.data?.pages],
+  );
+  const selection = useRowSelection({
+    tableKey: "tenants",
+    rows: loadedTenants,
+    getId: getTenantId,
+  });
+  const selectedTenantItems = selection.selectedItems;
+  const clearSelectedTenants = selection.clear;
   const deletableTenantItems = selectedTenantItems.filter((tenant) => !tenant.deletedAt);
   // Deleting a personal tenant is final.
   const restorableTenantItems = selectedTenantItems.filter(
@@ -120,7 +129,7 @@ export function TenantListPage() {
         return;
       case "delete":
         await deleteMutation.mutateAsync(action.tenant.id);
-        removeSelectedTenant(action.tenant.id);
+        selection.remove(action.tenant.id);
         return;
       default: {
         const _exhaustive: never = action;
@@ -159,6 +168,10 @@ export function TenantListPage() {
   return (
     <div className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-col">
       <PageHeaderActions>
+        <div className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:gap-2">
+          <SearchInput value={search} onChange={setSearch} placeholder="Search tenants" />
+          <DeletedStatusSelect value={deleted} onChange={setDeleted} />
+        </div>
         <Button
           size="sm"
           onClick={() => {
@@ -170,11 +183,6 @@ export function TenantListPage() {
           Create
         </Button>
       </PageHeaderActions>
-
-      <div className="aperture:flex aperture:shrink-0 aperture:flex-wrap aperture:items-center aperture:gap-2 aperture:p-3">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search tenants" />
-        <DeletedStatusSelect value={deleted} onChange={setDeleted} />
-      </div>
 
       <BatchActionBar selectedCount={selectedTenantItems.length} onClear={clearSelectedTenants}>
         <Button
@@ -223,7 +231,11 @@ export function TenantListPage() {
           <Table stickyFirstColumn stickyLastColumn>
             <TableHeader>
               <TableRow>
-                <TableHead className="aperture:w-8" />
+                <TableSelectAll
+                  allSelected={selection.allSelected}
+                  someSelected={selection.someSelected}
+                  onCheckedChange={selection.toggleAll}
+                />
                 <TableHead>Name</TableHead>
                 <TableHead>ID</TableHead>
                 <TableHead>Created</TableHead>
@@ -234,22 +246,17 @@ export function TenantListPage() {
               {items.map((tenant) => (
                 <TableRow
                   key={tenant.id}
-                  data-state={selectedTenants[tenant.id] ? "selected" : undefined}
+                  data-state={selection.isSelected(tenant.id) ? "selected" : undefined}
                 >
-                  <TableCell
-                    className="aperture:cursor-pointer"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      toggleTenantSelection(tenant, !selectedTenants[tenant.id]);
-                    }}
-                  >
-                    <Checkbox
-                      aria-label={`Select tenant ${tenant.displayName}`}
-                      checked={Boolean(selectedTenants[tenant.id])}
-                      onClick={(event) => event.stopPropagation()}
-                      onCheckedChange={(checked) => toggleTenantSelection(tenant, checked)}
-                    />
-                  </TableCell>
+                  <TableSelectRow
+                    rowId={tenant.id}
+                    checked={selection.isSelected(tenant.id)}
+                    label={`Select tenant ${tenant.displayName}`}
+                    drag={selection.drag}
+                    onCheckedChange={(checked, shiftKey) =>
+                      selection.toggleOne(tenant.id, checked, shiftKey)
+                    }
+                  />
                   <TableCell>
                     <span className="aperture:flex aperture:items-center aperture:gap-2">
                       {tenant.displayName}

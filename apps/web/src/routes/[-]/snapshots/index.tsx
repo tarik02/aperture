@@ -1,6 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { SnapshotListPage } from "#/features/snapshot/list-page/snapshot-list-page.tsx";
+import { Navigate, createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/-/snapshots/")({
-  component: SnapshotListPage,
+  component: SnapshotsRoute,
 });
+
+function SnapshotsRoute() {
+  return <Navigate to="/-/sessions" search={{ view: "snapshots" }} replace />;
+}

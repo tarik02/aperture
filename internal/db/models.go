@@ -211,22 +211,25 @@ type Snapshot struct {
 type Session struct {
 	bun.BaseModel `bun:"table:sessions"`
 
-	ID              string  `bun:"id,pk"`
-	TenantID        string  `bun:"tenant_id,notnull"`
-	BaseSnapshotID  *string `bun:"base_snapshot_id"`
-	Label           *string `bun:"label"`
-	Status          string  `bun:"status,notnull"`
-	OverlayPath     string  `bun:"overlay_path,notnull"`
-	UpperPath       string  `bun:"upper_path,notnull"`
-	WorkPath        string  `bun:"work_path,notnull"`
-	MergedPath      string  `bun:"merged_path,notnull"`
-	DownloadsPath   string  `bun:"downloads_path,notnull"`
-	CachePath       string  `bun:"cache_path,notnull"`
-	ArtifactsPath   string  `bun:"artifacts_path,notnull"`
-	RuntimeEnvPath  *string `bun:"runtime_env_path"`
-	CurrentCDPPort  *int    `bun:"current_cdp_port"`
-	BrowserChannel  string  `bun:"browser_channel,notnull"`
-	BrowserArgsJSON string  `bun:"browser_args_json,notnull"`
+	ID             string  `bun:"id,pk"`
+	TenantID       string  `bun:"tenant_id,notnull"`
+	BaseSnapshotID *string `bun:"base_snapshot_id"`
+	Label          *string `bun:"label"`
+	Status         string  `bun:"status,notnull"`
+	OverlayPath    string  `bun:"overlay_path,notnull"`
+	UpperPath      string  `bun:"upper_path,notnull"`
+	WorkPath       string  `bun:"work_path,notnull"`
+	MergedPath     string  `bun:"merged_path,notnull"`
+	DownloadsPath  string  `bun:"downloads_path,notnull"`
+	CachePath      string  `bun:"cache_path,notnull"`
+	ArtifactsPath  string  `bun:"artifacts_path,notnull"`
+	RuntimeEnvPath *string `bun:"runtime_env_path"`
+	CurrentCDPPort *int    `bun:"current_cdp_port"`
+	// CurrentWrapperPort is kept with the CDP port: a suspended session's
+	// runtime env lives on tmpfs and does not survive a host reboot.
+	CurrentWrapperPort *int   `bun:"current_wrapper_port"`
+	BrowserChannel     string `bun:"browser_channel,notnull"`
+	BrowserArgsJSON    string `bun:"browser_args_json,notnull"`
 	// ProxyConfig is stored as JSON, secrets included; NULL is the default
 	// configuration.
 	ProxyConfig     *proxy.Config `bun:"proxy_config"`

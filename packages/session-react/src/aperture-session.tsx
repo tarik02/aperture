@@ -19,7 +19,14 @@ import type { SessionAccess } from "@aperture-browser/live-session";
 export interface SessionProps {
   readonly access: SessionAccess | null;
   readonly features?: SessionFeatures;
+  /** Rendered at the start of the title bar row, before the tab strip. */
   readonly leading?: ReactNode;
+  /** Rendered at the end of the title bar row, after the participants. */
+  readonly trailing?: ReactNode;
+  /** Rendered at the start of the toolbar row, before the navigation buttons. */
+  readonly toolbarLeading?: ReactNode;
+  /** Rendered at the end of the toolbar row, before the menus. */
+  readonly toolbarTrailing?: ReactNode;
 }
 
 export interface ApertureSessionProps extends SessionProps {
@@ -41,7 +48,14 @@ export function ApertureSession({ theme = "system", className, ...props }: Apert
   );
 }
 
-export function Session({ access, features, leading }: SessionProps) {
+export function Session({
+  access,
+  features,
+  leading,
+  trailing,
+  toolbarLeading,
+  toolbarTrailing,
+}: SessionProps) {
   const { status, control } = useSession({ access, onNotice: showNotice });
 
   switch (status) {
@@ -93,6 +107,9 @@ export function Session({ access, features, leading }: SessionProps) {
             cdpUrl={null}
             shareUrls={null}
             leading={leading}
+            trailing={trailing}
+            toolbarLeading={toolbarLeading}
+            toolbarTrailing={toolbarTrailing}
             features={{ devTools: false, ...features }}
           />
         </div>

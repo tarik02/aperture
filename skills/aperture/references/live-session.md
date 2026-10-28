@@ -1,11 +1,12 @@
 # Live session
 
-The live session is a running session's transient state: browser targets, connected clients, presentation, the input lease, recordings. These routes expose it; the viewport and uploads routes are also in the spec under the `live-session` tag.
+The live session is a running session's transient state: browser targets, connected clients, presentation, the input lease, recordings. These routes expose it; the viewport, uploads and browser status routes are also in the spec under the `live-session` tag.
 
 | Route | Credentials | Purpose |
 |---|---|---|
 | `GET /sessions/:id/session` (WebSocket) | API `sessions:read` or more, `aps_`, `ape_`, `apv_` | the session protocol below, with JPEG presentation frames |
 | `GET /sessions/:id/webrtc/signal` (WebSocket) | same | the same protocol over WebRTC data channels, with a video track |
+| `GET /sessions/:id/browser/status` | API `sessions:read` or more, `aps_`, `ape_`, `apv_` | top-level pages without waking; also for `suspended` sessions, see [control-plane.md](control-plane.md) |
 | `POST /sessions/:id/browser/viewport` | API `sessions:write`, `aps_`, `ape_` | resize one top-level target; body `{targetId, width, height, deviceScaleFactor}` |
 | `GET`/`PUT /sessions/:id/browser/cursor` | same | remote cursor visibility in the stream and recordings, `{"visible": bool}` |
 | `/sessions/:id/recordings…` | same | [recordings.md](recordings.md) |

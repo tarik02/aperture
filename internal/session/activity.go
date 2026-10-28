@@ -363,8 +363,9 @@ func (s *Service) wakeSuspendedSession(ctx context.Context, sessionRow *db.Sessi
 
 	// A session wakes on the ports it kept while they are still free; otherwise it takes new ones,
 	// and the session row and the edge routes follow below.
-	if port := sessionRow.CurrentCDPPort; port != nil && (!s.ports.free(*port) || !s.ports.free(runtimeEnvWrapperPort(sessionRow))) {
+	if port := sessionRow.CurrentCDPPort; port != nil && (!s.ports.free(*port) || !s.ports.free(sessionWrapperPort(sessionRow))) {
 		sessionRow.CurrentCDPPort = nil
+		sessionRow.CurrentWrapperPort = nil
 	}
 	runtimeEnv, runtimePath, err := s.runtimeEnvForSession(ctx, sessionRow)
 	if err != nil {
@@ -399,6 +400,7 @@ func (s *Service) wakeSuspendedSession(ctx context.Context, sessionRow *db.Sessi
 	sessionRow.ExpiresAt = expiresAt
 	sessionRow.RuntimeEnvPath = &runtimePath
 	sessionRow.CurrentCDPPort = &runtimeEnv.CDPPort
+	sessionRow.CurrentWrapperPort = &runtimeEnv.WrapperPort
 	sessionRow.LastConnectedAt = &startedAt
 
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
@@ -511,7 +513,7 @@ func (s *Service) runtimeEnvForSession(ctx context.Context, sessionRow *db.Sessi
 		return browser.RuntimeEnvValues{}, "", err
 	}
 	if sessionRow.CurrentCDPPort != nil && *sessionRow.CurrentCDPPort > 0 {
-		if wrapperPort := runtimeEnvWrapperPort(sessionRow); wrapperPort > 0 {
+		if wrapperPort := sessionWrapperPort(sessionRow); wrapperPort > 0 {
 			return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, proxyConfig, *sessionRow.CurrentCDPPort, wrapperPort, rawSessionToken, controlToken), layout.RuntimeEnv, nil
 		}
 	}

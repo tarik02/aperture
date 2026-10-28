@@ -79,8 +79,9 @@ export function ConnectionPanel({ session, onRotate, modalFooter }: ConnectionPa
     onRotate?.(result.session);
   }
 
-  const fields = (
-    <div className="aperture:flex aperture:flex-col aperture:gap-3">
+  const hasFields = Boolean(cdpUrl || currentSession.sessionToken || shareLink);
+  const fields = hasFields ? (
+    <div className="aperture:flex aperture:flex-col aperture:gap-2">
       {cdpUrl ? <CopyField value={cdpUrl} label="CDP URL" /> : null}
       {currentSession.sessionToken ? (
         <CopyField value={Redacted.value(currentSession.sessionToken)} label="Token" />
@@ -88,6 +89,10 @@ export function ConnectionPanel({ session, onRotate, modalFooter }: ConnectionPa
       {tokenizedCdpUrl ? <CopyField value={tokenizedCdpUrl} label="CDP URL with token" /> : null}
       {shareLink ? <CopyField value={shareLink} label="Share link" /> : null}
     </div>
+  ) : sessionQuery.isLoading ? null : (
+    <p className="aperture:text-sm aperture:text-muted-foreground">
+      Connection details are available while the session is running or suspended.
+    </p>
   );
 
   const actions = (
@@ -122,11 +127,13 @@ export function ConnectionPanel({ session, onRotate, modalFooter }: ConnectionPa
         <>
           <ScrollArea
             className="aperture:min-h-0 aperture:flex-1"
-            viewportClassName="aperture:pr-3"
+            viewportClassName="aperture:data-[has-overflow-y]:pr-3"
           >
             {fields}
           </ScrollArea>
-          <DialogFooter className="aperture:mt-4 aperture:shrink-0">{actions}</DialogFooter>
+          <DialogFooter className="aperture:mt-3 aperture:shrink-0 aperture:py-3">
+            {actions}
+          </DialogFooter>
         </>
       ) : (
         <>

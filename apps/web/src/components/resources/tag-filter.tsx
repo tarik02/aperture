@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { Badge } from "@aperture-browser/ui/components/badge";
 import { Button } from "@aperture-browser/ui/components/button";
-import { ScrollArea } from "@aperture-browser/ui/components/scroll-area";
 import {
   Combobox,
   ComboboxContent,
@@ -61,23 +60,28 @@ export function TagFilter({ value, availableTags, onChange }: TagFilterProps) {
 
   const valueKey = serializeConditions(value ?? []);
 
+  // A value set from outside, such as clearing the filter, replaces the rows; the rows' own
+  // value coming back keeps any half-filled row.
   useEffect(() => {
-    setConditions(ensureDraftRows(value ?? []));
+    setConditions((current) =>
+      serializeConditions(current) === valueKey ? current : ensureDraftRows(value ?? []),
+    );
   }, [valueKey]);
 
-  useEffect(() => {
-    const nextValue = completedConditions(conditions);
-    if (serializeConditions(nextValue) === valueKey) {
-      return;
+  // Edits report the new value right away. Reporting from an effect would race the effect
+  // above when the value changes from outside, and the two would undo each other forever.
+  function commit(next: TagFilterValue) {
+    const rows = ensureDraftRows(next);
+    setConditions(rows);
+    const completed = completedConditions(rows);
+    if (serializeConditions(completed) !== valueKey) {
+      onChange(completed.length > 0 ? completed : undefined);
     }
-    onChange(nextValue.length > 0 ? nextValue : undefined);
-  }, [conditions, onChange, valueKey]);
+  }
 
   function updateCondition(index: number, patch: Partial<TagFilterCondition>) {
-    setConditions((current) =>
-      ensureDraftRows(
-        current.map((condition, i) => (i === index ? { ...condition, ...patch } : condition)),
-      ),
+    commit(
+      conditions.map((condition, i) => (i === index ? { ...condition, ...patch } : condition)),
     );
   }
 
@@ -91,19 +95,17 @@ export function TagFilter({ value, availableTags, onChange }: TagFilterProps) {
     if (!operator) {
       return;
     }
-    setConditions((current) =>
-      ensureDraftRows(
-        current.map((condition, i) =>
-          i === index
-            ? {
-                ...condition,
-                operator,
-                values: operatorAllowsMany(operator)
-                  ? condition.values
-                  : condition.values.slice(0, 1),
-              }
-            : condition,
-        ),
+    commit(
+      conditions.map((condition, i) =>
+        i === index
+          ? {
+              ...condition,
+              operator,
+              values: operatorAllowsMany(operator)
+                ? condition.values
+                : condition.values.slice(0, 1),
+            }
+          : condition,
       ),
     );
   }
@@ -113,13 +115,11 @@ export function TagFilter({ value, availableTags, onChange }: TagFilterProps) {
   }
 
   function addMultiValue(index: number, value: string) {
-    setConditions((current) =>
-      ensureDraftRows(
-        current.map((condition, i) =>
-          i === index && value && !condition.values.includes(value)
-            ? { ...condition, values: [...condition.values, value] }
-            : condition,
-        ),
+    commit(
+      conditions.map((condition, i) =>
+        i === index && value && !condition.values.includes(value)
+          ? { ...condition, values: [...condition.values, value] }
+          : condition,
       ),
     );
   }
@@ -131,110 +131,108 @@ export function TagFilter({ value, availableTags, onChange }: TagFilterProps) {
   }
 
   function removeCondition(index: number) {
-    setConditions((current) => ensureDraftRows(current.filter((_, i) => i !== index)));
+    commit(conditions.filter((_, i) => i !== index));
   }
 
   return (
-    <ScrollArea scrollbars="horizontal" className="aperture:max-w-full aperture:min-w-0">
-      <div className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-1.5">
-        {conditions.map((condition, index) => {
-          const valuesForKey = Array.from(tagIndex.valuesByKey.get(condition.key) ?? []).sort();
-          const many = operatorAllowsMany(condition.operator);
+    <div className="aperture:grid aperture:min-w-0 aperture:gap-1.5">
+      {conditions.map((condition, index) => {
+        const valuesForKey = Array.from(tagIndex.valuesByKey.get(condition.key) ?? []).sort();
+        const many = operatorAllowsMany(condition.operator);
 
-          return (
-            <div
-              key={index}
-              className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-1.5"
-            >
-              <DropdownStringCombobox
-                ariaLabel="Tag key"
-                placeholder="Tag"
-                searchPlaceholder="Search keys"
-                value={condition.key}
-                options={tagIndex.keys}
-                className="aperture:w-32"
-                onChange={(key) => updateKey(index, key)}
-              />
-              {condition.key ? (
-                <>
-                  <Select
-                    items={tagFilterOperators}
-                    value={condition.operator}
-                    onValueChange={(operator) => updateOperator(index, operator)}
-                  >
-                    <SelectTrigger size="sm" className="aperture:w-16">
-                      <SelectValue>
-                        {(selectedValue: unknown) =>
-                          tagFilterOperators.find((item) => item.value === selectedValue)?.label ??
-                          "="
-                        }
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent align="start" className="aperture:min-w-24">
-                      <SelectGroup>
-                        {tagFilterOperators.map((item) => (
-                          <SelectItem key={item.value} value={item.value}>
-                            {item.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  <DropdownStringCombobox
-                    ariaLabel="Tag value"
-                    placeholder={many ? "Add value" : "Value"}
-                    searchPlaceholder="Search values"
-                    value={many ? "" : (condition.values[0] ?? "")}
-                    options={valuesForKey.filter((item) => !condition.values.includes(item))}
-                    className="aperture:w-36"
-                    open={openValueIndex === index}
-                    onOpenChange={(open) =>
-                      setOpenValueIndex((current) => {
-                        if (open) {
-                          return index;
-                        }
-                        return current === index ? null : current;
-                      })
-                    }
-                    onChange={(value) =>
-                      many ? addMultiValue(index, value) : updateSingleValue(index, value)
-                    }
-                  />
-                  {many
-                    ? condition.values.map((tagValue) => (
-                        <Badge
-                          key={tagValue}
-                          variant="secondary"
-                          className="aperture:max-w-28 aperture:font-normal"
+        return (
+          <div
+            key={index}
+            className="aperture:flex aperture:min-w-0 aperture:flex-wrap aperture:items-center aperture:gap-1.5"
+          >
+            <DropdownStringCombobox
+              ariaLabel="Tag key"
+              placeholder="Tag"
+              searchPlaceholder="Search keys"
+              value={condition.key}
+              options={tagIndex.keys}
+              className="aperture:w-32"
+              onChange={(key) => updateKey(index, key)}
+            />
+            {condition.key ? (
+              <>
+                <Select
+                  items={tagFilterOperators}
+                  value={condition.operator}
+                  onValueChange={(operator) => updateOperator(index, operator)}
+                >
+                  <SelectTrigger size="sm" className="aperture:w-16">
+                    <SelectValue>
+                      {(selectedValue: unknown) =>
+                        tagFilterOperators.find((item) => item.value === selectedValue)?.label ??
+                        "="
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent align="start" className="aperture:min-w-24">
+                    <SelectGroup>
+                      {tagFilterOperators.map((item) => (
+                        <SelectItem key={item.value} value={item.value}>
+                          {item.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <DropdownStringCombobox
+                  ariaLabel="Tag value"
+                  placeholder={many ? "Add value" : "Value"}
+                  searchPlaceholder="Search values"
+                  value={many ? "" : (condition.values[0] ?? "")}
+                  options={valuesForKey.filter((item) => !condition.values.includes(item))}
+                  className="aperture:w-36"
+                  open={openValueIndex === index}
+                  onOpenChange={(open) =>
+                    setOpenValueIndex((current) => {
+                      if (open) {
+                        return index;
+                      }
+                      return current === index ? null : current;
+                    })
+                  }
+                  onChange={(value) =>
+                    many ? addMultiValue(index, value) : updateSingleValue(index, value)
+                  }
+                />
+                {many
+                  ? condition.values.map((tagValue) => (
+                      <Badge
+                        key={tagValue}
+                        variant="secondary"
+                        className="aperture:max-w-28 aperture:font-normal"
+                      >
+                        <span className="aperture:truncate">{tagValue}</span>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${tagValue}`}
+                          className="aperture:rounded-sm aperture:outline-none aperture:focus-visible:ring-2 aperture:focus-visible:ring-ring aperture:[&_svg:not([class*='size-'])]:size-3"
+                          onClick={() => removeMultiValue(index, tagValue)}
                         >
-                          <span className="aperture:truncate">{tagValue}</span>
-                          <button
-                            type="button"
-                            aria-label={`Remove ${tagValue}`}
-                            className="aperture:rounded-sm aperture:outline-none aperture:focus-visible:ring-2 aperture:focus-visible:ring-ring aperture:[&_svg:not([class*='size-'])]:size-3"
-                            onClick={() => removeMultiValue(index, tagValue)}
-                          >
-                            <X />
-                          </button>
-                        </Badge>
-                      ))
-                    : null}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="Remove tag condition"
-                    onClick={() => removeCondition(index)}
-                  >
-                    <X />
-                  </Button>
-                </>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
-    </ScrollArea>
+                          <X />
+                        </button>
+                      </Badge>
+                    ))
+                  : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Remove tag condition"
+                  onClick={() => removeCondition(index)}
+                >
+                  <X />
+                </Button>
+              </>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

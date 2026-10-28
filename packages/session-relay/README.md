@@ -34,7 +34,7 @@ The callback receives the original `HttpServerRequest` and the requested session
 ```ts
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
-import { RelayDenied, type RelayGrant } from "@aperture-browser/session-relay";
+import { RelayDenied, RelayUnavailable, type RelayGrant } from "@aperture-browser/session-relay";
 
 // After your application's authentication and authorization have succeeded:
 export function grantSession(
@@ -48,11 +48,13 @@ export function grantSession(
 // Return these from the authorization callback for login/access failures:
 export const signInRequired = Effect.fail(new RelayDenied({ status: 401 }));
 export const accessDenied = Effect.fail(new RelayDenied({ status: 403 }));
+// When access cannot be decided now, e.g. your account provider is down; the browser retries:
+export const accessUnknown = Effect.fail(new RelayUnavailable());
 ```
 
 Select the session's `collaboration.editorToken` or `collaboration.viewerToken` from your server-side `ApertureClient.sessions.getSession` result according to the app user's permissions. An `aps_` owner token or account API token is rejected as a relay grant. The browser cannot select its role. Aperture enforces that role on both WebSockets and direct WebRTC data channels.
 
-The requested identifier is one path segment containing letters, digits, underscores, or hyphens. It may be an app-owned alias; the callback maps it to the actual Aperture `sessionId`. Every status request, fallback connection, and reconnect calls the callback again. Authentication callbacks may depend on Effect services; supply those services to the served router.
+The requested identifier is one path segment containing letters, digits, underscores, or hyphens. It may be an app-owned alias; the callback maps it to the actual Aperture `sessionId`. Every status request, fallback connection, and reconnect calls the callback again. Authentication callbacks may depend on Effect services; supply those services to the served router. The callback runs in the request's scope, so its finalizers run when the HTTP response is returned or, for WebSockets, when the connection closes.
 
 Own an `AbortController` for each access lifetime. Return its signal for all connections belonging to that access. Abort it when login expires, the user logs out, or their access is revoked or downgraded. This closes active signaling/session connections and their upstream peers. Reject later callback invocations until the user has access again. Use a fresh controller for a newly granted lifetime. Merely checking login when a socket opens does not revoke an already connected browser.
 

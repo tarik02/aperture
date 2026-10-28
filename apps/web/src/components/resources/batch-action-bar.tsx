@@ -26,6 +26,8 @@ export function BatchActionBar({ selectedCount, onClear, children }: BatchAction
 
   return (
     <div
+      role="status"
+      aria-live="polite"
       className="aperture:pointer-events-none aperture:fixed aperture:bottom-5 aperture:z-50 aperture:flex aperture:justify-center"
       style={insetStyle}
     >
@@ -33,11 +35,17 @@ export function BatchActionBar({ selectedCount, onClear, children }: BatchAction
         <span className="aperture:text-sm aperture:whitespace-nowrap aperture:text-muted-foreground">
           {selectedCount} selected
         </span>
-        <Separator orientation="vertical" className="aperture:h-4" />
+        <Separator
+          orientation="vertical"
+          className="aperture:data-vertical:h-5 aperture:data-vertical:self-center"
+        />
         <div className="aperture:flex aperture:flex-wrap aperture:items-center aperture:gap-1">
           {children}
         </div>
-        <Separator orientation="vertical" className="aperture:h-4" />
+        <Separator
+          orientation="vertical"
+          className="aperture:data-vertical:h-5 aperture:data-vertical:self-center"
+        />
         <Button type="button" variant="ghost" size="sm" onClick={onClear}>
           <X data-icon="inline-start" />
           Clear

@@ -42,7 +42,7 @@ Create `~/.config/aperture/aperture.yaml` (or set `APERTURE_*` environment varia
 - MCP settings — enabled by default; see the example below
 - `channels` — browser channel registry (`executable` paths only; API accepts channel names)
 - `metrics_address` — optional Prometheus metrics listener, disabled by default; see [Monitoring](/docs/monitoring)
-- `thumbnails_persist_on_suspend` — save session and tab thumbnails when a session suspends (default `true`); see [Thumbnails](/docs/session-sharing#thumbnails)
+- `thumbnails_persist_on_suspend` — save session and tab thumbnails when a session suspends (default `true`); the page list for `browser/status` is saved either way; see [Thumbnails](/docs/session-sharing#thumbnails)
 - `allow_personal_tenants` — let users and administrators create [personal tenants](#personal-tenants) (default `true`)
 - `auto_create_personal_tenant` — give every new user a tenant of their own, with every tenant permission (default `false`, requires `allow_personal_tenants`); see [Personal tenants](#personal-tenants)
 - `browser_pid_namespace` — run each browser in its own PID namespace, so a session cannot see or signal other processes (default `true`). bwrap must be able to mount a new procfs; container runtimes that mask parts of `/proc` prevent that, see [Docker](/docs/docker#pid-namespace)

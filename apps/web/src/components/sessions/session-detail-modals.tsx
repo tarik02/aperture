@@ -1,23 +1,10 @@
-import { Link } from "@tanstack/react-router";
 import { useTenantName } from "#/hooks/use-tenant-name.ts";
-import {
-  AppWindow,
-  Cable,
-  ChevronDown,
-  Clock3,
-  Copy,
-  Info,
-  KeyRound,
-  Pause,
-  PlugZap,
-  RotateCcw,
-  Tags,
-  Trash2,
-  Upload,
-} from "lucide-react";
+import { Clock3, Info, PlugZap, Tags } from "lucide-react";
 import { useEffect, useState } from "react";
+import { DetailList, DetailRow, DetailSection } from "#/components/details/detail-list.tsx";
+import { reference, relativeTime } from "#/components/details/detail-values.tsx";
+import { IdChip } from "#/components/details/id-chip.tsx";
 import { EventsPanel } from "#/components/resources/events-panel.tsx";
-import { MetadataGrid, metadataTimestamp } from "#/components/resources/metadata-grid.tsx";
 import { SessionStatusBadge } from "#/components/resources/status-badge.tsx";
 import { TagBadges } from "#/components/resources/tag-badges.tsx";
 import {
@@ -34,13 +21,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@aperture-browser/ui/components/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@aperture-browser/ui/components/dropdown-menu";
 import { ScrollArea } from "@aperture-browser/ui/components/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@aperture-browser/ui/components/tabs";
 import type { Session } from "@aperture-browser/api-client";
@@ -55,9 +35,12 @@ type SessionDetailModalsProps = {
   actions?: SessionDetailActions;
 };
 
+// Lifecycle callbacks are accepted for compatibility with callers; the modal is
+// informational and those actions live in the session menu. Only tags are
+// edited here.
 type SessionDetailActions = {
   canWrite: boolean;
-  canPromote: boolean;
+  canSaveSnapshot: boolean;
   deletePending: boolean;
   reopenPending: boolean;
   suspendPending: boolean;
@@ -66,7 +49,7 @@ type SessionDetailActions = {
   copySharePending: boolean;
   onDelete: (session: Session) => void;
   onSaveTags: (session: Session, tags: Record<string, string>) => Promise<Session>;
-  onPromote: (session: Session) => void;
+  onSaveToSnapshot: (session: Session) => void;
   onReopen: (session: Session) => void;
   onSuspend: (session: Session) => void;
   onRotate: (session: Session) => void;
@@ -77,6 +60,9 @@ type RetainedSessionDetailContent = {
   session: Session;
   section: SessionDetailSection;
 };
+
+const tabTriggerClassName =
+  "aperture:h-full aperture:flex-none aperture:rounded-none aperture:px-2 aperture:text-[13px]";
 
 export function SessionDetailModals({
   session,
@@ -104,13 +90,16 @@ export function SessionDetailModals({
 
   return (
     <Dialog open={section !== null && session !== null} onOpenChange={closeIfNeeded}>
-      <DialogContent className="aperture:gap-0 aperture:overflow-hidden aperture:p-0 aperture:sm:max-w-3xl">
+      <DialogContent className="aperture:gap-0 aperture:overflow-hidden aperture:p-0 aperture:sm:max-w-2xl">
         {displayedSession ? (
           <>
-            <DialogHeader className="aperture:gap-0 aperture:px-4 aperture:pt-4 aperture:pr-12 aperture:pb-3">
-              <DialogTitle className="aperture:flex aperture:items-center aperture:gap-2">
-                {displayedSession.label ?? "Session details"}
+            <DialogHeader className="aperture:gap-1.5 aperture:px-4 aperture:pt-4 aperture:pr-12 aperture:pb-3">
+              <DialogTitle className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-2">
+                <span className="aperture:min-w-0 aperture:truncate">
+                  {displayedSession.label ?? "Session"}
+                </span>
                 <SessionStatusBadge status={displayedSession.status} />
+                <IdChip value={displayedSession.id} label="session ID" />
               </DialogTitle>
             </DialogHeader>
             <Tabs
@@ -124,57 +113,33 @@ export function SessionDetailModals({
             >
               <TabsList
                 variant="line"
-                className="aperture:h-10 aperture:w-full aperture:shrink-0 aperture:justify-start aperture:border-y aperture:px-4 aperture:py-0"
+                className="aperture:h-9 aperture:w-full aperture:shrink-0 aperture:justify-start aperture:gap-0.5 aperture:border-y aperture:px-3 aperture:py-0"
               >
-                <TabsTrigger
-                  value="details"
-                  className="aperture:h-full aperture:flex-none aperture:rounded-none aperture:px-2.5"
-                >
+                <TabsTrigger value="details" className={tabTriggerClassName}>
                   <Info data-icon="inline-start" />
                   Details
                 </TabsTrigger>
-                <TabsTrigger
-                  value="connection"
-                  className="aperture:h-full aperture:flex-none aperture:rounded-none aperture:px-2.5"
-                >
+                <TabsTrigger value="connection" className={tabTriggerClassName}>
                   <PlugZap data-icon="inline-start" />
                   Connection
                 </TabsTrigger>
-                <TabsTrigger
-                  value="events"
-                  className="aperture:h-full aperture:flex-none aperture:rounded-none aperture:px-2.5"
-                >
+                <TabsTrigger value="events" className={tabTriggerClassName}>
                   <Clock3 data-icon="inline-start" />
                   Events
                 </TabsTrigger>
-                <TabsTrigger
-                  value="tags"
-                  className="aperture:h-full aperture:flex-none aperture:rounded-none aperture:px-2.5"
-                >
+                <TabsTrigger value="tags" className={tabTriggerClassName}>
                   <Tags data-icon="inline-start" />
                   Tags
                 </TabsTrigger>
               </TabsList>
-              <div className="aperture:h-[min(50svh,20rem)] aperture:min-h-0 aperture:overflow-hidden aperture:p-4">
+              <div className="aperture:h-[min(32rem,70svh)] aperture:min-h-0 aperture:overflow-hidden aperture:p-4">
                 <TabsContent value="details" className="aperture:h-full aperture:min-h-0">
-                  {actions ? (
-                    <div className="aperture:grid aperture:h-full aperture:min-h-0 aperture:gap-4 aperture:sm:grid-cols-[minmax(0,1fr)_11rem]">
-                      <ScrollArea
-                        className="aperture:h-full aperture:min-h-0"
-                        viewportClassName="aperture:pr-3"
-                      >
-                        <SessionMetadata session={displayedSession} />
-                      </ScrollArea>
-                      <SessionDetailActionBar session={displayedSession} actions={actions} />
-                    </div>
-                  ) : (
-                    <ScrollArea
-                      className="aperture:h-full aperture:min-h-0"
-                      viewportClassName="aperture:pr-3"
-                    >
-                      <SessionMetadata session={displayedSession} />
-                    </ScrollArea>
-                  )}
+                  <ScrollArea
+                    className="aperture:h-full aperture:min-h-0"
+                    viewportClassName="aperture:data-[has-overflow-y]:pr-3"
+                  >
+                    <SessionMetadata session={displayedSession} />
+                  </ScrollArea>
                 </TabsContent>
                 <TabsContent value="connection" className="aperture:h-full aperture:min-h-0">
                   <ConnectionPanel
@@ -213,119 +178,29 @@ function isSessionDetailSection(value: string): value is SessionDetailSection {
 
 function SessionMetadata({ session }: { session: Session }) {
   const tenantName = useTenantName(session.tenantId);
+  const tagCount = Object.keys(session.tags ?? {}).length;
   return (
-    <MetadataGrid
-      items={[
-        { kind: "text", label: "Label", value: session.label ?? "—" },
-        { kind: "identifier", label: "ID", value: session.id },
-        { kind: "reference", label: "Tenant", id: session.tenantId, name: tenantName },
-        { kind: "text", label: "Channel", value: session.browserChannel ?? "—" },
-        { kind: "text", label: "Snapshot", value: session.baseSnapshotName ?? "—" },
-        { kind: "text", label: "Created", value: metadataTimestamp(session.createdAt) },
-        { kind: "text", label: "Started", value: metadataTimestamp(session.startedAt) },
-        { kind: "text", label: "Stopped", value: metadataTimestamp(session.stoppedAt) },
-        { kind: "text", label: "Expires", value: metadataTimestamp(session.expiresAt) },
-        { kind: "text", label: "Deleted", value: metadataTimestamp(session.deletedAt) },
-      ]}
-    />
-  );
-}
-
-type SessionDetailActionBarProps = {
-  session: Session;
-  actions: SessionDetailActions;
-};
-
-function SessionDetailActionBar({ session, actions }: SessionDetailActionBarProps) {
-  const canOpen = session.status === "running" || session.status === "suspended";
-  const canReopen =
-    actions.canWrite && (session.status === "deleted" || session.status === "failed");
-  const canPromote =
-    actions.canPromote &&
-    (session.status === "running" ||
-      session.status === "suspended" ||
-      session.status === "deleted" ||
-      session.status === "failed");
-  const canSuspend = actions.canWrite && session.status === "running";
-  const canRotate =
-    actions.canWrite && (session.status === "running" || session.status === "suspended");
-
-  return (
-    <div className="aperture:flex aperture:flex-col aperture:gap-2 aperture:sm:border-l aperture:sm:border-border aperture:sm:pl-4">
-      <OpenSessionButton sessionId={session.id} disabled={!canOpen} />
-      {actions.canWrite ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => actions.onCopyShareUrl(session)}
-          disabled={actions.copySharePending}
-        >
-          <Copy data-icon="inline-start" />
-          Copy share URL
-        </Button>
-      ) : null}
-      {actions.canWrite ? (
-        <>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => actions.onRotate(session)}
-            disabled={!canRotate || actions.rotatePending}
-          >
-            <KeyRound data-icon="inline-start" />
-            Rotate token
-          </Button>
-          {canSuspend ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => actions.onSuspend(session)}
-              disabled={actions.suspendPending}
-            >
-              <Pause data-icon="inline-start" />
-              Suspend
-            </Button>
-          ) : null}
-          {canReopen ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => actions.onReopen(session)}
-              disabled={actions.reopenPending}
-            >
-              <RotateCcw data-icon="inline-start" />
-              Reopen
-            </Button>
-          ) : null}
-          {canPromote ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => actions.onPromote(session)}
-            >
-              <Upload data-icon="inline-start" />
-              Promote
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant="destructive"
-            size="sm"
-            className="aperture:mt-2"
-            onClick={() => actions.onDelete(session)}
-            disabled={actions.deletePending}
-          >
-            <Trash2 data-icon="inline-start" />
-            Delete
-          </Button>
-        </>
-      ) : null}
-    </div>
+    <DetailList>
+      <DetailSection title="Browser">
+        <DetailRow label="Channel">{session.browserChannel}</DetailRow>
+        <DetailRow label="Snapshot">{session.baseSnapshotName}</DetailRow>
+        <DetailRow label="Tenant">
+          {reference(session.tenantId ? { id: session.tenantId, name: tenantName } : null)}
+        </DetailRow>
+        <DetailRow label="Tags">
+          {tagCount > 0 ? <TagBadges tags={session.tags} max={6} /> : null}
+        </DetailRow>
+      </DetailSection>
+      <DetailSection title="Lifecycle">
+        <DetailRow label="Created">{relativeTime(session.createdAt)}</DetailRow>
+        <DetailRow label="Started">{relativeTime(session.startedAt)}</DetailRow>
+        <DetailRow label="Stopped">{relativeTime(session.stoppedAt)}</DetailRow>
+        <DetailRow label="Expires">
+          {relativeTime(session.expiresAt) ?? (session.deletedAt ? null : "Never")}
+        </DetailRow>
+        <DetailRow label="Deleted">{relativeTime(session.deletedAt)}</DetailRow>
+      </DetailSection>
+    </DetailList>
   );
 }
 
@@ -339,6 +214,9 @@ function SessionTagsPanel({ session, actions, onSessionChange }: SessionTagsPane
   const [entries, setEntries] = useState<TagEntry[]>(() => tagsToEntries(session.tags ?? {}));
 
   if (!actions?.canWrite) {
+    if (Object.keys(session.tags ?? {}).length === 0) {
+      return <p className="aperture:text-sm aperture:text-muted-foreground">No tags.</p>;
+    }
     return <TagBadges tags={session.tags} max={100} />;
   }
 
@@ -368,65 +246,11 @@ function SessionTagsPanel({ session, actions, onSessionChange }: SessionTagsPane
           hideLabel
         />
       </ScrollArea>
-      <div className="aperture:flex aperture:shrink-0 aperture:justify-end aperture:border-t aperture:pt-3">
+      <div className="aperture:-mx-4 aperture:-mb-4 aperture:flex aperture:shrink-0 aperture:justify-end aperture:border-t aperture:bg-muted/50 aperture:px-4 aperture:py-3">
         <Button type="submit" size="sm" disabled={actions.tagsPending}>
           Save tags
         </Button>
       </div>
     </form>
-  );
-}
-
-type OpenSessionButtonProps = {
-  sessionId: string;
-  disabled: boolean;
-};
-
-function OpenSessionButton({ sessionId, disabled }: OpenSessionButtonProps) {
-  return (
-    <div className="aperture:flex aperture:w-full">
-      <Button
-        type="button"
-        size="sm"
-        className="aperture:flex-1 aperture:rounded-r-none"
-        disabled={disabled}
-        render={disabled ? undefined : <Link to="/-/sessions/$sessionId" params={{ sessionId }} />}
-        nativeButton={disabled}
-      >
-        <AppWindow data-icon="inline-start" />
-        Open
-      </Button>
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <Button
-              type="button"
-              size="icon-sm"
-              className="aperture:-ml-px aperture:rounded-l-none aperture:border-l-primary-foreground/30"
-              aria-label="Open session options"
-              disabled={disabled}
-            />
-          }
-        >
-          <ChevronDown />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="aperture:min-w-48">
-          <DropdownMenuGroup>
-            <DropdownMenuItem
-              render={
-                <Link
-                  to="/-/sessions/$sessionId"
-                  params={{ sessionId }}
-                  search={{ media: "cdp" }}
-                />
-              }
-            >
-              <Cable />
-              CDP fallback
-            </DropdownMenuItem>
-          </DropdownMenuGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
   );
 }

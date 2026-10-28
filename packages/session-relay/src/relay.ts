@@ -18,6 +18,15 @@ export class RelayDenied extends Schema.TaggedError<RelayDenied>()("RelayDenied"
   status: Schema.Literals([401, 403]),
 }) {}
 
+/**
+ * The consumer could not decide on access for now, for example because its account provider is
+ * down. The browser retries instead of treating the session as denied.
+ */
+export class RelayUnavailable extends Schema.TaggedError<RelayUnavailable>()(
+  "RelayUnavailable",
+  {},
+) {}
+
 /** A consumer-authorized connection. Aborting the signal revokes active access. */
 export interface RelayGrant {
   readonly sessionId: string;
@@ -33,7 +42,7 @@ export interface SessionRelayOptions<R = never> {
   readonly authorize: (
     request: HttpServerRequest.HttpServerRequest,
     sessionId: string,
-  ) => Effect.Effect<RelayGrant, RelayDenied, R>;
+  ) => Effect.Effect<RelayGrant, RelayDenied | RelayUnavailable, R>;
 }
 
 type SocketRoute = "session" | "webrtc/signal";
@@ -306,6 +315,14 @@ export function sessionRelay<R>(options: SessionRelayOptions<R>) {
               RelayDenied: (error) =>
                 Effect.flatMap(HttpServerRequest.HttpServerRequest, (request) =>
                   rejectAccess(request, websocket, error.status),
+                ),
+              RelayUnavailable: () =>
+                Effect.succeed(
+                  relayError(
+                    503,
+                    "authorization_unavailable",
+                    "Session access cannot be checked now",
+                  ),
                 ),
               SchemaError: () =>
                 Effect.succeed(

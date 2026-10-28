@@ -1,16 +1,13 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useContext, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { PageHeaderActionsTarget } from "#/components/page-header-context.ts";
 
 type PageHeaderActionsProps = {
   children: ReactNode;
 };
 
 export function PageHeaderActions({ children }: PageHeaderActionsProps) {
-  const [target, setTarget] = useState<HTMLElement | null>(null);
-
-  useEffect(() => {
-    setTarget(document.getElementById("app-header-actions"));
-  }, []);
+  const target = useContext(PageHeaderActionsTarget);
 
   if (!target) {
     return null;

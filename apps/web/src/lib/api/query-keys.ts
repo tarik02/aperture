@@ -16,6 +16,8 @@ export const queryKeys = {
     ["sessions", tenantId, filters] as const,
   session: (tenantId: string | null, sessionId: string) =>
     ["session", tenantId, sessionId] as const,
+  browserStatus: (tenantId: string | null, sessionId: string, status: SessionStatus) =>
+    ["browser-status", tenantId, sessionId, status] as const,
   sessionsBulk: (tenantId: string | null, sessionIds: string[]) =>
     ["sessions-bulk", tenantId, sessionIds] as const,
   snapshots: (tenantId: string | null, filters: SnapshotsFilters) =>

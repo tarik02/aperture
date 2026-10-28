@@ -13,10 +13,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func toSessionListItem(view session.SessionView) sessionListItemResponse {
+func (s *Server) toSessionListItem(view session.SessionView) sessionListItemResponse {
 	resp := sessionListItemResponse{
 		ID:               view.Session.ID,
 		TenantID:         view.Session.TenantID,
+		WebURL:           s.sessionWebURL(view.Session.ID),
 		BaseSnapshotName: view.BaseSnapshotName,
 		Label:            view.Session.Label,
 		Status:           view.Session.Status,
@@ -45,19 +46,7 @@ func toSessionListItem(view session.SessionView) sessionListItemResponse {
 }
 
 func toSnapshotListItem(view snapshot.SnapshotView) snapshotListItemResponse {
-	return snapshotListItemResponse{
-		ID:                    view.Snapshot.ID,
-		Name:                  view.Snapshot.Name,
-		TenantID:              view.Snapshot.TenantID,
-		ParentSnapshotID:      view.Snapshot.ParentSnapshotID,
-		PromotedFromSessionID: view.Snapshot.PromotedFromSessionID,
-		ParentSnapshot:        newReference(view.Snapshot.ParentSnapshotID, nil),
-		PromotedFromSession:   newReference(view.Snapshot.PromotedFromSessionID, nil),
-		CreatedAt:             view.Snapshot.CreatedAt,
-		DeletedAt:             view.Snapshot.DeletedAt,
-		ExpiresAt:             view.Snapshot.ExpiresAt,
-		Tags:                  view.Tags,
-	}
+	return toSnapshotResponse(&view)
 }
 
 func toEventListItem(row db.Event) (eventListItemResponse, error) {
@@ -121,7 +110,7 @@ func (s *Server) listSessions(c *gin.Context) {
 
 	items := make([]sessionListItemResponse, 0, len(page.Items))
 	for _, view := range page.Items {
-		item := toSessionListItem(view)
+		item := s.toSessionListItem(view)
 		item.Thumbnail = s.sessionThumbnailLinks(view.Session)
 		item.Favicon = s.sessionFaviconLinks(view.Session)
 		items = append(items, item)
@@ -150,7 +139,7 @@ func (s *Server) getSessionsBulk(c *gin.Context) {
 
 	sessions := make([]sessionResponse, 0, len(views))
 	for _, view := range views {
-		item := toSessionListItem(view)
+		item := s.toSessionListItem(view)
 		item.Thumbnail = s.sessionThumbnailLinks(view.Session)
 		item.Favicon = s.sessionFaviconLinks(view.Session)
 		sessions = append(sessions, item)

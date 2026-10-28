@@ -138,17 +138,20 @@ func faviconFromBytes(image []byte) (Favicon, error) {
 }
 
 // persistFavicons saves the favicons of a suspending session's pages into a thumbnail staging
-// directory. A page lists a favicon only when it was saved.
+// directory. A page lists a favicon only when it was saved. Favicons follow
+// thumbnails_persist_on_suspend; the page list itself is saved either way.
 func (s *Service) persistFavicons(ctx context.Context, sessionRow *db.Session, staging string, manifest *browser.PageManifest) error {
-	if err := os.Mkdir(filepath.Join(staging, faviconDir), 0o750); err != nil {
-		return err
+	if s.cfg.ThumbnailsPersistOnSuspend {
+		if err := os.Mkdir(filepath.Join(staging, faviconDir), 0o750); err != nil {
+			return err
+		}
 	}
 	for index := range manifest.Pages {
 		page := &manifest.Pages[index]
 		available := page.FaviconAvailable
 		page.FaviconAvailable = false
 		page.FaviconVersion = ""
-		if !available || !thumbnailTargetIDPattern.MatchString(page.TargetID) {
+		if !s.cfg.ThumbnailsPersistOnSuspend || !available || !thumbnailTargetIDPattern.MatchString(page.TargetID) {
 			continue
 		}
 		favicon, err := s.liveFavicon(ctx, sessionRow, page.TargetID)

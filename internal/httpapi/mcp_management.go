@@ -179,7 +179,7 @@ func (s *Server) mcpSessionReopen(ctx context.Context, _ *mcp.CallToolRequest, i
 	if err != nil {
 		return nil, mcpStatusOutput{}, mcpToolError("session_unavailable", err)
 	}
-	return nil, mcpStatusOutput{Session: mcpSessionView(updated)}, nil
+	return nil, mcpStatusOutput{Session: s.mcpSessionView(updated)}, nil
 }
 
 func (s *Server) mcpSessionReplaceTags(ctx context.Context, _ *mcp.CallToolRequest, in mcpSessionTagsInput) (*mcp.CallToolResult, mcpStatusOutput, error) {
@@ -198,7 +198,7 @@ func (s *Server) mcpSessionReplaceTags(ctx context.Context, _ *mcp.CallToolReque
 	if err != nil {
 		return nil, mcpStatusOutput{}, mcpToolError("session_unavailable", err)
 	}
-	return nil, mcpStatusOutput{Session: mcpSessionView(updated)}, nil
+	return nil, mcpStatusOutput{Session: s.mcpSessionView(updated)}, nil
 }
 
 func (s *Server) mcpTenantGet(ctx context.Context, _ *mcp.CallToolRequest, in mcpTenantSelfInput) (*mcp.CallToolResult, mcpTenantOutput, error) {

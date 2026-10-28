@@ -108,16 +108,19 @@ func (s *Service) reservedPorts(ctx context.Context, exceptSessionID string) (ma
 			continue
 		}
 		reserved[*other.CurrentCDPPort] = true
-		if port := runtimeEnvWrapperPort(&other); port > 0 {
+		if port := sessionWrapperPort(&other); port > 0 {
 			reserved[port] = true
 		}
 	}
 	return reserved, nil
 }
 
-// runtimeEnvWrapperPort reads the wrapper port a session's runtime env names; the database keeps
-// only the CDP port.
-func runtimeEnvWrapperPort(sessionRow *db.Session) int {
+// sessionWrapperPort returns the wrapper port a session keeps. Rows written before the database
+// kept it name it only in their runtime env.
+func sessionWrapperPort(sessionRow *db.Session) int {
+	if sessionRow.CurrentWrapperPort != nil {
+		return *sessionRow.CurrentWrapperPort
+	}
 	if sessionRow.RuntimeEnvPath == nil {
 		return 0
 	}
