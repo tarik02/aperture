@@ -60,23 +60,28 @@ export function TagFilter({ value, availableTags, onChange }: TagFilterProps) {
 
   const valueKey = serializeConditions(value ?? []);
 
+  // A value set from outside, such as clearing the filter, replaces the rows; the rows' own
+  // value coming back keeps any half-filled row.
   useEffect(() => {
-    setConditions(ensureDraftRows(value ?? []));
+    setConditions((current) =>
+      serializeConditions(current) === valueKey ? current : ensureDraftRows(value ?? []),
+    );
   }, [valueKey]);
 
-  useEffect(() => {
-    const nextValue = completedConditions(conditions);
-    if (serializeConditions(nextValue) === valueKey) {
-      return;
+  // Edits report the new value right away. Reporting from an effect would race the effect
+  // above when the value changes from outside, and the two would undo each other forever.
+  function commit(next: TagFilterValue) {
+    const rows = ensureDraftRows(next);
+    setConditions(rows);
+    const completed = completedConditions(rows);
+    if (serializeConditions(completed) !== valueKey) {
+      onChange(completed.length > 0 ? completed : undefined);
     }
-    onChange(nextValue.length > 0 ? nextValue : undefined);
-  }, [conditions, onChange, valueKey]);
+  }
 
   function updateCondition(index: number, patch: Partial<TagFilterCondition>) {
-    setConditions((current) =>
-      ensureDraftRows(
-        current.map((condition, i) => (i === index ? { ...condition, ...patch } : condition)),
-      ),
+    commit(
+      conditions.map((condition, i) => (i === index ? { ...condition, ...patch } : condition)),
     );
   }
 
@@ -90,19 +95,17 @@ export function TagFilter({ value, availableTags, onChange }: TagFilterProps) {
     if (!operator) {
       return;
     }
-    setConditions((current) =>
-      ensureDraftRows(
-        current.map((condition, i) =>
-          i === index
-            ? {
-                ...condition,
-                operator,
-                values: operatorAllowsMany(operator)
-                  ? condition.values
-                  : condition.values.slice(0, 1),
-              }
-            : condition,
-        ),
+    commit(
+      conditions.map((condition, i) =>
+        i === index
+          ? {
+              ...condition,
+              operator,
+              values: operatorAllowsMany(operator)
+                ? condition.values
+                : condition.values.slice(0, 1),
+            }
+          : condition,
       ),
     );
   }
@@ -112,13 +115,11 @@ export function TagFilter({ value, availableTags, onChange }: TagFilterProps) {
   }
 
   function addMultiValue(index: number, value: string) {
-    setConditions((current) =>
-      ensureDraftRows(
-        current.map((condition, i) =>
-          i === index && value && !condition.values.includes(value)
-            ? { ...condition, values: [...condition.values, value] }
-            : condition,
-        ),
+    commit(
+      conditions.map((condition, i) =>
+        i === index && value && !condition.values.includes(value)
+          ? { ...condition, values: [...condition.values, value] }
+          : condition,
       ),
     );
   }
@@ -130,7 +131,7 @@ export function TagFilter({ value, availableTags, onChange }: TagFilterProps) {
   }
 
   function removeCondition(index: number) {
-    setConditions((current) => ensureDraftRows(current.filter((_, i) => i !== index)));
+    commit(conditions.filter((_, i) => i !== index));
   }
 
   return (
