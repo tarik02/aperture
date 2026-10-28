@@ -62,6 +62,16 @@ export function targetThumbnailUrl(session: Session, targetId: string): string |
     : null;
 }
 
+/** The tab's captured icon, or null when it has none. The version makes the URL cacheable for good. */
+export function targetFaviconUrl(session: Session, page: BrowserPage): string | null {
+  const template = session.favicon?.targetUrlTemplate;
+  if (!template || page.faviconAvailable !== true) {
+    return null;
+  }
+  const url = Redacted.value(template).replace("{targetId}", encodeURIComponent(page.targetId));
+  return page.faviconVersion ? `${url}&v=${encodeURIComponent(page.faviconVersion)}` : url;
+}
+
 export function matchesSearch(needle: string, values: ReadonlyArray<string | null | undefined>) {
   return values.some((value) => value?.toLowerCase().includes(needle) === true);
 }

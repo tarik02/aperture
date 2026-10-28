@@ -38,12 +38,12 @@ import {
   type SessionActions,
   type SessionPermissions,
 } from "#/features/session/session-dialogs.tsx";
-import { useSessionQuery } from "#/features/session/session.queries.ts";
+import { useBrowserStatusQuery, useSessionQuery } from "#/features/session/session.queries.ts";
 import {
   saveToSnapshotMutationKey,
   type SaveToSnapshotInput,
 } from "#/features/session/session.mutations.ts";
-import { isReopenable } from "#/features/session/session-display.ts";
+import { isReopenable, targetFaviconUrl } from "#/features/session/session-display.ts";
 import { EdgePanel, loadPinned, savePinned } from "#/features/workbench/edge-panel.tsx";
 import { SessionFilesPanel } from "#/features/workbench/files/session-files-panel.tsx";
 import { selectAuth, useAuthSessionStore } from "#/stores/auth-session.ts";
@@ -225,6 +225,32 @@ function WorkbenchSession({
     onNotice: showNotice,
   });
 
+  // The page listing names each tab's captured icon; tabs show those instead of loading the sites'.
+  const statusEnabled = connectable && !provisional;
+  const statusQuery = useBrowserStatusQuery(session, {
+    enabled: statusEnabled,
+    interval: faviconPollMs,
+  });
+  // refetch() runs even for a disabled query, so it is only passed while the listing is enabled.
+  useRefetchOnTabChange(control.targets, statusEnabled ? statusQuery.refetch : null);
+  const statusPages = statusQuery.data?.pages;
+  const tabFavicon = useMemo(() => {
+    if (!session?.favicon) {
+      return undefined;
+    }
+    const pages = new Map(statusPages?.map((page) => [page.targetId, page]));
+    const liveUrls = new Map(control.targets.map((target) => [target.id, target.url]));
+    // A tab missing from the listing, or listed on another site than it shows now, isn't known
+    // yet, so the tab strip uses its fallback until the listing catches up.
+    return (targetId: string) => {
+      const page = pages.get(targetId);
+      if (!page || siteOf(page.url) !== siteOf(liveUrls.get(targetId) ?? "")) {
+        return undefined;
+      }
+      return targetFaviconUrl(session, page);
+    };
+  }, [session, statusPages, control.targets]);
+
   useAnnounceOpenSession(session?.id ?? null, control.activeTargetId, control.activateTarget);
   useDeepLinkTargets(
     control,
@@ -349,6 +375,7 @@ function WorkbenchSession({
         menuItems={<SessionActionItems part="primary" {...menuProps} />}
         shareMenuItems={<SessionActionItems part="share" {...menuProps} />}
         menuFooterItems={<SessionActionItems part="closing" {...menuProps} />}
+        targetFaviconUrl={tabFavicon}
         collaborationRole="owner"
         cdpUrl={cdpUrl}
         shareUrls={shareUrls}
@@ -429,6 +456,38 @@ function FullPageState({
       ) : null}
     </Empty>
   );
+}
+
+function siteOf(url: string) {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return url;
+  }
+}
+
+/** The live connection reports tabs; the listing is only polled slowly for icons that change. */
+const faviconPollMs = 60_000;
+/**
+ * After tabs open or navigate, the browser captures their icons in the background, a few seconds
+ * after a listing asks; the listing is read again until a typical page load has had time.
+ */
+const faviconRefetchDelaysMs = [2_000, 8_000, 15_000];
+
+function useRefetchOnTabChange(
+  targets: ReturnType<typeof useBrowserControl>["targets"],
+  refetch: (() => unknown) | null,
+) {
+  const signature = targets.map((target) => `${target.id} ${target.url}`).join("\n");
+  useEffect(() => {
+    if (signature === "" || refetch === null) {
+      return;
+    }
+    const timers = faviconRefetchDelaysMs.map((delay) =>
+      window.setTimeout(() => void refetch(), delay),
+    );
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [signature, refetch]);
 }
 
 /** True once the document has stayed hidden for `ms`; false again as soon as it shows. */

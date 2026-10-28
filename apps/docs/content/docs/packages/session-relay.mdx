@@ -11,7 +11,7 @@ npm install @aperture-browser/session-relay effect @effect/platform-node
 
 ## Mount the relay
 
-`sessionRelay` registers six GET routes on an Effect `HttpRouter` below `<prefix>/sessions/:sessionId`: `/browser/status`, `/session`, `/webrtc/signal`, `/recordings/:recordingId/content`, `/thumbnail`, and `/targets/:targetId/thumbnail`. `/browser/status` is passive; `/session` and `/webrtc/signal` upgrade to WebSockets and may wake a suspended session. The Node adapter supplies upstream HTTP and WebSocket clients; it does not start a server.
+`sessionRelay` registers seven GET routes on an Effect `HttpRouter` below `<prefix>/sessions/:sessionId`: `/browser/status`, `/session`, `/webrtc/signal`, `/recordings/:recordingId/content`, `/thumbnail`, `/targets/:targetId/thumbnail`, and `/targets/:targetId/favicon`. `/browser/status`, thumbnails, and favicons are passive; `/session` and `/webrtc/signal` upgrade to WebSockets and may wake a suspended session. The Node adapter supplies upstream HTTP and WebSocket clients; it does not start a server.
 
 ```ts
 import * as Layer from "effect/Layer";

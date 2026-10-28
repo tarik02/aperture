@@ -112,6 +112,7 @@ func (s *Server) listSessions(c *gin.Context) {
 	for _, view := range page.Items {
 		item := s.toSessionListItem(view)
 		item.Thumbnail = s.sessionThumbnailLinks(view.Session)
+		item.Favicon = s.sessionFaviconLinks(view.Session)
 		items = append(items, item)
 	}
 	c.JSON(http.StatusOK, paginatedResponse[sessionListItemResponse]{Data: items, Meta: page.Meta})
@@ -140,6 +141,7 @@ func (s *Server) getSessionsBulk(c *gin.Context) {
 	for _, view := range views {
 		item := s.toSessionListItem(view)
 		item.Thumbnail = s.sessionThumbnailLinks(view.Session)
+		item.Favicon = s.sessionFaviconLinks(view.Session)
 		sessions = append(sessions, item)
 	}
 	c.JSON(http.StatusOK, sessionBulkResponse{Sessions: sessions})

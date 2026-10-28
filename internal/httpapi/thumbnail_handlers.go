@@ -69,17 +69,34 @@ func thumbnailTokenMAC(secret, signed string) []byte {
 	return mac.Sum(nil)
 }
 
-// sessionThumbnailLinks signs fresh thumbnail URLs, or returns nil when the session has none to show.
+// sessionAssetToken signs the token that thumbnail and favicon URLs share. The expiry moves in
+// quarters of the TTL, so responses within one step repeat the same URLs and browsers reuse the
+// images they cached; every token stays valid for at least three quarters of the TTL.
+func (s *Server) sessionAssetToken(sessionID string) (string, time.Time, bool) {
+	ttl := s.Config.SignedFileURLTTL
+	expiresAt := time.Now().Add(ttl)
+	if step := ttl / 4; step >= time.Second {
+		expiresAt = expiresAt.Truncate(step)
+	}
+	expiresAt = expiresAt.UTC()
+	token, err := issueThumbnailToken(s.jobToken, sessionID, expiresAt)
+	return token, expiresAt, err == nil
+}
+
+func (s *Server) sessionAssetBase(sessionID string) string {
+	return strings.TrimRight(s.Config.ExternalBaseURL, "/") + "/sessions/" + url.PathEscape(sessionID)
+}
+
+// sessionThumbnailLinks signs thumbnail URLs, or returns nil when the session has none to show.
 func (s *Server) sessionThumbnailLinks(sessionRow db.Session) *sessionThumbnailResponse {
 	if s.Sessions == nil || s.jobToken == "" || !s.Sessions.ThumbnailAvailable(sessionRow) {
 		return nil
 	}
-	expiresAt := time.Now().Add(s.Config.SignedFileURLTTL).UTC()
-	token, err := issueThumbnailToken(s.jobToken, sessionRow.ID, expiresAt)
-	if err != nil {
+	token, expiresAt, ok := s.sessionAssetToken(sessionRow.ID)
+	if !ok {
 		return nil
 	}
-	base := strings.TrimRight(s.Config.ExternalBaseURL, "/") + "/sessions/" + url.PathEscape(sessionRow.ID)
+	base := s.sessionAssetBase(sessionRow.ID)
 	query := "?token=" + url.QueryEscape(token)
 	return &sessionThumbnailResponse{
 		URL:               base + "/thumbnail" + query,

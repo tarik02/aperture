@@ -55,6 +55,7 @@ interface BrowserToolbarProps {
   menuItems?: ReactNode;
   shareMenuItems?: ReactNode;
   menuFooterItems?: ReactNode;
+  targetFaviconUrl?: (targetId: string) => string | null | undefined;
 }
 
 export function BrowserToolbar({
@@ -80,6 +81,7 @@ export function BrowserToolbar({
   menuItems,
   shareMenuItems,
   menuFooterItems,
+  targetFaviconUrl,
 }: BrowserToolbarProps) {
   const [urlDraft, setUrlDraft] = useState<string | null>(null);
 
@@ -146,6 +148,7 @@ export function BrowserToolbar({
               onReload={control.reload}
               onReorder={control.reorderTargets}
               loadThumbnail={control.loadTargetThumbnail}
+              targetFaviconUrl={targetFaviconUrl}
             />
           ) : (
             <div className="aperture:min-w-0 aperture:flex-1" />

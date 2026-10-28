@@ -373,6 +373,24 @@ export const makeSessionsApi = Effect.gen(function* () {
     );
   });
 
+  const getSessionFavicon = Effect.fn("SessionsApi.getSessionFavicon")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+    targetId: string,
+    version?: string,
+  ) {
+    const path = `/api/sessions/${encodeURIComponent(sessionId)}/targets/${encodeURIComponent(targetId)}/favicon`;
+    return yield* http.get(path, version === undefined ? {} : { urlParams: { v: version } }).pipe(
+      Effect.flatMap((response) =>
+        Effect.map(
+          response.arrayBuffer,
+          (body) => new Blob([body], { type: response.headers["content-type"] ?? "" }),
+        ),
+      ),
+      authorize({ credentials, tenantHeader: "tenant-scoped" }),
+    );
+  });
+
   const streamSessionRecording = (
     credentials: ApiCredentials,
     sessionId: string,
@@ -503,6 +521,7 @@ export const makeSessionsApi = Effect.gen(function* () {
     getBrowserStatus,
     downloadSessionRecording,
     getSessionThumbnail,
+    getSessionFavicon,
     streamSessionRecording,
     uploadSessionFiles,
     uploadLiveSessionFiles,
