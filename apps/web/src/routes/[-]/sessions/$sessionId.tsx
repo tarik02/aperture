@@ -1,24 +1,22 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { SidebarTrigger } from "@aperture-browser/ui/components/sidebar";
 import { SessionWorkbench } from "#/features/workbench/session-workbench.tsx";
+import { searchFlag } from "#/lib/search-flag.ts";
 
 export type SessionWorkbenchSearch = {
   /** Skip WebRTC and stream frames over the session socket. */
   media?: "cdp";
   /** Open a new browser tab once connected. */
   newTab?: boolean;
-  /** Hide navigation to other sessions, for embedding the workbench in another page. */
+  /** Leave out the app sidebar and links to other pages, for embedding the workbench. */
   embed?: boolean;
 };
-
-// Search values arrive parsed as JSON, so `?embed=1` is the number 1.
-const flag = (value: unknown) =>
-  value === true || value === 1 || value === "1" || value === "true" ? true : undefined;
 
 export const Route = createFileRoute("/-/sessions/$sessionId")({
   validateSearch: (search: Record<string, unknown>): SessionWorkbenchSearch => ({
     media: search["media"] === "cdp" ? "cdp" : undefined,
-    newTab: flag(search["newTab"]),
-    embed: flag(search["embed"]),
+    newTab: searchFlag(search["newTab"]),
+    embed: searchFlag(search["embed"]),
   }),
   component: SessionWorkbenchRoute,
 });
@@ -26,12 +24,18 @@ export const Route = createFileRoute("/-/sessions/$sessionId")({
 function SessionWorkbenchRoute() {
   const { sessionId } = Route.useParams();
   const search = Route.useSearch();
+  const embedded = search.embed === true;
   return (
     <SessionWorkbench
       sessionId={sessionId}
       media={search.media}
       openNewTab={search.newTab === true}
-      navigation={search.embed !== true}
+      navigation={!embedded}
+      leading={
+        embedded ? undefined : (
+          <SidebarTrigger className="aperture:h-full aperture:w-auto aperture:aspect-square aperture:shrink-0 aperture:rounded-none" />
+        )
+      }
     />
   );
 }

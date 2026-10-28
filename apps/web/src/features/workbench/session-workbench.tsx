@@ -2,7 +2,7 @@ import type { SessionAccess } from "@aperture-browser/live-session";
 import { useIsMutating } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import * as Redacted from "effect/Redacted";
-import { AppWindow, FolderOpen, LayoutGrid, PanelLeft, RotateCcw } from "lucide-react";
+import { AppWindow, FolderOpen, LayoutGrid, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ApiRequestError, type IceServer, type Session } from "@aperture-browser/api-client";
 import { Button } from "@aperture-browser/ui/components/button";
@@ -44,7 +44,6 @@ import {
   type SaveToSnapshotInput,
 } from "#/features/session/session.mutations.ts";
 import { isReopenable } from "#/features/session/session-display.ts";
-import { SessionSwitcher } from "#/features/workbench/session-switcher.tsx";
 import { EdgePanel, loadPinned, savePinned } from "#/features/workbench/edge-panel.tsx";
 import { SessionFilesPanel } from "#/features/workbench/files/session-files-panel.tsx";
 import { selectAuth, useAuthSessionStore } from "#/stores/auth-session.ts";
@@ -56,10 +55,13 @@ type SessionWorkbenchProps = {
   /** Open a new browser tab once connected. */
   openNewTab?: boolean;
   /**
-   * Show ways to reach other sessions: the edge session list and the "All sessions" button.
-   * An embedded workbench turns them off and keeps the session's own actions.
+   * Link to the rest of the app: "All sessions" buttons, and leaving for the session list once
+   * the session is deleted. An embedded workbench turns this off and keeps the session's own
+   * actions.
    */
   navigation?: boolean;
+  /** Rendered at the start of the title bar, such as the host's sidebar toggle. */
+  leading?: ReactNode;
 };
 
 const emptyIceServers: readonly IceServer[] = [];
@@ -67,18 +69,19 @@ const emptyIceServers: readonly IceServer[] = [];
 const hiddenDisconnectMs = 30_000;
 
 /**
- * The workbench layout. It stays mounted while switching sessions, so the edge panels and open
- * dialogs survive; only the connection to the browser is per session.
+ * The workbench layout. It stays mounted while switching sessions, so the files panel and open
+ * dialogs survive; only the connection to the browser is per session. It has no app chrome of its
+ * own, so a host can place it anywhere.
  */
 export function SessionWorkbench({
   sessionId,
   media,
   openNewTab = false,
   navigation = true,
+  leading,
 }: SessionWorkbenchProps) {
   const navigate = useNavigate();
   const session = useSessionQuery(sessionId).data ?? null;
-  const [switcherPinned, setSwitcherPinned] = useState(false);
   const [filesPinned, setFilesPinned] = useState(false);
   const { actions, dialogs, permissions } = useSessionDialogs({
     currentSessionId: sessionId,
@@ -90,14 +93,9 @@ export function SessionWorkbench({
   });
 
   useEffect(() => {
-    setSwitcherPinned(loadPinned(switcherPinnedKey));
     setFilesPinned(loadPinned(filesPinnedKey));
   }, []);
 
-  const changeSwitcherPinned = (pinned: boolean) => {
-    savePinned(switcherPinnedKey, pinned);
-    setSwitcherPinned(pinned);
-  };
   const changeFilesPinned = (pinned: boolean) => {
     savePinned(filesPinnedKey, pinned);
     setFilesPinned(pinned);
@@ -105,13 +103,6 @@ export function SessionWorkbench({
 
   return (
     <div className="aperture:relative aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-1 aperture:overflow-hidden aperture:bg-background">
-      {navigation ? (
-        <SessionSwitcher
-          currentSessionId={sessionId}
-          pinned={switcherPinned}
-          onNewSession={permissions.canWrite ? () => actions.newSession() : undefined}
-        />
-      ) : null}
       <WorkbenchSession
         key={sessionId}
         sessionId={sessionId}
@@ -120,23 +111,9 @@ export function SessionWorkbench({
         navigation={navigation}
         actions={actions}
         permissions={permissions}
-        leading={
-          navigation ? (
-            <PanelToggle
-              side="left"
-              pinned={switcherPinned}
-              label="session list"
-              onToggle={() => changeSwitcherPinned(!switcherPinned)}
-            />
-          ) : undefined
-        }
+        leading={leading}
         filesToggle={
-          <PanelToggle
-            side="right"
-            pinned={filesPinned}
-            label="files"
-            onToggle={() => changeFilesPinned(!filesPinned)}
-          />
+          <FilesToggle pinned={filesPinned} onToggle={() => changeFilesPinned(!filesPinned)} />
         }
       />
       {session && isRetained(session.status) ? (
@@ -149,14 +126,13 @@ export function SessionWorkbench({
   );
 }
 
-const switcherPinnedKey = "aperture.workbench.switcherPinned";
 const filesPinnedKey = "aperture.workbench.filesPinned";
 
 function isRetained(status: Session["status"]) {
   return status !== "deleted" && status !== "expired";
 }
 
-type WorkbenchSessionProps = Required<Omit<SessionWorkbenchProps, "media">> & {
+type WorkbenchSessionProps = Required<Omit<SessionWorkbenchProps, "media" | "leading">> & {
   media?: "cdp";
   actions: SessionActions;
   permissions: SessionPermissions;
@@ -391,19 +367,8 @@ function WorkbenchSession({
 // The browser menu has its own details and viewer link items.
 const workbenchMenuExcludes: ReadonlySet<SessionActionKey> = new Set(["details", "viewer-link"]);
 
-/** Pins or unpins an edge panel; hovering that edge shows it either way. */
-function PanelToggle({
-  side,
-  pinned,
-  label,
-  onToggle,
-}: {
-  side: "left" | "right";
-  pinned: boolean;
-  label: string;
-  onToggle: () => void;
-}) {
-  const Icon = side === "left" ? PanelLeft : FolderOpen;
+/** Pins or unpins the files panel; hovering the right edge shows it either way. */
+function FilesToggle({ pinned, onToggle }: { pinned: boolean; onToggle: () => void }) {
   return (
     <Tooltip>
       <TooltipTrigger
@@ -412,19 +377,19 @@ function PanelToggle({
             variant="ghost"
             size="icon-sm"
             className={cn(
-              "aperture:h-full aperture:aspect-square aperture:shrink-0 aperture:rounded-none",
+              "aperture:h-full aperture:w-auto aperture:aspect-square aperture:shrink-0 aperture:rounded-none",
               pinned && "aperture:bg-muted",
             )}
-            aria-label={pinned ? `Hide ${label}` : `Show ${label}`}
+            aria-label={pinned ? "Hide files" : "Show files"}
             aria-pressed={pinned}
             onClick={onToggle}
           />
         }
       >
-        <Icon />
+        <FolderOpen />
       </TooltipTrigger>
       <TooltipContent side="bottom">
-        {pinned ? `Hide ${label}` : `Show ${label} (or hover the ${side} edge)`}
+        {pinned ? "Hide files" : "Show files (or hover the right edge)"}
       </TooltipContent>
     </Tooltip>
   );

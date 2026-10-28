@@ -21,7 +21,11 @@ import {
   SidebarRail,
 } from "@aperture-browser/ui/components/sidebar";
 
-export function AppSidebar() {
+/**
+ * The app navigation. Collapsed off canvas, it slides out while the pointer rests on the left
+ * edge, so a full-width page can still reach it.
+ */
+export function AppSidebar({ collapsible }: { collapsible: "icon" | "offcanvas" }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const view = useRouterState({
     select: (state) => (state.location.search as { view?: string }).view,
@@ -34,7 +38,7 @@ export function AppSidebar() {
   const adminItems = items.filter((item) => item.group === "admin");
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar collapsible={collapsible} peekOnHover={collapsible === "offcanvas"}>
       <SidebarHeader className="aperture:gap-2">
         <div
           data-app-sidebar-titlebar

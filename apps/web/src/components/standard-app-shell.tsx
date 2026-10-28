@@ -6,12 +6,15 @@ import { AppSidebar } from "#/components/app-sidebar.tsx";
 import { resolveNavItem } from "#/lib/navigation.ts";
 import { NoTenantState } from "#/features/tenant/no-tenant-state.tsx";
 import { selectAuth, useAuthSessionStore } from "#/stores/auth-session.ts";
+import type { SidebarLayout } from "#/stores/sidebar.ts";
 
 type StandardAppShellProps = {
+  /** A page gets the title bar; the workbench brings its own and only shares the sidebar. */
+  layout: SidebarLayout;
   children: React.ReactNode;
 };
 
-export default function StandardAppShell({ children }: StandardAppShellProps) {
+export default function StandardAppShell({ layout, children }: StandardAppShellProps) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const view = useRouterState({
     select: (state) => (state.location.search as { view?: string }).view,
@@ -27,9 +30,20 @@ export default function StandardAppShell({ children }: StandardAppShellProps) {
     auth.principal.authorityType === "tenant" &&
     auth.selectedTenant === null;
 
+  if (layout === "workbench") {
+    return (
+      <>
+        <AppSidebar collapsible="offcanvas" />
+        <SidebarInset className="aperture:h-full aperture:min-h-0 aperture:overflow-hidden">
+          {children}
+        </SidebarInset>
+      </>
+    );
+  }
+
   return (
     <>
-      <AppSidebar />
+      <AppSidebar collapsible="icon" />
       <SidebarInset className="aperture:h-full aperture:min-h-0 aperture:overflow-hidden">
         <header
           data-app-titlebar
