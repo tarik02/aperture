@@ -1,4 +1,6 @@
+import { useMemo } from "react";
 import {
+  keepPreviousData,
   useInfiniteQuery,
   useQuery,
   useQueryClient,
@@ -63,18 +65,22 @@ export function useSessionsInfiniteQuery(
   });
 }
 
-export function useSessionsBulkQuery(sessionIds: string[]) {
+/** Sessions by id, in no particular order; callers order them. */
+export function useSessionsBulkQuery(sessionIds: readonly string[]) {
   const api = useTenantApi();
+  // Keyed by the set of ids, so reordering the same sessions reuses the cached response.
+  const ids = useMemo(() => [...sessionIds].sort(), [sessionIds]);
 
   return useQuery({
-    queryKey: queryKeys.sessionsBulk(api.tenantKey, sessionIds),
+    queryKey: queryKeys.sessionsBulk(api.tenantKey, ids),
     queryFn: ({ signal }) =>
       api.run(
-        (credentials) =>
-          SessionsApi.use((sessions) => sessions.getSessionsBulk(credentials, sessionIds)),
+        (credentials) => SessionsApi.use((sessions) => sessions.getSessionsBulk(credentials, ids)),
         { signal },
       ),
-    enabled: sessionIds.length > 0 && api.ready,
+    enabled: ids.length > 0 && api.ready,
+    // A new id keeps the previous sessions on screen until the response with it arrives.
+    placeholderData: keepPreviousData,
     select: (response) => response.sessions,
   });
 }

@@ -34,10 +34,15 @@ export function RecentSessionsSidebarGroup({ pathname }: RecentSessionsSidebarGr
   const openSessions = useOpenSessions();
   const sessionIds = useRecentSessionsStore((state) => state.sessionIds);
   const sessionsQuery = useSessionsBulkQuery(sessionIds);
-  const sessions = sessionsQuery.data ?? [];
+  const byId = new Map((sessionsQuery.data ?? []).map((session) => [session.id, session]));
 
-  // Sessions that can no longer be opened only clutter the list.
-  const visible = sessions.filter((session) => !isExpired(session) && session.status !== "deleted");
+  // Most recent first. Sessions that can no longer be opened only clutter the list.
+  const visible = sessionIds
+    .map((id) => byId.get(id))
+    .filter(
+      (session): session is Session =>
+        session !== undefined && !isExpired(session) && session.status !== "deleted",
+    );
   if (visible.length === 0) {
     return null;
   }

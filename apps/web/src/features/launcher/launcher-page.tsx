@@ -49,6 +49,7 @@ import { useTenantApi } from "#/hooks/use-tenant-api.ts";
 import { queryKeys } from "#/lib/api/query-keys.ts";
 import { SessionCard } from "#/features/launcher/session-card.tsx";
 import { SessionPickerMenu } from "#/features/launcher/session-picker-menu.tsx";
+import { NewSessionButton } from "#/features/session/new-session-button.tsx";
 import { SnapshotRow } from "#/features/launcher/snapshot-row.tsx";
 import { useLauncherStore, type SessionStatusFilter } from "#/features/launcher/launcher.store.ts";
 import { useOpenSessions } from "#/features/session/open-sessions.ts";
@@ -255,13 +256,7 @@ export function LauncherPage({ view }: { view: LauncherView }) {
             />
             <StatusFilterMenu value={sessionStatus} onChange={setSessionStatus} />
             {permissions.canWrite ? (
-              <ToolbarButton
-                label="New session"
-                icon={<Plus />}
-                onClick={() => actions.newSession()}
-              >
-                New session
-              </ToolbarButton>
+              <NewSessionButton onCustom={(request) => actions.newSession(request)} />
             ) : null}
           </div>
         ) : (
@@ -434,31 +429,6 @@ function SearchBox({
         className="aperture:pl-8"
       />
     </div>
-  );
-}
-
-function ToolbarButton({
-  label,
-  icon,
-  variant = "default",
-  onClick,
-  children,
-}: {
-  label: string;
-  icon: ReactNode;
-  variant?: "default" | "outline";
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <Button variant={variant} onClick={onClick} title={label} aria-label={label}>
-      <span data-icon="inline-start" className="aperture:contents">
-        {icon}
-      </span>
-      <span className="aperture:flex aperture:items-center aperture:gap-1.5 aperture:max-md:sr-only">
-        {children}
-      </span>
-    </Button>
   );
 }
 
