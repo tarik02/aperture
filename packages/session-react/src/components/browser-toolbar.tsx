@@ -31,6 +31,7 @@ import { BrowserMenus } from "./browser-toolbar-menus.tsx";
 import type { DevToolsDock } from "./browser-devtools-pane.tsx";
 import type { CollaborationRole } from "@aperture-browser/live-session";
 import { CollaborationPresence } from "./collaboration-presence.tsx";
+import * as UrlPath from "@aperture-browser/api-client/url-path";
 
 interface BrowserToolbarProps {
   control: UseBrowserControlResult;
@@ -399,7 +400,7 @@ function normalizeUrl(value: string): string {
   if (isLikelyHost(trimmed)) {
     return `https://${trimmed}`;
   }
-  return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
+  return UrlPath.make`https://www.google.com/search?q=${trimmed}`;
 }
 
 function isLocalHost(value: string): boolean {

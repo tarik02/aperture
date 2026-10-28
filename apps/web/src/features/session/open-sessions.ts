@@ -1,4 +1,5 @@
 import { useEffect, useRef, useSyncExternalStore, type MouseEvent } from "react";
+import * as UrlPath from "@aperture-browser/api-client/url-path";
 
 // Workbench tabs announce the session they show over a BroadcastChannel, so the session list can
 // mark open sessions and focus the tab that already shows one instead of opening a duplicate.
@@ -238,7 +239,7 @@ export function sessionLinkHandlers(options: {
 }
 
 export function sessionHref(sessionId: string, targetId?: string, newTab?: boolean) {
-  const url = new URL(`/-/sessions/${encodeURIComponent(sessionId)}`, window.location.origin);
+  const url = new URL(UrlPath.make`/-/sessions/${sessionId}`, window.location.origin);
   if (newTab) {
     url.searchParams.set("newTab", "1");
   }

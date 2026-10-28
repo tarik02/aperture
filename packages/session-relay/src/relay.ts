@@ -8,6 +8,7 @@ import * as HttpRouter from "effect/http/HttpRouter";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Socket from "effect/socket/Socket";
+import * as UrlPath from "@aperture-browser/api-client/url-path";
 
 const protocol = "aperture-session.v1";
 const pathParams = Schema.Struct({
@@ -87,7 +88,7 @@ export function sessionRelay<R>(options: SessionRelayOptions<R>) {
 
   const upstreamURL = (sessionId: string, route: string) => {
     const url = new URL(upstream);
-    url.pathname = `${upstream.pathname.replace(/\/$/, "")}/sessions/${encodeURIComponent(sessionId)}/${route}`;
+    url.pathname = UrlPath.make`${UrlPath.raw(upstream.pathname.replace(/\/$/, ""))}/sessions/${sessionId}/${UrlPath.raw(route)}`;
     return url;
   };
 
@@ -187,10 +188,7 @@ export function sessionRelay<R>(options: SessionRelayOptions<R>) {
       const recording = Effect.gen(function* () {
         const { request, grant, capability } = yield* admit(false);
         const { recordingId } = yield* HttpRouter.schemaPathParams(recordingParams);
-        const url = upstreamURL(
-          grant.sessionId,
-          `recordings/${encodeURIComponent(recordingId)}/content`,
-        );
+        const url = upstreamURL(grant.sessionId, UrlPath.make`recordings/${recordingId}/content`);
         const response = yield* upstreamGet(url, capability);
         if (response.status === 404) {
           return relayError(404, "recording_not_found", "Recording not found");
@@ -223,9 +221,7 @@ export function sessionRelay<R>(options: SessionRelayOptions<R>) {
         const { request, grant, capability } = yield* admit(false);
         const { targetId } = yield* HttpRouter.schemaPathParams(targetParams);
         const route =
-          targetId === undefined
-            ? "thumbnail"
-            : `targets/${encodeURIComponent(targetId)}/thumbnail`;
+          targetId === undefined ? "thumbnail" : UrlPath.make`targets/${targetId}/thumbnail`;
         const ifModifiedSince = request.headers["if-modified-since"];
         const response = yield* upstreamGet(
           upstreamURL(grant.sessionId, route),
@@ -258,7 +254,7 @@ export function sessionRelay<R>(options: SessionRelayOptions<R>) {
       const favicon = Effect.gen(function* () {
         const { request, grant, capability } = yield* admit(false);
         const { targetId, v } = yield* HttpRouter.schemaParams(faviconParams);
-        const url = upstreamURL(grant.sessionId, `targets/${encodeURIComponent(targetId)}/favicon`);
+        const url = upstreamURL(grant.sessionId, UrlPath.make`targets/${targetId}/favicon`);
         if (v !== undefined) url.searchParams.set("v", v);
         const ifNoneMatch = request.headers["if-none-match"];
         const response = yield* upstreamGet(

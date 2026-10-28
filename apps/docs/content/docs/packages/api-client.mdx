@@ -175,6 +175,10 @@ The live-session calls reach the running session directly and take an optional `
 
 Browser passkey sign-in and registration live in `@aperture-browser/api-client/passkeys`, so the main entry does not pull in `@simplewebauthn/browser`. It is an optional peer dependency; install it alongside when you use that entry. `loginWithPasskey()` and `registerPasskey(name)` run the whole WebAuthn ceremony and fail with `PasskeyCeremonyError` when the browser does not complete it. Its `reason` is `cancelled` for a dismissed or timed-out prompt and `failed` otherwise.
 
+### Url paths
+
+`@aperture-browser/api-client/url-path` builds request paths and urls from values a url treats specially. Every interpolation in `` UrlPath.make`/sessions/${sessionId}/recordings/${recordingId}/content` `` is encoded as one segment, so an id cannot escape it. `UrlPath.raw` inserts a base url or an already built path as it is, and `UrlPath.segments` encodes each segment of a multi-segment value and keeps its slashes.
+
 The endpoints, their parameters and error codes are in the [REST API reference](/api-reference).
 
 ## api-schema

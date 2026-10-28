@@ -131,6 +131,10 @@ npm install @simplewebauthn/browser
 
 `loginWithPasskey()` and `registerPasskey(name)` run the whole WebAuthn ceremony against `AuthApi`. They fail with `PasskeyCeremonyError` when the browser does not complete it; its `reason` is `cancelled` when the user dismissed the prompt or it timed out, and `failed` otherwise.
 
+## Url paths
+
+`@aperture-browser/api-client/url-path` builds request paths and urls from values a url treats specially. Every interpolation in `` UrlPath.make`/sessions/${sessionId}/recordings/${recordingId}/content` `` is encoded as one segment, so an id cannot escape it. `UrlPath.raw` inserts a base url or an already built path as it is, and `UrlPath.segments` encodes each segment of a multi-segment value and keeps its slashes.
+
 Requires `effect` 4.
 
 Documentation: https://aperture-browser-docs.pages.dev/docs/packages/api-client

@@ -15,6 +15,7 @@ import { ApertureProvider } from "./provider.tsx";
 import { useSession } from "./session.ts";
 import { ApertureUIRoot, type ApertureTheme } from "./ui-root.tsx";
 import type { SessionAccess } from "@aperture-browser/live-session";
+import * as UrlPath from "@aperture-browser/api-client/url-path";
 
 export interface SessionProps {
   readonly access: SessionAccess | null;
@@ -120,7 +121,7 @@ export function Session({
 export function devToolsUrl(origin: string, cdpUrl: string, sessionToken: string): string {
   const sourceUrl = new URL(cdpUrl, origin);
   const url = new URL(origin);
-  url.pathname = `${sourceUrl.pathname.replace(/\/$/, "")}/${encodeURIComponent(sessionToken)}`;
+  url.pathname = UrlPath.make`${UrlPath.raw(sourceUrl.pathname.replace(/\/$/, ""))}/${sessionToken}`;
   return url.toString();
 }
 

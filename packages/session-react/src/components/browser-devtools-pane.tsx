@@ -7,6 +7,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@aperture-browser/ui/components/empty";
+import * as UrlPath from "@aperture-browser/api-client/url-path";
 
 export type DevToolsDock = "bottom" | "right";
 
@@ -24,7 +25,7 @@ export function BrowserDevToolsPane({ cdpUrl, targetId }: BrowserDevToolsPanePro
     const cdp = new URL(cdpUrl);
     const cdpPath = cdp.pathname.replace(/\/$/, "");
     const frame = new URL(`${cdpPath}/devtools/devtools_app.html`, cdp.origin);
-    const socket = `${cdp.host}${cdpPath}/devtools/page/${encodeURIComponent(targetId)}`;
+    const socket = UrlPath.make`${UrlPath.raw(cdp.host)}${UrlPath.raw(cdpPath)}/devtools/page/${targetId}`;
     frame.searchParams.set(cdp.protocol === "https:" ? "wss" : "ws", socket);
     return frame.toString();
   }, [cdpUrl, targetId]);

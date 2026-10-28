@@ -15,7 +15,7 @@ import { CompanionError, openTab, requestOrigins, withExtensionLock } from "./ch
 import { AuthenticationMethod, OAuthSession, authorize, refresh, revoke } from "./oauth.ts";
 import { NonEmptyString, type Tags } from "./schema.ts";
 import { storedValue } from "./storage.ts";
-import * as UrlPath from "./url-path.ts";
+import * as UrlPath from "@aperture-browser/api-client/url-path";
 
 /** An Aperture instance and its locally stored credentials. */
 export const Connection = Schema.Struct({
