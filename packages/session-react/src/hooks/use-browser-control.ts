@@ -142,6 +142,8 @@ export interface UseBrowserControlResult {
 
 const emptyIceServers: readonly IceServer[] = [];
 const AUTO_SIZE_DEFAULT_STORAGE_KEY = "aperture.viewport.auto-size-default";
+/** How long the browser's size must hold still before auto-size resizes the session to it. */
+const AUTO_SIZE_SETTLE_MS = 150;
 
 export function useBrowserControl({
   access,
@@ -360,11 +362,59 @@ export function useBrowserControl({
     }
   }, [viewportOwnership]);
 
+  // The server applies resizes one at a time, each taking a frame or more, so following every
+  // size of a window drag would queue seconds of resizes. Auto-size waits for the size to settle,
+  // keeps one resize in flight, and sends only the newest size once that one is done.
+  const autoSizePendingRef = useRef<Record<string, unknown> | null>(null);
+  const autoSizeInFlightRef = useRef(false);
+  const autoSizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoSizeFlushRef = useRef(() => {});
+  const mountedRef = useRef(true);
   // Ownership can move while a resize is in flight; the next viewport state decides who resizes.
   const runAutoSizeViewport = useEffectCallback(
-    (payload: Record<string, unknown>) => live.request("viewport.set", payload).pipe(Effect.ignore),
+    (payload: Record<string, unknown>) =>
+      live.request("viewport.set", payload).pipe(
+        Effect.ignore,
+        Effect.ensuring(
+          Effect.sync(() => {
+            autoSizeInFlightRef.current = false;
+            autoSizeFlushRef.current();
+          }),
+        ),
+      ),
     [live.request],
   );
+  autoSizeFlushRef.current = () => {
+    const payload = autoSizePendingRef.current;
+    if (!mountedRef.current || autoSizeInFlightRef.current || payload === null) {
+      return;
+    }
+    autoSizePendingRef.current = null;
+    if (!viewportAutoSizeActiveRef.current) {
+      return;
+    }
+    autoSizeInFlightRef.current = true;
+    runAutoSizeViewport(payload);
+  };
+  const scheduleAutoSizeViewport = useCallback((payload: Record<string, unknown>) => {
+    autoSizePendingRef.current = payload;
+    if (autoSizeTimerRef.current !== null) {
+      clearTimeout(autoSizeTimerRef.current);
+    }
+    autoSizeTimerRef.current = setTimeout(() => {
+      autoSizeTimerRef.current = null;
+      autoSizeFlushRef.current();
+    }, AUTO_SIZE_SETTLE_MS);
+  }, []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (autoSizeTimerRef.current !== null) {
+        clearTimeout(autoSizeTimerRef.current);
+      }
+    };
+  }, []);
 
   const commitViewport = useCallback(
     (preset: ViewportPreset, autoSize: boolean) => {
@@ -379,13 +429,17 @@ export function useBrowserControl({
         height: preset.height,
         deviceScaleFactor: preset.deviceScaleFactor,
       };
-      if (autoSize && viewportOwnershipRef.current !== null) {
-        runAutoSizeViewport({ ...payload, autoSize: true });
+      if (autoSize) {
+        scheduleAutoSizeViewport(
+          viewportOwnershipRef.current !== null ? { ...payload, autoSize: true } : payload,
+        );
       } else {
+        // An explicit size wins over an auto-size still waiting to be sent.
+        autoSizePendingRef.current = null;
         live.command("viewport.set", payload);
       }
     },
-    [live.command, runAutoSizeViewport],
+    [live.command, scheduleAutoSizeViewport],
   );
 
   const setViewportAutoSync = useCallback(
