@@ -221,14 +221,15 @@ export function useBrowserControl({
     setViewportState(createBrowserViewport(live.mediaSize, live.mediaSize.deviceScaleFactor));
   }, [live.mediaSize]);
 
+  const sendBrowserInput = live.sendBrowserInput;
   const sendInput = useCallback(
     (message: BrowserInputMessage): boolean => {
       if (!enabled || access === null) {
         return false;
       }
-      return live.sendBrowserInput(message, inputDimensionsRef.current);
+      return sendBrowserInput(message, inputDimensionsRef.current);
     },
-    [access, enabled, live],
+    [access, enabled, sendBrowserInput],
   );
 
   const activateTarget = useCallback(
