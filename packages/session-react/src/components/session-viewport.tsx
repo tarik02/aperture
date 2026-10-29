@@ -16,10 +16,11 @@ import {
 } from "@aperture-browser/live-session";
 import { computeRenderMetrics } from "@aperture-browser/live-session";
 import type { LiveSessionRasterFrame } from "@aperture-browser/live-session";
+import type { ClipboardData } from "@aperture-browser/live-session";
 import type { ViewportPreset } from "@aperture-browser/live-session";
 import type { SessionNotice, UseBrowserControlResult } from "../hooks/use-browser-control.ts";
 import { CollaborationPaintOverlay } from "./collaboration-paint-overlay.tsx";
-import { useFork } from "../effect.tsx";
+import { useEffectCallback, useFork } from "../effect.tsx";
 
 export interface SessionViewportProps {
   control: UseBrowserControlResult;
@@ -833,20 +834,24 @@ export function SessionViewport({
       return;
     }
 
+    const clipboardShortcut = resolveClipboardShortcut(event.nativeEvent);
+    if (clipboardShortcut === "paste") {
+      // The local browser's own paste event carries the clipboard, images included, without a
+      // permission prompt; handlePaste takes it from there.
+      event.stopPropagation();
+      containerRef.current?.focus();
+      return;
+    }
+
     event.preventDefault();
     event.stopPropagation();
 
-    const clipboardShortcut = resolveClipboardShortcut(event.nativeEvent);
     if (clipboardShortcut === "copy") {
       control.sendInput({ type: "clipboard.copy", targetId });
       return;
     }
     if (clipboardShortcut === "cut") {
       control.sendInput({ type: "clipboard.cut", targetId });
-      return;
-    }
-    if (clipboardShortcut === "paste") {
-      void pasteClipboard(control, onNotice);
       return;
     }
 
@@ -864,6 +869,33 @@ export function SessionViewport({
     if (sent) {
       releasedKeysRef.current.delete(keyId);
       pressedKeysRef.current.set(keyId, { targetId, input });
+    }
+  }
+
+  const paste = useEffectCallback(
+    (targetId: string, items: ReadonlyArray<ClipboardData>) =>
+      control.writeClipboard(items).pipe(
+        Effect.andThen(Effect.sync(() => control.sendInput({ type: "clipboard.paste", targetId }))),
+        Effect.catchTag("LiveSessionError", (error) =>
+          Effect.sync(() => {
+            console.warn("Paste failed", error);
+            onNotice?.({ level: "error", message: "Paste failed" });
+          }),
+        ),
+      ),
+    [control.writeClipboard, control.sendInput, onNotice],
+  );
+
+  function handlePaste(event: React.ClipboardEvent) {
+    const targetId = control.activeTargetId;
+    if (inputDisabled || !targetId) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const items = pastedClipboardData(event.clipboardData);
+    if (items.length > 0) {
+      paste(targetId, items);
     }
   }
 
@@ -957,6 +989,7 @@ export function SessionViewport({
       tabIndex={0}
       onKeyDown={handleKeyDown}
       onKeyUp={handleKeyUp}
+      onPaste={handlePaste}
       onBlur={handleBlur}
       onClick={handlePointerClick}
       onPointerMove={handlePointerMove}
@@ -1288,34 +1321,6 @@ function wheelDeltaScale(deltaMode: number, viewportHeight: number): number {
   return 1;
 }
 
-async function pasteClipboard(
-  control: UseBrowserControlResult,
-  onNotice: SessionViewportProps["onNotice"],
-) {
-  if (!control.activeTargetId) {
-    return;
-  }
-
-  let text = "";
-  try {
-    text = await navigator.clipboard.readText();
-  } catch (error) {
-    console.warn("Clipboard read failed", error);
-    onNotice?.({ level: "error", message: "Clipboard read failed" });
-    return;
-  }
-
-  if (!text) {
-    return;
-  }
-
-  control.sendInput({
-    type: "clipboard.paste",
-    targetId: control.activeTargetId,
-    items: [{ mimeType: "text/plain", data: text }],
-  });
-}
-
 function resolveViewportStatus(
   phase: UseBrowserControlResult["phase"],
   hasFrame: boolean,
@@ -1338,4 +1343,21 @@ function resolveViewportStatus(
 function focusedElement(node: HTMLElement | null): Element | null {
   const root = node?.getRootNode();
   return root instanceof Document || root instanceof ShadowRoot ? root.activeElement : null;
+}
+
+/** The pasted text, HTML and images, which the browser's clipboard can carry as they are. */
+function pastedClipboardData(data: DataTransfer): ClipboardData[] {
+  const items: ClipboardData[] = [];
+  for (const mimeType of ["text/plain", "text/html"]) {
+    const text = data.getData(mimeType);
+    if (text !== "") {
+      items.push({ mimeType, data: new Blob([text], { type: mimeType }) });
+    }
+  }
+  for (const file of data.files) {
+    if (file.type.startsWith("image/") && !items.some((item) => item.mimeType === file.type)) {
+      items.push({ mimeType: file.type, data: file });
+    }
+  }
+  return items;
 }

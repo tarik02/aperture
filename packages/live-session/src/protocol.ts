@@ -111,6 +111,8 @@ const Participant = Schema.Struct({
 const Selection = Schema.Struct({
   text: Schema.String,
   truncated: Schema.optionalKey(Schema.Boolean),
+  /** MIME types its owner offers; read them with clipboard.read. */
+  types: Schema.optionalKey(Schema.Array(Schema.String)),
   revision: int,
 });
 
@@ -204,6 +206,13 @@ const ClipboardState = Schema.Struct({
   clipboard: Clipboard,
 });
 
+/** One piece of a clipboard.read's data, sent ahead of its result. */
+const ClipboardChunk = Schema.Struct({
+  type: Schema.Literal("clipboard.chunk"),
+  requestId: Schema.String,
+  data: Schema.String,
+});
+
 const ErrorMessage = Schema.Struct({
   type: Schema.Literal("error"),
   code: Schema.String,
@@ -229,6 +238,8 @@ const CommandResult = Schema.Struct({
     "recording.start.result",
     "recording.stop.result",
     "recording.cancel.result",
+    "clipboard.read.result",
+    "clipboard.write.result",
   ]),
   requestId: Schema.String,
   ok: Schema.Boolean,
@@ -237,6 +248,7 @@ const CommandResult = Schema.Struct({
   targetId: Schema.optionalKey(Schema.String),
   recording: Schema.optionalKey(Recording),
   presentation: Schema.optionalKey(Presentation),
+  mimeType: Schema.optionalKey(Schema.String),
 });
 
 export const LiveSessionServerMessage = Schema.Union([
@@ -251,6 +263,7 @@ export const LiveSessionServerMessage = Schema.Union([
   RecordingsState,
   PresentationState,
   ClipboardState,
+  ClipboardChunk,
   ErrorMessage,
   CommandResult,
 ]);

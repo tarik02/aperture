@@ -49,7 +49,12 @@ One client at a time, the viewport owner, resizes the browser to its own present
 
 ## Browser clipboard
 
-Owners and editors whose hello carried `clipboard: true` receive the browser's selections in the snapshot and in `clipboard.state`: `clipboard {clipboard, primary}`, each `{text, truncated?, revision}`. `clipboard` is what the browser copied; `primary` is the text last selected. `revision` grows with every change, so copying the same text again is still visible. Each text is cut to about 28 KiB of JSON and then carries `truncated: true`. A server that predates this rejects a hello with `clipboard`.
+Owners and editors whose hello carried `clipboard: true` receive the browser's selections in the snapshot and in `clipboard.state`: `clipboard {clipboard, primary}`, each `{text, truncated?, types?, revision}`. `clipboard` is what the browser copied; `primary` is the text last selected. `types` lists the MIME types the selection's owner offers. `revision` grows with every change, so copying the same text again is still visible. Each text is cut to about 28 KiB of JSON and then carries `truncated: true`. A server that predates this rejects a hello with `clipboard`.
+
+Data moves in base64 chunks of up to 32 KiB, which keeps every message under a 64 KiB data channel limit, and at most 16 MiB per transfer:
+
+- `clipboard.read {selection, mimeType}` (owner, editor) answers with `clipboard.chunk {requestId, data}` messages, then `clipboard.read.result`.
+- To paste, send `clipboard.write.chunk {requestId, mimeType, data}` for each type (at least one chunk per type, even when empty), then the command `clipboard.write` with the same `requestId`. The data becomes the browser's clipboard; press Ctrl+V through the input lease to paste it. `text/plain` is also offered as `text/plain;charset=utf-8` and `UTF8_STRING`.
 
 ## Automation pacing
 

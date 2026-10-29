@@ -7,6 +7,7 @@ import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+import { Base64 } from "effect/encoding";
 import type { IceServer } from "@aperture-browser/api-client";
 import { sessionWebSocketURL, sessionProtocols, type SessionAccess } from "./access.ts";
 import {
@@ -73,7 +74,25 @@ export interface LiveSessionConnection {
     type: string,
     payload?: Record<string, unknown>,
   ) => Effect.Effect<LiveSessionCommandResult, LiveSessionError>;
+  /** Reads one type of data from one of the browser's selections. */
+  readonly readClipboard: (
+    selection: "clipboard" | "primary",
+    mimeType: string,
+  ) => Effect.Effect<Blob, LiveSessionError>;
+  /** Makes the given data, one entry per type, the browser's clipboard. */
+  readonly writeClipboard: (
+    items: ReadonlyArray<ClipboardData>,
+  ) => Effect.Effect<void, LiveSessionError>;
 }
+
+export interface ClipboardData {
+  readonly mimeType: string;
+  readonly data: Blob;
+}
+
+/** Clipboard data moves in chunks of this size; base64 and the envelope keep each message under
+ * the 64 KiB a data channel may allow. */
+const CLIPBOARD_CHUNK_BYTES = 32 * 1024;
 
 interface TransportRequest {
   kind: LiveSessionTransportKind;
@@ -163,6 +182,8 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
     string,
     Deferred.Deferred<LiveSessionCommandResult, LiveSessionError>
   >();
+  /** Data of clipboard reads in flight; the chunks arrive ahead of each read's result. */
+  const clipboardChunks = new Map<string, string[]>();
 
   const hello = () => ({
     type: "session.hello",
@@ -404,6 +425,10 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
       }
       inboundRealtimeCounter = message.realtimeCounter;
     }
+    if (message.type === "clipboard.chunk") {
+      clipboardChunks.get(message.requestId)?.push(message.data);
+      return;
+    }
     if ("requestId" in message) {
       const deferred = pendingCommands.get(message.requestId);
       if (deferred) {
@@ -471,6 +496,26 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
     return active?.sendRealtime({ realtimeCounter, ...message }) ?? false;
   };
 
+  const newRequestId = () => {
+    nextRequestId += 1;
+    return `request-${nextRequestId}`;
+  };
+
+  const transportUnavailableError = () =>
+    new LiveSessionError({ message: "live session transport is unavailable" });
+
+  const sendCommand = (type: string, requestId: string, payload: Record<string, unknown>) => {
+    const deferred = Deferred.makeUnsafe<LiveSessionCommandResult, LiveSessionError>();
+    pendingCommands.set(requestId, deferred);
+    if (!sendReliable({ type, requestId, ...payload })) {
+      pendingCommands.delete(requestId);
+      return Effect.fail(transportUnavailableError());
+    }
+    return Deferred.await(deferred).pipe(
+      Effect.onInterrupt(() => Effect.sync(() => pendingCommands.delete(requestId))),
+    );
+  };
+
   const close = () => {
     disposed = true;
     stopTransports("live session connection closed");
@@ -530,20 +575,53 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
     sendRealtime,
 
     command: (type, payload = {}) =>
+      Effect.suspend(() => sendCommand(type, newRequestId(), payload)),
+
+    readClipboard: (selection, mimeType) =>
       Effect.suspend(() => {
-        nextRequestId += 1;
-        const requestId = `request-${nextRequestId}`;
-        const deferred = Deferred.makeUnsafe<LiveSessionCommandResult, LiveSessionError>();
-        pendingCommands.set(requestId, deferred);
-        if (!sendReliable({ type, requestId, ...payload })) {
-          pendingCommands.delete(requestId);
-          return Effect.fail(
-            new LiveSessionError({ message: "live session transport is unavailable" }),
-          );
-        }
-        return Deferred.await(deferred).pipe(
-          Effect.onInterrupt(() => Effect.sync(() => pendingCommands.delete(requestId))),
+        const requestId = newRequestId();
+        const chunks: string[] = [];
+        clipboardChunks.set(requestId, chunks);
+        return sendCommand("clipboard.read", requestId, { selection, mimeType }).pipe(
+          Effect.flatMap(() =>
+            Effect.forEach(chunks, (chunk) =>
+              Result.match(Base64.decode(chunk), {
+                // Blob parts must own their buffer.
+                onSuccess: (bytes) => Effect.succeed(new Uint8Array(bytes)),
+                onFailure: () =>
+                  Effect.fail(new LiveSessionError({ message: "clipboard data is not base64" })),
+              }),
+            ),
+          ),
+          Effect.map((parts) => new Blob(parts, { type: mimeType })),
+          Effect.ensuring(Effect.sync(() => clipboardChunks.delete(requestId))),
         );
+      }),
+
+    writeClipboard: (items) =>
+      Effect.gen(function* () {
+        const requestId = newRequestId();
+        for (const item of items) {
+          const bytes = new Uint8Array(yield* Effect.promise(() => item.data.arrayBuffer()));
+          // An empty item still sends one chunk, so the server knows the type.
+          for (
+            let offset = 0;
+            offset === 0 || offset < bytes.length;
+            offset += CLIPBOARD_CHUNK_BYTES
+          ) {
+            const chunk = bytes.subarray(offset, offset + CLIPBOARD_CHUNK_BYTES);
+            const sent = sendReliable({
+              type: "clipboard.write.chunk",
+              requestId,
+              mimeType: item.mimeType,
+              data: Base64.encode(chunk),
+            });
+            if (!sent) {
+              return yield* Effect.fail(transportUnavailableError());
+            }
+          }
+        }
+        yield* sendCommand("clipboard.write", requestId, {});
       }),
   } satisfies LiveSessionConnection;
 });

@@ -61,6 +61,9 @@ func (session *liveSession) handleSessionMessage(client *liveSessionClient, tran
 				session.writeCommandError(transport, message, err)
 				return
 			}
+			for _, chunk := range result.chunks {
+				_ = transport.send(liveSessionDeliveryReliable, mustJSON(chunk))
+			}
 			result.Type = message.Type + ".result"
 			result.RequestID = message.RequestID
 			result.OK = liveSessionBool(true)
@@ -108,6 +111,7 @@ func liveSessionMessageDelivery(message liveSessionClientMessage) (liveSessionDe
 		"input.keyboard.key",
 		"input.keyboard.text",
 		"presence.cursor.clear",
+		"clipboard.write.chunk",
 		"follow.set":
 		return liveSessionDeliveryReliable, true
 	default:
@@ -131,6 +135,8 @@ func isLiveSessionCommand(messageType string) bool {
 		"presentation.quality.set",
 		"presentation.cursor.set",
 		"automation.pacing.set",
+		"clipboard.read",
+		"clipboard.write",
 		"recording.start",
 		"recording.stop",
 		"recording.cancel":
@@ -283,6 +289,10 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		}
 		client.watchable.Store(message.Pacing == automationPacingWatchable)
 		return liveSessionServerMessage{}, nil
+	case "clipboard.read":
+		return session.readClipboard(client, message)
+	case "clipboard.write":
+		return session.commitClipboardWrite(client, message)
 	case "recording.start":
 		if !client.canRecord() {
 			return liveSessionServerMessage{}, errRecordingRole

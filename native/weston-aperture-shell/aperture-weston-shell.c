@@ -52,6 +52,8 @@ enum {
 	aperture_max_selection_bytes = 256 * 1024,
 	/* A watcher this far behind is disconnected rather than buffered without bound. */
 	aperture_max_watcher_backlog = 4 * 1024 * 1024,
+	/* Pipes for the shell's own clipboard that no watcher took; the oldest is closed beyond this. */
+	aperture_max_pending_sends = 16,
 };
 
 enum aperture_selection_kind {
@@ -63,12 +65,21 @@ enum aperture_selection_kind {
 struct aperture_selection_read;
 struct aperture_primary_source;
 
-/* The text last read from one selection, as watchers see it. */
+/* The text last read from one selection, as watchers see it, and the types its owner offers. */
 struct aperture_selection_state {
 	struct aperture_selection_read *read;
 	char *text;
 	size_t length;
 	bool truncated;
+	/* Newline-separated MIME types, or NULL when the selection is empty. */
+	char *types;
+};
+
+/* A request for the shell's own clipboard data, waiting for a watcher to take its pipe. */
+struct aperture_pending_send {
+	struct wl_list link;
+	uint64_t id;
+	int fd;
 };
 
 struct aperture_shell {
@@ -97,6 +108,8 @@ struct aperture_shell {
 	struct aperture_text_input *active_text_input;
 	struct aperture_primary_source *primary_source;
 	struct aperture_selection_state selections[APERTURE_SELECTION_KIND_COUNT];
+	struct wl_list pending_sends;
+	uint64_t next_send_id;
 	char *control_socket_path;
 	char *pending_surface_nonce;
 	int control_fd;
@@ -1680,14 +1693,70 @@ static const char *const aperture_selection_names[APERTURE_SELECTION_KIND_COUNT]
 	[APERTURE_SELECTION_PRIMARY] = "primary",
 };
 
-/* "selection <kind> <truncated> <hex text or - when empty>\n" */
+/* Writes data as lowercase hex, or "-" when it is empty; out needs 2 * length + 1 bytes. */
+static size_t
+append_hex(char *out, const char *data, size_t length)
+{
+	static const char digits[] = "0123456789abcdef";
+
+	if (length == 0) {
+		out[0] = '-';
+		return 1;
+	}
+	for (size_t i = 0; i < length; i++) {
+		unsigned char byte = (unsigned char)data[i];
+
+		out[i * 2] = digits[byte >> 4];
+		out[i * 2 + 1] = digits[byte & 0xf];
+	}
+	return length * 2;
+}
+
+/* Decodes lowercase hex, or "-" for empty, into a new NUL-terminated string. */
+static char *
+decode_hex(const char *hex, size_t *length)
+{
+	size_t hex_length = strlen(hex);
+	char *out;
+
+	if (strcmp(hex, "-") == 0)
+		hex_length = 0;
+	if (hex_length % 2 != 0)
+		return NULL;
+	out = malloc(hex_length / 2 + 1);
+	if (!out)
+		return NULL;
+	for (size_t i = 0; i < hex_length / 2; i++) {
+		int value = 0;
+
+		for (int nibble = 0; nibble < 2; nibble++) {
+			char c = hex[i * 2 + nibble];
+
+			value <<= 4;
+			if (c >= '0' && c <= '9')
+				value |= c - '0';
+			else if (c >= 'a' && c <= 'f')
+				value |= c - 'a' + 10;
+			else {
+				free(out);
+				return NULL;
+			}
+		}
+		out[i] = (char)value;
+	}
+	out[hex_length / 2] = '\0';
+	*length = hex_length / 2;
+	return out;
+}
+
+/* "selection <kind> <truncated> <hex text> <hex newline-separated types>\n" */
 static char *
 format_selection_line(enum aperture_selection_kind kind,
 		      const struct aperture_selection_state *state, size_t *length)
 {
-	static const char digits[] = "0123456789abcdef";
-	size_t prefix_length = strlen("selection ") + strlen(aperture_selection_names[kind]) + 4;
-	size_t capacity = prefix_length + (state->length ? state->length * 2 : 1) + 2;
+	size_t types_length = state->types ? strlen(state->types) : 0;
+	size_t capacity = strlen("selection ") + strlen(aperture_selection_names[kind]) + 4 +
+			  state->length * 2 + 2 + types_length * 2 + 2;
 	char *line = malloc(capacity);
 	size_t offset;
 
@@ -1695,14 +1764,9 @@ format_selection_line(enum aperture_selection_kind kind,
 		return NULL;
 	offset = (size_t)snprintf(line, capacity, "selection %s %d ",
 				  aperture_selection_names[kind], state->truncated ? 1 : 0);
-	if (state->length == 0)
-		line[offset++] = '-';
-	for (size_t i = 0; i < state->length; i++) {
-		unsigned char byte = (unsigned char)state->text[i];
-
-		line[offset++] = digits[byte >> 4];
-		line[offset++] = digits[byte & 0xf];
-	}
+	offset += append_hex(line + offset, state->text, state->length);
+	line[offset++] = ' ';
+	offset += append_hex(line + offset, state->types, types_length);
 	line[offset++] = '\n';
 	*length = offset;
 	return line;
@@ -1849,6 +1913,41 @@ preferred_text_mime_type(const struct wl_array *mime_types)
 	return NULL;
 }
 
+/* MIME types are tokens; one with a newline could not be listed, so it is left out. */
+static char *
+join_mime_types(const struct wl_array *mime_types)
+{
+	char *const *mime_type;
+	size_t length = 0;
+	char *joined;
+
+	wl_array_for_each(mime_type, mime_types)
+		length += strlen(*mime_type) + 1;
+	joined = calloc(1, length + 1);
+	if (!joined)
+		return NULL;
+	wl_array_for_each(mime_type, mime_types) {
+		if (strchr(*mime_type, '\n'))
+			continue;
+		if (joined[0])
+			strcat(joined, "\n");
+		strcat(joined, *mime_type);
+	}
+	return joined;
+}
+
+static bool
+offers_mime_type(const struct wl_array *mime_types, const char *wanted)
+{
+	char *const *mime_type;
+
+	wl_array_for_each(mime_type, mime_types) {
+		if (strcmp(*mime_type, wanted) == 0)
+			return true;
+	}
+	return false;
+}
+
 typedef void (*aperture_selection_send_fn)(void *owner, const char *mime_type, int fd);
 
 /* Asks a selection owner for its text. send takes ownership of the write end. */
@@ -1863,6 +1962,8 @@ read_selection(struct aperture_shell *shell, enum aperture_selection_kind kind,
 
 	if (state->read)
 		destroy_selection_read(state->read);
+	free(state->types);
+	state->types = mime_types ? join_mime_types(mime_types) : NULL;
 	if (!mime_type) {
 		set_selection_text(shell, kind, NULL, 0, false);
 		return;
@@ -2190,6 +2291,208 @@ create_primary_selection_manager(struct aperture_shell *shell)
 	return shell->primary_selection_global ? 0 : -1;
 }
 
+static bool
+parse_selection_kind(const char *name, enum aperture_selection_kind *kind)
+{
+	for (int candidate = 0; candidate < APERTURE_SELECTION_KIND_COUNT; candidate++) {
+		if (strcmp(name, aperture_selection_names[candidate]) == 0) {
+			*kind = (enum aperture_selection_kind)candidate;
+			return true;
+		}
+	}
+	return false;
+}
+
+/* Answers a control command with a file descriptor alongside the response line. */
+static void
+write_control_response_fd(struct aperture_control_client *client, const char *response, int fd)
+{
+	char control[CMSG_SPACE(sizeof fd)];
+	struct iovec iov = { .iov_base = (void *)response, .iov_len = strlen(response) };
+	struct msghdr message = {
+		.msg_iov = &iov,
+		.msg_iovlen = 1,
+		.msg_control = control,
+		.msg_controllen = sizeof control,
+	};
+	struct cmsghdr *header;
+
+	memset(control, 0, sizeof control);
+	header = CMSG_FIRSTHDR(&message);
+	header->cmsg_level = SOL_SOCKET;
+	header->cmsg_type = SCM_RIGHTS;
+	header->cmsg_len = CMSG_LEN(sizeof fd);
+	memcpy(CMSG_DATA(header), &fd, sizeof fd);
+	if (sendmsg(client->fd, &message, MSG_NOSIGNAL) < 0)
+		weston_log("aperture-shell: send control fd failed: %s\n", strerror(errno));
+}
+
+/* The shell's own clipboard, set when the web client pastes. The data stays with the watcher that
+ * set it: every request for it is handed over as a pipe for that watcher to fill. */
+struct aperture_owned_source {
+	struct weston_data_source base;
+	struct aperture_shell *shell;
+};
+
+static void
+destroy_pending_send(struct aperture_pending_send *pending)
+{
+	wl_list_remove(&pending->link);
+	close(pending->fd);
+	free(pending);
+}
+
+static void
+owned_source_accept(struct weston_data_source *source, uint32_t serial, const char *mime_type)
+{
+}
+
+static void
+owned_source_send(struct weston_data_source *base, const char *mime_type, int32_t fd)
+{
+	struct aperture_owned_source *source = wl_container_of(base, source, base);
+	struct aperture_shell *shell = source->shell;
+	struct aperture_control_client *client;
+	struct aperture_control_client *next;
+	struct aperture_pending_send *pending;
+	struct aperture_pending_send *added;
+	size_t mime_length = strlen(mime_type);
+	size_t capacity = 32 + mime_length * 2;
+	char *line = malloc(capacity);
+	bool delivered = false;
+	size_t length;
+
+	pending = calloc(1, sizeof *pending);
+	if (!pending || !line) {
+		free(pending);
+		free(line);
+		close(fd);
+		return;
+	}
+	pending->id = ++shell->next_send_id;
+	pending->fd = fd;
+	wl_list_insert(shell->pending_sends.prev, &pending->link);
+	added = pending;
+	if (wl_list_length(&shell->pending_sends) > aperture_max_pending_sends)
+		destroy_pending_send(wl_container_of(shell->pending_sends.next, pending, link));
+
+	length = (size_t)snprintf(line, capacity, "send %llu ", (unsigned long long)pending->id);
+	length += append_hex(line + length, mime_type, mime_length);
+	line[length++] = '\n';
+	wl_list_for_each_safe(client, next, &shell->control_clients, link) {
+		if (!client->watching)
+			continue;
+		if (queue_watcher_output(client, line, length) < 0)
+			destroy_control_client(client);
+		else
+			delivered = true;
+	}
+	free(line);
+	if (!delivered)
+		destroy_pending_send(added);
+}
+
+static void
+destroy_owned_source(void *data)
+{
+	struct aperture_owned_source *source = data;
+	char **mime_type;
+
+	/* Offers made for this source drop it now. */
+	wl_signal_emit(&source->base.destroy_signal, &source->base);
+	wl_array_for_each(mime_type, &source->base.mime_types)
+		free(*mime_type);
+	wl_array_release(&source->base.mime_types);
+	free(source);
+}
+
+/* Weston cancels a replaced selection before it stops listening for that source's destruction,
+ * so the source is destroyed once the replacement is done. */
+static void
+owned_source_cancel(struct weston_data_source *base)
+{
+	struct aperture_owned_source *source = wl_container_of(base, source, base);
+
+	if (!wl_event_loop_add_idle(wl_display_get_event_loop(source->shell->compositor->wl_display),
+				    destroy_owned_source, source))
+		weston_log("aperture-shell: could not schedule clipboard source cleanup\n");
+}
+
+/* encoded is the hex of newline-separated MIME types the watcher will provide. */
+static const char *
+set_owned_clipboard(struct aperture_shell *shell, const char *encoded)
+{
+	struct aperture_owned_source *source;
+	size_t length;
+	char *types = decode_hex(encoded, &length);
+	char *type;
+	char *rest;
+
+	if (!types || length == 0) {
+		free(types);
+		return "invalid types";
+	}
+	source = calloc(1, sizeof *source);
+	if (!source) {
+		free(types);
+		return "out of memory";
+	}
+	source->shell = shell;
+	wl_signal_init(&source->base.destroy_signal);
+	wl_array_init(&source->base.mime_types);
+	source->base.accept = owned_source_accept;
+	source->base.send = owned_source_send;
+	source->base.cancel = owned_source_cancel;
+	for (type = strtok_r(types, "\n", &rest); type; type = strtok_r(NULL, "\n", &rest)) {
+		char **slot;
+
+		for (const char *c = type; *c; c++) {
+			if ((unsigned char)*c < 0x20 || *c == 0x7f) {
+				free(types);
+				destroy_owned_source(source);
+				return "invalid types";
+			}
+		}
+		slot = wl_array_add(&source->base.mime_types, sizeof *slot);
+		if (!slot || !(*slot = strdup(type))) {
+			if (slot)
+				source->base.mime_types.size -= sizeof *slot;
+			free(types);
+			destroy_owned_source(source);
+			return "out of memory";
+		}
+	}
+	free(types);
+	weston_seat_set_selection(&shell->input_seat, &source->base,
+				  wl_display_next_serial(shell->compositor->wl_display));
+	return NULL;
+}
+
+/* Asks a selection's owner for one type of its data and returns the pipe it writes into. */
+static const char *
+open_selection(struct aperture_shell *shell, enum aperture_selection_kind kind,
+	       const char *mime_type, int *read_fd)
+{
+	struct weston_data_source *clipboard = shell->input_seat.selection_data_source;
+	struct aperture_primary_source *primary = shell->primary_source;
+	int fds[2];
+
+	if (kind == APERTURE_SELECTION_CLIPBOARD &&
+	    (!clipboard || !offers_mime_type(&clipboard->mime_types, mime_type)))
+		return "type is not offered";
+	if (kind == APERTURE_SELECTION_PRIMARY &&
+	    (!primary || !offers_mime_type(&primary->mime_types, mime_type)))
+		return "type is not offered";
+	if (pipe2(fds, O_CLOEXEC) < 0)
+		return "pipe failed";
+	if (kind == APERTURE_SELECTION_CLIPBOARD)
+		clipboard->send(clipboard, mime_type, fds[1]);
+	else
+		send_primary_source(primary, mime_type, fds[1]);
+	*read_fd = fds[0];
+	return NULL;
+}
+
 static void
 handle_control_command(struct aperture_control_client *client)
 {
@@ -2220,6 +2523,54 @@ handle_control_command(struct aperture_control_client *client)
 				return;
 			}
 		}
+		return;
+	}
+
+	if (strncmp(client->buffer, "selection-set clipboard ", 24) == 0) {
+		error = set_owned_clipboard(client->shell, client->buffer + 24);
+		if (error) {
+			snprintf(response, sizeof response, "error %s\n", error);
+			write_control_response(client, response);
+			return;
+		}
+		write_control_response(client, "ok\n");
+		return;
+	}
+
+	text_offset = 0;
+	if (sscanf(client->buffer, "selection-read %128s %n", identifier, &text_offset) == 1 &&
+	    text_offset > 0) {
+		enum aperture_selection_kind kind;
+		size_t mime_length;
+		char *mime_type = decode_hex(client->buffer + text_offset, &mime_length);
+		int read_fd = -1;
+
+		if (!parse_selection_kind(identifier, &kind) || !mime_type || mime_length == 0)
+			error = "invalid selection request";
+		else
+			error = open_selection(client->shell, kind, mime_type, &read_fd);
+		free(mime_type);
+		if (error) {
+			snprintf(response, sizeof response, "error %s\n", error);
+			write_control_response(client, response);
+			return;
+		}
+		write_control_response_fd(client, "ok\n", read_fd);
+		close(read_fd);
+		return;
+	}
+
+	if (sscanf(client->buffer, "selection-take %llu %c", &surface_id, &trailing) == 1) {
+		struct aperture_pending_send *pending;
+
+		wl_list_for_each(pending, &client->shell->pending_sends, link) {
+			if (pending->id == (uint64_t)surface_id) {
+				write_control_response_fd(client, "ok\n", pending->fd);
+				destroy_pending_send(pending);
+				return;
+			}
+		}
+		write_control_response(client, "error request is gone\n");
 		return;
 	}
 
@@ -2675,6 +3026,8 @@ destroy_shell(struct wl_listener *listener, void *data)
 	struct aperture_primary_source *next_primary_source;
 	struct wl_resource *primary_device;
 	struct wl_resource *next_primary_device;
+	struct aperture_pending_send *pending_send;
+	struct aperture_pending_send *next_pending_send;
 
 	wl_list_remove(&shell->destroy_listener.link);
 	wl_list_remove(&shell->text_input_focus_listener.link);
@@ -2691,10 +3044,13 @@ destroy_shell(struct wl_listener *listener, void *data)
 		wl_resource_destroy(primary_source->resource);
 	wl_resource_for_each_safe(primary_device, next_primary_device, &shell->primary_devices)
 		wl_resource_destroy(primary_device);
+	wl_list_for_each_safe(pending_send, next_pending_send, &shell->pending_sends, link)
+		destroy_pending_send(pending_send);
 	for (int kind = 0; kind < APERTURE_SELECTION_KIND_COUNT; kind++) {
 		if (shell->selections[kind].read)
 			destroy_selection_read(shell->selections[kind].read);
 		free(shell->selections[kind].text);
+		free(shell->selections[kind].types);
 	}
 	if (shell->text_input_global)
 		wl_global_destroy(shell->text_input_global);
@@ -2762,6 +3118,7 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	wl_list_init(&shell->text_input_focus_listener.link);
 	wl_list_init(&shell->primary_devices);
 	wl_list_init(&shell->primary_sources);
+	wl_list_init(&shell->pending_sends);
 	wl_list_init(&shell->primary_focus_listener.link);
 	wl_list_init(&shell->selection_listener.link);
 	weston_layer_init(&shell->background_layer, compositor);

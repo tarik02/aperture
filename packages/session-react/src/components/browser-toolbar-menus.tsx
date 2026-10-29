@@ -2,10 +2,12 @@ import { Fragment, useEffect, useId, useState, type ReactNode } from "react";
 import {
   Circle,
   ClipboardCopy,
+  ClipboardPaste,
   Copy,
   Download,
   Gauge,
   Hand,
+  Image,
   Info,
   Lock,
   LockOpen,
@@ -48,11 +50,10 @@ import {
   formatViewportScale,
   VIEWPORT_DEVICE_SCALE_FACTORS,
   VIEWPORT_PRESETS,
-  type LiveSessionClipboard,
   type LiveSessionSelection,
 } from "@aperture-browser/live-session";
 import type { UseBrowserControlResult } from "../hooks/use-browser-control.ts";
-import { copyText, copyTextWithToast } from "../clipboard.ts";
+import { copyBrowserSelection, copyTextWithToast, readLocalClipboard } from "../clipboard.ts";
 import { useEffectCallback } from "../effect.tsx";
 import { toast } from "sonner";
 import type { RecordingSettings } from "@aperture-browser/api-client";
@@ -108,39 +109,90 @@ export interface BrowserMenuDevTools {
 
 /**
  * Copies what this client copies in the browser to the local clipboard. Browsers may refuse a
- * write that no local gesture started; the clipboard menu then still has the text.
+ * write that no local gesture started; the clipboard menu then still has it.
  */
 function useCopyOwnClipboardChanges(control: UseBrowserControlResult) {
   const copy = useEffectCallback(
-    (text: string) =>
-      copyText(text).pipe(
-        Effect.catchTag("ClipboardError", () =>
-          Effect.sync(() =>
-            toast("Copied in the browser", {
-              description: "Copy it from the clipboard menu to use it here.",
-            }),
-          ),
-        ),
+    (selection: LiveSessionSelection) =>
+      copyBrowserSelection(selection, "clipboard", control.readClipboard).pipe(
+        Effect.catchTags({
+          ClipboardError: () =>
+            Effect.sync(() =>
+              toast("Copied in the browser", {
+                description: "Copy it from the clipboard menu to use it here.",
+              }),
+            ),
+          LiveSessionError: (error) =>
+            Effect.sync(() => toast.error("Copy failed", { description: error.message })),
+        }),
       ),
-    [],
+    [control.readClipboard],
   );
   const selection = control.clipboard?.clipboard ?? null;
   const revision = control.ownClipboardRevision;
 
   useEffect(() => {
-    if (revision === null || selection?.revision !== revision || selection.text === "") {
+    if (revision === null || selection?.revision !== revision || !hasSelectionData(selection)) {
       return;
     }
-    copy(selection.text);
-    // Only a new revision copies; the text is read from the render that saw it.
+    copy(selection);
+    // Only a new revision copies; the selection is read from the render that saw it.
   }, [revision]);
 }
 
-function ClipboardMenu({ clipboard }: { clipboard: LiveSessionClipboard }) {
+function hasSelectionData(selection: LiveSessionSelection) {
+  return selection.text !== "" || (selection.types ?? []).length > 0;
+}
+
+function ClipboardMenu({ control }: { control: UseBrowserControlResult }) {
   const copy = useEffectCallback(
-    (value: string, copied: string) => copyTextWithToast(value, () => toast.success(copied)),
-    [],
+    (selection: LiveSessionSelection, kind: "clipboard" | "primary", copied: string) =>
+      copyBrowserSelection(selection, kind, control.readClipboard).pipe(
+        Effect.andThen(Effect.sync(() => toast.success(copied))),
+        Effect.catchTags({
+          ClipboardError: (error) =>
+            Effect.sync(() => toast.error("Copy failed", { description: error.message })),
+          LiveSessionError: (error) =>
+            Effect.sync(() => toast.error("Copy failed", { description: error.message })),
+        }),
+      ),
+    [control.readClipboard],
   );
+  const send = useEffectCallback(
+    () =>
+      readLocalClipboard.pipe(
+        Effect.flatMap((items) =>
+          items.length === 0
+            ? Effect.sync(() => toast("This computer's clipboard is empty"))
+            : control.writeClipboard(items).pipe(
+                Effect.andThen(
+                  Effect.sync(() =>
+                    toast.success("Clipboard sent", {
+                      description: "Paste it in the browser.",
+                    }),
+                  ),
+                ),
+              ),
+        ),
+        Effect.catchTags({
+          ClipboardError: (error) =>
+            Effect.sync(() =>
+              toast.error("Could not read this computer's clipboard", {
+                description: error.message,
+              }),
+            ),
+          LiveSessionError: (error) =>
+            Effect.sync(() =>
+              toast.error("Sending the clipboard failed", { description: error.message }),
+            ),
+        }),
+      ),
+    [control.writeClipboard],
+  );
+  const clipboard = control.clipboard;
+  if (!clipboard) {
+    return null;
+  }
 
   return (
     <DropdownMenu>
@@ -168,15 +220,20 @@ function ClipboardMenu({ clipboard }: { clipboard: LiveSessionClipboard }) {
           label="Clipboard"
           selection={clipboard.clipboard}
           empty="Nothing copied in the browser yet"
-          onCopy={(text) => copy(text, "Clipboard copied")}
+          onCopy={() => copy(clipboard.clipboard, "clipboard", "Clipboard copied")}
         />
         <DropdownMenuSeparator />
         <SelectionMenuGroup
           label="Selected text"
           selection={clipboard.primary}
           empty="No text selected in the browser"
-          onCopy={(text) => copy(text, "Selected text copied")}
+          onCopy={() => copy(clipboard.primary, "primary", "Selected text copied")}
         />
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => send()}>
+          <ClipboardPaste />
+          Send this computer's clipboard
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -191,24 +248,25 @@ function SelectionMenuGroup({
   label: string;
   selection: LiveSessionSelection;
   empty: string;
-  onCopy: (text: string) => void;
+  onCopy: () => void;
 }) {
+  const image = (selection.types ?? []).includes("image/png");
   return (
     <DropdownMenuGroup>
       <DropdownMenuLabel>{label}</DropdownMenuLabel>
       <DropdownMenuItem
-        disabled={selection.text === ""}
-        onClick={() => onCopy(selection.text)}
+        disabled={!hasSelectionData(selection)}
+        onClick={onCopy}
         className="aperture:items-start"
       >
-        <Copy />
+        {image ? <Image /> : <Copy />}
         <span className="aperture:line-clamp-4 aperture:font-mono aperture:text-xs aperture:break-words aperture:whitespace-pre-wrap">
-          {selection.text === "" ? empty : selection.text}
+          {selection.text !== "" ? selection.text : image ? "Image" : empty}
         </span>
       </DropdownMenuItem>
       {selection.truncated ? (
         <p className="aperture:px-2 aperture:pb-1 aperture:text-xs aperture:text-muted-foreground">
-          Too long to share in full; only the beginning is here.
+          Only the beginning is shown; copying takes all of it.
         </p>
       ) : null}
     </DropdownMenuGroup>
@@ -379,7 +437,7 @@ export function BrowserMenus({
           />
         </DropdownMenuContent>
       </DropdownMenu>
-      {control.clipboard ? <ClipboardMenu clipboard={control.clipboard} /> : null}
+      <ClipboardMenu control={control} />
       <DropdownMenu>
         <Tooltip>
           <TooltipTrigger
