@@ -108,6 +108,18 @@ const Participant = Schema.Struct({
   recovering: Schema.optionalKey(Schema.Boolean),
 });
 
+const Selection = Schema.Struct({
+  text: Schema.String,
+  truncated: Schema.optionalKey(Schema.Boolean),
+  revision: int,
+});
+
+/** The browser's clipboard and its primary selection, the text last selected. */
+const Clipboard = Schema.Struct({
+  clipboard: Selection,
+  primary: Selection,
+});
+
 const Snapshot = Schema.Struct({
   type: Schema.Literal("session.snapshot"),
   clientId: Schema.String,
@@ -123,6 +135,7 @@ const Snapshot = Schema.Struct({
   presentation: Presentation,
   viewportOwnerClientId: Schema.optionalKey(Schema.String),
   autoSize: Schema.optionalKey(Schema.Boolean),
+  clipboard: Schema.optionalKey(Clipboard),
 });
 
 const PresenceState = Schema.Struct({
@@ -186,6 +199,11 @@ const PresentationState = Schema.Struct({
   presentation: Presentation,
 });
 
+const ClipboardState = Schema.Struct({
+  type: Schema.Literal("clipboard.state"),
+  clipboard: Clipboard,
+});
+
 const ErrorMessage = Schema.Struct({
   type: Schema.Literal("error"),
   code: Schema.String,
@@ -232,6 +250,7 @@ export const LiveSessionServerMessage = Schema.Union([
   TargetsState,
   RecordingsState,
   PresentationState,
+  ClipboardState,
   ErrorMessage,
   CommandResult,
 ]);
@@ -249,6 +268,8 @@ export type LiveSessionCommandResult = typeof CommandResult.Type;
 export type LiveSessionPresentation = typeof Presentation.Type;
 export type LiveSessionPresentationQuality = typeof PresentationQuality.Type;
 export type CollaborationParticipant = typeof Participant.Type;
+export type LiveSessionClipboard = typeof Clipboard.Type;
+export type LiveSessionSelection = typeof Selection.Type;
 
 export const RasterFrameHeader = Schema.Struct({
   type: Schema.Literal("presentation.frame"),

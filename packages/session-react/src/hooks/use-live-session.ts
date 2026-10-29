@@ -23,6 +23,7 @@ import {
   type CollaborationParticipant,
   type CollaborationPhase,
   type CollaborationRole,
+  type LiveSessionClipboard,
   type LiveSessionCommandResult,
   type LiveSessionPresentation,
   type LiveSessionPresentationQuality,
@@ -101,6 +102,10 @@ export interface LiveSessionControl {
   mediaSwitching: boolean;
   recordings: readonly Recording[];
   viewportOwnership: LiveSessionViewportOwnership | null;
+  /** The browser's clipboard and primary selection, or null when the server does not share them. */
+  clipboard: LiveSessionClipboard | null;
+  /** Revision of the newest clipboard change made while this client held input; it copied that. */
+  ownClipboardRevision: number | null;
   collaboration: CollaborationControl;
   sendBrowserInput: (message: BrowserInputMessage, dimensions: InputDimensions) => boolean;
   selectTarget: (targetId: string) => boolean;
@@ -196,6 +201,9 @@ export function useLiveSession({
   const [participants, setParticipants] = useState<readonly CollaborationParticipant[]>([]);
   const [cursors, setCursors] = useState<ReadonlyMap<string, CollaborationCursor>>(() => new Map());
   const [lastError, setLastError] = useState<CollaborationError | null>(null);
+  const [clipboard, setClipboard] = useState<LiveSessionClipboard | null>(null);
+  const clipboardRef = useRef<LiveSessionClipboard | null>(null);
+  const [ownClipboardRevision, setOwnClipboardRevision] = useState<number | null>(null);
 
   mediaSizeRef.current = mediaSize;
   transportRef.current = transport;
@@ -229,6 +237,8 @@ export function useLiveSession({
                   autoSize: message.autoSize,
                 },
           );
+          clipboardRef.current = message.clipboard ?? null;
+          setClipboard(message.clipboard ?? null);
           setLastError(null);
           return;
         case "targets.state":
@@ -298,6 +308,21 @@ export function useLiveSession({
         case "presentation.state":
           setPresentation(message.presentation);
           return;
+        case "clipboard.state": {
+          const previous = clipboardRef.current;
+          const next = message.clipboard;
+          clipboardRef.current = next;
+          setClipboard(next);
+          if (
+            previous !== null &&
+            next.clipboard.revision > previous.clipboard.revision &&
+            clientIdRef.current !== "" &&
+            holderClientIdRef.current === clientIdRef.current
+          ) {
+            setOwnClipboardRevision(next.clipboard.revision);
+          }
+          return;
+        }
         case "error":
           claimPendingRef.current = false;
           releasePendingRef.current = false;
@@ -800,6 +825,8 @@ export function useLiveSession({
     mediaSwitching: targetSwitching || presentationSwitching,
     recordings,
     viewportOwnership,
+    clipboard,
+    ownClipboardRevision,
     sendBrowserInput,
     selectTarget,
     requestSelectTarget,

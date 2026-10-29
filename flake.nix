@@ -717,6 +717,12 @@
               ${pkgs.wayland-scanner.bin}/bin/wayland-scanner server-header \
                 ${pkgs.wayland-protocols}/share/wayland-protocols/unstable/text-input/text-input-unstable-v3.xml \
                 $TMPDIR/aperture-wayland-protocols/text-input-unstable-v3-server-protocol.h
+              ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
+                ${pkgs.wayland-protocols}/share/wayland-protocols/unstable/primary-selection/primary-selection-unstable-v1.xml \
+                $TMPDIR/aperture-wayland-protocols/primary-selection-unstable-v1-protocol.c
+              ${pkgs.wayland-scanner.bin}/bin/wayland-scanner server-header \
+                ${pkgs.wayland-protocols}/share/wayland-protocols/unstable/primary-selection/primary-selection-unstable-v1.xml \
+                $TMPDIR/aperture-wayland-protocols/primary-selection-unstable-v1-server-protocol.h
               $CC -shared -fPIC \
                 -I$TMPDIR/aperture-wayland-protocols \
                 native/weston-aperture-shell/aperture-weston-shell.c \
@@ -724,6 +730,7 @@
                 $TMPDIR/aperture-wayland-protocols/viewporter-protocol.c \
                 $TMPDIR/aperture-wayland-protocols/tablet-v2-protocol.c \
                 $TMPDIR/aperture-wayland-protocols/text-input-unstable-v3-protocol.c \
+                $TMPDIR/aperture-wayland-protocols/primary-selection-unstable-v1-protocol.c \
                 -o $out/lib/weston/aperture-weston-shell.so \
                 $(pkg-config --cflags --libs weston libweston-${lib.versions.major patchedWeston.version} wayland-server pixman-1 xkbcommon)
 

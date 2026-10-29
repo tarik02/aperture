@@ -168,6 +168,7 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
     type: "session.hello",
     ...(identity ?? options.identity),
     ...(options.autoSize === undefined ? {} : { autoSize: options.autoSize() }),
+    clipboard: true,
   });
 
   const transportCallbacks: TransportCallbacks = {

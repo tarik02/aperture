@@ -97,6 +97,10 @@ type liveSession struct {
 	lastActiveTargetID string
 	thumbnails         wrapperThumbnailCache
 	favicons           wrapperFaviconCache
+	// clipboard is the browser's selections, sent to clients that asked for them.
+	clipboard liveSessionClipboard
+	// clipboardBroadcast is the pending coalesced clipboard.state, or nil.
+	clipboardBroadcast *time.Timer
 }
 
 type liveSessionClient struct {
@@ -137,6 +141,7 @@ type liveSessionClient struct {
 	autoSizeAware             bool
 	autoSize                  bool
 	autoSizeSequence          uint64
+	clipboardAware            bool
 }
 
 type liveSessionCloseRequest struct {
@@ -206,6 +211,7 @@ type liveSessionClientMessage struct {
 	RealtimeCounter       uint64  `json:"realtimeCounter"`
 	Visible               *bool   `json:"visible"`
 	AutoSize              *bool   `json:"autoSize"`
+	Clipboard             *bool   `json:"clipboard"`
 	Enabled               *bool   `json:"enabled"`
 	Pacing                string  `json:"pacing"`
 	// recording.start's edit settings; see recording.Config.
@@ -259,6 +265,8 @@ type liveSessionServerMessage struct {
 	// because older clients reject unknown properties.
 	ViewportOwnerClientID string `json:"viewportOwnerClientId,omitempty"`
 	AutoSize              *bool  `json:"autoSize,omitempty"`
+	// Clipboard is sent only to clients whose hello asked for it, for the same reason.
+	Clipboard *liveSessionClipboard `json:"clipboard,omitempty"`
 }
 
 type liveSessionPresentation struct {
@@ -301,6 +309,9 @@ func newLiveSession(runtime *wrapperRuntime) (*liveSession, error) {
 }
 
 func (session *liveSession) run(ctx context.Context) {
+	if multiTargetCompositorEnabled(session.runtime.values) {
+		go session.watchClipboard(ctx)
+	}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {

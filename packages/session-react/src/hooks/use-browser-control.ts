@@ -19,6 +19,7 @@ import {
 } from "@aperture-browser/live-session";
 import type {
   SessionAccess,
+  LiveSessionClipboard,
   LiveSessionPresentation,
   LiveSessionPresentationQuality,
   LiveSessionRasterFrame,
@@ -95,6 +96,10 @@ export interface UseBrowserControlResult {
   viewportAutoSizeDefault: boolean;
   captured: boolean;
   recordings: readonly Recording[];
+  /** The browser's clipboard and primary selection, or null when the server does not share them. */
+  clipboard: LiveSessionClipboard | null;
+  /** Revision of the newest clipboard change made while this client held input. */
+  ownClipboardRevision: number | null;
   /** Loads a JPEG preview of one tab, or is null while the session has no access. */
   loadTargetThumbnail:
     | ((targetId: string) => Effect.Effect<Blob, ApiRequestError, HttpClient.HttpClient>)
@@ -679,6 +684,8 @@ export function useBrowserControl({
     viewportAutoSizeDefault,
     captured,
     recordings: live.recordings,
+    clipboard: live.clipboard,
+    ownClipboardRevision: live.ownClipboardRevision,
     canRecord,
     loadTargetThumbnail,
     recordingBusy,
