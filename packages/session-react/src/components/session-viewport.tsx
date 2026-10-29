@@ -358,12 +358,16 @@ export function SessionViewport({
     return () => observer.disconnect();
   }, [control.setBrowserViewportSize]);
 
+  // Unmount only: releasePressedKeys changes identity while a drag is in flight, and ending the
+  // drag on that would drop its listeners without releasing the button.
+  const releasePressedKeysRef = useRef(releasePressedKeys);
+  releasePressedKeysRef.current = releasePressedKeys;
   useEffect(() => {
     return () => {
       dragCleanupRef.current?.();
-      releasePressedKeys();
+      releasePressedKeysRef.current();
     };
-  }, [releasePressedKeys]);
+  }, []);
 
   useEffect(() => {
     const handleWindowBlur = () => {
