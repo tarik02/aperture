@@ -74,6 +74,8 @@ struct aperture_selection_state {
 	bool truncated;
 	/* Newline-separated MIME types, or NULL when the selection is empty. */
 	char *types;
+	/* Whether the shell set it from a paste, rather than a program copying. */
+	bool pasted;
 };
 
 /* A request for the shell's own clipboard data, waiting for a watcher to take its pipe. */
@@ -1750,14 +1752,14 @@ decode_hex(const char *hex, size_t *length)
 	return out;
 }
 
-/* "selection <kind> <truncated> <hex text> <hex newline-separated types>\n" */
+/* "selection <kind> <truncated> <hex text> <hex newline-separated types> <pasted>\n" */
 static char *
 format_selection_line(enum aperture_selection_kind kind,
 		      const struct aperture_selection_state *state, size_t *length)
 {
 	size_t types_length = state->types ? strlen(state->types) : 0;
 	size_t capacity = strlen("selection ") + strlen(aperture_selection_names[kind]) + 4 +
-			  state->length * 2 + 2 + types_length * 2 + 2;
+			  state->length * 2 + 2 + types_length * 2 + 6;
 	char *line = malloc(capacity);
 	size_t offset;
 
@@ -1768,7 +1770,7 @@ format_selection_line(enum aperture_selection_kind kind,
 	offset += append_hex(line + offset, state->text, state->length);
 	line[offset++] = ' ';
 	offset += append_hex(line + offset, state->types, types_length);
-	line[offset++] = '\n';
+	offset += (size_t)snprintf(line + offset, capacity - offset, " %d\n", state->pasted ? 1 : 0);
 	*length = offset;
 	return line;
 }
@@ -2005,11 +2007,16 @@ send_clipboard_source(void *owner, const char *mime_type, int fd)
 }
 
 static void
+owned_source_accept(struct weston_data_source *source, uint32_t serial, const char *mime_type);
+
+static void
 handle_selection(struct wl_listener *listener, void *data)
 {
 	struct aperture_shell *shell = wl_container_of(listener, shell, selection_listener);
 	struct weston_data_source *source = shell->input_seat.selection_data_source;
 
+	shell->selections[APERTURE_SELECTION_CLIPBOARD].pasted =
+		source && source->accept == owned_source_accept;
 	read_selection(shell, APERTURE_SELECTION_CLIPBOARD, source ? &source->mime_types : NULL,
 		       send_clipboard_source, source);
 }

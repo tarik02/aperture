@@ -62,16 +62,22 @@ func (session *liveSession) handleSessionMessage(client *liveSessionClient, tran
 				return
 			}
 			for _, chunk := range result.chunks {
-				_ = transport.send(liveSessionDeliveryReliable, mustJSON(chunk))
+				if err := transport.send(liveSessionDeliveryReliable, mustJSON(chunk)); err != nil {
+					session.writeCommandError(transport, message, fmt.Errorf("send clipboard data: %w", err))
+					return
+				}
 			}
 			result.Type = message.Type + ".result"
 			result.RequestID = message.RequestID
 			result.OK = liveSessionBool(true)
 			_ = transport.send(liveSessionDeliveryReliable, mustJSON(result))
 		}
-		if message.Type == "recording.stop" || message.Type == "recording.cancel" {
-			go run() // these wait for the gate and for the capture to end; the client's other messages must not
-		} else {
+		switch message.Type {
+		case "recording.stop", "recording.cancel", "clipboard.read", "clipboard.write":
+			// These wait for the capture to end or for the browser to hand over clipboard data; the
+			// client's other messages must not.
+			go run()
+		default:
 			run()
 		}
 		return

@@ -51,7 +51,9 @@ type liveSessionSelection struct {
 	Text      string   `json:"text"`
 	Truncated bool     `json:"truncated,omitempty"`
 	Types     []string `json:"types,omitempty"`
-	Revision  uint64   `json:"revision"`
+	// Pasted is set when a client's paste, not a program, put the data there.
+	Pasted   bool   `json:"pasted,omitempty"`
+	Revision uint64 `json:"revision"`
 }
 
 // liveSessionClipboard is the browser's clipboard and its primary selection (the text last selected).
@@ -153,10 +155,11 @@ func (session *liveSession) followCompositorSelections(ctx context.Context) erro
 	}
 }
 
-// parseCompositorSelection reads "selection <clipboard|primary> <truncated> <hex text> <hex types>",
-// where hex is "-" when empty and types are newline-separated.
+// parseCompositorSelection reads
+// "selection <clipboard|primary> <truncated> <hex text> <hex types> <pasted>", where hex is "-"
+// when empty and types are newline-separated.
 func parseCompositorSelection(fields []string) (string, liveSessionSelection, error) {
-	if len(fields) != 5 {
+	if len(fields) != 6 {
 		return "", liveSessionSelection{}, fmt.Errorf("selection line is invalid: %q", strings.Join(fields, " "))
 	}
 	kind := fields[1]
@@ -181,6 +184,13 @@ func parseCompositorSelection(fields []string) (string, liveSessionSelection, er
 	}
 	if types != "" {
 		selection.Types = strings.Split(types, "\n")
+	}
+	switch fields[5] {
+	case "0":
+	case "1":
+		selection.Pasted = true
+	default:
+		return "", liveSessionSelection{}, fmt.Errorf("selection pasted flag is invalid: %q", fields[5])
 	}
 	var wireTruncated bool
 	selection.Text, wireTruncated = limitSelectionText(text)

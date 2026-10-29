@@ -324,6 +324,7 @@ export function useLiveSession({
           if (
             previous !== null &&
             next.clipboard.revision > previous.clipboard.revision &&
+            !next.clipboard.pasted &&
             clientIdRef.current !== "" &&
             holderClientIdRef.current === clientIdRef.current
           ) {

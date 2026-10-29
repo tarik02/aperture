@@ -605,7 +605,11 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
       Effect.gen(function* () {
         const requestId = newRequestId();
         for (const item of items) {
-          const bytes = new Uint8Array(yield* Effect.promise(() => item.data.arrayBuffer()));
+          const buffer = yield* Effect.tryPromise({
+            try: () => item.data.arrayBuffer(),
+            catch: () => new LiveSessionError({ message: "clipboard data could not be read" }),
+          });
+          const bytes = new Uint8Array(buffer);
           // An empty item still sends one chunk, so the server knows the type.
           for (
             let offset = 0;

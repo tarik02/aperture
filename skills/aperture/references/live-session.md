@@ -49,7 +49,7 @@ One client at a time, the viewport owner, resizes the browser to its own present
 
 ## Browser clipboard
 
-Owners and editors whose hello carried `clipboard: true` receive the browser's selections in the snapshot and in `clipboard.state`: `clipboard {clipboard, primary}`, each `{text, truncated?, types?, revision}`. `clipboard` is what the browser copied; `primary` is the text last selected. `types` lists the MIME types the selection's owner offers. `revision` grows with every change, so copying the same text again is still visible. Each text is cut to about 28 KiB of JSON and then carries `truncated: true`. A server that predates this rejects a hello with `clipboard`.
+Owners and editors whose hello carried `clipboard: true` receive the browser's selections in the snapshot and in `clipboard.state`: `clipboard {clipboard, primary}`, each `{text, truncated?, types?, pasted?, revision}`. `clipboard` is what the browser copied; `primary` is the text last selected. `types` lists the MIME types the selection's owner offers. `pasted` marks data a client's `clipboard.write` put there rather than a program in the browser. `revision` grows with every change, so copying the same text again is still visible. Each text is cut to about 28 KiB of JSON and then carries `truncated: true`. A server that predates this rejects a hello with `clipboard`.
 
 Data moves in base64 chunks of up to 32 KiB, which keeps every message under a 64 KiB data channel limit, and at most 16 MiB per transfer:
 

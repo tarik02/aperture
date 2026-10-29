@@ -113,6 +113,8 @@ const Selection = Schema.Struct({
   truncated: Schema.optionalKey(Schema.Boolean),
   /** MIME types its owner offers; read them with clipboard.read. */
   types: Schema.optionalKey(Schema.Array(Schema.String)),
+  /** Set when a client's paste, not a program in the browser, put the data there. */
+  pasted: Schema.optionalKey(Schema.Boolean),
   revision: int,
 });
 

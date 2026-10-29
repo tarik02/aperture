@@ -378,6 +378,7 @@ export function SessionViewport({
 
   useEffect(() => {
     const handleWindowBlur = () => {
+      translatedKeysRef.current.clear();
       releasePressedKeys();
       releaseImplicitControl();
     };
@@ -824,6 +825,9 @@ export function SessionViewport({
       return;
     }
     const keyId = event.code || event.key;
+    // macOS sends no release for a key let go while Cmd is held, so a translated press is only
+    // remembered until the key is pressed again.
+    translatedKeysRef.current.delete(keyId);
     if (event.repeat && releasedKeysRef.current.has(keyId)) {
       event.preventDefault();
       event.stopPropagation();
