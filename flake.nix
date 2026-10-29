@@ -19,15 +19,9 @@
         lib = pkgs.lib;
         nodeRuntime = pkgs.nodejs_26;
 
-        goLatest = pkgs.go_1_26.overrideAttrs (_: {
-          version = "1.26.5";
-          src = pkgs.fetchurl {
-            url = "https://go.dev/dl/go1.26.5.src.tar.gz";
-            hash = "sha256-SVvkvIcXasVnOS5bQRar2YRm0z17SdQedkzMaXay3EI=";
-          };
-        });
+        goLatest = pkgs.go_1_26;
 
-        pnpmLatest = pkgs.pnpm.override {
+        pnpmLatest = pkgs.pnpm_11.override {
           nodejs-slim = nodeRuntime;
           version = "11.27.1";
           hash = "sha256-1Q+IQeZ+8LHYLnyQskBlbHygTV8aoz8GEIAHyB/XZ2Y=";
