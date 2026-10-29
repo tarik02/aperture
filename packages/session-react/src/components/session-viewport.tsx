@@ -14,7 +14,11 @@ import {
   keyboardModifiers,
   shouldForwardBrowserShortcut,
 } from "@aperture-browser/live-session";
-import { computeRenderMetrics } from "@aperture-browser/live-session";
+import {
+  computeRenderMetrics,
+  isMacPlatform,
+  translateMacShortcut,
+} from "@aperture-browser/live-session";
 import type { LiveSessionRasterFrame } from "@aperture-browser/live-session";
 import type { ClipboardData } from "@aperture-browser/live-session";
 import type { ViewportPreset } from "@aperture-browser/live-session";
@@ -96,6 +100,8 @@ export function SessionViewport({
   const frameMetadataRef = useRef<FrameMetadata | null>(null);
   const pressedKeysRef = useRef(new Map<string, PressedKey>());
   const releasedKeysRef = useRef(new Set<string>());
+  // Keys whose press was sent as a translated shortcut; their release has nothing left to send.
+  const translatedKeysRef = useRef(new Set<string>());
   const pointerCaptureRef = useRef<{
     pointerId: number;
     targetId: string;
@@ -855,6 +861,21 @@ export function SessionViewport({
       return;
     }
 
+    if (macShortcuts) {
+      // Cmd means nothing to the browser on Linux; the shortcuts it is part of are translated.
+      if (event.code === "MetaLeft" || event.code === "MetaRight") {
+        return;
+      }
+      const keys = translateMacShortcut(event.nativeEvent, heldAltCode());
+      if (keys) {
+        for (const key of keys) {
+          control.sendInput({ type: "input.key", targetId, ...key });
+        }
+        translatedKeysRef.current.add(keyId);
+        return;
+      }
+    }
+
     if (!shouldForwardBrowserShortcut(event.nativeEvent)) {
       return;
     }
@@ -899,6 +920,10 @@ export function SessionViewport({
     }
   }
 
+  function heldAltCode() {
+    return ["AltLeft", "AltRight"].find((code) => pressedKeysRef.current.has(code)) ?? null;
+  }
+
   function handleKeyUp(event: React.KeyboardEvent) {
     const keyId = event.code || event.key;
     if (releasedKeysRef.current.delete(keyId)) {
@@ -922,6 +947,13 @@ export function SessionViewport({
 
     event.preventDefault();
     event.stopPropagation();
+
+    if (translatedKeysRef.current.delete(keyId)) {
+      return;
+    }
+    if (macShortcuts && (event.code === "MetaLeft" || event.code === "MetaRight")) {
+      return;
+    }
 
     if (!pressedKey && resolveClipboardShortcut(event.nativeEvent)) {
       return;
@@ -1339,6 +1371,8 @@ function resolveViewportStatus(
   }
   return mediaPath === "websocket-live" ? "websocket" : "webrtc";
 }
+
+const macShortcuts = isMacPlatform();
 
 function focusedElement(node: HTMLElement | null): Element | null {
   const root = node?.getRootNode();

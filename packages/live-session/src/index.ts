@@ -11,3 +11,4 @@ export {
   type LiveSessionTransportKind,
 } from "./connection.ts";
 export * from "./access.ts";
+export * from "./mac-shortcuts.ts";
