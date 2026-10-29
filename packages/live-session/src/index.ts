@@ -7,6 +7,7 @@ export * as LiveSessionConnection from "./connection.ts";
 export {
   LiveSessionError,
   type ClipboardData,
+  type ClipboardSelection,
   type LiveSessionTransportKind,
 } from "./connection.ts";
 export * from "./access.ts";

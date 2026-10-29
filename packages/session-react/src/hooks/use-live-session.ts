@@ -12,7 +12,7 @@ import type { BrowserInputMessage } from "@aperture-browser/live-session";
 import { evdevKeycodeByCode } from "@aperture-browser/live-session";
 import { windowsVirtualKeyCodeForCodeOrKey } from "@aperture-browser/live-session";
 import { LiveSessionConnection } from "@aperture-browser/live-session";
-import type { ClipboardData } from "@aperture-browser/live-session";
+import type { ClipboardData, ClipboardSelection } from "@aperture-browser/live-session";
 import {
   strictParseOptions,
   type SessionAccess,
@@ -108,7 +108,7 @@ export interface LiveSessionControl {
   /** Revision of the newest clipboard change made while this client held input; it copied that. */
   ownClipboardRevision: number | null;
   readClipboard: (
-    selection: "clipboard" | "primary",
+    selection: ClipboardSelection,
     mimeType: string,
   ) => Effect.Effect<Blob, LiveSessionConnection.LiveSessionError>;
   writeClipboard: (
@@ -469,7 +469,7 @@ export function useLiveSession({
     [],
   );
   const readClipboard = useCallback(
-    (selection: "clipboard" | "primary", mimeType: string) =>
+    (selection: ClipboardSelection, mimeType: string) =>
       Effect.suspend(() =>
         connectionRef.current
           ? connectionRef.current.readClipboard(selection, mimeType)

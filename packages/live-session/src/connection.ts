@@ -76,7 +76,7 @@ export interface LiveSessionConnection {
   ) => Effect.Effect<LiveSessionCommandResult, LiveSessionError>;
   /** Reads one type of data from one of the browser's selections. */
   readonly readClipboard: (
-    selection: "clipboard" | "primary",
+    selection: ClipboardSelection,
     mimeType: string,
   ) => Effect.Effect<Blob, LiveSessionError>;
   /** Makes the given data, one entry per type, the browser's clipboard. */
@@ -84,6 +84,9 @@ export interface LiveSessionConnection {
     items: ReadonlyArray<ClipboardData>,
   ) => Effect.Effect<void, LiveSessionError>;
 }
+
+/** One of the browser's selections: what it copied, or the text last selected. */
+export type ClipboardSelection = "clipboard" | "primary";
 
 export interface ClipboardData {
   readonly mimeType: string;

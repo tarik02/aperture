@@ -17,6 +17,7 @@ import {
   LiveSessionError,
   type BrowserInputMessage,
   type ClipboardData,
+  type ClipboardSelection,
 } from "@aperture-browser/live-session";
 import type {
   SessionAccess,
@@ -66,6 +67,12 @@ export interface BrowserCommands {
 export type BrowserMediaPath = "webrtc-live" | "websocket-live";
 export type BrowserMediaPhase = "idle" | "connecting" | "live" | "failed";
 
+/** Reads one type of data from one of the browser's selections. */
+export type ReadClipboard = (
+  selection: ClipboardSelection,
+  mimeType: string,
+) => Effect.Effect<Blob, LiveSessionError>;
+
 export interface UseBrowserControlResult {
   phase: LiveSessionControl["phase"];
   targets: readonly LiveSessionTarget[];
@@ -102,10 +109,7 @@ export interface UseBrowserControlResult {
   /** Revision of the newest clipboard change made while this client held input. */
   ownClipboardRevision: number | null;
   /** Reads one type of data from one of the browser's selections. */
-  readClipboard: (
-    selection: "clipboard" | "primary",
-    mimeType: string,
-  ) => Effect.Effect<Blob, LiveSessionError>;
+  readClipboard: ReadClipboard;
   /** Makes the given data the browser's clipboard. */
   writeClipboard: (items: ReadonlyArray<ClipboardData>) => Effect.Effect<void, LiveSessionError>;
   /** Loads a JPEG preview of one tab, or is null while the session has no access. */

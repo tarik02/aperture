@@ -2,6 +2,7 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import type {
   ClipboardData,
+  ClipboardSelection,
   LiveSessionError,
   LiveSessionSelection,
 } from "@aperture-browser/live-session";
@@ -69,8 +70,8 @@ const writeClipboardItems = (items: Record<string, Blob>): Effect.Effect<void, C
  */
 export const copyBrowserSelection = (
   selection: LiveSessionSelection,
-  kind: "clipboard" | "primary",
-  read: (kind: "clipboard" | "primary", mimeType: string) => Effect.Effect<Blob, LiveSessionError>,
+  kind: ClipboardSelection,
+  read: (kind: ClipboardSelection, mimeType: string) => Effect.Effect<Blob, LiveSessionError>,
 ): Effect.Effect<void, ClipboardError | LiveSessionError> =>
   Effect.gen(function* () {
     const types = selection.types ?? [];
