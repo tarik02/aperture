@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -3103,6 +3104,11 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 
 	if (!shell)
 		return -1;
+
+	/* Clipboard pipes and control sockets close whenever their reader stops early, such as Weston's
+	 * clipboard manager serving a selection the shell stopped reading. A write then must fail
+	 * with EPIPE, which every writer here handles, instead of killing the compositor. */
+	signal(SIGPIPE, SIG_IGN);
 
 	shell->compositor = compositor;
 	shell->control_fd = -1;
