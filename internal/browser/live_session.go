@@ -89,8 +89,10 @@ type liveSession struct {
 	pointer       *cdpPointer
 	cursorVisible bool
 	// viewportOwner is the only session client whose auto-size requests resize targets.
-	viewportOwner    *liveSessionClient
-	autoSizeSequence uint64
+	// viewportScheduler applies those resizes off the client's command loop.
+	viewportOwner     *liveSessionClient
+	viewportScheduler *liveSessionViewportScheduler
+	autoSizeSequence  uint64
 	// viewportSetExplicitly keeps a vacant viewport from being claimed by a hello preference.
 	viewportSetExplicitly bool
 	// lastActiveTargetID is the target most recently shown to any client; the session thumbnail shows it.
@@ -289,7 +291,7 @@ func newLiveSession(runtime *wrapperRuntime) (*liveSession, error) {
 		}
 		input = compositorInput
 	}
-	return &liveSession{
+	session := &liveSession{
 		runtime:       runtime,
 		input:         input,
 		browser:       newLiveSessionBrowser(runtime),
@@ -297,7 +299,9 @@ func newLiveSession(runtime *wrapperRuntime) (*liveSession, error) {
 		recordings:    make(map[string]*wrapperRecording),
 		gate:          make(chan struct{}, 1),
 		cursorVisible: true,
-	}, nil
+	}
+	session.viewportScheduler = newLiveSessionViewportScheduler(session)
+	return session, nil
 }
 
 func (session *liveSession) run(ctx context.Context) {
@@ -781,6 +785,9 @@ func mustJSON(value any) []byte {
 }
 
 func (session *liveSession) close() {
+	if session.viewportScheduler != nil {
+		session.viewportScheduler.stop()
+	}
 	session.inputMu.Lock()
 	session.mu.Lock()
 	if session.closed {

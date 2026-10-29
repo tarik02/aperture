@@ -22,6 +22,8 @@ Ownership is session-wide rather than per target: auto-size follows one person's
 
 The `aperture-session.v1` identifier stays, because current clients remain compatible. Clients decode server messages strictly, so the server sends ownership state only to clients that include `autoSize` in `session.hello`. This field is the client's auto-size preference, not a version number. Those clients receive `viewportOwnerClientId` and `autoSize` in their snapshot, followed by `viewport.state` events. They change their preference with `viewport.auto-size.set`, take over with `viewport.owner.claim`, and mark auto-size resizes with `autoSize: true` on `viewport.set`.
 
+Auto-size `viewport.set` commands are acknowledged when accepted, not when applied. The server keeps only the newest auto-size viewport per target and applies it at a bounded rate, so a window drag cannot queue seconds of resizes or block the client's other messages. An explicit `viewport.set` invalidates any auto-size that has not applied yet and is always the last resize applied for its target.
+
 Clients that omit `autoSize` from their hello never receive ownership state, and every `viewport.set` they send counts as explicit. Their auto-size still resizes the viewport and ends the current ownership, but new clients never resize it back, so the clients do not alternate.
 
 Aperture does not negotiate this in the other direction: a server that predates viewport ownership rejects a hello that carries `autoSize`. Embedders using newer `live-session` or `session-react` packages need a matching server.
