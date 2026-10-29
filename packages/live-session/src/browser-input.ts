@@ -36,4 +36,4 @@ export type BrowserInputMessage =
     }
   | { type: "clipboard.copy"; targetId: string }
   | { type: "clipboard.cut"; targetId: string }
-  | { type: "clipboard.paste"; targetId: string; items: Array<{ mimeType: string; data: string }> };
+  | { type: "clipboard.paste"; targetId: string };

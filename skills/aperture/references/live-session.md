@@ -20,9 +20,9 @@ Authorization failures use the API error envelope; failures inside the session a
 
 Both WebSockets take the exact subprotocol `aperture-session.v1`; API tokens and capabilities ride along as further subprotocols, `authorization.bearer.<token>` and, for a system-admin token, `x-aperture-tenant-id.<tenantId>`.
 
-1. The client sends `session.hello` with `name` and `avatarHash`, and `autoSize: true|false` when it wants to take part in [viewport ownership](#viewport-ownership).
-2. The server answers `session.snapshot`: `clientId`, `resumeSecret`, `role`, `transport`, `targets`, `activeTargetId`, `participants`, `holderClientId` and lease `mode`, `recordings`, and the viewport-owner fields for clients that opted in. The snapshot is the whole recoverable state; realtime data is never in it.
-3. State arrives as `targets.state`, `presentation.state`, `viewport.state`, `input.state`, `presence.state`, `recordings.state`, and the realtime `presence.cursor`, `presence.cursor.clear` and `paint.point`.
+1. The client sends `session.hello` with `name` and `avatarHash`, and `autoSize: true|false` when it wants to take part in [viewport ownership](#viewport-ownership), and `clipboard: true` when it wants the [browser clipboard](#browser-clipboard).
+2. The server answers `session.snapshot`: `clientId`, `resumeSecret`, `role`, `transport`, `targets`, `activeTargetId`, `participants`, `holderClientId` and lease `mode`, `recordings`, and the viewport-owner fields for clients that opted in, and `clipboard` for owners and editors that opted in. The snapshot is the whole recoverable state; realtime data is never in it.
+3. State arrives as `targets.state`, `presentation.state`, `viewport.state`, `input.state`, `presence.state`, `recordings.state`, `clipboard.state`, and the realtime `presence.cursor`, `presence.cursor.clear` and `paint.point`.
 
 **Resume.** When the transport drops, reconnect within five seconds and send `session.hello` with `clientId` and `resumeSecret` instead of `name` and `avatarHash`, plus the normal authorization. The client keeps its identity, lease and recordings; the new snapshot is the truth to reconcile against. Commands that were in flight have failed; wait for a new user action instead of replaying them.
 
@@ -46,6 +46,15 @@ Both WebSockets take the exact subprotocol `aperture-session.v1`; API tokens and
 ## Viewport ownership
 
 One client at a time, the viewport owner, resizes the browser to its own presentation size. Only clients whose hello carried `autoSize` receive `viewportOwnerClientId` and `autoSize` in snapshots and `viewport.state`. `viewport.auto-size.set {enabled: true}` and `viewport.owner.claim` take ownership; `viewport.set` with `autoSize: true` resizes only for the owner and fails with `viewport_not_owned` otherwise. A `viewport.set` without `autoSize`, or the viewport route, is an explicit resize: it applies and leaves ownership vacant until a client takes it again. The route answers with `targetId`, the media `generation` and the applied `viewport` (logical size, DPR-scaled content size, media canvas in 64 px steps, effective scale); widths below 500 become 500.
+
+## Browser clipboard
+
+Owners and editors whose hello carried `clipboard: true` receive the browser's selections in the snapshot and in `clipboard.state`: `clipboard {clipboard, primary}`, each `{text, truncated?, types?, pasted?, revision}`. `clipboard` is what the browser copied; `primary` is the text last selected. `types` lists the MIME types the selection's owner offers. `pasted` marks data a client's `clipboard.write` put there rather than a program in the browser. `revision` grows with every change, so copying the same text again is still visible. Each text is cut to about 28 KiB of JSON and then carries `truncated: true`. A server that predates this rejects a hello with `clipboard`.
+
+Data moves in base64 chunks of up to 32 KiB, which keeps every message under a 64 KiB data channel limit, and at most 16 MiB per transfer:
+
+- `clipboard.read {selection, mimeType}` (owner, editor) answers with `clipboard.chunk {requestId, data}` messages, then `clipboard.read.result`.
+- To paste, send `clipboard.write.chunk {requestId, mimeType, data}` for each type (at least one chunk per type, even when empty), then the command `clipboard.write` with the same `requestId`. The data becomes the browser's clipboard; press Ctrl+V through the input lease to paste it. `text/plain` is also offered as `text/plain;charset=utf-8` and `UTF8_STRING`.
 
 ## Automation pacing
 

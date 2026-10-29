@@ -104,6 +104,7 @@ func (session *liveSession) attachWebSocketClient(req *http.Request, role string
 		}
 		client.resumeSecret = secret
 		session.applyHelloAutoSize(client, hello.AutoSize)
+		session.applyHelloClipboard(client, hello.Clipboard)
 		if err := session.activateTransport(client, transport, nil); err != nil {
 			session.removeClient(client)
 			return nil, err
@@ -128,6 +129,7 @@ func (session *liveSession) attachWebSocketClient(req *http.Request, role string
 	client.sessionTokenAuthenticated = sessionTokenAuthenticated(req)
 	session.mu.Unlock()
 	session.applyHelloAutoSize(client, hello.AutoSize)
+	session.applyHelloClipboard(client, hello.Clipboard)
 	client.transportMu.RLock()
 	previous := client.activeTransport
 	client.transportMu.RUnlock()
@@ -293,6 +295,10 @@ func (session *liveSession) snapshot(client *liveSessionClient, transportKind st
 		viewport := session.viewportStateLocked(client)
 		message.ViewportOwnerClientID = viewport.ViewportOwnerClientID
 		message.AutoSize = viewport.AutoSize
+	}
+	if client.receivesClipboard() {
+		clipboard := session.clipboard
+		message.Clipboard = &clipboard
 	}
 	session.mu.Unlock()
 	return message, nil

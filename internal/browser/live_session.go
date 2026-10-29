@@ -97,6 +97,13 @@ type liveSession struct {
 	lastActiveTargetID string
 	thumbnails         wrapperThumbnailCache
 	favicons           wrapperFaviconCache
+	// clipboard is the browser's selections, sent to clients that asked for them.
+	clipboard liveSessionClipboard
+	// clipboardBroadcast is the pending coalesced clipboard.state, or nil.
+	clipboardBroadcast *time.Timer
+	// pasted is the data behind the clipboard this wrapper set; clipboardWriteMu orders pastes.
+	pasted           []liveSessionClipboardItem
+	clipboardWriteMu sync.Mutex
 }
 
 type liveSessionClient struct {
@@ -137,6 +144,8 @@ type liveSessionClient struct {
 	autoSizeAware             bool
 	autoSize                  bool
 	autoSizeSequence          uint64
+	clipboardAware            bool
+	clipboardWrite            *liveSessionClipboardWrite
 }
 
 type liveSessionCloseRequest struct {
@@ -206,6 +215,10 @@ type liveSessionClientMessage struct {
 	RealtimeCounter       uint64  `json:"realtimeCounter"`
 	Visible               *bool   `json:"visible"`
 	AutoSize              *bool   `json:"autoSize"`
+	Clipboard             *bool   `json:"clipboard"`
+	Selection             string  `json:"selection"`
+	MimeType              string  `json:"mimeType"`
+	Data                  string  `json:"data"`
 	Enabled               *bool   `json:"enabled"`
 	Pacing                string  `json:"pacing"`
 	// recording.start's edit settings; see recording.Config.
@@ -259,6 +272,13 @@ type liveSessionServerMessage struct {
 	// because older clients reject unknown properties.
 	ViewportOwnerClientID string `json:"viewportOwnerClientId,omitempty"`
 	AutoSize              *bool  `json:"autoSize,omitempty"`
+	// Clipboard is sent only to clients whose hello asked for it, for the same reason.
+	Clipboard *liveSessionClipboard `json:"clipboard,omitempty"`
+	// MimeType and Data describe clipboard data; clipboard.chunk carries it ahead of a result.
+	MimeType string `json:"mimeType,omitempty"`
+	Data     string `json:"data,omitempty"`
+	// chunks are sent ahead of a command's result.
+	chunks []liveSessionServerMessage
 }
 
 type liveSessionPresentation struct {
@@ -301,6 +321,9 @@ func newLiveSession(runtime *wrapperRuntime) (*liveSession, error) {
 }
 
 func (session *liveSession) run(ctx context.Context) {
+	if multiTargetCompositorEnabled(session.runtime.values) {
+		go session.watchClipboard(ctx)
+	}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
@@ -492,6 +515,8 @@ func (session *liveSession) handleClientMessage(client *liveSessionClient, messa
 		return session.setFollowing(client, message.FollowingClientID)
 	case "paint.point":
 		return session.paintPoint(client, message)
+	case "clipboard.write.chunk":
+		return session.appendClipboardWrite(client, message)
 	default:
 		return errors.New("unknown collaboration message type")
 	}

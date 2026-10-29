@@ -108,6 +108,22 @@ const Participant = Schema.Struct({
   recovering: Schema.optionalKey(Schema.Boolean),
 });
 
+const Selection = Schema.Struct({
+  text: Schema.String,
+  truncated: Schema.optionalKey(Schema.Boolean),
+  /** MIME types its owner offers; read them with clipboard.read. */
+  types: Schema.optionalKey(Schema.Array(Schema.String)),
+  /** Set when a client's paste, not a program in the browser, put the data there. */
+  pasted: Schema.optionalKey(Schema.Boolean),
+  revision: int,
+});
+
+/** The browser's clipboard and its primary selection, the text last selected. */
+const Clipboard = Schema.Struct({
+  clipboard: Selection,
+  primary: Selection,
+});
+
 const Snapshot = Schema.Struct({
   type: Schema.Literal("session.snapshot"),
   clientId: Schema.String,
@@ -123,6 +139,7 @@ const Snapshot = Schema.Struct({
   presentation: Presentation,
   viewportOwnerClientId: Schema.optionalKey(Schema.String),
   autoSize: Schema.optionalKey(Schema.Boolean),
+  clipboard: Schema.optionalKey(Clipboard),
 });
 
 const PresenceState = Schema.Struct({
@@ -186,6 +203,18 @@ const PresentationState = Schema.Struct({
   presentation: Presentation,
 });
 
+const ClipboardState = Schema.Struct({
+  type: Schema.Literal("clipboard.state"),
+  clipboard: Clipboard,
+});
+
+/** One piece of a clipboard.read's data, sent ahead of its result. */
+const ClipboardChunk = Schema.Struct({
+  type: Schema.Literal("clipboard.chunk"),
+  requestId: Schema.String,
+  data: Schema.String,
+});
+
 const ErrorMessage = Schema.Struct({
   type: Schema.Literal("error"),
   code: Schema.String,
@@ -211,6 +240,8 @@ const CommandResult = Schema.Struct({
     "recording.start.result",
     "recording.stop.result",
     "recording.cancel.result",
+    "clipboard.read.result",
+    "clipboard.write.result",
   ]),
   requestId: Schema.String,
   ok: Schema.Boolean,
@@ -219,6 +250,7 @@ const CommandResult = Schema.Struct({
   targetId: Schema.optionalKey(Schema.String),
   recording: Schema.optionalKey(Recording),
   presentation: Schema.optionalKey(Presentation),
+  mimeType: Schema.optionalKey(Schema.String),
 });
 
 export const LiveSessionServerMessage = Schema.Union([
@@ -232,6 +264,8 @@ export const LiveSessionServerMessage = Schema.Union([
   TargetsState,
   RecordingsState,
   PresentationState,
+  ClipboardState,
+  ClipboardChunk,
   ErrorMessage,
   CommandResult,
 ]);
@@ -249,6 +283,8 @@ export type LiveSessionCommandResult = typeof CommandResult.Type;
 export type LiveSessionPresentation = typeof Presentation.Type;
 export type LiveSessionPresentationQuality = typeof PresentationQuality.Type;
 export type CollaborationParticipant = typeof Participant.Type;
+export type LiveSessionClipboard = typeof Clipboard.Type;
+export type LiveSessionSelection = typeof Selection.Type;
 
 export const RasterFrameHeader = Schema.Struct({
   type: Schema.Literal("presentation.frame"),

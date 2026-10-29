@@ -12,6 +12,7 @@ import type { BrowserInputMessage } from "@aperture-browser/live-session";
 import { evdevKeycodeByCode } from "@aperture-browser/live-session";
 import { windowsVirtualKeyCodeForCodeOrKey } from "@aperture-browser/live-session";
 import { LiveSessionConnection } from "@aperture-browser/live-session";
+import type { ClipboardData, ClipboardSelection } from "@aperture-browser/live-session";
 import {
   strictParseOptions,
   type SessionAccess,
@@ -23,6 +24,7 @@ import {
   type CollaborationParticipant,
   type CollaborationPhase,
   type CollaborationRole,
+  type LiveSessionClipboard,
   type LiveSessionCommandResult,
   type LiveSessionPresentation,
   type LiveSessionPresentationQuality,
@@ -101,6 +103,17 @@ export interface LiveSessionControl {
   mediaSwitching: boolean;
   recordings: readonly Recording[];
   viewportOwnership: LiveSessionViewportOwnership | null;
+  /** The browser's clipboard and primary selection, or null when the server does not share them. */
+  clipboard: LiveSessionClipboard | null;
+  /** Revision of the newest clipboard change made while this client held input; it copied that. */
+  ownClipboardRevision: number | null;
+  readClipboard: (
+    selection: ClipboardSelection,
+    mimeType: string,
+  ) => Effect.Effect<Blob, LiveSessionConnection.LiveSessionError>;
+  writeClipboard: (
+    items: ReadonlyArray<ClipboardData>,
+  ) => Effect.Effect<void, LiveSessionConnection.LiveSessionError>;
   collaboration: CollaborationControl;
   sendBrowserInput: (message: BrowserInputMessage, dimensions: InputDimensions) => boolean;
   selectTarget: (targetId: string) => boolean;
@@ -196,6 +209,9 @@ export function useLiveSession({
   const [participants, setParticipants] = useState<readonly CollaborationParticipant[]>([]);
   const [cursors, setCursors] = useState<ReadonlyMap<string, CollaborationCursor>>(() => new Map());
   const [lastError, setLastError] = useState<CollaborationError | null>(null);
+  const [clipboard, setClipboard] = useState<LiveSessionClipboard | null>(null);
+  const clipboardRef = useRef<LiveSessionClipboard | null>(null);
+  const [ownClipboardRevision, setOwnClipboardRevision] = useState<number | null>(null);
 
   mediaSizeRef.current = mediaSize;
   transportRef.current = transport;
@@ -229,6 +245,8 @@ export function useLiveSession({
                   autoSize: message.autoSize,
                 },
           );
+          clipboardRef.current = message.clipboard ?? null;
+          setClipboard(message.clipboard ?? null);
           setLastError(null);
           return;
         case "targets.state":
@@ -298,10 +316,29 @@ export function useLiveSession({
         case "presentation.state":
           setPresentation(message.presentation);
           return;
+        case "clipboard.state": {
+          const previous = clipboardRef.current;
+          const next = message.clipboard;
+          clipboardRef.current = next;
+          setClipboard(next);
+          if (
+            previous !== null &&
+            next.clipboard.revision > previous.clipboard.revision &&
+            !next.clipboard.pasted &&
+            clientIdRef.current !== "" &&
+            holderClientIdRef.current === clientIdRef.current
+          ) {
+            setOwnClipboardRevision(next.clipboard.revision);
+          }
+          return;
+        }
         case "error":
           claimPendingRef.current = false;
           releasePendingRef.current = false;
           setLastError({ code: message.code, message: message.message });
+          return;
+        case "clipboard.chunk":
+          // The connection hands chunks to the clipboard read that asked for them.
           return;
         default:
           if (message.presentation) {
@@ -428,6 +465,24 @@ export function useLiveSession({
       Effect.suspend(() =>
         connectionRef.current
           ? connectionRef.current.command(type, payload)
+          : Effect.fail(transportUnavailable()),
+      ),
+    [],
+  );
+  const readClipboard = useCallback(
+    (selection: ClipboardSelection, mimeType: string) =>
+      Effect.suspend(() =>
+        connectionRef.current
+          ? connectionRef.current.readClipboard(selection, mimeType)
+          : Effect.fail(transportUnavailable()),
+      ),
+    [],
+  );
+  const writeClipboard = useCallback(
+    (items: ReadonlyArray<ClipboardData>) =>
+      Effect.suspend(() =>
+        connectionRef.current
+          ? connectionRef.current.writeClipboard(items)
           : Effect.fail(transportUnavailable()),
       ),
     [],
@@ -748,16 +803,8 @@ export function useLiveSession({
           return sendShortcut(sendInputEvent, message.targetId, "KeyC");
         case "clipboard.cut":
           return sendShortcut(sendInputEvent, message.targetId, "KeyX");
-        case "clipboard.paste": {
-          const item = message.items.find((candidate) => candidate.mimeType === "text/plain");
-          return item
-            ? sendInputEvent({
-                type: "input.keyboard.text",
-                targetId: message.targetId,
-                text: item.data,
-              })
-            : false;
-        }
+        case "clipboard.paste":
+          return sendShortcut(sendInputEvent, message.targetId, "KeyV");
         default: {
           const exhaustive: never = message;
           return exhaustive;
@@ -800,6 +847,10 @@ export function useLiveSession({
     mediaSwitching: targetSwitching || presentationSwitching,
     recordings,
     viewportOwnership,
+    clipboard,
+    ownClipboardRevision,
+    readClipboard,
+    writeClipboard,
     sendBrowserInput,
     selectTarget,
     requestSelectTarget,
@@ -926,7 +977,7 @@ function normalizedCoordinate(value: number, length: number) {
 function sendShortcut(
   sendInputEvent: (message: Record<string, unknown>, realtime?: boolean) => boolean,
   targetId: string,
-  code: "KeyC" | "KeyX",
+  code: "KeyC" | "KeyX" | "KeyV",
 ) {
   const controlKeycode = evdevKeycodeByCode.ControlLeft;
   const shortcutKeycode = evdevKeycodeByCode[code];
@@ -934,7 +985,7 @@ function sendShortcut(
     return false;
   }
   const controlVirtualKeyCode = windowsVirtualKeyCodeForCodeOrKey("ControlLeft", "Control");
-  const shortcutKey = code === "KeyC" ? "c" : "x";
+  const shortcutKey = code.slice(3).toLowerCase();
   const shortcutVirtualKeyCode = windowsVirtualKeyCodeForCodeOrKey(code, shortcutKey);
   sendInputEvent({
     type: "input.keyboard.key",

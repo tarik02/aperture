@@ -1,10 +1,13 @@
 import { Fragment, useEffect, useId, useState, type ReactNode } from "react";
 import {
   Circle,
+  ClipboardCopy,
+  ClipboardPaste,
   Copy,
   Download,
   Gauge,
   Hand,
+  Image,
   Info,
   Lock,
   LockOpen,
@@ -22,6 +25,7 @@ import {
   Share2,
   X,
 } from "lucide-react";
+import * as Effect from "effect/Effect";
 import { Button } from "@aperture-browser/ui/components/button";
 import { Field, FieldGroup, FieldLabel } from "@aperture-browser/ui/components/field";
 import { Input } from "@aperture-browser/ui/components/input";
@@ -46,10 +50,12 @@ import {
   formatViewportScale,
   VIEWPORT_DEVICE_SCALE_FACTORS,
   VIEWPORT_PRESETS,
+  type ClipboardSelection,
+  type LiveSessionSelection,
 } from "@aperture-browser/live-session";
-import type { UseBrowserControlResult } from "../hooks/use-browser-control.ts";
-import { copyTextWithToast } from "../clipboard.ts";
-import { useEffectCallback } from "../effect.tsx";
+import type { ReadClipboard, UseBrowserControlResult } from "../hooks/use-browser-control.ts";
+import { copyBrowserSelection, copyTextWithToast, readLocalClipboard } from "../clipboard.ts";
+import { useEffectCallback, useFork } from "../effect.tsx";
 import { toast } from "sonner";
 import type { RecordingSettings } from "@aperture-browser/api-client";
 import { useRecordingSettings } from "../hooks/use-recording-settings.ts";
@@ -100,6 +106,250 @@ export interface BrowserMenuDevTools {
   readonly available: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly onDockChange: (dock: DevToolsDock) => void;
+}
+
+/**
+ * Copies what this client copies in the browser to the local clipboard. Browsers may refuse a
+ * write that no local gesture started; the clipboard menu then still has it.
+ */
+function useCopyOwnClipboardChanges(control: UseBrowserControlResult) {
+  const copy = useEffectCallback(
+    (selection: LiveSessionSelection) =>
+      copyBrowserSelection(selection, "clipboard", control.readClipboard).pipe(
+        Effect.catchTags({
+          ClipboardError: () =>
+            Effect.sync(() =>
+              toast("Copied in the browser", {
+                description: "Copy it from the clipboard menu to use it here.",
+              }),
+            ),
+          LiveSessionError: (error) =>
+            Effect.sync(() => toast.error("Copy failed", { description: error.message })),
+        }),
+      ),
+    [control.readClipboard],
+  );
+  const selection = control.clipboard?.clipboard ?? null;
+  const revision = control.ownClipboardRevision;
+
+  useEffect(() => {
+    if (revision === null || selection?.revision !== revision || !hasSelectionData(selection)) {
+      return;
+    }
+    copy(selection);
+    // Only a new revision copies; the selection is read from the render that saw it.
+  }, [revision]);
+}
+
+function hasSelectionData(selection: LiveSessionSelection) {
+  return selection.text !== "" || (selection.types ?? []).length > 0;
+}
+
+function selectionImage(selection: LiveSessionSelection) {
+  return (selection.types ?? []).includes("image/png");
+}
+
+// Chromium puts U+FFFC in place of a selected element, such as an image or a form field.
+function hasVisibleText(text: string) {
+  return /[^\s\uFFFC]/u.test(text);
+}
+
+/** Whether the menu has something to show for a selection: visible text or an image. */
+function showsSelection(selection: LiveSessionSelection) {
+  return hasVisibleText(selection.text) || selectionImage(selection);
+}
+
+function ClipboardMenu({ control }: { control: UseBrowserControlResult }) {
+  const copy = useEffectCallback(
+    (selection: LiveSessionSelection, kind: ClipboardSelection, copied: string) =>
+      copyBrowserSelection(selection, kind, control.readClipboard).pipe(
+        Effect.andThen(Effect.sync(() => toast.success(copied))),
+        Effect.catchTags({
+          ClipboardError: (error) =>
+            Effect.sync(() => toast.error("Copy failed", { description: error.message })),
+          LiveSessionError: (error) =>
+            Effect.sync(() => toast.error("Copy failed", { description: error.message })),
+        }),
+      ),
+    [control.readClipboard],
+  );
+  const paste = useEffectCallback(
+    (targetId: string) =>
+      readLocalClipboard.pipe(
+        Effect.flatMap((items) =>
+          items.length === 0
+            ? Effect.sync(() => toast("This computer's clipboard is empty"))
+            : control.writeClipboard(items).pipe(
+                Effect.andThen(
+                  Effect.sync(() => {
+                    // The menu took the pointer off the viewport, which may have given up input.
+                    if (!control.collaboration.hasControl) {
+                      control.collaboration.claim(targetId, "implicit");
+                    }
+                    if (!control.sendInput({ type: "clipboard.paste", targetId })) {
+                      toast("Clipboard sent", {
+                        description: "Press Ctrl+V in the browser to paste it.",
+                      });
+                    }
+                  }),
+                ),
+              ),
+        ),
+        Effect.catchTags({
+          ClipboardError: (error) =>
+            Effect.sync(() =>
+              toast.error("Could not read this computer's clipboard", {
+                description: error.message,
+              }),
+            ),
+          LiveSessionError: (error) =>
+            Effect.sync(() => toast.error("Paste failed", { description: error.message })),
+        }),
+      ),
+    [control.writeClipboard, control.sendInput, control.collaboration],
+  );
+  const clipboard = control.clipboard;
+  if (!clipboard) {
+    return null;
+  }
+  const showsClipboard = showsSelection(clipboard.clipboard);
+  const showsPrimary = showsSelection(clipboard.primary);
+  const targetId = control.activeTargetId;
+
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Browser clipboard"
+                />
+              }
+            />
+          }
+        >
+          <ClipboardCopy />
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Browser clipboard</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="end" className="aperture:w-80">
+        {showsClipboard ? (
+          <SelectionMenuGroup
+            label="Clipboard"
+            kind="clipboard"
+            selection={clipboard.clipboard}
+            read={control.readClipboard}
+            onCopy={() => copy(clipboard.clipboard, "clipboard", "Clipboard copied")}
+          />
+        ) : null}
+        {showsClipboard && showsPrimary ? <DropdownMenuSeparator /> : null}
+        {showsPrimary ? (
+          <SelectionMenuGroup
+            label="Selected text"
+            kind="primary"
+            selection={clipboard.primary}
+            read={control.readClipboard}
+            onCopy={() => copy(clipboard.primary, "primary", "Selected text copied")}
+          />
+        ) : null}
+        {showsClipboard || showsPrimary ? (
+          <DropdownMenuSeparator />
+        ) : (
+          <p className="aperture:px-2 aperture:py-1.5 aperture:text-xs aperture:text-muted-foreground">
+            Nothing copied or selected in the browser yet.
+          </p>
+        )}
+        <DropdownMenuItem disabled={!targetId} onClick={() => targetId && paste(targetId)}>
+          <ClipboardPaste />
+          Paste
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function SelectionMenuGroup({
+  label,
+  kind,
+  selection,
+  read,
+  onCopy,
+}: {
+  label: string;
+  kind: ClipboardSelection;
+  selection: LiveSessionSelection;
+  read: ReadClipboard;
+  onCopy: () => void;
+}) {
+  const image = selectionImage(selection);
+  return (
+    <DropdownMenuGroup>
+      <DropdownMenuLabel>{label}</DropdownMenuLabel>
+      <DropdownMenuItem onClick={onCopy} className="aperture:items-start">
+        {image ? <Image /> : <Copy />}
+        <div className="aperture:flex aperture:min-w-0 aperture:flex-col aperture:gap-1.5">
+          {image ? <SelectionImagePreview kind={kind} selection={selection} read={read} /> : null}
+          {hasVisibleText(selection.text) ? (
+            <span className="aperture:line-clamp-4 aperture:font-mono aperture:text-xs aperture:break-words aperture:whitespace-pre-wrap">
+              {selection.text}
+            </span>
+          ) : null}
+        </div>
+      </DropdownMenuItem>
+      {selection.truncated ? (
+        <p className="aperture:px-2 aperture:pb-1 aperture:text-xs aperture:text-muted-foreground">
+          Only the beginning is shown; copying takes all of it.
+        </p>
+      ) : null}
+    </DropdownMenuGroup>
+  );
+}
+
+/** Loads the selection's image while the menu is open. */
+function SelectionImagePreview({
+  kind,
+  selection,
+  read,
+}: {
+  kind: ClipboardSelection;
+  selection: LiveSessionSelection;
+  read: ReadClipboard;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  useFork(
+    () =>
+      read(kind, "image/png").pipe(
+        Effect.flatMap((blob) =>
+          Effect.acquireRelease(
+            Effect.sync(() => URL.createObjectURL(blob)),
+            (objectUrl) =>
+              Effect.sync(() => {
+                URL.revokeObjectURL(objectUrl);
+                setUrl(null);
+              }),
+          ),
+        ),
+        Effect.tap((objectUrl) => Effect.sync(() => setUrl(objectUrl))),
+        Effect.andThen(Effect.never),
+        Effect.scoped,
+        Effect.catchTag("LiveSessionError", () => Effect.void),
+      ),
+    [kind, selection.revision, read],
+  );
+  return url ? (
+    <img
+      src={url}
+      alt="Copied image"
+      className="aperture:max-h-40 aperture:max-w-full aperture:rounded-sm aperture:object-contain"
+    />
+  ) : (
+    <span className="aperture:text-xs aperture:text-muted-foreground">Loading image…</span>
+  );
 }
 
 /**
@@ -172,6 +422,8 @@ export function BrowserMenus({
       onStartRecording={startRecording}
     />
   );
+
+  useCopyOwnClipboardChanges(control);
 
   const sizeController = viewportSizeController(control);
   const viewportPaused =
@@ -264,6 +516,7 @@ export function BrowserMenus({
           />
         </DropdownMenuContent>
       </DropdownMenu>
+      <ClipboardMenu control={control} />
       <DropdownMenu>
         <Tooltip>
           <TooltipTrigger

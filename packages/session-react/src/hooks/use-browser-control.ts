@@ -16,9 +16,12 @@ import {
   getTargetThumbnail,
   LiveSessionError,
   type BrowserInputMessage,
+  type ClipboardData,
+  type ClipboardSelection,
 } from "@aperture-browser/live-session";
 import type {
   SessionAccess,
+  LiveSessionClipboard,
   LiveSessionPresentation,
   LiveSessionPresentationQuality,
   LiveSessionRasterFrame,
@@ -64,6 +67,12 @@ export interface BrowserCommands {
 export type BrowserMediaPath = "webrtc-live" | "websocket-live";
 export type BrowserMediaPhase = "idle" | "connecting" | "live" | "failed";
 
+/** Reads one type of data from one of the browser's selections. */
+export type ReadClipboard = (
+  selection: ClipboardSelection,
+  mimeType: string,
+) => Effect.Effect<Blob, LiveSessionError>;
+
 export interface UseBrowserControlResult {
   phase: LiveSessionControl["phase"];
   targets: readonly LiveSessionTarget[];
@@ -95,6 +104,14 @@ export interface UseBrowserControlResult {
   viewportAutoSizeDefault: boolean;
   captured: boolean;
   recordings: readonly Recording[];
+  /** The browser's clipboard and primary selection, or null when the server does not share them. */
+  clipboard: LiveSessionClipboard | null;
+  /** Revision of the newest clipboard change made while this client held input. */
+  ownClipboardRevision: number | null;
+  /** Reads one type of data from one of the browser's selections. */
+  readClipboard: ReadClipboard;
+  /** Makes the given data the browser's clipboard. */
+  writeClipboard: (items: ReadonlyArray<ClipboardData>) => Effect.Effect<void, LiveSessionError>;
   /** Loads a JPEG preview of one tab, or is null while the session has no access. */
   loadTargetThumbnail:
     | ((targetId: string) => Effect.Effect<Blob, ApiRequestError, HttpClient.HttpClient>)
@@ -221,14 +238,15 @@ export function useBrowserControl({
     setViewportState(createBrowserViewport(live.mediaSize, live.mediaSize.deviceScaleFactor));
   }, [live.mediaSize]);
 
+  const sendBrowserInput = live.sendBrowserInput;
   const sendInput = useCallback(
     (message: BrowserInputMessage): boolean => {
       if (!enabled || access === null) {
         return false;
       }
-      return live.sendBrowserInput(message, inputDimensionsRef.current);
+      return sendBrowserInput(message, inputDimensionsRef.current);
     },
-    [access, enabled, live],
+    [access, enabled, sendBrowserInput],
   );
 
   const activateTarget = useCallback(
@@ -678,6 +696,10 @@ export function useBrowserControl({
     viewportAutoSizeDefault,
     captured,
     recordings: live.recordings,
+    clipboard: live.clipboard,
+    ownClipboardRevision: live.ownClipboardRevision,
+    readClipboard: live.readClipboard,
+    writeClipboard: live.writeClipboard,
     canRecord,
     loadTargetThumbnail,
     recordingBusy,
