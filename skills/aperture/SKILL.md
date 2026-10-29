@@ -17,7 +17,7 @@ export APERTURE_BASE_URL="https://aperture.example.com"
 | MCP | `/mcp`, `/sessions/:sessionId/mcp` | [mcp.md](references/mcp.md) |
 | Data plane | `/sessions/:sessionId/*` | [live-session.md](references/live-session.md), [recordings.md](references/recordings.md), [session-files.md](references/session-files.md) |
 
-Data-plane routes are served by the session itself. They exist for `running` and `suspended` sessions, and an authorized request wakes a suspended one; `browser/status`, `files/*` and the thumbnails are the exceptions that read retained state without waking. `/internal/*` is not public.
+Data-plane routes are served by the session itself. They exist for `running` and `suspended` sessions, and an authorized request wakes a suspended one, CDP discovery included; `browser/status`, `files/*` and the thumbnails are the exceptions that read retained state without waking. `/internal/*` is not public.
 
 To give a person a link to a session, use its `webUrl` (on every session object from the API and MCP), which opens the session in the web UI. Don't build one: `/sessions/<id>` alone is not a page.
 

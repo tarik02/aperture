@@ -113,8 +113,11 @@ func (s *Service) AuthenticateCollaborationCapability(ctx context.Context, route
 }
 
 // WakeCollaborationSession validates a collaboration capability and waits until its session is ready.
+// Like WakeAuthorizedSession, it returns ErrEndpointMoved when the request was routed to an
+// endpoint the session no longer listens on.
 func (s *Service) WakeCollaborationSession(ctx context.Context, routeSessionID, authorization string) (*CollaborationCapabilityAuth, error) {
 	routeSessionID = strings.TrimSpace(routeSessionID)
+	arrived := s.routedEndpoint(ctx, routeSessionID)
 	unlock := s.repo.LockSession(routeSessionID)
 	authorized, err := s.AuthenticateCollaborationCapability(ctx, routeSessionID, authorization)
 	if err != nil {
@@ -134,6 +137,9 @@ func (s *Service) WakeCollaborationSession(ctx context.Context, routeSessionID, 
 		return nil, err
 	}
 	release()
+	if endpointMoved(arrived, sessionRow) {
+		return nil, ErrEndpointMoved
+	}
 	authorized.Session = sessionRow
 	return authorized, nil
 }
