@@ -53,7 +53,11 @@ export function EdgePanel({
   );
 
   if (pinned) {
-    return <aside className={cn(panelClassName, "aperture:shrink-0")}>{children(close)}</aside>;
+    return (
+      <aside data-edge-panel className={cn(panelClassName, "aperture:shrink-0")}>
+        {children(close)}
+      </aside>
+    );
   }
 
   return (

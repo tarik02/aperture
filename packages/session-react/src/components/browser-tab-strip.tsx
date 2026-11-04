@@ -84,10 +84,18 @@ export function BrowserTabStrip({
   targetFaviconUrl,
 }: BrowserTabStripProps) {
   const [previewHandle] = useState(() => createHoverCardHandle<string>());
+  const closePreview = () => {
+    if (previewHandle.isOpen) {
+      previewHandle.close();
+    }
+  };
 
   if (targets.length === 0) {
     return (
-      <div className="aperture:flex aperture:h-8 aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:gap-2 aperture:px-2 aperture:text-xs aperture:text-muted-foreground">
+      <div
+        data-browser-tab-strip
+        className="aperture:flex aperture:h-8 aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:gap-2 aperture:px-2 aperture:text-xs aperture:text-muted-foreground"
+      >
         <span>No tabs</span>
         <NewTabButton disabled={disabled || mutationDisabled} onCreate={onCreate} />
       </div>
@@ -96,8 +104,15 @@ export function BrowserTabStrip({
 
   return (
     <>
-      <ScrollArea scrollbars="horizontal" className="aperture:h-8 aperture:min-w-0 aperture:flex-1">
-        <div className="aperture:flex aperture:min-w-max aperture:items-end aperture:gap-0.5 aperture:px-1 aperture:pt-1">
+      <ScrollArea
+        data-browser-tab-strip
+        scrollbars="horizontal"
+        className="aperture:h-8 aperture:min-w-0 aperture:flex-1"
+      >
+        <div
+          data-browser-tab-strip-tabs
+          className="aperture:flex aperture:min-w-max aperture:items-end aperture:gap-0.5 aperture:px-1 aperture:pt-1"
+        >
           {targets.map((target, index) => {
             const active = target.id === activeTargetId;
             return (
@@ -116,6 +131,7 @@ export function BrowserTabStrip({
                 onReload={onReload}
                 onReorder={onReorder}
                 previewHandle={loadThumbnail ? previewHandle : null}
+                onPreviewClose={closePreview}
                 closeOtherTargetIds={targets
                   .filter((current) => current.id !== target.id)
                   .map((current) => current.id)}
@@ -154,6 +170,7 @@ function BrowserTab({
   onReload,
   onReorder,
   previewHandle,
+  onPreviewClose,
   closeOtherTargetIds,
   closeRightTargetIds,
 }: {
@@ -174,6 +191,7 @@ function BrowserTab({
     placement: DropPlacement,
   ) => void;
   previewHandle: HoverCardHandle<string> | null;
+  onPreviewClose: () => void;
   closeOtherTargetIds: string[];
   closeRightTargetIds: string[];
 }) {
@@ -240,6 +258,7 @@ function BrowserTab({
           event.preventDefault();
         }
       }}
+      onMouseLeave={onPreviewClose}
       onAuxClick={(event) => {
         if (event.button === 1 && !disabled && !mutationDisabled) {
           event.preventDefault();
@@ -283,7 +302,10 @@ function BrowserTab({
           aria-current={active ? "page" : undefined}
           disabled={disabled}
           className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:gap-1.5 aperture:text-left"
-          onClick={() => onActivate(target.id)}
+          onClick={() => {
+            onPreviewClose();
+            onActivate(target.id);
+          }}
         >
           <TabFavicon src={faviconSrc} />
           {devToolsOpen ? (
@@ -471,6 +493,7 @@ function TabPreview({
       align="start"
       sideOffset={8}
       collisionPadding={16}
+      positionerClassName="aperture:pointer-events-none"
       className="aperture:pointer-events-none aperture:flex aperture:w-80 aperture:max-w-[calc(100vw-2rem)] aperture:flex-col aperture:gap-2 aperture:p-2"
     >
       <TabThumbnail targetId={target.id} loadThumbnail={loadThumbnail} />

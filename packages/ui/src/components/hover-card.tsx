@@ -15,6 +15,7 @@ function HoverCardTrigger<Payload>(props: PreviewCardPrimitive.Trigger.Props<Pay
 
 function HoverCardContent({
   className,
+  positionerClassName,
   side = "bottom",
   sideOffset = 4,
   align = "center",
@@ -25,7 +26,7 @@ function HoverCardContent({
   Pick<
     PreviewCardPrimitive.Positioner.Props,
     "align" | "alignOffset" | "side" | "sideOffset" | "collisionPadding"
-  >) {
+  > & { positionerClassName?: string }) {
   return (
     <PreviewCardPrimitive.Portal container={usePortalContainer()}>
       <PreviewCardPrimitive.Positioner
@@ -34,7 +35,7 @@ function HoverCardContent({
         side={side}
         sideOffset={sideOffset}
         collisionPadding={collisionPadding}
-        className="aperture:isolate aperture:z-50"
+        className={cn("aperture:isolate aperture:z-50", positionerClassName)}
       >
         <PreviewCardPrimitive.Popup
           data-slot="hover-card-content"

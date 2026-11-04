@@ -3,8 +3,9 @@
 @source "../../../../packages/session-react/src";
 
 :root {
-  --app-titlebar-min-height: 2.25rem;
+  --app-titlebar-min-height: 2.375rem;
   --app-titlebar-padding-inline: 0.75rem;
+  --app-titlebar-control-height: 1.75rem;
   --app-titlebar-left-overlay-fallback: 5.375rem;
   --app-titlebar-right-overlay-fallback: 7.5rem;
   --app-sidebar-titlebar-padding-left: 0.25rem;
@@ -87,81 +88,223 @@
   }
 }
 
-@layer components {
-  .wco [data-app-titlebar],
-  .wco [data-app-sidebar-titlebar],
-  .wco [data-workbench-titlebar] {
-    height: max(
-      env(titlebar-area-height, var(--app-titlebar-min-height)),
-      var(--app-titlebar-min-height)
-    );
-  }
+/*
+ * Window controls overlay: the browser paints its window controls over the page, so every
+ * titlebar row shares the height of the native titlebar area and keeps its controls compact.
+ * These rules are unlayered so they win over the utility heights used by the components.
+ */
+.wco [data-app-titlebar],
+.wco [data-app-sidebar-titlebar],
+.wco [data-workbench-titlebar] {
+  height: max(
+    env(titlebar-area-height, var(--app-titlebar-min-height)),
+    var(--app-titlebar-min-height)
+  );
+}
 
-  .wco [data-app-titlebar] {
-    padding-left: var(--app-titlebar-padding-inline);
-    padding-right: var(--app-titlebar-padding-inline);
-  }
+/*
+ * The browser paints the window-controls strip with the theme color, so the titlebars use the
+ * same sidebar token. That keeps the strip, the sidebar header and the app header one surface.
+ */
+.wco [data-app-titlebar],
+.wco [data-workbench-titlebar] {
+  background: var(--sidebar);
+}
 
-  .wco.wco-right [data-app-titlebar],
-  .wco.wco-right [data-workbench-titlebar] {
-    padding-right: max(
-      var(--app-titlebar-padding-inline),
-      calc(
-        100vw - env(titlebar-area-x, 0px) -
-          env(titlebar-area-width, calc(100vw - var(--app-titlebar-right-overlay-fallback))) +
-          var(--app-titlebar-padding-inline)
-      )
-    );
-  }
+.wco [data-app-titlebar] {
+  padding-left: var(--app-titlebar-padding-inline);
+  padding-right: var(--app-titlebar-padding-inline);
+  gap: 0.375rem;
+}
 
-  .wco.wco-left
-    [data-app-shell]:has([data-slot="sidebar"][data-collapsible="icon"])
-    [data-app-titlebar] {
-    padding-left: max(
-      var(--app-titlebar-padding-inline),
-      calc(
-        env(titlebar-area-x, var(--app-titlebar-left-overlay-fallback)) -
-          var(--sidebar-width-icon) + var(--app-titlebar-padding-inline)
-      )
-    );
-  }
+/* Compact controls for the thin titlebar. */
+.wco [data-app-titlebar] button {
+  height: var(--app-titlebar-control-height);
+  min-height: 0;
+}
 
-  .wco [data-app-sidebar-titlebar] {
-    padding-left: var(--app-sidebar-titlebar-padding-left);
-  }
+.wco
+  [data-app-titlebar]
+  button:is(
+    [class~="aperture:size-6"],
+    [class~="aperture:size-7"],
+    [class~="aperture:size-8"],
+    [class~="aperture:size-9"],
+    [class~="aperture:aspect-square"]
+  ) {
+  width: var(--app-titlebar-control-height);
+}
 
-  .wco.wco-left [data-app-sidebar-titlebar] {
-    padding-left: max(
-      var(--app-sidebar-titlebar-padding-left),
-      calc(
-        env(titlebar-area-x, var(--app-titlebar-left-overlay-fallback)) +
-          var(--app-sidebar-titlebar-padding-left)
-      )
-    );
-  }
+.wco [data-app-titlebar] [data-slot="input"],
+.wco [data-app-titlebar] [data-slot="input-group"] {
+  height: var(--app-titlebar-control-height);
+  min-height: var(--app-titlebar-control-height);
+  font-size: 0.75rem;
+}
 
-  .wco.wco-left
-    [data-app-shell]:has([data-slot="sidebar"][data-collapsible="icon"])
-    [data-app-sidebar-titlebar] {
-    padding-left: var(--app-sidebar-titlebar-padding-left);
-  }
+/* The workbench's titlebar buttons sit in the same thin row. */
+.wco [data-workbench-control] {
+  width: var(--app-titlebar-control-height);
+  height: var(--app-titlebar-control-height);
+  align-self: center;
+  border-radius: calc(var(--radius) * 0.8);
+}
 
-  .wco [data-app-shell] [data-slot="sidebar-header"] {
-    padding-top: 0;
-  }
+.wco.wco-right [data-app-titlebar],
+.wco.wco-right [data-workbench-titlebar] {
+  padding-right: max(
+    var(--app-titlebar-padding-inline),
+    calc(
+      100vw - env(titlebar-area-x, 0px) -
+        env(titlebar-area-width, calc(100vw - var(--app-titlebar-right-overlay-fallback))) +
+        var(--app-titlebar-padding-inline)
+    )
+  );
+}
 
-  .wco [data-workbench-titlebar] {
-    padding-left: var(--app-titlebar-padding-inline);
-    padding-right: var(--app-titlebar-padding-inline);
-  }
+.wco.wco-left
+  [data-app-shell]:has([data-slot="sidebar"][data-collapsible="icon"])
+  [data-app-titlebar] {
+  padding-left: max(
+    var(--app-titlebar-padding-inline),
+    calc(
+      env(titlebar-area-x, var(--app-titlebar-left-overlay-fallback)) - var(--sidebar-width-icon) +
+        var(--app-titlebar-padding-inline)
+    )
+  );
+}
 
-  .wco.wco-left [data-workbench-titlebar] {
-    padding-left: max(
-      var(--app-titlebar-padding-inline),
-      calc(
-        env(titlebar-area-x, var(--app-titlebar-left-overlay-fallback)) +
-          var(--app-titlebar-padding-inline)
-      )
-    );
-  }
+.wco [data-app-sidebar-titlebar] {
+  padding-left: var(--app-sidebar-titlebar-padding-left);
+  transition: padding-left 140ms ease-out;
+}
+
+.wco.wco-left [data-app-sidebar-titlebar] {
+  padding-left: max(
+    var(--app-sidebar-titlebar-padding-left),
+    calc(
+      env(titlebar-area-x, var(--app-titlebar-left-overlay-fallback)) +
+        var(--app-sidebar-titlebar-padding-left)
+    )
+  );
+}
+
+.wco.wco-left
+  [data-app-shell]:has([data-slot="sidebar"][data-collapsible="icon"])
+  [data-app-sidebar-titlebar] {
+  padding-left: var(--app-sidebar-titlebar-padding-left);
+  /* Collapse: move down first, then slide left from under the window controls. */
+  transition-delay: 120ms;
+}
+
+/* A smaller logo and a single compact line fit the thin titlebar. */
+.wco [data-sidebar-logo] {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.375rem;
+}
+
+.wco [data-sidebar-logo] > svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.wco [data-app-sidebar-titlebar] [data-sidebar-collapse-label] > span:first-child {
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+/* The host URL stays out of the thin titlebar; it is still available below the logo otherwise. */
+.wco [data-app-sidebar-titlebar] [data-sidebar-collapse-label] > span:last-child {
+  display: none;
+}
+
+.wco [data-app-shell] [data-slot="sidebar-header"] {
+  padding-top: 0;
+  /* Expand: slide right out from under the controls before moving back up. */
+  transition: padding-top 140ms ease-out 120ms;
+}
+
+/*
+ * Collapsed to the icon rail, the sidebar is narrower than the window controls, so the logo
+ * moves below them instead of being covered by the overlay.
+ */
+.wco.wco-left
+  [data-app-shell]:has([data-slot="sidebar"][data-collapsible="icon"])
+  [data-slot="sidebar-header"] {
+  padding-top: env(titlebar-area-height, var(--app-titlebar-min-height));
+  /* Collapse: move the row down immediately. */
+  transition-delay: 0ms;
+}
+
+.wco [data-workbench-titlebar] {
+  padding-left: var(--app-titlebar-padding-inline);
+  padding-right: var(--app-titlebar-padding-inline);
+  transition: padding-left 200ms ease-out;
+}
+
+.wco.wco-left [data-workbench-titlebar] {
+  padding-left: max(
+    var(--app-titlebar-padding-inline),
+    calc(
+      env(titlebar-area-x, var(--app-titlebar-left-overlay-fallback)) +
+        var(--app-titlebar-padding-inline)
+    )
+  );
+}
+
+/*
+ * An open offcanvas sidebar already covers the window controls, so the workbench starts at the
+ * sidebar edge with only its normal padding instead of reserving the titlebar overlay again.
+ */
+.wco.wco-left
+  [data-app-shell]:has([data-slot="sidebar"][data-collapsible=""])
+  [data-workbench-titlebar] {
+  padding-left: var(--app-titlebar-padding-inline);
+}
+
+/* The files panel header sits in the same top row as the workbench titlebar. */
+.wco [data-files-panel-header] {
+  height: max(
+    env(titlebar-area-height, var(--app-titlebar-min-height)),
+    var(--app-titlebar-min-height)
+  );
+}
+
+.wco.wco-right [data-files-panel-header] {
+  padding-right: max(
+    var(--app-titlebar-padding-inline),
+    calc(
+      100vw - env(titlebar-area-x, 0px) -
+        env(titlebar-area-width, calc(100vw - var(--app-titlebar-right-overlay-fallback))) +
+        var(--app-titlebar-padding-inline)
+    )
+  );
+}
+
+/*
+ * A pinned edge panel covers the right corner; its own header already reserves the window
+ * controls menu, so the workbench titlebar does not need that padding again.
+ */
+.wco.wco-right [data-app-shell]:has([data-edge-panel]) [data-workbench-titlebar] {
+  padding-right: var(--app-titlebar-padding-inline);
+}
+
+/* Keep the second workbench row compact instead of growing with the titlebar. */
+.wco [data-workbench-toolbar] {
+  height: 2rem;
+}
+
+/* The tab strip fills the native titlebar height instead of keeping its own fixed height. */
+.wco [data-workbench-titlebar] [data-browser-tab-strip] {
+  height: 100%;
+}
+
+.wco [data-workbench-titlebar] [data-browser-tab-strip-tabs] {
+  height: 100%;
+  padding-top: 0;
+}
+
+.wco [data-workbench-titlebar] [data-browser-tab] {
+  height: 100%;
 }

@@ -403,6 +403,7 @@ function FilesToggle({ pinned, onToggle }: { pinned: boolean; onToggle: () => vo
           <Button
             variant="ghost"
             size="icon-sm"
+            data-workbench-control
             className={cn(
               "aperture:h-full aperture:w-auto aperture:aspect-square aperture:shrink-0 aperture:rounded-none",
               pinned && "aperture:bg-muted",
