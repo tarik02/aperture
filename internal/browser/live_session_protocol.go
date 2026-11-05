@@ -214,19 +214,20 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 			if err := session.requireViewportOwner(client); err != nil {
 				return liveSessionServerMessage{}, err
 			}
+			return liveSessionServerMessage{}, session.scheduleAutoSizeViewport(client, message)
 		}
-		if err := session.browser.setViewport(
+		return liveSessionServerMessage{}, session.applyExplicitViewportChange(
 			message.TargetID,
-			int(message.Width),
-			int(message.Height),
-			message.DeviceScaleFactor,
-		); err != nil {
-			return liveSessionServerMessage{}, err
-		}
-		if !autoSize {
-			session.overrideViewportOwner(client)
-		}
-		return liveSessionServerMessage{}, nil
+			client,
+			func() error {
+				return session.browser.setViewport(
+					message.TargetID,
+					int(message.Width),
+					int(message.Height),
+					message.DeviceScaleFactor,
+				)
+			},
+		)
 	case "viewport.auto-size.set":
 		if message.Enabled == nil {
 			return liveSessionServerMessage{}, errors.New("auto-size state is required")

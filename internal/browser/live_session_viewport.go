@@ -56,6 +56,37 @@ func (session *liveSession) requireViewportOwner(client *liveSessionClient) erro
 	return nil
 }
 
+// scheduleAutoSizeViewport records the owner's newest auto-size viewport and acknowledges it
+// immediately. The viewport scheduler applies it later, coalescing the rest of a drag.
+func (session *liveSession) scheduleAutoSizeViewport(client *liveSessionClient, message liveSessionClientMessage) error {
+	width := int(message.Width)
+	height := int(message.Height)
+	if width <= 0 || height <= 0 || width > 16384 || height > 16384 || message.DeviceScaleFactor <= 0 {
+		return errors.New("viewport is invalid")
+	}
+	if session.viewportScheduler == nil {
+		return errors.New("viewport scheduler is unavailable")
+	}
+	session.viewportScheduler.schedule(client, message.TargetID, width, height, message.DeviceScaleFactor)
+	return nil
+}
+
+// applyExplicitViewportChange applies a viewport change that is not the owner's auto-size and
+// ends ownership on success. It serializes with auto-size applies, so the explicit size is not
+// overwritten by a resize that was already queued.
+func (session *liveSession) applyExplicitViewportChange(targetID string, client *liveSessionClient, apply func() error) error {
+	if session.viewportScheduler == nil {
+		if err := apply(); err != nil {
+			return err
+		}
+		session.overrideViewportOwner(client)
+		return nil
+	}
+	return session.viewportScheduler.applyExplicit(targetID, apply, func() {
+		session.overrideViewportOwner(client)
+	})
+}
+
 // overrideViewportOwner ends auto-size ownership after an explicit viewport change by any
 // other actor. Nobody inherits it, and only an explicit claim or auto-size toggle takes it
 // again, so the explicit size survives clients that join with auto-size on by default.
