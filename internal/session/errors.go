@@ -14,6 +14,7 @@ var (
 	ErrNotReopenable        = errors.New("session cannot be reopened")
 	ErrInvalidState         = errors.New("session is in an invalid state for this operation")
 	ErrNotRunning           = errors.New("session is not running")
+	ErrEndpointMoved        = errors.New("session woke on a new endpoint; retry the request")
 	ErrSessionTokenMissing  = errors.New("session token missing")
 	ErrSessionTokenInvalid  = errors.New("session token invalid")
 	ErrSessionTokenRevoked  = errors.New("session token revoked")
