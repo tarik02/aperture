@@ -14,7 +14,7 @@ import {
   keyboardModifiers,
   shouldForwardBrowserShortcut,
 } from "@aperture-browser/live-session";
-import { computeRenderMetrics } from "@aperture-browser/live-session";
+import { computeRenderMetrics, type RenderMetrics } from "@aperture-browser/live-session";
 import type { LiveSessionRasterFrame } from "@aperture-browser/live-session";
 import type { ViewportPreset } from "@aperture-browser/live-session";
 import type { SessionNotice, UseBrowserControlResult } from "../hooks/use-browser-control.ts";
@@ -164,12 +164,28 @@ export function SessionViewport({
         Math.round(renderHeight * (displayedMediaSize?.deviceScaleFactor ?? 1)),
       )
     : renderHeight;
-  const displayMetrics = computeRenderMetrics(
-    control.browserViewportSize?.width ?? renderWidth,
-    control.browserViewportSize?.height ?? renderHeight,
-    renderWidth,
-    renderHeight,
-  );
+  // With auto-size on, the browser viewport is meant to match this container. Until the server
+  // applies the newest size, pin the media to its applied size at the container's origin instead
+  // of rescaling it to the container on every frame; otherwise the video zooms and slides while
+  // the window is dragged.
+  const autoSizePinned = control.viewportAutoSizeActive;
+  function pinnedRenderMetrics(): RenderMetrics {
+    return {
+      scale: 1,
+      offsetX: 0,
+      offsetY: 0,
+      renderedWidth: renderWidth,
+      renderedHeight: renderHeight,
+    };
+  }
+  const displayMetrics = autoSizePinned
+    ? pinnedRenderMetrics()
+    : computeRenderMetrics(
+        control.browserViewportSize?.width ?? renderWidth,
+        control.browserViewportSize?.height ?? renderHeight,
+        renderWidth,
+        renderHeight,
+      );
   const disconnectedHint = resolveDisconnectedHint(control.phase);
   const collaborationHint = resolveCollaborationHint(control.collaboration);
   const cursorHint = disconnectedHint ?? collaborationHint;
@@ -418,7 +434,9 @@ export function SessionViewport({
     if (!rect) {
       return null;
     }
-    const metrics = computeRenderMetrics(rect.width, rect.height, renderWidth, renderHeight);
+    const metrics = autoSizePinned
+      ? pinnedRenderMetrics()
+      : computeRenderMetrics(rect.width, rect.height, renderWidth, renderHeight);
     const localX = event.clientX - rect.left - metrics.offsetX;
     const localY = event.clientY - rect.top - metrics.offsetY;
     if (
@@ -992,7 +1010,9 @@ export function SessionViewport({
       {showingWebRTC ? (
         <div
           style={{
-            position: "relative",
+            position: autoSizePinned ? "absolute" : "relative",
+            top: autoSizePinned ? 0 : undefined,
+            left: autoSizePinned ? 0 : undefined,
             overflow: "hidden",
             background: "black",
             transition: "opacity 150ms",
@@ -1026,7 +1046,9 @@ export function SessionViewport({
       ) : frameMetadata ? (
         <div
           style={{
-            position: "relative",
+            position: autoSizePinned ? "absolute" : "relative",
+            top: autoSizePinned ? 0 : undefined,
+            left: autoSizePinned ? 0 : undefined,
             overflow: "hidden",
             background: "black",
             width: displayMetrics.renderedWidth,
