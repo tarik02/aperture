@@ -516,7 +516,7 @@ function SessionFilesTreePanel({ sessionId }: { sessionId: string }) {
     >
       <div
         data-files-panel-header
-        className="aperture:flex aperture:h-9 aperture:shrink-0 aperture:items-center aperture:gap-1 aperture:border-b aperture:pr-1.5 aperture:pl-3"
+        className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-1 aperture:border-b aperture:pr-1.5 aperture:pl-3"
       >
         <span className="aperture:min-w-0 aperture:flex-1 aperture:truncate aperture:font-medium">
           Files

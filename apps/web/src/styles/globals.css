@@ -4,8 +4,18 @@
 
 :root {
   --app-titlebar-min-height: 2.375rem;
+  --app-titlebar-extra-height: 2px;
+  /*
+   * The browser paints its caption strip over the page. Keep the page row a hairline taller than
+   * that strip so subpixel rounding never leaves a seam under the window controls.
+   */
+  --app-titlebar-height: max(
+    var(--app-titlebar-min-height),
+    calc(env(titlebar-area-height, 0px) + var(--app-titlebar-extra-height))
+  );
   --app-titlebar-padding-inline: 0.75rem;
   --app-titlebar-control-height: 1.75rem;
+  --app-workbench-titlebar-height: 2rem;
   --app-titlebar-left-overlay-fallback: 5.375rem;
   --app-titlebar-right-overlay-fallback: 7.5rem;
   --app-sidebar-titlebar-padding-left: 0.25rem;
@@ -36,7 +46,12 @@
   }
 
   [data-workbench-titlebar] {
-    height: 2rem;
+    height: var(--app-workbench-titlebar-height);
+  }
+
+  /* The files panel header shares the workbench titlebar row. */
+  [data-files-panel-header] {
+    height: var(--app-workbench-titlebar-height);
   }
 
   [data-app-titlebar] a,
@@ -96,10 +111,7 @@
 .wco [data-app-titlebar],
 .wco [data-app-sidebar-titlebar],
 .wco [data-workbench-titlebar] {
-  height: max(
-    env(titlebar-area-height, var(--app-titlebar-min-height)),
-    var(--app-titlebar-min-height)
-  );
+  height: var(--app-titlebar-height);
 }
 
 /*
@@ -123,15 +135,8 @@
   min-height: 0;
 }
 
-.wco
-  [data-app-titlebar]
-  button:is(
-    [class~="aperture:size-6"],
-    [class~="aperture:size-7"],
-    [class~="aperture:size-8"],
-    [class~="aperture:size-9"],
-    [class~="aperture:aspect-square"]
-  ) {
+/* Keep icon buttons square after the height above shrinks them. */
+.wco [data-app-titlebar] [data-icon-button] {
   width: var(--app-titlebar-control-height);
 }
 
@@ -232,7 +237,7 @@
 .wco.wco-left
   [data-app-shell]:has([data-slot="sidebar"][data-collapsible="icon"])
   [data-slot="sidebar-header"] {
-  padding-top: env(titlebar-area-height, var(--app-titlebar-min-height));
+  padding-top: var(--app-titlebar-height);
   /* Collapse: move the row down immediately. */
   transition-delay: 0ms;
 }
@@ -265,10 +270,7 @@
 
 /* The files panel header sits in the same top row as the workbench titlebar. */
 .wco [data-files-panel-header] {
-  height: max(
-    env(titlebar-area-height, var(--app-titlebar-min-height)),
-    var(--app-titlebar-min-height)
-  );
+  height: var(--app-titlebar-height);
 }
 
 .wco.wco-right [data-files-panel-header] {
@@ -292,7 +294,7 @@
 
 /* Keep the second workbench row compact instead of growing with the titlebar. */
 .wco [data-workbench-toolbar] {
-  height: 2rem;
+  height: var(--app-workbench-titlebar-height);
 }
 
 /* The tab strip fills the native titlebar height instead of keeping its own fixed height. */
