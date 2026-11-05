@@ -55,6 +55,11 @@ interface LiveSessionConnectionOptions {
    * viewport ownership state; omit it to keep the pre-ownership protocol.
    */
   autoSize?: () => boolean;
+  /**
+   * Reads the current clipboard preference for each hello. Sending it opts the client into
+   * browser clipboard state and commands; omit it to keep the pre-clipboard protocol.
+   */
+  clipboard?: () => boolean;
   iceServers: readonly IceServer[];
   webrtcSupported: boolean;
   callbacks: LiveSessionConnectionCallbacks;
@@ -192,7 +197,7 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
     type: "session.hello",
     ...(identity ?? options.identity),
     ...(options.autoSize === undefined ? {} : { autoSize: options.autoSize() }),
-    clipboard: true,
+    ...(options.clipboard === undefined ? {} : { clipboard: options.clipboard() }),
   });
 
   const transportCallbacks: TransportCallbacks = {

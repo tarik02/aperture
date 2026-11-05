@@ -16,11 +16,21 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf8"
+
+	remoteinput "github.com/tarik02/webdesktop/input"
 )
 
 // liveSessionSelectionWireLimit bounds one selection's JSON-encoded text. Data channel messages
 // may be limited to 64 KiB, and a clipboard.state carries both selections.
 const liveSessionSelectionWireLimit = 28 * 1024
+
+// liveSessionSelectionTypesLimit bounds one selection's JSON-encoded MIME types for the same
+// reason; the two selections leave this much room beside their texts.
+const (
+	liveSessionSelectionTypesLimit      = 2 * 1024
+	liveSessionSelectionMaximumTypes    = 16
+	liveSessionClipboardConcurrentReads = 4
+)
 
 // liveSessionClipboardChunkSize is the payload of one clipboard data message; base64 and the
 // envelope keep it under a 64 KiB data channel message.
@@ -36,8 +46,12 @@ const (
 
 const (
 	liveSessionClipboardRetryDelay = time.Second
+	// liveSessionClipboardRetryLimit caps the reconnect backoff of the selection watcher.
+	liveSessionClipboardRetryLimit = 30 * time.Second
 	// liveSessionClipboardTransferTimeout bounds waiting on the browser to produce or take data.
 	liveSessionClipboardTransferTimeout = 10 * time.Second
+	// liveSessionClipboardWriteTimeout drops a paste whose chunks stopped arriving.
+	liveSessionClipboardWriteTimeout = 30 * time.Second
 )
 
 // liveSessionClipboardCoalesceDelay gathers selection changes into one update. Chromium clears and
@@ -73,16 +87,19 @@ type liveSessionClipboardWrite struct {
 	requestID string
 	items     []liveSessionClipboardItem
 	size      int
+	updatedAt time.Time
 }
 
 // applyHelloClipboard records that a client asked for clipboard state with its hello. Clients
-// that omit it reject unknown messages, so they never receive it.
+// that omit it reject unknown messages, so they never receive it. Only the aperture compositor
+// serves the clipboard, so other sessions never advertise it.
 func (session *liveSession) applyHelloClipboard(client *liveSessionClient, enabled *bool) {
-	if enabled == nil || !*enabled {
+	if enabled == nil {
 		return
 	}
+	supported := multiTargetCompositorEnabled(session.runtime.values)
 	session.mu.Lock()
-	client.clipboardAware = true
+	client.clipboardAware = *enabled && supported
 	session.mu.Unlock()
 }
 
@@ -93,17 +110,24 @@ func (client *liveSessionClient) receivesClipboard() bool {
 
 // watchClipboard follows the compositor's selections until ctx ends, reconnecting if it drops.
 func (session *liveSession) watchClipboard(ctx context.Context) {
+	delay := liveSessionClipboardRetryDelay
+	lastError := ""
 	for {
 		err := session.followCompositorSelections(ctx)
 		if ctx.Err() != nil {
 			return
 		}
-		fmt.Fprintf(os.Stderr, "browser-session-wrapper: watch clipboard: %v\n", err)
+		// A shell without selection-watch would otherwise log this every second for the session.
+		if message := err.Error(); message != lastError {
+			fmt.Fprintf(os.Stderr, "browser-session-wrapper: watch clipboard: %v\n", err)
+			lastError = message
+		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(liveSessionClipboardRetryDelay):
+		case <-time.After(delay):
 		}
+		delay = min(delay*2, liveSessionClipboardRetryLimit)
 	}
 }
 
@@ -183,7 +207,7 @@ func parseCompositorSelection(fields []string) (string, liveSessionSelection, er
 		return "", liveSessionSelection{}, errors.New("selection types are not hex")
 	}
 	if types != "" {
-		selection.Types = strings.Split(types, "\n")
+		selection.Types = limitSelectionTypes(strings.Split(types, "\n"))
 	}
 	switch fields[5] {
 	case "0":
@@ -227,25 +251,54 @@ func decodeCompositorHex(field string) (string, error) {
 func limitSelectionText(text string) (string, bool) {
 	size := 0
 	for index, r := range text {
-		width := utf8.RuneLen(r)
 		if r == utf8.RuneError {
 			if _, length := utf8.DecodeRuneInString(text[index:]); length == 1 {
 				return text[:index], true
 			}
 		}
-		encoded := width
-		switch {
-		case r == '"' || r == '\\' || r == '\n' || r == '\r' || r == '\t':
-			encoded = 2
-		case r < 0x20 || r == '<' || r == '>' || r == '&' || r == '\u2028' || r == '\u2029':
-			encoded = 6
-		}
+		encoded := jsonRuneWireWidth(r)
 		if size+encoded > liveSessionSelectionWireLimit {
 			return text[:index], true
 		}
 		size += encoded
 	}
 	return text, false
+}
+
+// limitSelectionTypes keeps the offered types that fit beside the two selections' texts, so an
+// owner offering a pathological list cannot push clipboard.state past a data channel limit.
+func limitSelectionTypes(types []string) []string {
+	kept := make([]string, 0, min(len(types), liveSessionSelectionMaximumTypes))
+	size := 0
+	for _, mimeType := range types {
+		if len(kept) == liveSessionSelectionMaximumTypes {
+			break
+		}
+		if !validClipboardType(mimeType) {
+			continue
+		}
+		encoded := 2 // quotes
+		for _, r := range mimeType {
+			encoded += jsonRuneWireWidth(r)
+		}
+		if size+encoded+1 > liveSessionSelectionTypesLimit { // the separating comma
+			break
+		}
+		size += encoded + 1
+		kept = append(kept, mimeType)
+	}
+	return kept
+}
+
+// jsonRuneWireWidth is the length of r once encoding/json has escaped it.
+func jsonRuneWireWidth(r rune) int {
+	switch {
+	case r == '"' || r == '\\' || r == '\n' || r == '\r' || r == '\t':
+		return 2
+	case r < 0x20 || r == '<' || r == '>' || r == '&' || r == '\u2028' || r == '\u2029':
+		return 6
+	}
+	return utf8.RuneLen(r)
 }
 
 func (session *liveSession) updateSelection(kind string, next liveSessionSelection) {
@@ -290,6 +343,12 @@ func (session *liveSession) readClipboard(client *liveSessionClient, message liv
 	if !validClipboardType(message.MimeType) {
 		return liveSessionServerMessage{}, errors.New("clipboard type is invalid")
 	}
+	select {
+	case session.clipboardReadSlots <- struct{}{}:
+		defer func() { <-session.clipboardReadSlots }()
+	default:
+		return liveSessionServerMessage{}, errors.New("clipboard is busy")
+	}
 	ctx, cancel := context.WithTimeout(session.runtime.ctx, liveSessionClipboardTransferTimeout)
 	defer cancel()
 	command := fmt.Sprintf("selection-read %s %s\n", message.Selection, hex.EncodeToString([]byte(message.MimeType)))
@@ -320,9 +379,23 @@ func (session *liveSession) readClipboard(client *liveSessionClient, message liv
 	return result, nil
 }
 
+// requireClipboardInputLease reports whether the client holds the input lease. A paste replaces
+// the shared browser's clipboard, so it follows ADR 0003 like other browser input.
+func (session *liveSession) requireClipboardInputLease(client *liveSessionClient) error {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.holder != client {
+		return remoteinput.ErrNotOwner
+	}
+	return nil
+}
+
 // appendClipboardWrite adds one chunk of a paste. A chunk for another request starts over.
 func (session *liveSession) appendClipboardWrite(client *liveSessionClient, message liveSessionClientMessage) error {
 	if err := requireBrowserMutation(client); err != nil {
+		return err
+	}
+	if err := session.requireClipboardInputLease(client); err != nil {
 		return err
 	}
 	if !validLiveSessionRequestID(message.RequestID) {
@@ -338,10 +411,12 @@ func (session *liveSession) appendClipboardWrite(client *liveSessionClient, mess
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	write := client.clipboardWrite
-	if write == nil || write.requestID != message.RequestID {
+	if write == nil || write.requestID != message.RequestID ||
+		time.Since(write.updatedAt) > liveSessionClipboardWriteTimeout {
 		write = &liveSessionClipboardWrite{requestID: message.RequestID}
 		client.clipboardWrite = write
 	}
+	write.updatedAt = time.Now()
 	if write.size+len(data) > liveSessionClipboardMaxBytes {
 		client.clipboardWrite = nil
 		return errors.New("clipboard data is too large")
@@ -366,6 +441,9 @@ func (session *liveSession) commitClipboardWrite(client *liveSessionClient, mess
 	if err := requireBrowserMutation(client); err != nil {
 		return liveSessionServerMessage{}, err
 	}
+	if err := session.requireClipboardInputLease(client); err != nil {
+		return liveSessionServerMessage{}, err
+	}
 	session.mu.Lock()
 	write := client.clipboardWrite
 	client.clipboardWrite = nil
@@ -381,12 +459,17 @@ func (session *liveSession) commitClipboardWrite(client *liveSessionClient, mess
 	session.clipboardWriteMu.Lock()
 	defer session.clipboardWriteMu.Unlock()
 	session.mu.Lock()
+	previous := session.pasted
 	session.pasted = items
 	session.mu.Unlock()
 	ctx, cancel := context.WithTimeout(session.runtime.ctx, liveSessionClipboardTransferTimeout)
 	defer cancel()
 	command := "selection-set clipboard " + hex.EncodeToString([]byte(strings.Join(types, "\n"))) + "\n"
 	if _, err := sendCompositorControlCommand(ctx, session.runtime.controlSocket, command); err != nil {
+		// The browser still holds the previous clipboard, so requests for it must keep working.
+		session.mu.Lock()
+		session.pasted = previous
+		session.mu.Unlock()
 		return liveSessionServerMessage{}, err
 	}
 	return liveSessionServerMessage{}, nil

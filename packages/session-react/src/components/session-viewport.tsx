@@ -898,11 +898,21 @@ export function SessionViewport({
   }
 
   const paste = useEffectCallback(
-    (targetId: string, items: ReadonlyArray<ClipboardData>) =>
+    (targetId: string, items: ReadonlyArray<ClipboardData>, fallbackText: string) =>
       control.writeClipboard(items).pipe(
         Effect.andThen(Effect.sync(() => control.sendInput({ type: "clipboard.paste", targetId }))),
         Effect.catchTag("LiveSessionError", (error) =>
           Effect.sync(() => {
+            // A wrapper that cannot take the data still gets the text typed into the page.
+            if (fallbackText !== "") {
+              control.sendInput({
+                type: "input.key",
+                targetId,
+                action: "char",
+                text: fallbackText,
+              });
+              return;
+            }
             console.warn("Paste failed", error);
             onNotice?.({ level: "error", message: "Paste failed" });
           }),
@@ -919,9 +929,23 @@ export function SessionViewport({
     event.preventDefault();
     event.stopPropagation();
     const items = pastedClipboardData(event.clipboardData);
-    if (items.length > 0) {
-      paste(targetId, items);
+    if (items.length === 0) {
+      return;
     }
+    // Pasting changes the browser, so it needs the lease like any other input.
+    if (!control.collaboration.hasControl && !control.collaboration.claim(targetId, "implicit")) {
+      onNotice?.({ level: "error", message: "Someone else is controlling the browser" });
+      return;
+    }
+    const text = event.clipboardData.getData("text/plain");
+    if (control.clipboard === null) {
+      // Without the aperture compositor the data cannot reach the browser; type its text.
+      if (text !== "") {
+        control.sendInput({ type: "input.key", targetId, action: "char", text });
+      }
+      return;
+    }
+    paste(targetId, items, text);
   }
 
   function heldAltCode() {

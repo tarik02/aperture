@@ -104,6 +104,8 @@ type liveSession struct {
 	// pasted is the data behind the clipboard this wrapper set; clipboardWriteMu orders pastes.
 	pasted           []liveSessionClipboardItem
 	clipboardWriteMu sync.Mutex
+	// clipboardReadSlots bounds clipboard reads in flight; each waits on the compositor.
+	clipboardReadSlots chan struct{}
 }
 
 type liveSessionClient struct {
@@ -310,13 +312,14 @@ func newLiveSession(runtime *wrapperRuntime) (*liveSession, error) {
 		input = compositorInput
 	}
 	return &liveSession{
-		runtime:       runtime,
-		input:         input,
-		browser:       newLiveSessionBrowser(runtime),
-		clients:       make(map[string]*liveSessionClient),
-		recordings:    make(map[string]*wrapperRecording),
-		gate:          make(chan struct{}, 1),
-		cursorVisible: true,
+		runtime:            runtime,
+		input:              input,
+		browser:            newLiveSessionBrowser(runtime),
+		clients:            make(map[string]*liveSessionClient),
+		recordings:         make(map[string]*wrapperRecording),
+		gate:               make(chan struct{}, 1),
+		clipboardReadSlots: make(chan struct{}, liveSessionClipboardConcurrentReads),
+		cursorVisible:      true,
 	}, nil
 }
 

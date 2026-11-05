@@ -176,25 +176,36 @@ function ClipboardMenu({ control }: { control: UseBrowserControlResult }) {
   const paste = useEffectCallback(
     (targetId: string) =>
       readLocalClipboard.pipe(
-        Effect.flatMap((items) =>
-          items.length === 0
-            ? Effect.sync(() => toast("This computer's clipboard is empty"))
-            : control.writeClipboard(items).pipe(
-                Effect.andThen(
-                  Effect.sync(() => {
-                    // The menu took the pointer off the viewport, which may have given up input.
-                    if (!control.collaboration.hasControl) {
-                      control.collaboration.claim(targetId, "implicit");
-                    }
-                    if (!control.sendInput({ type: "clipboard.paste", targetId })) {
-                      toast("Clipboard sent", {
-                        description: "Press Ctrl+V in the browser to paste it.",
-                      });
-                    }
-                  }),
-                ),
+        Effect.flatMap((items) => {
+          if (items.length === 0) {
+            return Effect.sync(() => toast("This computer's clipboard is empty"));
+          }
+          return Effect.suspend(() => {
+            // The menu took the pointer off the viewport, which may have given up input; a paste
+            // needs the lease, so take it before the data starts moving.
+            if (
+              !control.collaboration.hasControl &&
+              !control.collaboration.claim(targetId, "implicit")
+            ) {
+              return Effect.sync(() =>
+                toast.error("Someone else is controlling the browser", {
+                  description: "Try again when they finish.",
+                }),
+              );
+            }
+            return control.writeClipboard(items).pipe(
+              Effect.andThen(
+                Effect.sync(() => {
+                  if (!control.sendInput({ type: "clipboard.paste", targetId })) {
+                    toast("Clipboard sent", {
+                      description: "Press Ctrl+V in the browser to paste it.",
+                    });
+                  }
+                }),
               ),
-        ),
+            );
+          });
+        }),
         Effect.catchTags({
           ClipboardError: (error) =>
             Effect.sync(() =>

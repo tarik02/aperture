@@ -49,10 +49,14 @@ void notify_key(const struct weston_key_event *event);
 enum {
 	aperture_max_text_bytes = 4096,
 	aperture_control_buffer_size = aperture_max_text_bytes * 2 + 7,
-	/* Larger selections reach watchers cut to this many bytes and marked truncated. */
-	aperture_max_selection_bytes = 256 * 1024,
+	/* Larger selections reach watchers cut to this many bytes and marked truncated. The wrapper
+	 * cuts the text it broadcasts to about 28 KiB of JSON, so reading much more is wasted work. */
+	aperture_max_selection_bytes = 64 * 1024,
 	/* A watcher this far behind is disconnected rather than buffered without bound. */
 	aperture_max_watcher_backlog = 4 * 1024 * 1024,
+	/* Types are tokens; a pathological list is cut rather than sent in one line. */
+	aperture_max_selection_types = 16,
+	aperture_max_selection_types_bytes = 2 * 1024,
 	/* Pipes for the shell's own clipboard that no watcher took; the oldest is closed beyond this. */
 	aperture_max_pending_sends = 16,
 };
@@ -1916,12 +1920,15 @@ preferred_text_mime_type(const struct wl_array *mime_types)
 	return NULL;
 }
 
-/* MIME types are tokens; one with a newline could not be listed, so it is left out. */
+/* MIME types are tokens; one with a newline could not be listed, so it is left out. A list too
+ * large for one control line is cut to its first entries. */
 static char *
 join_mime_types(const struct wl_array *mime_types)
 {
 	char *const *mime_type;
 	size_t length = 0;
+	size_t kept = 0;
+	size_t kept_bytes = 0;
 	char *joined;
 
 	wl_array_for_each(mime_type, mime_types)
@@ -1930,11 +1937,18 @@ join_mime_types(const struct wl_array *mime_types)
 	if (!joined)
 		return NULL;
 	wl_array_for_each(mime_type, mime_types) {
+		size_t type_length = strlen(*mime_type);
+
 		if (strchr(*mime_type, '\n'))
 			continue;
+		if (kept == aperture_max_selection_types ||
+		    kept_bytes + type_length >= aperture_max_selection_types_bytes)
+			break;
 		if (joined[0])
 			strcat(joined, "\n");
 		strcat(joined, *mime_type);
+		kept++;
+		kept_bytes += type_length + 1;
 	}
 	return joined;
 }

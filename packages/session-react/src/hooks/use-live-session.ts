@@ -133,6 +133,10 @@ export interface LiveSessionControl {
 
 const heartbeatIntervalMs = 2_000;
 
+// session-react always opts into the browser clipboard. It is stable so the connection effect
+// does not reconnect on every render.
+const clipboardEnabled = () => true;
+
 const transportUnavailable = () =>
   new LiveSessionConnection.LiveSessionError({ message: "live session transport is unavailable" });
 const cursorIntervalMs = 40;
@@ -384,6 +388,7 @@ export function useLiveSession({
         access,
         identity,
         autoSize,
+        clipboard: clipboardEnabled,
         iceServers,
         webrtcSupported,
         callbacks: {
