@@ -100,9 +100,13 @@ export function SessionWorkbench({
     savePinned(filesPinnedKey, pinned);
     setFilesPinned(pinned);
   };
+  const filesPanelPinned = filesPinned && session !== null && isRetained(session.status);
 
   return (
-    <div className="aperture:relative aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-1 aperture:overflow-hidden aperture:bg-background">
+    <div
+      data-files-panel-pinned={filesPanelPinned ? "" : undefined}
+      className="aperture:relative aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-1 aperture:overflow-hidden aperture:bg-background"
+    >
       <WorkbenchSession
         key={sessionId}
         sessionId={sessionId}
@@ -403,6 +407,7 @@ function FilesToggle({ pinned, onToggle }: { pinned: boolean; onToggle: () => vo
           <Button
             variant="ghost"
             size="icon-sm"
+            data-workbench-control
             className={cn(
               "aperture:h-full aperture:w-auto aperture:aspect-square aperture:shrink-0 aperture:rounded-none",
               pinned && "aperture:bg-muted",

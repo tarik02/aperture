@@ -47,9 +47,12 @@ function Button({
   size = "default",
   ...props
 }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+  // Exposed so dense toolbars can keep icon buttons square when they shrink their height.
+  const iconOnly = size === "icon" || (size?.startsWith("icon-") ?? false);
   return (
     <ButtonPrimitive
       data-slot="button"
+      data-icon-button={iconOnly ? "" : undefined}
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
     />

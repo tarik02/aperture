@@ -33,7 +33,10 @@ function SessionWorkbenchRoute() {
       navigation={!embedded}
       leading={
         embedded ? undefined : (
-          <SidebarTrigger className="aperture:h-full aperture:w-auto aperture:aspect-square aperture:shrink-0 aperture:rounded-none" />
+          <SidebarTrigger
+            data-workbench-control
+            className="aperture:h-full aperture:w-auto aperture:aspect-square aperture:shrink-0 aperture:rounded-none"
+          />
         )
       }
     />
