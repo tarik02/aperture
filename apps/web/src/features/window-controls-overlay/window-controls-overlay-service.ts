@@ -1,6 +1,7 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Queue from "effect/Queue";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as Stream from "effect/Stream";
 import {
@@ -18,7 +19,7 @@ export class WindowControlsOverlay extends Context.Service<
   WindowControlsOverlayShape
 >()("WindowControlsOverlay") {}
 
-function readClasses() {
+function readClasses(): readonly string[] {
   return windowControlsOverlayClasses(getWindowControlsOverlay(), window.innerWidth);
 }
 
@@ -26,12 +27,17 @@ export const WindowControlsOverlayLive = Layer.effect(
   WindowControlsOverlay,
   Effect.gen(function* () {
     const classes = yield* SubscriptionRef.make(readClasses());
+    const updates = yield* Queue.unbounded<readonly string[]>();
+
+    yield* Effect.forkScoped(
+      Stream.runForEach(Stream.fromQueue(updates), (next) => SubscriptionRef.set(classes, next)),
+    );
 
     yield* Effect.acquireRelease(
       Effect.sync(() => {
         const overlay = getWindowControlsOverlay();
         const update = () => {
-          Effect.runSync(SubscriptionRef.set(classes, readClasses()));
+          Queue.offerUnsafe(updates, readClasses());
         };
         overlay?.addEventListener("geometrychange", update);
         window.addEventListener("resize", update);
