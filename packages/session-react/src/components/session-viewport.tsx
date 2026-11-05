@@ -1015,7 +1015,9 @@ export function SessionViewport({
             left: autoSizePinned ? 0 : undefined,
             overflow: "hidden",
             background: "black",
-            transition: "opacity 150ms",
+            transition: autoSizePinned
+              ? "width 140ms ease-out, height 140ms ease-out, opacity 150ms"
+              : "opacity 150ms",
             opacity: mediaTransitioning ? 0.75 : 1,
             width: displayMetrics.renderedWidth,
             height: displayMetrics.renderedHeight,
@@ -1034,6 +1036,9 @@ export function SessionViewport({
               left: 0,
               maxWidth: "none",
               objectFit: "fill",
+              transition: autoSizePinned
+                ? "width 140ms ease-out, height 140ms ease-out"
+                : undefined,
               width:
                 displayMetrics.renderedWidth *
                 ((displayedMediaSize?.canvasWidth ?? contentWidth) / contentWidth),
@@ -1051,6 +1056,7 @@ export function SessionViewport({
             left: autoSizePinned ? 0 : undefined,
             overflow: "hidden",
             background: "black",
+            transition: autoSizePinned ? "width 140ms ease-out, height 140ms ease-out" : undefined,
             width: displayMetrics.renderedWidth,
             height: displayMetrics.renderedHeight,
           }}
