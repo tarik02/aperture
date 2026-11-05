@@ -36,23 +36,29 @@ function setThemeColor(value: string) {
 
 /**
  * Applies the overlay classes from the WCO service, and keeps the browser's caption color on the
- * app chrome.
+ * app chrome. Embedded documents get neither: the host owns its window and head.
  */
 export function WindowControlsOverlayWatcher({ layout }: { layout: ShellLayout }) {
   const { resolvedTheme } = useTheme();
+  const embedded = typeof window !== "undefined" && window.self !== window.top;
 
   useFork(
     () =>
-      Effect.gen(function* () {
-        const overlay = yield* WindowControlsOverlay;
-        yield* Stream.runForEach(overlay.changes, (classes) =>
-          Effect.sync(() => applyClasses(classes)),
-        );
-      }).pipe(Effect.provide(WindowControlsOverlayLive)),
-    [],
+      embedded
+        ? undefined
+        : Effect.gen(function* () {
+            const overlay = yield* WindowControlsOverlay;
+            yield* Stream.runForEach(overlay.changes, (classes) =>
+              Effect.sync(() => applyClasses(classes)),
+            );
+          }).pipe(Effect.provide(WindowControlsOverlayLive)),
+    [embedded],
   );
 
   useEffect(() => {
+    if (embedded) {
+      return;
+    }
     // The theme provider applies the theme class in its own effect, so read the token next frame.
     const frame = requestAnimationFrame(() => {
       const color = windowChromeThemeColor(layout);
@@ -61,7 +67,7 @@ export function WindowControlsOverlayWatcher({ layout }: { layout: ShellLayout }
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [layout, resolvedTheme]);
+  }, [embedded, layout, resolvedTheme]);
 
   return null;
 }
