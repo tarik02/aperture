@@ -19,6 +19,25 @@
   --app-titlebar-left-overlay-fallback: 5.375rem;
   --app-titlebar-right-overlay-fallback: 7.5rem;
   --app-sidebar-titlebar-padding-left: 0.25rem;
+  /*
+   * The window controls reserve a strip at each end of the native titlebar. Titlebars pad past
+   * that strip so their own controls never end up underneath the window buttons.
+   */
+  --app-titlebar-inset-inline-start: max(
+    var(--app-titlebar-padding-inline),
+    calc(
+      env(titlebar-area-x, var(--app-titlebar-left-overlay-fallback)) +
+        var(--app-titlebar-padding-inline)
+    )
+  );
+  --app-titlebar-inset-inline-end: max(
+    var(--app-titlebar-padding-inline),
+    calc(
+      100vw - env(titlebar-area-x, 0px) -
+        env(titlebar-area-width, calc(100vw - var(--app-titlebar-right-overlay-fallback))) +
+        var(--app-titlebar-padding-inline)
+    )
+  );
 }
 
 @layer components {
@@ -110,16 +129,25 @@
  */
 .wco [data-app-titlebar],
 .wco [data-app-sidebar-titlebar],
-.wco [data-workbench-titlebar] {
+.wco [data-workbench-titlebar],
+.wco [data-files-panel-header] {
   height: var(--app-titlebar-height);
 }
 
 /*
  * The browser paints the window-controls strip with the theme color, so the titlebars use the
- * same sidebar token. That keeps the strip, the sidebar header and the app header one surface.
+ * same token. The workbench titlebar follows the app chrome; standalone/embedded layouts have no
+ * sidebar, so it follows the page instead.
  */
-.wco [data-app-titlebar],
+.wco [data-app-titlebar] {
+  background: var(--sidebar);
+}
+
 .wco [data-workbench-titlebar] {
+  background: var(--background);
+}
+
+.wco [data-app-shell][data-sidebar-collapsible] [data-workbench-titlebar] {
   background: var(--sidebar);
 }
 
@@ -156,19 +184,13 @@
 }
 
 .wco.wco-right [data-app-titlebar],
-.wco.wco-right [data-workbench-titlebar] {
-  padding-right: max(
-    var(--app-titlebar-padding-inline),
-    calc(
-      100vw - env(titlebar-area-x, 0px) -
-        env(titlebar-area-width, calc(100vw - var(--app-titlebar-right-overlay-fallback))) +
-        var(--app-titlebar-padding-inline)
-    )
-  );
+.wco.wco-right [data-workbench-titlebar],
+.wco.wco-right [data-files-panel-header] {
+  padding-right: var(--app-titlebar-inset-inline-end);
 }
 
 .wco.wco-left
-  [data-app-shell]:has([data-slot="sidebar"][data-collapsible="icon"])
+  [data-app-shell][data-sidebar-collapsible="icon"][data-sidebar-open="false"]
   [data-app-titlebar] {
   padding-left: max(
     var(--app-titlebar-padding-inline),
@@ -195,7 +217,7 @@
 }
 
 .wco.wco-left
-  [data-app-shell]:has([data-slot="sidebar"][data-collapsible="icon"])
+  [data-app-shell][data-sidebar-collapsible="icon"][data-sidebar-open="false"]
   [data-app-sidebar-titlebar] {
   padding-left: var(--app-sidebar-titlebar-padding-left);
   /* Collapse: move down first, then slide left from under the window controls. */
@@ -235,7 +257,7 @@
  * moves below them instead of being covered by the overlay.
  */
 .wco.wco-left
-  [data-app-shell]:has([data-slot="sidebar"][data-collapsible="icon"])
+  [data-app-shell][data-sidebar-collapsible="icon"][data-sidebar-open="false"]
   [data-slot="sidebar-header"] {
   padding-top: var(--app-titlebar-height);
   /* Collapse: move the row down immediately. */
@@ -249,13 +271,7 @@
 }
 
 .wco.wco-left [data-workbench-titlebar] {
-  padding-left: max(
-    var(--app-titlebar-padding-inline),
-    calc(
-      env(titlebar-area-x, var(--app-titlebar-left-overlay-fallback)) +
-        var(--app-titlebar-padding-inline)
-    )
-  );
+  padding-left: var(--app-titlebar-inset-inline-start);
 }
 
 /*
@@ -263,33 +279,22 @@
  * sidebar edge with only its normal padding instead of reserving the titlebar overlay again.
  */
 .wco.wco-left
-  [data-app-shell]:has([data-slot="sidebar"][data-collapsible=""])
+  [data-app-shell][data-sidebar-collapsible="offcanvas"][data-sidebar-open="true"]
   [data-workbench-titlebar] {
   padding-left: var(--app-titlebar-padding-inline);
-}
-
-/* The files panel header sits in the same top row as the workbench titlebar. */
-.wco [data-files-panel-header] {
-  height: var(--app-titlebar-height);
-}
-
-.wco.wco-right [data-files-panel-header] {
-  padding-right: max(
-    var(--app-titlebar-padding-inline),
-    calc(
-      100vw - env(titlebar-area-x, 0px) -
-        env(titlebar-area-width, calc(100vw - var(--app-titlebar-right-overlay-fallback))) +
-        var(--app-titlebar-padding-inline)
-    )
-  );
 }
 
 /*
  * A pinned edge panel covers the right corner; its own header already reserves the window
  * controls menu, so the workbench titlebar does not need that padding again.
  */
-.wco.wco-right [data-app-shell]:has([data-edge-panel]) [data-workbench-titlebar] {
+.wco.wco-right [data-files-panel-pinned] [data-workbench-titlebar] {
   padding-right: var(--app-titlebar-padding-inline);
+}
+
+/* The panel follows the workbench chrome in app layouts and the page in standalone ones. */
+.wco [data-app-shell]:not([data-sidebar-collapsible]) [data-edge-panel] {
+  background: var(--background);
 }
 
 /* Keep the second workbench row compact instead of growing with the titlebar. */

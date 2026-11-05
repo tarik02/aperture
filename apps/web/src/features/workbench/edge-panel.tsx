@@ -74,6 +74,7 @@ export function EdgePanel({
       {/* The hot zone: a few pixels along the edge that reveal the panel on hover. */}
       <div aria-hidden className="aperture:w-1.5" />
       <aside
+        data-edge-panel
         aria-hidden={!open}
         inert={!open}
         className={cn(
