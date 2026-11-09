@@ -27,13 +27,15 @@ func (s *Server) toSessionListItem(view session.SessionView) sessionListItemResp
 			WebRTCProducer: view.Media.WebRTCProducer,
 			ICEServers:     toICEServerResponses(view.Media.ICEServers),
 		},
-		CreatedAt: view.Session.CreatedAt,
-		StartedAt: view.Session.StartedAt,
-		StoppedAt: view.Session.StoppedAt,
-		DeletedAt: view.Session.DeletedAt,
-		ExpiresAt: view.Session.ExpiresAt,
-		Tags:      view.Tags,
-		Proxy:     toSessionProxyView(session.ProxyConfigFromRow(&view.Session)),
+		CreatedAt:       view.Session.CreatedAt,
+		StartedAt:       view.Session.StartedAt,
+		StoppedAt:       view.Session.StoppedAt,
+		DeletedAt:       view.Session.DeletedAt,
+		ExpiresAt:       view.Session.ExpiresAt,
+		LastConnectedAt: view.Session.LastConnectedAt,
+		SuspendedAt:     view.Session.SuspendedAt,
+		Tags:            view.Tags,
+		Proxy:           toSessionProxyView(session.ProxyConfigFromRow(&view.Session)),
 	}
 	if view.CDPURL != "" {
 		resp.CDPURL = view.CDPURL
