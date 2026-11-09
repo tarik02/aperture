@@ -7,6 +7,8 @@ import {
   DialogTitle,
 } from "@aperture-browser/ui/components/dialog";
 import { Button } from "@aperture-browser/ui/components/button";
+import { useEffectCallback } from "@aperture-browser/session-react";
+import * as Effect from "effect/Effect";
 import type { ComponentProps } from "react";
 
 type ConfirmDialogProps = {
@@ -32,14 +34,14 @@ export function ConfirmDialog({
   onOpenChangeComplete,
   onConfirm,
 }: ConfirmDialogProps) {
-  async function handleConfirm() {
-    try {
-      await onConfirm();
-      onOpenChange(false);
-    } catch (error) {
-      console.warn("Confirm action failed", error);
-    }
-  }
+  const handleConfirm = useEffectCallback(
+    () =>
+      Effect.tryPromise(async () => onConfirm()).pipe(
+        Effect.andThen(Effect.sync(() => onOpenChange(false))),
+        Effect.catch((error) => Effect.logWarning("Confirm action failed", error)),
+      ),
+    [onConfirm, onOpenChange],
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange} onOpenChangeComplete={onOpenChangeComplete}>
@@ -56,7 +58,7 @@ export function ConfirmDialog({
             type="button"
             variant={variant}
             disabled={pending}
-            onClick={() => void handleConfirm()}
+            onClick={() => handleConfirm()}
           >
             {confirmLabel}
           </Button>

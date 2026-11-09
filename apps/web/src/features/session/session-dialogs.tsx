@@ -105,10 +105,9 @@ export function useSessionDialogs(
         toast.success("Copied viewer link");
       }).pipe(
         Effect.catch((error) =>
-          Effect.sync(() => {
-            console.warn("Copy share URL failed", error);
-            toast.error("Couldn't copy the viewer link");
-          }),
+          Effect.logWarning("Copy share URL failed", error).pipe(
+            Effect.andThen(Effect.sync(() => toast.error("Couldn't copy the viewer link"))),
+          ),
         ),
       ),
     [credentials],
