@@ -331,6 +331,8 @@ type mcpListSessionsInput struct {
 	Cursor         string `json:"cursor,omitempty"`
 	Limit          int    `json:"limit,omitempty"`
 	IncludeDeleted bool   `json:"includeDeleted,omitempty"`
+	Active         bool   `json:"active,omitempty" jsonschema:"Only usable sessions: creating, running or suspended ones whose retention has not passed."`
+	Sort           string `json:"sort,omitempty" jsonschema:"Order, newest first: createdAt (default) or lastConnectedAt for last activity. A cursor only continues the order it came from."`
 }
 type mcpListSessionsOutput struct {
 	Data []mcpSession `json:"data"`
@@ -1011,11 +1013,24 @@ func (s *Server) mcpSessionsList(ctx context.Context, _ *mcp.CallToolRequest, in
 	if err != nil {
 		return nil, mcpListSessionsOutput{}, err
 	}
+	sort := db.SessionSort(in.Sort)
+	switch sort {
+	case "":
+		sort = db.SessionSortCreatedAt
+	case db.SessionSortCreatedAt, db.SessionSortLastConnectedAt:
+	default:
+		return nil, mcpListSessionsOutput{}, mcpToolError("invalid_arguments", errors.New("sort must be createdAt or lastConnectedAt"))
+	}
 	page, err := s.Sessions.List(ctx, tenantID, session.ListFilter{
 		IncludeDeleted: in.IncludeDeleted,
+		Active:         in.Active,
+		Sort:           sort,
 		Resources:      resourceIDFilter(*a.principal, auth.ResourceTypeSession),
 	}, mcpPageParams(in.Cursor, in.Limit))
 	if err != nil {
+		if errors.Is(err, db.ErrInvalidCursor) {
+			return nil, mcpListSessionsOutput{}, mcpToolError("invalid_arguments", err)
+		}
 		return nil, mcpListSessionsOutput{}, mcpToolError("internal", err)
 	}
 	out := mcpListSessionsOutput{Meta: page.Meta}

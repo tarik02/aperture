@@ -6,7 +6,6 @@ import { AuthSessionProvider } from "#/components/auth-session-provider.tsx";
 import { PwaRegistration } from "#/components/pwa-registration.tsx";
 import { Toaster } from "@aperture-browser/ui/components/sonner";
 import { TooltipProvider } from "@aperture-browser/ui/components/tooltip";
-import { WindowControlsOverlayWatcher } from "#/features/window-controls-overlay/window-controls-overlay-watcher.tsx";
 import { makeApertureRuntime, RuntimeProvider } from "@aperture-browser/session-react";
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
@@ -26,7 +25,6 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
         <QueryClientProvider client={queryClient}>
           <HotkeysProvider>
             <TooltipProvider>
-              <WindowControlsOverlayWatcher />
               <AuthSessionProvider>{children}</AuthSessionProvider>
               <PwaRegistration />
               <Toaster richColors closeButton position="bottom-center" />

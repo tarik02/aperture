@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 	"sync"
@@ -881,17 +882,26 @@ func (s *Service) ReplaceTags(ctx context.Context, tenantID, sessionID string, t
 type ListFilter struct {
 	IncludeDeleted bool
 	Status         *string
-	Query          string
-	Tags           []db.TagFilter
-	Resources      db.ResourceIDFilter
+	// Active keeps only sessions that are creating, running or suspended and not past retention.
+	Active    bool
+	Sort      db.SessionSort
+	Query     string
+	Tags      []db.TagFilter
+	Resources db.ResourceIDFilter
 }
 
 // List returns tenant sessions with cursor pagination.
 func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, params db.PageParams) (db.PageResult[SessionView], error) {
+	activeAt := ""
+	if filter.Active {
+		activeAt = s.now().UTC().Format(time.RFC3339Nano)
+	}
 	page, err := s.repo.ListSessionsPage(ctx, db.SessionFilter{
 		TenantID:       tenantID,
 		IncludeDeleted: filter.IncludeDeleted,
 		Status:         filter.Status,
+		Sort:           filter.Sort,
+		ActiveAt:       activeAt,
 		Query:          filter.Query,
 		Tags:           filter.Tags,
 		Resources:      filter.Resources,
@@ -1012,6 +1022,25 @@ func (s *Service) ReconcileStartup(ctx context.Context) error {
 			if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation found inactive browser unit", nil); err != nil {
 				return err
 			}
+		}
+	}
+
+	suspended, err := s.repo.ListSessionsByStatus(ctx, db.SessionStatusSuspended)
+	if err != nil {
+		return err
+	}
+	for _, sessionRow := range suspended {
+		present, err := s.overlayExists(&sessionRow)
+		if err != nil {
+			// Storage that isn't ready yet must not fail sessions whose profiles still exist.
+			fmt.Fprintf(os.Stderr, "aperture: check overlay of suspended session %s: %v\n", sessionRow.ID, err)
+			continue
+		}
+		if present {
+			continue
+		}
+		if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation found suspended session without overlay", ErrOverlayMissing); err != nil {
+			return err
 		}
 	}
 
@@ -1344,13 +1373,23 @@ func (s *Service) appendEvent(ctx context.Context, sessionRow *db.Session, event
 }
 
 func (s *Service) overlayPresent(sessionRow *db.Session) bool {
+	present, err := s.overlayExists(sessionRow)
+	return err == nil && present
+}
+
+// overlayExists tells a missing overlay from one that can't be checked, such as on storage that
+// isn't mounted yet or returns an I/O error. Only a missing overlay is gone for good.
+func (s *Service) overlayExists(sessionRow *db.Session) (bool, error) {
 	if sessionRow.UpperPath == "" {
-		return false
+		return false, nil
 	}
 	if _, err := os.Stat(sessionRow.UpperPath); err != nil {
-		return false
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
 	}
-	return true
+	return true, nil
 }
 
 func (s *Service) cdpURL(sessionID string) string {

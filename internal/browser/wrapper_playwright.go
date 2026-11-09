@@ -60,11 +60,9 @@ func (r *wrapperRuntime) startAutomationBackend(ctx context.Context, liveSession
 				}
 				deviceScaleFactor = target.Viewport.DeviceScaleFactor
 			}
-			if err := liveSession.browser.setViewport(targetID, width, height, deviceScaleFactor); err != nil {
-				return err
-			}
-			liveSession.overrideViewportOwner(nil)
-			return nil
+			return liveSession.applyExplicitViewportChange(targetID, nil, func() error {
+				return liveSession.browser.setViewport(targetID, width, height, deviceScaleFactor)
+			})
 		}
 	}
 	endpoint, err := proxy.serve(ctx)

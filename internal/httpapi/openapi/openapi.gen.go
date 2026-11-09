@@ -999,6 +999,24 @@ func (e SessionProxyLegacyUpstream) Valid() bool {
 	}
 }
 
+// Defines values for SessionSort.
+const (
+	CreatedAt       SessionSort = "createdAt"
+	LastConnectedAt SessionSort = "lastConnectedAt"
+)
+
+// Valid indicates whether the value is a known member of the SessionSort enum.
+func (e SessionSort) Valid() bool {
+	switch e {
+	case CreatedAt:
+		return true
+	case LastConnectedAt:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SessionStatus.
 const (
 	SessionStatusCreating  SessionStatus = "creating"
@@ -2371,7 +2389,7 @@ type Session struct {
 	// Label Optional operator-facing session label.
 	Label *string `json:"label,omitempty"`
 
-	// LastConnectedAt Most recent routed client activity time. Omitted until a client connects.
+	// LastConnectedAt Last activity time, which is creation, the latest start or wake, or routed client activity, whichever is most recent.
 	LastConnectedAt *time.Time `json:"lastConnectedAt,omitempty"`
 
 	// Media Media capabilities currently available for the session.
@@ -2621,6 +2639,12 @@ type SessionProxyLegacyUpstream string
 type SessionProxyUpstream struct {
 	Url string `json:"url"`
 }
+
+// SessionSort Session list order, newest first:
+//
+// - `createdAt`: creation time.
+// - `lastConnectedAt`: last activity, which is creation, a start or wake, or routed client activity.
+type SessionSort string
 
 // SessionStatus Session lifecycle state:
 //
@@ -3176,6 +3200,12 @@ type ListSessionsParams struct {
 
 	// Status Exact session lifecycle status.
 	Status *SessionStatus `form:"status,omitempty" json:"status,omitempty"`
+
+	// Active When `true`, return only usable sessions, `creating`, `running` or `suspended` ones whose `expiresAt` has not passed. Combines with `status`.
+	Active *bool `form:"active,omitempty" json:"active,omitempty"`
+
+	// Sort Order of the page, newest first. `lastConnectedAt` orders by last activity. A cursor only continues the order it came from.
+	Sort *SessionSort `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// Query ASCII case-insensitive substring matched against the label, ID, or base snapshot name.
 	Query *string `form:"query,omitempty" json:"query,omitempty"`
@@ -4238,7 +4268,7 @@ type ClientInterface interface {
 
 	// ListSessions List browser sessions
 	//
-	// Newest-first sessions. A resource-restricted token receives only granted sessions; filtering occurs before pagination. Credentials are included only while available and must be treated as secrets.
+	// Newest-first sessions, by creation time or by last activity. A resource-restricted token receives only granted sessions; filtering occurs before pagination. Credentials are included only while available and must be treated as secrets.
 	//
 	// Corresponds with GET /api/sessions (the `ListSessions` operationId).
 	ListSessions(ctx context.Context, params *ListSessionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -5378,7 +5408,7 @@ func (c *Client) GetHealth(ctx context.Context, reqEditors ...RequestEditorFn) (
 
 // ListSessions List browser sessions
 //
-// Newest-first sessions. A resource-restricted token receives only granted sessions; filtering occurs before pagination. Credentials are included only while available and must be treated as secrets.
+// Newest-first sessions, by creation time or by last activity. A resource-restricted token receives only granted sessions; filtering occurs before pagination. Credentials are included only while available and must be treated as secrets.
 //
 // Corresponds with GET /api/sessions (the `ListSessions` operationId).
 func (c *Client) ListSessions(ctx context.Context, params *ListSessionsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -8014,6 +8044,30 @@ func NewListSessionsRequest(server string, params *ListSessionsParams) (*http.Re
 		if params.Status != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "status", *params.Status, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Active != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "active", *params.Active, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Sort != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "sort", *params.Sort, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {
@@ -10987,7 +11041,7 @@ type ClientWithResponsesInterface interface {
 
 	// ListSessionsWithResponse List browser sessions
 	//
-	// Newest-first sessions. A resource-restricted token receives only granted sessions; filtering occurs before pagination. Credentials are included only while available and must be treated as secrets.
+	// Newest-first sessions, by creation time or by last activity. A resource-restricted token receives only granted sessions; filtering occurs before pagination. Credentials are included only while available and must be treated as secrets.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -15420,7 +15474,7 @@ func (c *ClientWithResponses) GetHealthWithResponse(ctx context.Context, reqEdit
 
 // ListSessionsWithResponse List browser sessions
 //
-// Newest-first sessions. A resource-restricted token receives only granted sessions; filtering occurs before pagination. Credentials are included only while available and must be treated as secrets.
+// Newest-first sessions, by creation time or by last activity. A resource-restricted token receives only granted sessions; filtering occurs before pagination. Credentials are included only while available and must be treated as secrets.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -19858,6 +19912,22 @@ func (siw *ServerInterfaceWrapper) ListSessions(c *gin.Context) {
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", c.Request.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter status: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "active" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "active", c.Request.URL.Query(), &params.Active, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter active: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "sort" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sort", c.Request.URL.Query(), &params.Sort, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter sort: %w", err), http.StatusBadRequest)
 		return
 	}
 

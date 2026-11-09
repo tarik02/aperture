@@ -38,7 +38,9 @@ type PageResult[T any] struct {
 
 type orderCursor struct {
 	CreatedAt string `json:"createdAt"`
-	ID        string `json:"id"`
+	// LastConnectedAt is set on session cursors, which can page by last activity.
+	LastConnectedAt string `json:"lastConnectedAt,omitempty"`
+	ID              string `json:"id"`
 }
 
 // NormalizePageParams applies default and maximum limits.
@@ -58,7 +60,11 @@ func NormalizePageParams(params PageParams) PageParams {
 
 // EncodeCursor returns an opaque base64url cursor for the given order key.
 func EncodeCursor(createdAt, id string) (string, error) {
-	payload, err := json.Marshal(orderCursor{CreatedAt: createdAt, ID: id})
+	return encodeOrderCursor(orderCursor{CreatedAt: createdAt, ID: id})
+}
+
+func encodeOrderCursor(cursor orderCursor) (string, error) {
+	payload, err := json.Marshal(cursor)
 	if err != nil {
 		return "", fmt.Errorf("marshal cursor: %w", err)
 	}
@@ -106,6 +112,12 @@ func paginateCreatedAtID(query *bun.SelectQuery, params PageParams, cursor *orde
 }
 
 func buildPageResult[T any](items []T, limit int, createdAt func(T) string, id func(T) string) (PageResult[T], error) {
+	return buildCursorPageResult(items, limit, func(item T) orderCursor {
+		return orderCursor{CreatedAt: createdAt(item), ID: id(item)}
+	})
+}
+
+func buildCursorPageResult[T any](items []T, limit int, cursorOf func(T) orderCursor) (PageResult[T], error) {
 	hasMore := len(items) > limit
 	if hasMore {
 		items = items[:limit]
@@ -116,8 +128,7 @@ func buildPageResult[T any](items []T, limit int, createdAt func(T) string, id f
 		HasMore: hasMore,
 	}
 	if hasMore && len(items) > 0 {
-		last := items[len(items)-1]
-		nextCursor, err := EncodeCursor(createdAt(last), id(last))
+		nextCursor, err := encodeOrderCursor(cursorOf(items[len(items)-1]))
 		if err != nil {
 			return PageResult[T]{}, err
 		}

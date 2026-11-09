@@ -44,7 +44,10 @@ export function AppSidebar({ collapsible }: { collapsible: "icon" | "offcanvas" 
           data-app-sidebar-titlebar
           className="aperture:flex aperture:h-10 aperture:items-center aperture:gap-2.5 aperture:group-data-[collapsible=icon]:gap-0"
         >
-          <div className="aperture:grid aperture:size-8 aperture:shrink-0 aperture:place-items-center aperture:rounded-lg aperture:bg-sidebar-primary aperture:text-sidebar-primary-foreground">
+          <div
+            data-sidebar-logo
+            className="aperture:grid aperture:size-8 aperture:shrink-0 aperture:place-items-center aperture:rounded-lg aperture:bg-sidebar-primary aperture:text-sidebar-primary-foreground"
+          >
             <ApertureMark />
           </div>
           <span data-sidebar-collapse-label className="aperture:grid aperture:min-w-0">

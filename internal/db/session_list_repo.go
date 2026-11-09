@@ -7,11 +7,24 @@ import (
 	"github.com/uptrace/bun"
 )
 
+// SessionSort orders a session page, newest first, with the id breaking ties.
+type SessionSort string
+
+const (
+	SessionSortCreatedAt       SessionSort = "createdAt"
+	SessionSortLastConnectedAt SessionSort = "lastConnectedAt"
+)
+
 // SessionFilter controls session listing behavior.
 type SessionFilter struct {
 	TenantID       string
 	IncludeDeleted bool
 	Status         *string
+	// ActiveAt keeps only sessions that are creating, running or suspended and
+	// whose retention outlasts this time. Empty disables the filter.
+	ActiveAt string
+	// Sort defaults to SessionSortCreatedAt.
+	Sort SessionSort
 	// Query matches a substring of the label, the id, or the base snapshot name.
 	Query     string
 	Tags      []TagFilter
@@ -39,6 +52,11 @@ func (r *Repository) ListSessionsPage(ctx context.Context, filter SessionFilter,
 	}
 	if filter.Status != nil {
 		query = query.Where("status = ?", *filter.Status)
+	}
+	if filter.ActiveAt != "" {
+		query = query.
+			Where("status IN (?)", bun.List([]string{SessionStatusCreating, SessionStatusRunning, SessionStatusSuspended})).
+			Where("expires_at > ?", filter.ActiveAt)
 	}
 	if filter.Query != "" {
 		pattern := containsPattern(filter.Query)
@@ -80,14 +98,38 @@ func (r *Repository) ListSessionsPage(ctx context.Context, filter SessionFilter,
 			)
 		}
 	}
-	query = paginateCreatedAtID(query, params, cursor)
+	switch filter.Sort {
+	case SessionSortLastConnectedAt:
+		if cursor != nil && cursor.LastConnectedAt == "" {
+			return PageResult[Session]{}, ErrInvalidCursor
+		}
+		query = query.OrderExpr("last_connected_at DESC, id DESC").Limit(params.Limit + 1)
+		if cursor != nil {
+			query = query.Where(
+				"(last_connected_at < ?) OR (last_connected_at = ? AND id < ?)",
+				cursor.LastConnectedAt,
+				cursor.LastConnectedAt,
+				cursor.ID,
+			)
+		}
+	case SessionSortCreatedAt, "":
+		query = paginateCreatedAtID(query, params, cursor)
+	default:
+		return PageResult[Session]{}, fmt.Errorf("unknown session sort %q", filter.Sort)
+	}
 
 	sessions := make([]Session, 0)
 	if err := query.Scan(ctx, &sessions); err != nil {
 		return PageResult[Session]{}, fmt.Errorf("list sessions page: %w", err)
 	}
 
-	return buildPageResult(sessions, params.Limit, func(s Session) string { return s.CreatedAt }, func(s Session) string { return s.ID })
+	return buildCursorPageResult(sessions, params.Limit, func(s Session) orderCursor {
+		cursor := orderCursor{CreatedAt: s.CreatedAt, ID: s.ID}
+		if s.LastConnectedAt != nil {
+			cursor.LastConnectedAt = *s.LastConnectedAt
+		}
+		return cursor
+	})
 }
 
 // ListSessionsByTenantAndIDs returns non-deleted tenant sessions matching ids.

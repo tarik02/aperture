@@ -19,15 +19,9 @@
         lib = pkgs.lib;
         nodeRuntime = pkgs.nodejs_26;
 
-        goLatest = pkgs.go_1_26.overrideAttrs (_: {
-          version = "1.26.5";
-          src = pkgs.fetchurl {
-            url = "https://go.dev/dl/go1.26.5.src.tar.gz";
-            hash = "sha256-SVvkvIcXasVnOS5bQRar2YRm0z17SdQedkzMaXay3EI=";
-          };
-        });
+        goLatest = pkgs.go_1_26;
 
-        pnpmLatest = pkgs.pnpm.override {
+        pnpmLatest = pkgs.pnpm_11.override {
           nodejs-slim = nodeRuntime;
           version = "11.27.1";
           hash = "sha256-1Q+IQeZ+8LHYLnyQskBlbHygTV8aoz8GEIAHyB/XZ2Y=";
@@ -572,7 +566,7 @@
           pnpm = pnpmLatest;
           fetcherVersion = 4;
           pnpmWorkspaces = lib.unique (apertureWorkspaces ++ companionWorkspaces);
-          hash = "sha256-eBr7bYrtuDznPT1I7dM4RRoa7fSA9DmpadoiGOR+LNo=";
+          hash = "sha256-X6X6CQdAiw8G7iuCr8rxOeQoBaaZk/zZw/bLKbc/uQs=";
         };
 
         # The Aperture Companion browser extension, unpacked.

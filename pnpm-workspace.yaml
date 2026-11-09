@@ -9,6 +9,7 @@ onlyBuiltDependencies:
 catalog:
   "@atlaskit/pragmatic-drag-and-drop": "^2.0.1"
   "@base-ui/react": "^1.9.0"
+  "@formkit/auto-animate": "^0.10.2"
   class-variance-authority: "^0.7.1"
   clsx: "^2.1.1"
   devalue: 6.0.2

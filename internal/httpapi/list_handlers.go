@@ -27,13 +27,15 @@ func (s *Server) toSessionListItem(view session.SessionView) sessionListItemResp
 			WebRTCProducer: view.Media.WebRTCProducer,
 			ICEServers:     toICEServerResponses(view.Media.ICEServers),
 		},
-		CreatedAt: view.Session.CreatedAt,
-		StartedAt: view.Session.StartedAt,
-		StoppedAt: view.Session.StoppedAt,
-		DeletedAt: view.Session.DeletedAt,
-		ExpiresAt: view.Session.ExpiresAt,
-		Tags:      view.Tags,
-		Proxy:     toSessionProxyView(session.ProxyConfigFromRow(&view.Session)),
+		CreatedAt:       view.Session.CreatedAt,
+		StartedAt:       view.Session.StartedAt,
+		StoppedAt:       view.Session.StoppedAt,
+		DeletedAt:       view.Session.DeletedAt,
+		ExpiresAt:       view.Session.ExpiresAt,
+		LastConnectedAt: view.Session.LastConnectedAt,
+		SuspendedAt:     view.Session.SuspendedAt,
+		Tags:            view.Tags,
+		Proxy:           toSessionProxyView(session.ProxyConfigFromRow(&view.Session)),
 	}
 	if view.CDPURL != "" {
 		resp.CDPURL = view.CDPURL
@@ -89,6 +91,12 @@ func (s *Server) listSessions(c *gin.Context) {
 		return
 	}
 
+	sort, err := parseSessionSort(c)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+
 	tagFilters, err := parseTagFilters(c)
 	if err != nil {
 		WriteError(c, err)
@@ -99,6 +107,8 @@ func (s *Server) listSessions(c *gin.Context) {
 	page, err := s.Sessions.List(c.Request.Context(), tenantIDFromContext(c), session.ListFilter{
 		IncludeDeleted: parseIncludeDeleted(c),
 		Status:         status,
+		Active:         c.Query("active") == "true",
+		Sort:           sort,
 		Query:          strings.TrimSpace(c.Query("query")),
 		Tags:           tagFilters,
 		Resources:      resourceIDFilter(principal, auth.ResourceTypeSession),

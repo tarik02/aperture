@@ -567,13 +567,21 @@ func (r *wrapperRuntime) handleViewport(w http.ResponseWriter, req *http.Request
 		writeWrapperError(w, http.StatusBadRequest, "targetId is required")
 		return
 	}
-	target, err := registry.resizeTarget(req.Context(), body.TargetID, body.Width, body.Height, body.DeviceScaleFactor)
+	var target wrapperTargetSnapshot
+	resize := func() error {
+		var err error
+		target, err = registry.resizeTarget(req.Context(), body.TargetID, body.Width, body.Height, body.DeviceScaleFactor)
+		return err
+	}
+	var err error
+	if liveSession == nil {
+		err = resize()
+	} else {
+		err = liveSession.applyExplicitViewportChange(body.TargetID, nil, resize)
+	}
 	if err != nil {
 		writeWrapperError(w, http.StatusBadGateway, err.Error())
 		return
-	}
-	if liveSession != nil {
-		liveSession.overrideViewportOwner(nil)
 	}
 	writeWrapperJSON(w, http.StatusOK, map[string]any{"targetId": target.TargetID, "generation": target.Generation, "viewport": target.Viewport})
 }

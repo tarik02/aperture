@@ -223,6 +223,9 @@ catalogs:
     '@fontsource-variable/geist':
       specifier: ^5.2.9
       version: 5.2.9
+    '@formkit/auto-animate':
+      specifier: ^0.10.2
+      version: 0.10.2
     '@pierre/trees':
       specifier: 1.0.0-beta.6
       version: 1.0.0-beta.6
@@ -540,6 +543,9 @@ importers:
       '@base-ui/react':
         specifier: 'catalog:'
         version: 1.9.0(@types/react@19.2.17)(date-fns@4.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@formkit/auto-animate':
+        specifier: 'catalog:'
+        version: 0.10.2
       '@pierre/trees':
         specifier: 'catalog:'
         version: 1.0.0-beta.6(@shikijs/themes@4.4.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(shiki@4.4.3)
@@ -1386,6 +1392,9 @@ packages:
 
   '@fontsource-variable/geist@5.2.9':
     resolution: {integrity: sha512-TP+QSBG3wxKGPE33CbMy/L0Nu3qvJ6Fy81Yc4LnQ95xH+i+cfEp8fyU8/kfV14YwszxIFPhnoMTbjL71waVpyQ==}
+
+  '@formkit/auto-animate@0.10.2':
+    resolution: {integrity: sha512-t2Z3y8b/zB3wPWwgpc6JDVm4q0ezb5vfe2mqfUrQJ7XziZY8iYuhocQ7eJdTzowRePihrNbZ/DNJoFa6Yi5blg==}
 
   '@fuma-translate/react@1.0.2':
     resolution: {integrity: sha512-uOiOtBx3nRXR8Nu1GzBf1tApgF1FErDBTHxRIAQeyQdyOoZbrNRN6H4kDCWObY4qyGeGbHydG0DHzgeUgFDMIw==}
@@ -7041,6 +7050,8 @@ snapshots:
       - vue
 
   '@fontsource-variable/geist@5.2.9': {}
+
+  '@formkit/auto-animate@0.10.2': {}
 
   '@fuma-translate/react@1.0.2(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
     dependencies:

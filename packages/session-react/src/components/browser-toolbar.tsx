@@ -167,7 +167,10 @@ export function BrowserToolbar({
       features.drawing ||
       features.devTools ||
       features.menus ? (
-        <div className="aperture:flex aperture:h-9 aperture:items-center aperture:gap-1 aperture:px-1.5">
+        <div
+          className="aperture:flex aperture:h-9 aperture:items-center aperture:gap-1 aperture:px-1.5"
+          data-workbench-toolbar
+        >
           {toolbarLeading ? (
             <div className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-0.5">
               {toolbarLeading}

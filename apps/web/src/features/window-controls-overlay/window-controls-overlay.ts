@@ -27,7 +27,7 @@ declare global {
 export const WINDOW_CONTROLS_OVERLAY_CLASSES = ["wco", "wco-left", "wco-right"] as const;
 
 export function getWindowControlsOverlay() {
-  return navigator.windowControlsOverlay ?? null;
+  return typeof navigator === "undefined" ? null : (navigator.windowControlsOverlay ?? null);
 }
 
 export function windowControlsOverlayClasses(
@@ -49,36 +49,4 @@ export function windowControlsOverlayClasses(
   }
 
   return classes;
-}
-
-export function watchWindowControlsOverlay() {
-  const overlay = getWindowControlsOverlay();
-  const root = document.documentElement;
-
-  function updateClasses() {
-    const classes = windowControlsOverlayClasses(overlay, window.innerWidth);
-
-    root.classList.remove(...WINDOW_CONTROLS_OVERLAY_CLASSES);
-    if (classes.length > 0) {
-      root.classList.add(...classes);
-    }
-  }
-
-  updateClasses();
-
-  if (!overlay) {
-    return () => root.classList.remove(...WINDOW_CONTROLS_OVERLAY_CLASSES);
-  }
-
-  const handleGeometryChange = (_event: WindowControlsOverlayGeometryChangeEvent) =>
-    updateClasses();
-
-  overlay.addEventListener("geometrychange", handleGeometryChange);
-  window.addEventListener("resize", updateClasses);
-
-  return () => {
-    overlay.removeEventListener("geometrychange", handleGeometryChange);
-    window.removeEventListener("resize", updateClasses);
-    root.classList.remove(...WINDOW_CONTROLS_OVERLAY_CLASSES);
-  };
 }

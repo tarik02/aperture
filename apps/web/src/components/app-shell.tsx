@@ -1,8 +1,9 @@
 import { useRouterState } from "@tanstack/react-router";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useLayoutEffect, useState } from "react";
 import { SidebarProvider } from "@aperture-browser/ui/components/sidebar-provider";
-import { searchFlag } from "#/lib/search-flag.ts";
-import { useSidebarStore, type SidebarLayout } from "#/stores/sidebar.ts";
+import { WindowControlsOverlayWatcher } from "#/features/window-controls-overlay/window-controls-overlay-watcher.tsx";
+import { shellLayout } from "#/lib/shell-layout.ts";
+import { useSidebarStore } from "#/stores/sidebar.ts";
 
 const StandardAppShell = lazy(() => import("#/components/standard-app-shell.tsx"));
 
@@ -16,26 +17,36 @@ export function AppShell({ children }: AppShellProps) {
   const layout = shellLayout(location.pathname, location.search);
   const sidebarOpen = useSidebarStore((state) => (layout === "bare" ? false : state.open[layout]));
   const setSidebarOpen = useSidebarStore((state) => state.setOpen);
+  // The shell is prerendered for the launcher, so the first client render has to keep the page
+  // chrome and only switch to the route's layout once hydrated.
+  const chromeLayout = mounted ? layout : "page";
+  // The window controls depend on the layout and the sidebar, so they live with this state.
+  const sidebarCollapsible =
+    chromeLayout === "bare" ? undefined : chromeLayout === "workbench" ? "offcanvas" : "icon";
+  const chromeSidebarOpen = mounted ? sidebarOpen : true;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setMounted(true);
   }, []);
 
   return (
     <SidebarProvider
       data-app-shell
-      open={sidebarOpen}
+      data-sidebar-collapsible={sidebarCollapsible}
+      data-sidebar-open={sidebarCollapsible === undefined ? undefined : chromeSidebarOpen}
+      open={chromeSidebarOpen}
       onOpenChange={(open) => {
         if (layout !== "bare") {
           setSidebarOpen(layout, open);
         }
       }}
       className={
-        layout === "page"
+        chromeLayout === "page"
           ? "aperture:h-svh aperture:min-h-0 aperture:overflow-hidden"
           : "aperture:fixed aperture:inset-0 aperture:h-svh aperture:min-h-0 aperture:overflow-hidden aperture:bg-background"
       }
     >
+      <WindowControlsOverlayWatcher layout={layout} />
       {!mounted ? (
         <div className="aperture:fixed aperture:inset-0 aperture:bg-background" />
       ) : layout === "bare" ? (
@@ -51,18 +62,4 @@ export function AppShell({ children }: AppShellProps) {
       )}
     </SidebarProvider>
   );
-}
-
-/**
- * Standalone pages and an embedded workbench render without app chrome; the workbench shares the
- * app sidebar but keeps its own open state for it.
- */
-function shellLayout(pathname: string, search: object): SidebarLayout | "bare" {
-  if (/^\/(?:invite|share|oauth\/consent)\/?$/.test(pathname)) {
-    return "bare";
-  }
-  if (/^\/-\/sessions\/[^/]+\/?$/.test(pathname)) {
-    return searchFlag((search as { embed?: unknown }).embed) ? "bare" : "workbench";
-  }
-  return "page";
 }
