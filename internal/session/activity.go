@@ -53,40 +53,75 @@ func (s *Service) AcquireCDPPort(ctx context.Context, tenantID, sessionID string
 
 // AcquireAuthorizedCDPPort wakes a session-token-authorized session if needed and holds an activity inhibitor.
 func (s *Service) AcquireAuthorizedCDPPort(ctx context.Context, routeSessionID, authorization string) (int, func(), error) {
-	routeSessionID = strings.TrimSpace(routeSessionID)
-	unlock := s.repo.LockSession(routeSessionID)
-	sessionRow, err := s.authorizedSession(ctx, routeSessionID, authorization)
+	_, sessionRow, release, err := s.acquireAuthorizedSession(ctx, routeSessionID, authorization)
 	if err != nil {
-		unlock()
 		return 0, nil, err
 	}
-	release := s.acquireInhibitor(sessionRow.ID)
-	unlock()
-
-	sessionRow, err = s.ensureSessionRunning(ctx, sessionRow)
-	if err != nil {
-		release()
-		return 0, nil, err
-	}
-	if sessionRow.CurrentCDPPort == nil || *sessionRow.CurrentCDPPort <= 0 {
-		release()
-		return 0, nil, ErrNotRunning
-	}
-	if err := s.touchConnected(ctx, sessionRow); err != nil {
-		release()
-		return 0, nil, err
-	}
-	return *sessionRow.CurrentCDPPort, s.releaseInhibitor(sessionRow.ID, release), nil
+	return *sessionRow.CurrentCDPPort, release, nil
 }
 
 // WakeAuthorizedSession validates a public session token and waits until a suspended session is ready.
+// The edge proxy picked the request's wrapper endpoint before this check ran, so when the session
+// woke on another wrapper port, or had no route at all, it returns ErrEndpointMoved: the routes are
+// rewritten and a retry reaches the browser.
 func (s *Service) WakeAuthorizedSession(ctx context.Context, routeSessionID, authorization string) error {
-	_, release, err := s.AcquireAuthorizedCDPPort(ctx, routeSessionID, authorization)
+	arrived := s.routedEndpoint(ctx, routeSessionID)
+	_, after, release, err := s.acquireAuthorizedSession(ctx, routeSessionID, authorization)
 	if err != nil {
 		return err
 	}
 	release()
+	if endpointMoved(arrived, after) {
+		return ErrEndpointMoved
+	}
 	return nil
+}
+
+// routedEndpoint reads the session as it was when a request arrived, before the request waits for
+// the session lock: a wake running concurrently may move it before this request gets the lock, and
+// the edge proxy had already routed the request to the endpoint read here. It returns nil when the
+// session can't be read; the caller authorizes the request separately.
+func (s *Service) routedEndpoint(ctx context.Context, routeSessionID string) *db.Session {
+	sessionRow, err := s.repo.GetSessionByID(ctx, strings.TrimSpace(routeSessionID))
+	if err != nil {
+		return nil
+	}
+	return sessionRow
+}
+
+// endpointMoved reports whether a request routed to arrived's endpoint can't reach the running
+// session: there was no route, or the session now listens on another wrapper port.
+func endpointMoved(arrived, running *db.Session) bool {
+	return arrived == nil || arrived.CurrentCDPPort == nil || sessionWrapperPort(arrived) != sessionWrapperPort(running)
+}
+
+// acquireAuthorizedSession returns the authorized session as it found it and once it runs.
+func (s *Service) acquireAuthorizedSession(ctx context.Context, routeSessionID, authorization string) (*db.Session, *db.Session, func(), error) {
+	routeSessionID = strings.TrimSpace(routeSessionID)
+	unlock := s.repo.LockSession(routeSessionID)
+	before, err := s.authorizedSession(ctx, routeSessionID, authorization)
+	if err != nil {
+		unlock()
+		return nil, nil, nil, err
+	}
+	release := s.acquireInhibitor(before.ID)
+	unlock()
+
+	running := *before
+	after, err := s.ensureSessionRunning(ctx, &running)
+	if err != nil {
+		release()
+		return nil, nil, nil, err
+	}
+	if after.CurrentCDPPort == nil || *after.CurrentCDPPort <= 0 {
+		release()
+		return nil, nil, nil, ErrNotRunning
+	}
+	if err := s.touchConnected(ctx, after); err != nil {
+		release()
+		return nil, nil, nil, err
+	}
+	return before, after, s.releaseInhibitor(after.ID, release), nil
 }
 
 // AcquireWrapperPort wakes a tenant-owned session if needed and holds an activity inhibitor.
@@ -351,7 +386,15 @@ func (s *Service) runWake(ctx context.Context, sessionID string, wake func() err
 }
 
 func (s *Service) wakeSuspendedSession(ctx context.Context, sessionRow *db.Session) error {
-	if !s.overlayPresent(sessionRow) {
+	// Without its overlay the browser profile is gone for good, so the session fails instead of
+	// staying suspended with nothing to wake. An overlay that can't be checked right now may still
+	// be there; the session stays suspended and a later request retries.
+	present, err := s.overlayExists(sessionRow)
+	if err != nil {
+		return fmt.Errorf("check session overlay: %w", err)
+	}
+	if !present {
+		_ = s.markFailedRetained(ctx, sessionRow, "suspended session overlay is missing", ErrOverlayMissing)
 		return ErrOverlayMissing
 	}
 
@@ -363,7 +406,7 @@ func (s *Service) wakeSuspendedSession(ctx context.Context, sessionRow *db.Sessi
 
 	// A session wakes on the ports it kept while they are still free; otherwise it takes new ones,
 	// and the session row and the edge routes follow below.
-	if port := sessionRow.CurrentCDPPort; port != nil && (!s.ports.free(*port) || !s.ports.free(sessionWrapperPort(sessionRow))) {
+	if port := sessionRow.CurrentCDPPort; port != nil && (!s.ports.free(sessionRow.ID, *port) || !s.ports.free(sessionRow.ID, sessionWrapperPort(sessionRow))) {
 		sessionRow.CurrentCDPPort = nil
 		sessionRow.CurrentWrapperPort = nil
 	}

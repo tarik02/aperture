@@ -21,7 +21,7 @@ Tenant tokens carry `resourceMode: "all"` or `"allowlist"` with grants `{ "resou
 
 ## Session lifecycle
 
-- `creating` → `running` → `suspended` ⇄ `running`; `deleted`, `failed` and `expired` are terminal unless reopened. `reopen` applies to retained `deleted` and `failed` sessions. A `suspended` session is never reopened: any browser call, MCP browser tool or authorized data-plane request wakes it.
+- `creating` → `running` → `suspended` ⇄ `running`; `deleted`, `failed` and `expired` are terminal unless reopened. `reopen` applies to retained `deleted` and `failed` sessions. A `suspended` session is never reopened: any browser call, MCP browser tool or authorized data-plane request wakes it, CDP discovery (`json/version`, `json/list`) included. A suspended session whose browser cannot be restored (its profile is gone, or the wake fails) turns `failed` instead of staying `suspended`; data-plane errors are typed ([CDP](live-session.md#cdp)).
 - `POST /api/sessions?waitForReady=false` returns the session and its credentials in `creating` while the browser starts.
 - Session reads include `cdpUrl` and `sessionToken` only while live access is retained; treat them as secrets. `session-token/rotate` invalidates every URL built with the old token.
 - `GET /sessions/:sessionId/browser/status` and the thumbnail routes read retained state without waking or touching retention. `source` is `live` for a running session, `persisted` for the page set saved at suspension (also when `thumbnails_persist_on_suspend` is off; then without thumbnails), `unavailable` when nothing was saved. Persisted target IDs are historical and may change after resume.
