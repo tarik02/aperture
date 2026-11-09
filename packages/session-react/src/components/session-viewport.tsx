@@ -920,22 +920,24 @@ export function SessionViewport({
     (targetId: string, items: ReadonlyArray<ClipboardData>, fallbackText: string) =>
       control.writeClipboard(items).pipe(
         Effect.andThen(Effect.sync(() => control.sendInput({ type: "clipboard.paste", targetId }))),
-        Effect.catchTag("LiveSessionError", (error) =>
-          Effect.sync(() => {
-            // A wrapper that cannot take the data still gets the text typed into the page.
-            if (fallbackText !== "") {
+        Effect.catchTag("LiveSessionError", (error) => {
+          // A wrapper that cannot take the data still gets the text typed into the page.
+          if (fallbackText !== "") {
+            return Effect.sync(() => {
               control.sendInput({
                 type: "input.key",
                 targetId,
                 action: "char",
                 text: fallbackText,
               });
-              return;
-            }
-            console.warn("Paste failed", error);
-            onNotice?.({ level: "error", message: "Paste failed" });
-          }),
-        ),
+            });
+          }
+          return Effect.logWarning("Paste failed", error).pipe(
+            Effect.andThen(
+              Effect.sync(() => onNotice?.({ level: "error", message: "Paste failed" })),
+            ),
+          );
+        }),
       ),
     [control.writeClipboard, control.sendInput, onNotice],
   );
