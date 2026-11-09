@@ -39,9 +39,8 @@ export const copyTextWithToast = (value: string, onCopied: () => void = () => {}
   copyText(value).pipe(
     Effect.andThen(Effect.sync(onCopied)),
     Effect.catchTag("ClipboardError", (error) =>
-      Effect.sync(() => {
-        console.warn("Copy failed", error);
-        toast.error("Copy failed");
-      }),
+      Effect.logWarning("Copy failed", error).pipe(
+        Effect.andThen(Effect.sync(() => toast.error("Copy failed"))),
+      ),
     ),
   );
