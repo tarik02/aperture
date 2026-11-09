@@ -109,8 +109,9 @@ export interface BrowserMenuDevTools {
 }
 
 /**
- * Copies what this client copies in the browser to the local clipboard. Browsers may refuse a
- * write that no local gesture started; the clipboard menu then still has it.
+ * Copies what this client copies in the browser with its copy or cut shortcut to the local
+ * clipboard. Browsers may refuse a write that no local gesture started; the clipboard menu then
+ * still has it, as it has whatever a page puts on the clipboard by itself.
  */
 function useCopyOwnClipboardChanges(control: UseBrowserControlResult) {
   const copy = useEffectCallback(

@@ -106,7 +106,7 @@ export interface UseBrowserControlResult {
   recordings: readonly Recording[];
   /** The browser's clipboard and primary selection, or null when the server does not share them. */
   clipboard: LiveSessionClipboard | null;
-  /** Revision of the newest clipboard change made while this client held input. */
+  /** Revision of the newest clipboard change that followed this client's copy or cut shortcut. */
   ownClipboardRevision: number | null;
   /** Reads one type of data from one of the browser's selections. */
   readClipboard: ReadClipboard;

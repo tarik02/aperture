@@ -105,7 +105,7 @@ export interface LiveSessionControl {
   viewportOwnership: LiveSessionViewportOwnership | null;
   /** The browser's clipboard and primary selection, or null when the server does not share them. */
   clipboard: LiveSessionClipboard | null;
-  /** Revision of the newest clipboard change made while this client held input; it copied that. */
+  /** Revision of the newest clipboard change that followed this client's copy or cut shortcut. */
   ownClipboardRevision: number | null;
   readClipboard: (
     selection: ClipboardSelection,
@@ -136,6 +136,11 @@ const heartbeatIntervalMs = 2_000;
 // session-react always opts into the browser clipboard. It is stable so the connection effect
 // does not reconnect on every render.
 const clipboardEnabled = () => true;
+
+// A clipboard change counts as this client's copy only this soon after its copy or cut shortcut.
+// Anything else, such as a page writing the clipboard from a click handler, stays in the browser:
+// copying it locally would let any site in the session set this computer's clipboard.
+const localCopyWindowMs = 3_000;
 
 const transportUnavailable = () =>
   new LiveSessionConnection.LiveSessionError({ message: "live session transport is unavailable" });
@@ -216,6 +221,8 @@ export function useLiveSession({
   const [clipboard, setClipboard] = useState<LiveSessionClipboard | null>(null);
   const clipboardRef = useRef<LiveSessionClipboard | null>(null);
   const [ownClipboardRevision, setOwnClipboardRevision] = useState<number | null>(null);
+  // When this client last sent a copy or cut shortcut, or null once a clipboard change used it.
+  const localCopyAtRef = useRef<number | null>(null);
 
   mediaSizeRef.current = mediaSize;
   transportRef.current = transport;
@@ -323,15 +330,19 @@ export function useLiveSession({
         case "clipboard.state": {
           const previous = clipboardRef.current;
           const next = message.clipboard;
+          const localCopyAt = localCopyAtRef.current;
           clipboardRef.current = next;
           setClipboard(next);
           if (
             previous !== null &&
             next.clipboard.revision > previous.clipboard.revision &&
             !next.clipboard.pasted &&
+            localCopyAt !== null &&
+            performance.now() - localCopyAt <= localCopyWindowMs &&
             clientIdRef.current !== "" &&
             holderClientIdRef.current === clientIdRef.current
           ) {
+            localCopyAtRef.current = null;
             setOwnClipboardRevision(next.clipboard.revision);
           }
           return;
@@ -805,9 +816,17 @@ export function useLiveSession({
           });
         }
         case "clipboard.copy":
-          return sendShortcut(sendInputEvent, message.targetId, "KeyC");
-        case "clipboard.cut":
-          return sendShortcut(sendInputEvent, message.targetId, "KeyX");
+        case "clipboard.cut": {
+          const sent = sendShortcut(
+            sendInputEvent,
+            message.targetId,
+            message.type === "clipboard.copy" ? "KeyC" : "KeyX",
+          );
+          if (sent) {
+            localCopyAtRef.current = performance.now();
+          }
+          return sent;
+        }
         case "clipboard.paste":
           return sendShortcut(sendInputEvent, message.targetId, "KeyV");
         default: {
