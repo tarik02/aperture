@@ -1,4 +1,4 @@
-import type { SessionStatus } from "@aperture-browser/api-client";
+import type { SessionSort, SessionStatus } from "@aperture-browser/api-client";
 import type { TagFilterValue } from "#/lib/tag-filter.ts";
 
 export const queryKeys = {
@@ -45,6 +45,8 @@ export interface SessionsFilters {
   query?: string;
   includeDeleted?: boolean;
   status?: SessionStatus;
+  active?: boolean;
+  sort?: SessionSort;
   tags?: TagFilterValue;
   limit?: number;
 }

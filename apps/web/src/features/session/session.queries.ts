@@ -44,6 +44,8 @@ export function useSessionsInfiniteQuery(
               includeDeleted: filters.includeDeleted,
               status: filters.status,
               query: filters.query,
+              active: filters.active,
+              sort: filters.sort,
               tags: filters.tags,
             }),
           ),

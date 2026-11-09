@@ -58,6 +58,17 @@ func parseDeletedFilter(c *gin.Context) (includeDeleted bool, deletedOnly bool, 
 	}
 }
 
+func parseSessionSort(c *gin.Context) (db.SessionSort, error) {
+	switch sort := db.SessionSort(strings.TrimSpace(c.Query("sort"))); sort {
+	case "":
+		return db.SessionSortCreatedAt, nil
+	case db.SessionSortCreatedAt, db.SessionSortLastConnectedAt:
+		return sort, nil
+	default:
+		return "", validationError("sort is invalid")
+	}
+}
+
 func parseOptionalStatus(c *gin.Context) (*string, error) {
 	raw := strings.TrimSpace(c.Query("status"))
 	if raw == "" {

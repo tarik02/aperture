@@ -586,7 +586,7 @@ paths:
         requiredScopes: [sessions:read]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [validation_failed, session_service_unavailable]
-      description: Newest-first sessions. A resource-restricted token receives only granted sessions; filtering occurs before pagination. Credentials are included only while available and must be treated as secrets.
+      description: Newest-first sessions, by creation time or by last activity. A resource-restricted token receives only granted sessions; filtering occurs before pagination. Credentials are included only while available and must be treated as secrets.
       parameters:
         - {$ref: '#/components/parameters/Limit'}
         - {$ref: '#/components/parameters/Cursor'}
@@ -595,6 +595,14 @@ paths:
           in: query
           description: Exact session lifecycle status.
           schema: {$ref: '#/components/schemas/SessionStatus'}
+        - name: active
+          in: query
+          description: When `true`, return only usable sessions, `creating`, `running` or `suspended` ones whose `expiresAt` has not passed. Combines with `status`.
+          schema: {type: boolean, default: false}
+        - name: sort
+          in: query
+          description: Order of the page, newest first. `lastConnectedAt` orders by last activity. A cursor only continues the order it came from.
+          schema: {$ref: '#/components/schemas/SessionSort'}
         - name: query
           in: query
           description: ASCII case-insensitive substring matched against the label, ID, or base snapshot name.
@@ -1914,6 +1922,16 @@ components:
         - `failed`: startup or reopen failed; retained state may still be reopenable.
       enum: [creating, running, suspended, deleted, expired, failed]
       example: running
+    SessionSort:
+      type: string
+      description: |
+        Session list order, newest first:
+
+        - `createdAt`: creation time.
+        - `lastConnectedAt`: last activity, which is creation, a start or wake, or routed client activity.
+      enum: [createdAt, lastConnectedAt]
+      default: createdAt
+      example: lastConnectedAt
     StringMap:
       type: object
       description: Arbitrary string key-value metadata. Tag-writing operations additionally reject blank keys and blank values.
@@ -3174,7 +3192,7 @@ components:
         lastConnectedAt:
           type: string
           format: date-time
-          description: Most recent routed client activity time. Omitted until a client connects.
+          description: Last activity time, which is creation, the latest start or wake, or routed client activity, whichever is most recent.
           example: '2026-07-17T12:30:00Z'
         suspendedAt:
           type: string
