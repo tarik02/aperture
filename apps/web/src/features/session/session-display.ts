@@ -1,5 +1,10 @@
 import * as Redacted from "effect/Redacted";
-import type { BrowserPage, Session, SessionStatus } from "@aperture-browser/api-client";
+import type {
+  BrowserPage,
+  Session,
+  SessionSort,
+  SessionStatus,
+} from "@aperture-browser/api-client";
 import * as UrlPath from "@aperture-browser/api-client/url-path";
 
 /** Statuses whose browser can be opened; connecting wakes a suspended one. */
@@ -14,6 +19,13 @@ export function isSaveable(status: SessionStatus): boolean {
 
 export function isReopenable(status: SessionStatus): boolean {
   return status === "deleted" || status === "failed";
+}
+
+/** The key the server orders a session page by, so merged pages keep that order. */
+export function sessionSortKey(session: Session, sort: SessionSort): string {
+  return sort === "lastConnectedAt"
+    ? (session.lastConnectedAt ?? session.createdAt)
+    : session.createdAt;
 }
 
 /**

@@ -89,6 +89,12 @@ func (s *Server) listSessions(c *gin.Context) {
 		return
 	}
 
+	sort, err := parseSessionSort(c)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+
 	tagFilters, err := parseTagFilters(c)
 	if err != nil {
 		WriteError(c, err)
@@ -99,6 +105,8 @@ func (s *Server) listSessions(c *gin.Context) {
 	page, err := s.Sessions.List(c.Request.Context(), tenantIDFromContext(c), session.ListFilter{
 		IncludeDeleted: parseIncludeDeleted(c),
 		Status:         status,
+		Active:         c.Query("active") == "true",
+		Sort:           sort,
 		Query:          strings.TrimSpace(c.Query("query")),
 		Tags:           tagFilters,
 		Resources:      resourceIDFilter(principal, auth.ResourceTypeSession),

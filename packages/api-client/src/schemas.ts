@@ -36,6 +36,7 @@ export type AuditEventsPage = Api.AuditEventPage;
 export type IceServer = Api.IceServer;
 export const SessionStatus = Api.SessionStatus;
 export type SessionStatus = Api.SessionStatus;
+export type SessionSort = Api.SessionSort;
 export type Snapshot = Api.Snapshot;
 export type ApiToken = Api.Token;
 export type TenantsPage = Api.TenantPage;

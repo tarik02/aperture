@@ -881,17 +881,26 @@ func (s *Service) ReplaceTags(ctx context.Context, tenantID, sessionID string, t
 type ListFilter struct {
 	IncludeDeleted bool
 	Status         *string
-	Query          string
-	Tags           []db.TagFilter
-	Resources      db.ResourceIDFilter
+	// Active keeps only sessions that are creating, running or suspended and not past retention.
+	Active    bool
+	Sort      db.SessionSort
+	Query     string
+	Tags      []db.TagFilter
+	Resources db.ResourceIDFilter
 }
 
 // List returns tenant sessions with cursor pagination.
 func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, params db.PageParams) (db.PageResult[SessionView], error) {
+	activeAt := ""
+	if filter.Active {
+		activeAt = s.now().UTC().Format(time.RFC3339Nano)
+	}
 	page, err := s.repo.ListSessionsPage(ctx, db.SessionFilter{
 		TenantID:       tenantID,
 		IncludeDeleted: filter.IncludeDeleted,
 		Status:         filter.Status,
+		Sort:           filter.Sort,
+		ActiveAt:       activeAt,
 		Query:          filter.Query,
 		Tags:           filter.Tags,
 		Resources:      filter.Resources,

@@ -566,7 +566,7 @@
           pnpm = pnpmLatest;
           fetcherVersion = 4;
           pnpmWorkspaces = lib.unique (apertureWorkspaces ++ companionWorkspaces);
-          hash = "sha256-eBr7bYrtuDznPT1I7dM4RRoa7fSA9DmpadoiGOR+LNo=";
+          hash = "sha256-X6X6CQdAiw8G7iuCr8rxOeQoBaaZk/zZw/bLKbc/uQs=";
         };
 
         # The Aperture Companion browser extension, unpacked.

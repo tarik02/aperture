@@ -1,5 +1,15 @@
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { skipToken, useQueries } from "@tanstack/react-query";
-import { AppWindow, Check, ChevronDown, Layers, ListFilter, Plus, SearchIcon } from "lucide-react";
+import {
+  AppWindow,
+  ArrowDownWideNarrow,
+  Check,
+  ChevronDown,
+  Layers,
+  ListFilter,
+  Plus,
+  SearchIcon,
+} from "lucide-react";
 import { useDeferredValue, useEffect, useMemo, type ReactNode } from "react";
 import { BatchActionBar } from "#/components/resources/batch-action-bar.tsx";
 import { TagFilterButton } from "#/components/resources/tag-filter-button.tsx";
@@ -18,6 +28,7 @@ import {
   flattenInfinitePages,
   type BrowserStatus,
   type Session,
+  type SessionSort,
   type Snapshot,
 } from "@aperture-browser/api-client";
 import { Button } from "@aperture-browser/ui/components/button";
@@ -57,9 +68,9 @@ import { useOpenSessions } from "#/features/session/open-sessions.ts";
 import { useSessionDialogs } from "#/features/session/session-dialogs.tsx";
 import {
   compareSaveable,
-  isExpired,
   isSaveable,
   matchesSearch,
+  sessionSortKey,
   sessionTitle,
 } from "#/features/session/session-display.ts";
 import { useSessionsInfiniteQuery } from "#/features/session/session.queries.ts";
@@ -73,6 +84,11 @@ const statusFilters: Array<{ value: SessionStatusFilter; label: string }> = [
   { value: "deleted", label: "Deleted" },
 ];
 
+const sessionSorts: Array<{ value: SessionSort; label: string }> = [
+  { value: "lastConnectedAt", label: "Last activity" },
+  { value: "createdAt", label: "Created" },
+];
+
 export function LauncherPage({ view }: { view: LauncherView }) {
   const api = useTenantApi();
   const scopes = useActiveScopes();
@@ -84,6 +100,9 @@ export function LauncherPage({ view }: { view: LauncherView }) {
   const sessionSearch = useLauncherStore((state) => state.sessionSearch);
   const snapshotSearch = useLauncherStore((state) => state.snapshotSearch);
   const sessionStatus = useLauncherStore((state) => state.sessionStatus);
+  const sessionSort = useLauncherStore((state) => state.sessionSort);
+  // Sessions reorder as they are used; animating the moves keeps a card trackable.
+  const [animateList] = useAutoAnimate<HTMLDivElement>();
   const showDeletedSnapshots = useLauncherStore((state) => state.showDeletedSnapshots);
   const sessionTags = useLauncherStore((state) => state.sessionTags);
   const snapshotTags = useLauncherStore((state) => state.snapshotTags);
@@ -92,12 +111,15 @@ export function LauncherPage({ view }: { view: LauncherView }) {
   const setSessionSearch = useLauncherStore((state) => state.setSessionSearch);
   const setSnapshotSearch = useLauncherStore((state) => state.setSnapshotSearch);
   const setSessionStatus = useLauncherStore((state) => state.setSessionStatus);
+  const setSessionSort = useLauncherStore((state) => state.setSessionSort);
   const setShowDeletedSnapshots = useLauncherStore((state) => state.setShowDeletedSnapshots);
 
   const sessionFilters = {
     limit: 100,
+    active: sessionStatus === "active",
     status: sessionStatus === "active" ? undefined : sessionStatus,
     includeDeleted: sessionStatus === "deleted",
+    sort: sessionSort,
     tags: sessionTags,
   };
   const sessionsQuery = useSessionsInfiniteQuery(sessionFilters, { poll: true });
@@ -118,7 +140,6 @@ export function LauncherPage({ view }: { view: LauncherView }) {
 
   const searchPages = sessionNeedle ? searchQuery.data?.pages : undefined;
   const sessions = useMemo(() => {
-    const now = Date.now();
     const byId = new Map<string, Session>();
     // Search results the loaded pages don't have yet join the list.
     for (const session of [
@@ -127,11 +148,13 @@ export function LauncherPage({ view }: { view: LauncherView }) {
     ]) {
       byId.set(session.id, session);
     }
-    return [...byId.values()]
-      .filter((session) => sessionStatus !== "active" || !isExpired(session, now))
-      .filter((session) => sessionStatus !== "active" || session.status !== "deleted")
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-  }, [sessionsQuery.data?.pages, searchPages, sessionStatus]);
+    // Both lists come in the server order; sorting by the same key interleaves them.
+    return [...byId.values()].sort(
+      (left, right) =>
+        sessionSortKey(right, sessionSort).localeCompare(sessionSortKey(left, sessionSort)) ||
+        right.id.localeCompare(left.id),
+    );
+  }, [sessionsQuery.data?.pages, searchPages, sessionSort]);
   const serverMatchIds = useMemo(
     () => new Set(flattenInfinitePages(searchPages).map((session) => session.id)),
     [searchPages],
@@ -298,7 +321,24 @@ export function LauncherPage({ view }: { view: LauncherView }) {
               availableTags={sessionTagSets}
               onChange={setSessionTags}
             />
-            <StatusFilterMenu value={sessionStatus} onChange={setSessionStatus} />
+            <ChoiceMenu
+              title="Filter sessions by status"
+              icon={<ListFilter />}
+              heading="Show"
+              options={statusFilters}
+              defaultValue="active"
+              value={sessionStatus}
+              onChange={setSessionStatus}
+            />
+            <ChoiceMenu
+              title="Sort sessions"
+              icon={<ArrowDownWideNarrow />}
+              heading="Sort by"
+              options={sessionSorts}
+              defaultValue="lastConnectedAt"
+              value={sessionSort}
+              onChange={setSessionSort}
+            />
             {permissions.canWrite ? (
               <NewSessionButton onCustom={(request) => actions.newSession(request)} />
             ) : null}
@@ -356,6 +396,9 @@ export function LauncherPage({ view }: { view: LauncherView }) {
       </PageHeaderActions>
       <ScrollArea className="aperture:min-h-0 aperture:flex-1">
         <div
+          // Keyed by view so switching views swaps the list instead of animating every item.
+          key={view}
+          ref={animateList}
           className={cn(
             "aperture:mx-auto aperture:grid aperture:w-full aperture:max-w-6xl aperture:gap-2 aperture:p-4",
             // Room for the floating selection bar, so it never covers the last item.
@@ -482,34 +525,45 @@ function SearchBox({
   );
 }
 
-function StatusFilterMenu({
+/** An icon button whose menu picks one option; it stands out while a non-default one is set. */
+function ChoiceMenu<T extends string>({
+  title,
+  icon,
+  heading,
+  options,
+  defaultValue,
   value,
   onChange,
 }: {
-  value: SessionStatusFilter;
-  onChange: (value: SessionStatusFilter) => void;
+  title: string;
+  icon: ReactNode;
+  heading: string;
+  options: ReadonlyArray<{ value: T; label: string }>;
+  defaultValue: T;
+  value: T;
+  onChange: (value: T) => void;
 }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
           <Button
-            variant={value === "active" ? "ghost" : "secondary"}
+            variant={value === defaultValue ? "ghost" : "secondary"}
             size="icon"
-            aria-label="Filter sessions by status"
-            title="Filter sessions by status"
+            aria-label={title}
+            title={title}
           >
-            <ListFilter />
+            {icon}
           </Button>
         }
       />
       <DropdownMenuContent align="end" className="aperture:min-w-40">
         <DropdownMenuGroup>
-          <DropdownMenuLabel>Show</DropdownMenuLabel>
-          {statusFilters.map((filter) => (
-            <DropdownMenuItem key={filter.value} onClick={() => onChange(filter.value)}>
-              <Check className={cn(value !== filter.value && "aperture:invisible")} />
-              {filter.label}
+          <DropdownMenuLabel>{heading}</DropdownMenuLabel>
+          {options.map((option) => (
+            <DropdownMenuItem key={option.value} onClick={() => onChange(option.value)}>
+              <Check className={cn(value !== option.value && "aperture:invisible")} />
+              {option.label}
             </DropdownMenuItem>
           ))}
         </DropdownMenuGroup>
