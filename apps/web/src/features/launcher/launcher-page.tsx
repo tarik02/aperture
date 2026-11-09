@@ -1,3 +1,4 @@
+import type { AutoAnimationPlugin } from "@formkit/auto-animate";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { skipToken, useQueries } from "@tanstack/react-query";
 import {
@@ -89,6 +90,24 @@ const sessionSorts: Array<{ value: SessionSort; label: string }> = [
   { value: "createdAt", label: "Created" },
 ];
 
+/**
+ * Slides an item that moved up or down the list, and nothing else. The list's left edge and
+ * width follow the sidebar, and animating those, or fading in items, makes every card fly in
+ * when the page is reopened. A plugin also bypasses auto-animate's reduced-motion check.
+ */
+const animateListMoves: AutoAnimationPlugin = (el, action, ...coordinates) => {
+  // For "remain" auto-animate passes the old position first, despite its typings' names.
+  const [from, to] = coordinates;
+  const deltaY = action === "remain" && from && to ? from.top - to.top : 0;
+  const moved =
+    Math.abs(deltaY) >= 8 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return new KeyframeEffect(
+    el,
+    moved ? [{ transform: `translateY(${deltaY}px)` }, { transform: "translateY(0)" }] : [],
+    { duration: 250, easing: "ease-in-out" },
+  );
+};
+
 export function LauncherPage({ view }: { view: LauncherView }) {
   const api = useTenantApi();
   const scopes = useActiveScopes();
@@ -102,7 +121,7 @@ export function LauncherPage({ view }: { view: LauncherView }) {
   const sessionStatus = useLauncherStore((state) => state.sessionStatus);
   const sessionSort = useLauncherStore((state) => state.sessionSort);
   // Sessions reorder as they are used; animating the moves keeps a card trackable.
-  const [animateList] = useAutoAnimate<HTMLDivElement>();
+  const [animateList] = useAutoAnimate<HTMLDivElement>(animateListMoves);
   const showDeletedSnapshots = useLauncherStore((state) => state.showDeletedSnapshots);
   const sessionTags = useLauncherStore((state) => state.sessionTags);
   const snapshotTags = useLauncherStore((state) => state.snapshotTags);
