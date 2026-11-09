@@ -3,7 +3,7 @@ title: Session sharing
 description: Share a live browser session through editor and viewer links, and embed it in other apps.
 ---
 
-Aperture exposes separate editor and viewer capabilities for one browser session. Editor capabilities can request the session-wide input lease and use browser controls. Editors can also start, stop, and download recordings. Viewer capabilities can watch the session but cannot send browser input or record. Neither capability grants tenant access, files, DevTools, or session lifecycle operations.
+Aperture exposes separate editor and viewer capabilities for one browser session. Editor capabilities can request the session-wide input lease and use browser controls. Editors can also start, stop, and download recordings. Editors can also manage the session's files. Viewer capabilities can watch the session but cannot send browser input, record, or access files. Neither capability grants tenant access, DevTools, or session lifecycle operations.
 
 ## Share links
 
@@ -109,13 +109,13 @@ POST   /sessions/<session-id>/uploads
 
 The `/api` routes work in every retained state, including suspended and stopped sessions. Uploads use `multipart/form-data` and may contain multiple files. Names are sanitized and collisions receive a numeric suffix instead of overwriting an existing file; the response lists the stored files with the same fields as the listing. The listing includes directories, so empty ones show up; they are created, moved, and deleted explicitly, and a non-empty directory is deleted only with `recursive=true`. Moves never overwrite. The four top-level directories cannot be deleted or moved, and nothing still being written, such as an in-progress download or recording, can be moved or deleted. Signed download URLs default to attachment disposition; `"disposition": "inline"` gives a URL for previews such as an `<img>` source. Downloads carry the detected content type, support HTTP byte ranges, and are served with `Content-Security-Policy: sandbox` when they could run scripts, such as HTML or SVG.
 
-`POST /sessions/<session-id>/uploads` reaches the running session itself and stores files in `uploads/`; it also accepts the owner session token.
+`POST /sessions/<session-id>/uploads` reaches the running session itself and stores files in `uploads/`; it also accepts the owner session token and an editor capability.
 
 The MCP browser tools accept any session file relative path, of any size, so a download or recording can go straight into a page. `browser_set_input_files` sets files on a file input given by snapshot reference or selector, including hidden inputs, and fails with the input cleared when the page cannot read a file. `browser_file_upload` fills a file chooser a click has opened.
 
 Each upload request accepts at most 100 files, a directory may hold at most 1,000 files, and a session at most 10,000 files and directories. At most three uploads per session stream at once.
 
-Listing and download URLs need API credentials with `sessions:read`; uploads, directory creation, deletes, and moves need `sessions:write`. Session-token holders use session-bound MCP or the data-plane upload. Editor and viewer capabilities cannot access files.
+Listing and download URLs need API credentials with `sessions:read`; uploads, directory creation, deletes, and moves need `sessions:write`. The owner session token and an editor capability may use the same `/api` file routes for their own session, as a bearer token and without a tenant header, while the session runs or is suspended. Viewer capabilities cannot access files.
 
 ## Thumbnails
 

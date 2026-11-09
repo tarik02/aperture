@@ -1167,7 +1167,12 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:read]
         tenantResolution: token_tenant_or_required_header
+        sessionCredentials: [session_token, editor_capability]
       x-aperture-errors: [validation_failed, resource_access_denied, session_not_found, session_expired, session_service_unavailable]
+      security:
+        - bearerAuth: []
+        - webSession: []
+        - sessionToken: []
       description: Lists the files and directories below the session files root, including browser downloads, recordings, uploads, and Playwright MCP output. Directories are entries of their own, so empty ones appear too; build a tree from `relativePath`. Works for any retained session, running or not, until it expires. The list is complete rather than paginated.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
@@ -1187,7 +1192,12 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
+        sessionCredentials: [session_token, editor_capability]
       x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_expired, session_service_unavailable, session_file_too_large, session_storage_quota_exceeded, session_file_limit_exceeded, session_upload_concurrency_exceeded, session_file_not_found]
+      security:
+        - bearerAuth: []
+        - webSession: []
+        - sessionToken: []
       description: |
         Stores every multipart part that has a filename in `directory` below the session files root, creating the directory when needed. Works for any retained session, running or not. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. A rejected request stores none of its files.
 
@@ -1212,7 +1222,12 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
+        sessionCredentials: [session_token, editor_capability]
       x-aperture-errors: [validation_failed, resource_access_denied, session_not_found, session_expired, session_file_not_found, session_file_busy, session_directory_not_empty, session_directory_protected, session_service_unavailable]
+      security:
+        - bearerAuth: []
+        - webSession: []
+        - sessionToken: []
       description: Deletes one session file, or a directory below the session files root. A directory with entries is deleted only with `recursive=true`. `downloads`, `recordings`, `uploads`, and `outputs` cannot be deleted. Anything still being written, such as an in-progress download, upload, or recording, is rejected.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
@@ -1239,7 +1254,12 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
+        sessionCredentials: [session_token, editor_capability]
       x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_expired, session_file_not_found, session_file_busy, session_file_exists, session_file_not_movable, session_directory_protected, session_file_limit_exceeded, session_service_unavailable]
+      security:
+        - bearerAuth: []
+        - webSession: []
+        - sessionToken: []
       description: Moves one session file, or a directory below the session files root, to another path below the root, creating missing parent directories. It never replaces an existing entry and cannot move a directory into itself. `downloads`, `recordings`, `uploads`, and `outputs` cannot be moved. Anything still being written is rejected.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
@@ -1257,7 +1277,12 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
+        sessionCredentials: [session_token, editor_capability]
       x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_expired, session_file_exists, session_file_limit_exceeded, session_service_unavailable]
+      security:
+        - bearerAuth: []
+        - webSession: []
+        - sessionToken: []
       description: Creates a directory below the session files root, with any missing parents. Fails when a file or directory already exists at the path.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
@@ -1275,7 +1300,12 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:read]
         tenantResolution: token_tenant_or_required_header
+        sessionCredentials: [session_token, editor_capability]
       x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_file_not_found, session_service_unavailable]
+      security:
+        - bearerAuth: []
+        - webSession: []
+        - sessionToken: []
       description: Creates a signed URL for one retained session file. Anyone with the URL can download the file until it expires.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
@@ -1542,7 +1572,7 @@ components:
       scheme: bearer
       bearerFormat: Aperture API token
       description: |
-        Aperture API token sent as `Authorization: Bearer <token>`. API tokens normally start with `apt_`. Session access tokens use a separate `aps_` format and are not accepted as API authentication.
+        Aperture API token sent as `Authorization: Bearer <token>`. API tokens normally start with `apt_`. Session access tokens use a separate `aps_` format and are not accepted as API authentication, except by the session files routes of their session (see `sessionToken`).
     webSession:
       type: apiKey
       in: cookie
@@ -1552,7 +1582,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: Aperture session access token
-      description: The session's `aps_` access secret, or an `ape_` editor collaboration capability where the operation allows it. Accepted only by `live-session` routes of that session.
+      description: The session's `aps_` access secret, or an `ape_` editor collaboration capability where the operation allows it. Accepted only by `live-session` routes and the `/api/sessions/{sessionId}/files` routes of that session; a viewer capability is rejected by the files routes. A session credential grants no tenant access, so the selected-tenant header does not apply.
   parameters:
     Limit:
       name: limit

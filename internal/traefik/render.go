@@ -281,7 +281,7 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 			{
 				name:        uploadsRouterName(session.ID),
 				rule:        pathTreeRouterRule(sessionBase + "/uploads"),
-				auth:        ownerAuth,
+				auth:        writeAuth,
 				middlewares: []string{uploadsStrip},
 			},
 			{
