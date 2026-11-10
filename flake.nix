@@ -610,7 +610,7 @@
             vendorHash = "sha256-LWbVaB5LEfdXZiu/AcWnaksJ0aP/Shtc/hcr9lU+0cQ=";
 
             subPackages = [
-              "cmd/aperture"
+              "cmd/aperture-server"
               "cmd/aperture-extension-native-host"
               "cmd/aperture-mount-session"
               "cmd/aperture-unmount-session"
@@ -757,10 +757,10 @@
               substituteInPlace $out/lib/systemd/user/aperture@.service \
                 --replace-fail '@runtimeShell@' ${pkgs.runtimeShell} \
                 --replace-fail '@apertureBinDir@' $out/bin \
-                --replace-fail '@apertureBin@' $out/bin/aperture \
+                --replace-fail '@apertureBin@' $out/bin/aperture-server \
                 --replace-fail '@deployVersion@' ${deployVersion}
               substituteInPlace $out/lib/systemd/user/aperture-gc.service \
-                --replace-fail '@apertureBin@' $out/bin/aperture
+                --replace-fail '@apertureBin@' $out/bin/aperture-server
               substituteInPlace $out/lib/systemd/user/aperture-traefik.service \
                 --replace-fail '@runtimeShell@' ${pkgs.runtimeShell} \
                 --replace-fail '@staticConfigTemplate@' $out/share/aperture/traefik/static.yaml.template \
@@ -818,7 +818,7 @@
           version = deployVersion;
           inherit src;
           vendorHash = "sha256-LWbVaB5LEfdXZiu/AcWnaksJ0aP/Shtc/hcr9lU+0cQ=";
-          subPackages = [ "cmd/aperture-cli" ];
+          subPackages = [ "cmd/aperture" ];
           env.CGO_ENABLED = "0";
           doCheck = false;
           ldflags = [
@@ -830,7 +830,7 @@
           overrideModAttrs = _: {
             name = "aperture-${deployVersion}-go-modules";
           };
-          meta.mainProgram = "aperture-cli";
+          meta.mainProgram = "aperture";
         };
 
         gpuDriverPackages = [

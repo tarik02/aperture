@@ -383,7 +383,7 @@ func (runner commandRunner) prepareState(opts options, dataDir string) error {
 		"--user", "0:0",
 		"--volume", dataDir + ":/provision",
 		"--volume", opts.stateVolume + ":/var/lib/aperture",
-		"--entrypoint", "aperture",
+		"--entrypoint", "aperture-server",
 	}
 	if opts.envFile != "" {
 		provisionArgs = append(provisionArgs, "--env-file", opts.envFile)

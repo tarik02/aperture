@@ -90,7 +90,7 @@ let
         ;;
     esac
 
-    exec ${aperture}/bin/aperture serve --config ${configFileArg}
+    exec ${aperture}/bin/aperture-server serve --config ${configFileArg}
   '';
   traefikConfig = (pkgs.formats.yaml { }).generate "aperture-traefik.yaml" {
     entryPoints.web.address = cfg.traefik.entrypointAddress;
@@ -112,7 +112,7 @@ let
       aperture_cli() {
         systemd-run --user --quiet --pipe --wait --collect --service-type=exec \
           ${rolloutEnvironmentArgs} \
-          ${aperture}/bin/aperture "$@"
+          ${aperture}/bin/aperture-server "$@"
       }
 
       user_unit_dir="''${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
@@ -241,7 +241,7 @@ in
       defaultText = lib.literalExpression "config.services.aperture.storeRoot";
       description = ''
         Root for snapshots and session files. It may be on NFS v3 or later with a lock manager, exported without
-        root squashing. When changed on an existing install, run `aperture storage migrate` while Aperture is stopped.
+        root squashing. When changed on an existing install, run `aperture-server storage migrate` while Aperture is stopped.
       '';
     };
     databasePath = lib.mkOption {
@@ -552,7 +552,7 @@ in
       unitConfig.ConditionUser = cfg.user;
       serviceConfig = {
         Type = "oneshot";
-        ExecStart = "${aperture}/bin/aperture trigger gc --config ${configFileArg}";
+        ExecStart = "${aperture}/bin/aperture-server trigger gc --config ${configFileArg}";
         EnvironmentFile = environmentFiles;
       };
     };

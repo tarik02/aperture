@@ -45,9 +45,9 @@ func newAPICmd(conn *connection) *cobra.Command {
 		Short: "send any API request",
 		Long: "Sends one request to the instance with the configured token and prints the answer.\n" +
 			"Covers what has no command of its own; the operations are in the instance's OpenAPI spec.",
-		Example: "  aperture-cli api GET /api/events --query limit=20\n" +
-			"  aperture-cli api PUT /api/sessions/01a1…/tags --data '{\"tags\":{\"suite\":\"checkout\"}}'\n" +
-			"  aperture-cli api POST /api/sessions --data @session.json",
+		Example: "  aperture api GET /api/events --query limit=20\n" +
+			"  aperture api PUT /api/sessions/01a1…/tags --data '{\"tags\":{\"suite\":\"checkout\"}}'\n" +
+			"  aperture api POST /api/sessions --data @session.json",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			method := strings.ToUpper(args[0])

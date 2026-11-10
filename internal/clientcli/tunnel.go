@@ -25,9 +25,9 @@ func newTunnelCmd(conn *connection) *cobra.Command {
 			"the session's proxy rules must route the same HOST:PORT via local. Anything else is refused.\n\n" +
 			"The token needs owner access to the session: the session token (aps_) or an API token with\n" +
 			"sessions:write.",
-		Example: "  aperture-cli sessions proxy 01a1… localhost:3000=local\n" +
-			"  aperture-cli tunnel 01a1… localhost:3000\n" +
-			"  " + tokenEnv + "=aps_… aperture-cli tunnel https://aperture.example/sessions/01a1… localhost:3000 localhost:5173",
+		Example: "  aperture sessions proxy 01a1… localhost:3000=local\n" +
+			"  aperture tunnel 01a1… localhost:3000\n" +
+			"  " + tokenEnv + "=aps_… aperture tunnel https://aperture.example/sessions/01a1… localhost:3000 localhost:5173",
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			tunnelURL, err := tunnelEndpoint(conn, args[0])

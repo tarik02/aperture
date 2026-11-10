@@ -19,6 +19,14 @@ func newSessionsCmd(conn *connection) *cobra.Command {
 		newSessionsListCmd(conn),
 		newSessionsGetCmd(conn),
 		newSessionsCreateCmd(conn),
+		&cobra.Command{
+			Use:   "pages SESSION_ID",
+			Short: "list a session's pages and their target IDs without waking it",
+			Args:  cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return conn.run(cmd, http.MethodGet, "/sessions/"+url.PathEscape(args[0])+"/browser/status", nil, nil)
+			},
+		},
 		newSessionsProxyCmd(conn),
 		newSessionsPromoteCmd(conn),
 		newSessionActionCmd(conn, "suspend", "stop a running session and keep its state", http.MethodPost, "/suspend"),
@@ -106,13 +114,14 @@ func newSessionsCreateCmd(conn *connection) *cobra.Command {
 		open        []string
 		tags        []string
 		rules       []string
+		proxy       proxyOptions
 		noWait      bool
 	)
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "start a browser session",
-		Example: "  aperture-cli sessions create --channel chromium --snapshot signed-in --open https://example.com\n" +
-			"  aperture-cli sessions create --channel chromium --rule localhost:3000=local",
+		Example: "  aperture sessions create --channel chromium --snapshot signed-in --open https://example.com\n" +
+			"  aperture sessions create --channel chromium --rule localhost:3000=local",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			browser := map[string]any{"channel": channel}
@@ -144,12 +153,12 @@ func newSessionsCreateCmd(conn *connection) *cobra.Command {
 				}
 				body["tags"] = values
 			}
-			if len(rules) > 0 {
-				parsed, err := proxyRules(rules)
+			if len(rules) > 0 || len(proxy.upstreams) > 0 {
+				config, err := proxy.config(rules)
 				if err != nil {
 					return err
 				}
-				body["proxy"] = map[string]any{"rules": parsed}
+				body["proxy"] = config
 			}
 
 			query := url.Values{}
@@ -159,13 +168,14 @@ func newSessionsCreateCmd(conn *connection) *cobra.Command {
 			return conn.run(cmd, http.MethodPost, "/api/sessions", query, body)
 		},
 	}
-	cmd.Flags().StringVar(&channel, "channel", "", "browser channel, one of `aperture-cli channels`")
+	cmd.Flags().StringVar(&channel, "channel", "", "browser channel, one of `aperture channels`")
 	cmd.Flags().StringVar(&snapshot, "snapshot", "", "snapshot to start from (default: a blank session)")
 	cmd.Flags().StringVar(&label, "label", "", "label shown to operators")
 	cmd.Flags().StringArrayVar(&browserArgs, "browser-arg", nil, "additional Chromium argument (repeatable)")
 	cmd.Flags().StringArrayVar(&open, "open", nil, "page to open instead of the startup page (repeatable)")
 	cmd.Flags().StringArrayVar(&tags, "tag", nil, "KEY=VALUE tag (repeatable)")
 	cmd.Flags().StringArrayVar(&rules, "rule", nil, "MATCH=VIA proxy rule, in order (repeatable)")
+	proxy.register(cmd)
 	cmd.Flags().BoolVar(&noWait, "no-wait", false, "return while the browser is still starting")
 	_ = cmd.MarkFlagRequired("channel")
 	return cmd
@@ -175,31 +185,39 @@ func newSessionsProxyCmd(conn *connection) *cobra.Command {
 	var (
 		clearRules bool
 		drain      bool
+		proxy      proxyOptions
 	)
 	cmd := &cobra.Command{
 		Use:   "proxy SESSION_ID [MATCH=VIA...]",
 		Short: "replace a session's proxy rules",
 		Long: "Replaces the session's whole proxy configuration with the given rules, checked in order.\n\n" +
 			"MATCH is host or host:port, with the host exact, *.suffix or *. VIA is direct, refuse, local,\n" +
-			"or an inline proxy URL without a secret. local routes through the tunnel `aperture-cli tunnel`\n" +
-			"attaches. Named upstreams carry secrets and are set through `aperture-cli api`.\n\n" +
-			"The current rules are in `aperture-cli sessions get`.",
-		Example: "  aperture-cli sessions proxy 01a1… localhost:3000=local localhost:5173=local\n" +
-			"  aperture-cli sessions proxy 01a1… --clear",
+			"the name of an --upstream, or an inline proxy URL without a secret. local routes through the\n" +
+			"tunnel `aperture tunnel` attaches.\n\n" +
+			"Secrets are write-only on the instance: an upstream must be passed again, with its secret,\n" +
+			"every time the rules are replaced. A proxy URL with a password and a tunnel's bearer secret\n" +
+			"are read from files, so neither shows up in the process list.\n\n" +
+			"The current rules are in `aperture sessions get`.",
+		Example: "  aperture sessions proxy 01a1… localhost:3000=local localhost:5173=local\n" +
+			"  aperture sessions proxy 01a1… '*.corp.example=corp' --upstream corp=@corp-proxy-url\n" +
+			"  aperture sessions proxy 01a1… '*=operator' --upstream operator=wss+yamux+socks5://tunnel.example/x \\\n" +
+			"      --upstream-auth-file operator=operator-secret\n" +
+			"  aperture sessions proxy 01a1… --clear",
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			rules, err := proxyRules(args[1:])
+			if clearRules != (len(args) == 1) {
+				return errors.New("pass either rules or --clear")
+			}
+			body, err := proxy.config(args[1:])
 			if err != nil {
 				return err
 			}
-			if clearRules != (len(rules) == 0) {
-				return errors.New("pass either rules or --clear")
-			}
-			body := map[string]any{"rules": rules, "drain": drain}
+			body["drain"] = drain
 			return conn.run(cmd, http.MethodPut, sessionPath(args[0], "/proxy"), nil, body)
 		},
 	}
 	cmd.Flags().BoolVar(&clearRules, "clear", false, "remove every rule")
+	proxy.register(cmd)
 	cmd.Flags().BoolVar(&drain, "drain", false, "reset live tunnel streams so open connections pick up the new rules")
 	return cmd
 }

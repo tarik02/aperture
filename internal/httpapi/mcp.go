@@ -640,7 +640,7 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.suspend", Description: "Suspend a running session."}, s.mcpSessionSuspend)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.reopen", Description: "Reopen a retained deleted or failed session. Suspended sessions wake automatically when a browser tool is called."}, s.mcpSessionReopen)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.replace_tags", Description: "Replace all tags on a session."}, s.mcpSessionReplaceTags)
-		mcp.AddTool(server, &mcp.Tool{Name: "sessions.update_proxy", Description: "Replace a session's egress proxy rules. Route a host:port via local to reach a service on the machine that attaches the session's local tunnel with `aperture-cli tunnel`; the browser addresses it as localhost."}, s.mcpSessionUpdateProxy)
+		mcp.AddTool(server, &mcp.Tool{Name: "sessions.update_proxy", Description: "Replace a session's egress proxy rules. Route a host:port via local to reach a service on the machine that attaches the session's local tunnel with `aperture tunnel`; the browser addresses it as localhost."}, s.mcpSessionUpdateProxy)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.delete", Description: "Delete a tenant-owned session."}, s.mcpSessionDelete)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.promote", Description: "Promote a stopped retained session into a snapshot."}, s.mcpSessionsPromote)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.session_token_rotate", Description: "Rotate the live session token for later browser access."}, s.mcpSessionTokenRotate)

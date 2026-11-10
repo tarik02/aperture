@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -46,14 +45,11 @@ func (c *connection) base() (*url.URL, error) {
 
 func (c *connection) token() (string, error) {
 	if c.tokenFile != "" {
-		data, err := os.ReadFile(c.tokenFile)
+		token, err := readSecretFile(c.tokenFile)
 		if err != nil {
-			return "", fmt.Errorf("read token file: %w", err)
+			return "", fmt.Errorf("token file: %w", err)
 		}
-		if token := strings.TrimSpace(string(data)); token != "" {
-			return token, nil
-		}
-		return "", fmt.Errorf("token file %s is empty", c.tokenFile)
+		return token, nil
 	}
 	if token := strings.TrimSpace(os.Getenv(tokenEnv)); token != "" {
 		return token, nil
@@ -85,6 +81,19 @@ func (e *apiError) Error() string {
 // call sends one API request and returns the answer body. The path is already
 // escaped. A nil body sends none; a json.RawMessage is sent as it is.
 func (c *connection) call(ctx context.Context, method, path string, query url.Values, body any) ([]byte, error) {
+	if body == nil {
+		return c.send(ctx, method, path, query, "", nil)
+	}
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("encode request: %w", err)
+	}
+	return c.send(ctx, method, path, query, "application/json", bytes.NewReader(encoded))
+}
+
+// send sends one API request with a body of the given content type and
+// returns the answer body.
+func (c *connection) send(ctx context.Context, method, path string, query url.Values, contentType string, payload io.Reader) ([]byte, error) {
 	endpoint, err := c.base()
 	if err != nil {
 		return nil, err
@@ -102,23 +111,14 @@ func (c *connection) call(ctx context.Context, method, path string, query url.Va
 	endpoint.Path += decoded
 	endpoint.RawQuery = query.Encode()
 
-	var payload io.Reader
-	if body != nil {
-		encoded, err := json.Marshal(body)
-		if err != nil {
-			return nil, fmt.Errorf("encode request: %w", err)
-		}
-		payload = bytes.NewReader(encoded)
-	}
-
 	req, err := http.NewRequestWithContext(ctx, method, endpoint.String(), payload)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
-	if payload != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	if tenant := c.tenant(); tenant != "" {
 		req.Header.Set("X-Aperture-Tenant-Id", tenant)
@@ -192,19 +192,86 @@ type proxyRule struct {
 	Via   string `json:"via"`
 }
 
-// proxyRules parses MATCH=VIA arguments into ordered proxy rules.
-func proxyRules(args []string) ([]proxyRule, error) {
-	parsed, err := pairs("rule", "MATCH=VIA", args)
+// proxyOptions are the flags that describe a session's proxy configuration
+// beyond its rules: the named upstreams and their secrets.
+type proxyOptions struct {
+	upstreams []string
+	authFiles []string
+}
+
+func (o *proxyOptions) register(cmd *cobra.Command) {
+	cmd.Flags().StringArrayVar(&o.upstreams, "upstream", nil, "NAME=URL upstream a rule may route via; NAME=@FILE reads the URL from a file (repeatable)")
+	cmd.Flags().StringArrayVar(&o.authFiles, "upstream-auth-file", nil, "NAME=FILE holding the bearer secret of a tunnel upstream (repeatable)")
+}
+
+// config builds the proxy configuration from MATCH=VIA rules and the upstream
+// flags. Secrets come from files, so they stay out of the argument list.
+func (o *proxyOptions) config(rules []string) (map[string]any, error) {
+	parsedRules, err := pairs("rule", "MATCH=VIA", rules)
 	if err != nil {
 		return nil, err
 	}
-	rules := make([]proxyRule, 0, len(parsed))
-	for _, pair := range parsed {
+	ordered := make([]proxyRule, 0, len(parsedRules))
+	for _, pair := range parsedRules {
 		via := strings.TrimSpace(pair[1])
 		if via == "" {
-			return nil, errors.New("rule " + pair[0] + ": want MATCH=VIA")
+			return nil, fmt.Errorf("rule %q: want MATCH=VIA", pair[0])
 		}
-		rules = append(rules, proxyRule{Match: pair[0], Via: via})
+		ordered = append(ordered, proxyRule{Match: pair[0], Via: via})
 	}
-	return rules, nil
+
+	type upstream struct {
+		URL  string `json:"url"`
+		Auth string `json:"auth,omitempty"`
+	}
+	upstreams := map[string]*upstream{}
+
+	parsedUpstreams, err := pairs("upstream", "NAME=URL", o.upstreams)
+	if err != nil {
+		return nil, err
+	}
+	for _, pair := range parsedUpstreams {
+		address := strings.TrimSpace(pair[1])
+		if file, found := strings.CutPrefix(address, "@"); found {
+			if address, err = readSecretFile(file); err != nil {
+				return nil, fmt.Errorf("upstream %s: %w", pair[0], err)
+			}
+		}
+		if address == "" {
+			return nil, fmt.Errorf("upstream %s: want NAME=URL", pair[0])
+		}
+		upstreams[pair[0]] = &upstream{URL: address}
+	}
+
+	parsedAuth, err := pairs("upstream auth file", "NAME=FILE", o.authFiles)
+	if err != nil {
+		return nil, err
+	}
+	for _, pair := range parsedAuth {
+		target, found := upstreams[pair[0]]
+		if !found {
+			return nil, fmt.Errorf("upstream auth file %s: no --upstream of that name", pair[0])
+		}
+		if target.Auth, err = readSecretFile(pair[1]); err != nil {
+			return nil, fmt.Errorf("upstream %s: %w", pair[0], err)
+		}
+	}
+
+	config := map[string]any{"rules": ordered}
+	if len(upstreams) > 0 {
+		config["upstreams"] = upstreams
+	}
+	return config, nil
+}
+
+func readSecretFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	secret := strings.TrimSpace(string(data))
+	if secret == "" {
+		return "", fmt.Errorf("%s is empty", path)
+	}
+	return secret, nil
 }

@@ -1,4 +1,4 @@
-// Package clientcli is the aperture-cli command: the client of a running
+// Package clientcli is the aperture command: the client of a running
 // Aperture instance, for machines that do not run Aperture themselves.
 package clientcli
 
@@ -13,7 +13,7 @@ const (
 	tenantEnv = "APERTURE_TENANT_ID"
 )
 
-// Execute runs the aperture-cli command.
+// Execute runs the aperture command.
 func Execute() error {
 	return newRootCmd().Execute()
 }
@@ -22,7 +22,7 @@ func newRootCmd() *cobra.Command {
 	conn := &connection{}
 
 	cmd := &cobra.Command{
-		Use:   "aperture-cli",
+		Use:   "aperture",
 		Short: "client for a running Aperture instance",
 		Long: "Client for a running Aperture instance. Answers are printed as JSON.\n\n" +
 			"The instance comes from --url or " + urlEnv + ", the token from --token-file or " + tokenEnv + ".\n" +
@@ -40,6 +40,8 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(
 		newSessionsCmd(conn),
 		newSnapshotsCmd(conn),
+		newRecordingsCmd(conn),
+		newFilesCmd(conn),
 		newTunnelCmd(conn),
 		newChannelsCmd(conn),
 		newWhoamiCmd(conn),
