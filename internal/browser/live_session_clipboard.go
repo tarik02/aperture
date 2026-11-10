@@ -4,20 +4,26 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/base64"
+	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
+	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 	"unicode/utf8"
 
+	"github.com/aperture/aperture/internal/paths"
+	"github.com/aperture/aperture/internal/sessionfiles"
 	remoteinput "github.com/tarik02/webdesktop/input"
+	"golang.org/x/sys/unix"
 )
 
 // liveSessionSelectionWireLimit bounds one selection's JSON-encoded text. Data channel messages
@@ -32,9 +38,9 @@ const (
 	liveSessionClipboardConcurrentReads = 4
 )
 
-// liveSessionClipboardChunkSize is the payload of one clipboard data message; base64 and the
-// envelope keep it under a 64 KiB data channel message.
-const liveSessionClipboardChunkSize = 32 * 1024
+// liveSessionClipboardInlineLimit bounds JSON-encoded text sent inside one clipboard message,
+// below the 64 KiB a data channel may allow. Larger or binary data moves through session files.
+const liveSessionClipboardInlineLimit = 48 * 1024
 
 // liveSessionClipboardMaxBytes bounds one clipboard transfer in either direction.
 const liveSessionClipboardMaxBytes = 16 * 1024 * 1024
@@ -44,14 +50,21 @@ const (
 	liveSessionClipboardMaxTypeLen = 255
 )
 
+// liveSessionClipboardDirectory holds clipboard data in transit through session files. Clipboards
+// carry passwords, so its files are deleted as soon as they are used and swept after
+// liveSessionClipboardFileLifetime when a client never collects them.
+const (
+	liveSessionClipboardDirectory     = "clipboard"
+	liveSessionClipboardFileLifetime  = time.Minute
+	liveSessionClipboardSweepInterval = 15 * time.Second
+)
+
 const (
 	liveSessionClipboardRetryDelay = time.Second
 	// liveSessionClipboardRetryLimit caps the reconnect backoff of the selection watcher.
 	liveSessionClipboardRetryLimit = 30 * time.Second
 	// liveSessionClipboardTransferTimeout bounds waiting on the browser to produce or take data.
 	liveSessionClipboardTransferTimeout = 10 * time.Second
-	// liveSessionClipboardWriteTimeout drops a paste whose chunks stopped arriving.
-	liveSessionClipboardWriteTimeout = 30 * time.Second
 )
 
 // liveSessionClipboardCoalesceDelay gathers selection changes into one update. Chromium clears and
@@ -82,12 +95,12 @@ type liveSessionClipboardItem struct {
 	data     []byte
 }
 
-// liveSessionClipboardWrite collects a client's paste until it commits it.
-type liveSessionClipboardWrite struct {
-	requestID string
-	items     []liveSessionClipboardItem
-	size      int
-	updatedAt time.Time
+// liveSessionClipboardWriteItem is one type of a clipboard.write: its text, or a session file in
+// the clipboard directory that holds its data.
+type liveSessionClipboardWriteItem struct {
+	MimeType     string  `json:"mimeType"`
+	Text         *string `json:"text"`
+	RelativePath string  `json:"relativePath"`
 }
 
 // applyHelloClipboard records that a client asked for clipboard state with its hello. Clients
@@ -332,7 +345,8 @@ func (session *liveSession) broadcastClipboard() {
 	}
 }
 
-// readClipboard answers clipboard.read with the data in chunks ahead of the result.
+// readClipboard answers clipboard.read with the data as text when it fits one message, and
+// otherwise, for clients that asked, as a session file the client downloads and deletes.
 func (session *liveSession) readClipboard(client *liveSessionClient, message liveSessionClientMessage) (liveSessionServerMessage, error) {
 	if err := requireBrowserMutation(client); err != nil {
 		return liveSessionServerMessage{}, err
@@ -368,15 +382,126 @@ func (session *liveSession) readClipboard(client *liveSessionClient, message liv
 		return liveSessionServerMessage{}, errors.New("clipboard data is too large")
 	}
 	result := liveSessionServerMessage{MimeType: message.MimeType}
-	for offset := 0; offset < len(data); offset += liveSessionClipboardChunkSize {
-		end := min(offset+liveSessionClipboardChunkSize, len(data))
-		result.chunks = append(result.chunks, liveSessionServerMessage{
-			Type:      "clipboard.chunk",
-			RequestID: message.RequestID,
-			Data:      base64.StdEncoding.EncodeToString(data[offset:end]),
-		})
+	if fitsInlineClipboardText(data) {
+		text := string(data)
+		result.Text = &text
+		return result, nil
+	}
+	if !message.Files {
+		return liveSessionServerMessage{}, errors.New("clipboard data does not fit a message")
+	}
+	result.RelativePath, err = session.storeClipboardFile(data)
+	if err != nil {
+		return liveSessionServerMessage{}, fmt.Errorf("store clipboard data: %w", err)
 	}
 	return result, nil
+}
+
+// fitsInlineClipboardText reports whether data is text that fits one clipboard message.
+func fitsInlineClipboardText(data []byte) bool {
+	if len(data) > liveSessionClipboardInlineLimit || !utf8.Valid(data) {
+		return false
+	}
+	size := 0
+	for _, r := range string(data) {
+		size += jsonRuneWireWidth(r)
+		if size > liveSessionClipboardInlineLimit {
+			return false
+		}
+	}
+	return true
+}
+
+func (session *liveSession) clipboardFilesDir() string {
+	return filepath.Join(session.runtime.values.FilesDir, liveSessionClipboardDirectory)
+}
+
+// storeClipboardFile writes copied data to a new file in the clipboard directory, within the
+// session's storage limits, and returns its relative path.
+func (session *liveSession) storeClipboardFile(data []byte) (string, error) {
+	values := session.runtime.values
+	quota := values.SessionStorageQuotaBytes
+	if quota <= 0 {
+		quota = defaultSessionStorageQuotaBytes
+	}
+	footprint, err := sessionfiles.Footprint(values.UpperDir, values.FilesDir, values.CacheDir)
+	if err != nil {
+		return "", err
+	}
+	if footprint+int64(len(data)) > quota {
+		return "", errors.New("session storage quota exceeded")
+	}
+	// The directory and the file.
+	if err := sessionfiles.CheckEntryBudget(values.FilesDir, 2); err != nil {
+		return "", err
+	}
+	dir := session.clipboardFilesDir()
+	if err := ensureRegularDirectory(dir); err != nil {
+		return "", err
+	}
+	suffix := make([]byte, 8)
+	if _, err := rand.Read(suffix); err != nil {
+		return "", err
+	}
+	name := "copy-" + hex.EncodeToString(suffix)
+	full := filepath.Join(dir, name)
+	file, err := os.OpenFile(full, os.O_WRONLY|os.O_CREATE|os.O_EXCL|unix.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return "", err
+	}
+	_, err = file.Write(data)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		_ = os.Remove(full)
+		return "", err
+	}
+	return liveSessionClipboardDirectory + "/" + name, nil
+}
+
+// sweepClipboardFiles deletes clipboard files a client left behind until ctx ends.
+func (session *liveSession) sweepClipboardFiles(ctx context.Context) {
+	ticker := time.NewTicker(liveSessionClipboardSweepInterval)
+	defer ticker.Stop()
+	for {
+		if err := removeStaleClipboardFiles(session.clipboardFilesDir(), time.Now().Add(-liveSessionClipboardFileLifetime)); err != nil {
+			fmt.Fprintf(os.Stderr, "browser-session-wrapper: sweep clipboard files: %v\n", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func removeStaleClipboardFiles(dir string, cutoff time.Time) error {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() {
+			continue
+		}
+		info, err := entry.Info()
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if info.ModTime().Before(cutoff) {
+			if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // requireClipboardInputLease reports whether the client holds the input lease. A paste replaces
@@ -390,68 +515,21 @@ func (session *liveSession) requireClipboardInputLease(client *liveSessionClient
 	return nil
 }
 
-// appendClipboardWrite adds one chunk of a paste. A chunk for another request starts over.
-func (session *liveSession) appendClipboardWrite(client *liveSessionClient, message liveSessionClientMessage) error {
-	if err := requireBrowserMutation(client); err != nil {
-		return err
-	}
-	if err := session.requireClipboardInputLease(client); err != nil {
-		return err
-	}
-	if !validLiveSessionRequestID(message.RequestID) {
-		return errors.New("clipboard write requires a valid request ID")
-	}
-	if !validClipboardType(message.MimeType) {
-		return errors.New("clipboard type is invalid")
-	}
-	data, err := base64.StdEncoding.DecodeString(message.Data)
-	if err != nil {
-		return errors.New("clipboard data is not base64")
-	}
-	session.mu.Lock()
-	defer session.mu.Unlock()
-	write := client.clipboardWrite
-	if write == nil || write.requestID != message.RequestID ||
-		time.Since(write.updatedAt) > liveSessionClipboardWriteTimeout {
-		write = &liveSessionClipboardWrite{requestID: message.RequestID}
-		client.clipboardWrite = write
-	}
-	write.updatedAt = time.Now()
-	if write.size+len(data) > liveSessionClipboardMaxBytes {
-		client.clipboardWrite = nil
-		return errors.New("clipboard data is too large")
-	}
-	write.size += len(data)
-	for index := range write.items {
-		if write.items[index].mimeType == message.MimeType {
-			write.items[index].data = append(write.items[index].data, data...)
-			return nil
-		}
-	}
-	if len(write.items) == liveSessionClipboardMaxTypes {
-		client.clipboardWrite = nil
-		return errors.New("clipboard has too many types")
-	}
-	write.items = append(write.items, liveSessionClipboardItem{mimeType: message.MimeType, data: data})
-	return nil
-}
-
-// commitClipboardWrite makes a client's collected paste the browser's clipboard.
+// commitClipboardWrite makes a client's paste the browser's clipboard. The session files it
+// names are deleted whether or not the paste succeeds.
 func (session *liveSession) commitClipboardWrite(client *liveSessionClient, message liveSessionClientMessage) (liveSessionServerMessage, error) {
+	defer session.removeClipboardWriteFiles(message.Items)
 	if err := requireBrowserMutation(client); err != nil {
 		return liveSessionServerMessage{}, err
 	}
 	if err := session.requireClipboardInputLease(client); err != nil {
 		return liveSessionServerMessage{}, err
 	}
-	session.mu.Lock()
-	write := client.clipboardWrite
-	client.clipboardWrite = nil
-	session.mu.Unlock()
-	if write == nil || write.requestID != message.RequestID || len(write.items) == 0 {
-		return liveSessionServerMessage{}, errors.New("clipboard write has no data")
+	written, err := session.clipboardWriteItems(message.Items)
+	if err != nil {
+		return liveSessionServerMessage{}, err
 	}
-	items := offeredClipboardItems(write.items)
+	items := offeredClipboardItems(written)
 	types := make([]string, 0, len(items))
 	for _, item := range items {
 		types = append(types, item.mimeType)
@@ -473,6 +551,96 @@ func (session *liveSession) commitClipboardWrite(client *liveSessionClient, mess
 		return liveSessionServerMessage{}, err
 	}
 	return liveSessionServerMessage{}, nil
+}
+
+// clipboardWriteItems collects the data of a clipboard.write, one entry per type.
+func (session *liveSession) clipboardWriteItems(requested []liveSessionClipboardWriteItem) ([]liveSessionClipboardItem, error) {
+	if len(requested) == 0 {
+		return nil, errors.New("clipboard write has no data")
+	}
+	if len(requested) > liveSessionClipboardMaxTypes {
+		return nil, errors.New("clipboard has too many types")
+	}
+	items := make([]liveSessionClipboardItem, 0, len(requested))
+	size := 0
+	for _, item := range requested {
+		if !validClipboardType(item.MimeType) {
+			return nil, errors.New("clipboard type is invalid")
+		}
+		for _, existing := range items {
+			if existing.mimeType == item.MimeType {
+				return nil, errors.New("clipboard type is repeated")
+			}
+		}
+		var data []byte
+		switch {
+		case item.Text != nil && item.RelativePath == "":
+			data = []byte(*item.Text)
+		case item.Text == nil && item.RelativePath != "":
+			read, err := session.readClipboardWriteFile(item.RelativePath, liveSessionClipboardMaxBytes-size)
+			if err != nil {
+				return nil, err
+			}
+			data = read
+		default:
+			return nil, errors.New("clipboard item needs either text or a relative path")
+		}
+		size += len(data)
+		if size > liveSessionClipboardMaxBytes {
+			return nil, errors.New("clipboard data is too large")
+		}
+		items = append(items, liveSessionClipboardItem{mimeType: item.MimeType, data: data})
+	}
+	return items, nil
+}
+
+// clipboardWriteFile resolves a pasted file, which must be in the clipboard directory so a paste
+// cannot consume any other session file.
+func (session *liveSession) clipboardWriteFile(relative string) (string, error) {
+	layout := paths.SessionLayout{Files: paths.SessionFiles(session.runtime.values.FilesDir)}
+	full, normalized, err := sessionfiles.Resolve(layout, relative)
+	if err != nil {
+		return "", fmt.Errorf("clipboard file %q: %w", relative, err)
+	}
+	if path.Dir(normalized) != liveSessionClipboardDirectory {
+		return "", fmt.Errorf("clipboard file %q is not in %s/", relative, liveSessionClipboardDirectory)
+	}
+	return full, nil
+}
+
+func (session *liveSession) readClipboardWriteFile(relative string, limit int) ([]byte, error) {
+	full, err := session.clipboardWriteFile(relative)
+	if err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(full, os.O_RDONLY|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	data, err := io.ReadAll(io.LimitReader(file, int64(limit)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > limit {
+		return nil, errors.New("clipboard data is too large")
+	}
+	return data, nil
+}
+
+func (session *liveSession) removeClipboardWriteFiles(items []liveSessionClipboardWriteItem) {
+	for _, item := range items {
+		if item.RelativePath == "" {
+			continue
+		}
+		full, err := session.clipboardWriteFile(item.RelativePath)
+		if err != nil {
+			continue
+		}
+		if err := os.Remove(full); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			fmt.Fprintf(os.Stderr, "browser-session-wrapper: remove clipboard file: %v\n", err)
+		}
+	}
 }
 
 // offeredClipboardItems adds the names Wayland programs ask plain text by, which Chromium

@@ -149,7 +149,6 @@ type liveSessionClient struct {
 	autoSize                  bool
 	autoSizeSequence          uint64
 	clipboardAware            bool
-	clipboardWrite            *liveSessionClipboardWrite
 }
 
 type liveSessionCloseRequest struct {
@@ -222,9 +221,11 @@ type liveSessionClientMessage struct {
 	Clipboard             *bool   `json:"clipboard"`
 	Selection             string  `json:"selection"`
 	MimeType              string  `json:"mimeType"`
-	Data                  string  `json:"data"`
-	Enabled               *bool   `json:"enabled"`
-	Pacing                string  `json:"pacing"`
+	// Files lets clipboard.read answer with a session file when the data does not fit inline.
+	Files   bool                            `json:"files"`
+	Items   []liveSessionClipboardWriteItem `json:"items"`
+	Enabled *bool                           `json:"enabled"`
+	Pacing  string                          `json:"pacing"`
 	// recording.start's edit settings; see recording.Config.
 	Capture string            `json:"capture"`
 	Pace    string            `json:"pace"`
@@ -278,11 +279,10 @@ type liveSessionServerMessage struct {
 	AutoSize              *bool  `json:"autoSize,omitempty"`
 	// Clipboard is sent only to clients whose hello asked for it, for the same reason.
 	Clipboard *liveSessionClipboard `json:"clipboard,omitempty"`
-	// MimeType and Data describe clipboard data; clipboard.chunk carries it ahead of a result.
-	MimeType string `json:"mimeType,omitempty"`
-	Data     string `json:"data,omitempty"`
-	// chunks are sent ahead of a command's result.
-	chunks []liveSessionServerMessage
+	// A clipboard.read result carries its data as Text or as the session file at RelativePath.
+	MimeType     string  `json:"mimeType,omitempty"`
+	Text         *string `json:"text,omitempty"`
+	RelativePath string  `json:"relativePath,omitempty"`
 }
 
 type liveSessionPresentation struct {
@@ -330,6 +330,7 @@ func newLiveSession(runtime *wrapperRuntime) (*liveSession, error) {
 func (session *liveSession) run(ctx context.Context) {
 	if multiTargetCompositorEnabled(session.runtime.values) {
 		go session.watchClipboard(ctx)
+		go session.sweepClipboardFiles(ctx)
 	}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -522,8 +523,6 @@ func (session *liveSession) handleClientMessage(client *liveSessionClient, messa
 		return session.setFollowing(client, message.FollowingClientID)
 	case "paint.point":
 		return session.paintPoint(client, message)
-	case "clipboard.write.chunk":
-		return session.appendClipboardWrite(client, message)
 	default:
 		return errors.New("unknown collaboration message type")
 	}

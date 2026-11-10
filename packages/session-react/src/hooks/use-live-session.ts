@@ -352,9 +352,6 @@ export function useLiveSession({
           releasePendingRef.current = false;
           setLastError({ code: message.code, message: message.message });
           return;
-        case "clipboard.chunk":
-          // The connection hands chunks to the clipboard read that asked for them.
-          return;
         default:
           if (message.presentation) {
             setPresentation(message.presentation);

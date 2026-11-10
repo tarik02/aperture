@@ -7,9 +7,17 @@ import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
-import { Base64 } from "effect/encoding";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import type { IceServer } from "@aperture-browser/api-client";
-import { sessionWebSocketURL, sessionProtocols, type SessionAccess } from "./access.ts";
+import {
+  deleteClipboardFile,
+  reachesSessionFiles,
+  sessionWebSocketURL,
+  sessionProtocols,
+  takeClipboardFile,
+  uploadClipboardFile,
+  type SessionAccess,
+} from "./access.ts";
 import {
   decodeServerMessage,
   RasterFrameHeader,
@@ -98,9 +106,9 @@ export interface ClipboardData {
   readonly data: Blob;
 }
 
-/** Clipboard data moves in chunks of this size; base64 and the envelope keep each message under
- * the 64 KiB a data channel may allow. */
-const CLIPBOARD_CHUNK_BYTES = 32 * 1024;
+/** JSON-encoded clipboard text sent inside one session message, below the 64 KiB a data channel
+ * may allow. Larger or binary data passes through session files. */
+const CLIPBOARD_INLINE_BYTES = 48 * 1024;
 
 interface TransportRequest {
   kind: LiveSessionTransportKind;
@@ -190,8 +198,6 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
     string,
     Deferred.Deferred<LiveSessionCommandResult, LiveSessionError>
   >();
-  /** Data of clipboard reads in flight; the chunks arrive ahead of each read's result. */
-  const clipboardChunks = new Map<string, string[]>();
 
   const hello = () => ({
     type: "session.hello",
@@ -433,10 +439,6 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
       }
       inboundRealtimeCounter = message.realtimeCounter;
     }
-    if (message.type === "clipboard.chunk") {
-      clipboardChunks.get(message.requestId)?.push(message.data);
-      return;
-    }
     if ("requestId" in message) {
       const deferred = pendingCommands.get(message.requestId);
       if (deferred) {
@@ -512,6 +514,8 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
   const transportUnavailableError = () =>
     new LiveSessionError({ message: "live session transport is unavailable" });
 
+  const filesReachable = reachesSessionFiles(options.access);
+
   const sendCommand = (type: string, requestId: string, payload: Record<string, unknown>) => {
     const deferred = Deferred.makeUnsafe<LiveSessionCommandResult, LiveSessionError>();
     pendingCommands.set(requestId, deferred);
@@ -586,54 +590,72 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
       Effect.suspend(() => sendCommand(type, newRequestId(), payload)),
 
     readClipboard: (selection, mimeType) =>
-      Effect.suspend(() => {
-        const requestId = newRequestId();
-        const chunks: string[] = [];
-        clipboardChunks.set(requestId, chunks);
-        return sendCommand("clipboard.read", requestId, { selection, mimeType }).pipe(
-          Effect.flatMap(() =>
-            Effect.forEach(chunks, (chunk) =>
-              Result.match(Base64.decode(chunk), {
-                // Blob parts must own their buffer.
-                onSuccess: (bytes) => Effect.succeed(new Uint8Array(bytes)),
-                onFailure: () =>
-                  Effect.fail(new LiveSessionError({ message: "clipboard data is not base64" })),
-              }),
-            ),
-          ),
-          Effect.map((parts) => new Blob(parts, { type: mimeType })),
-          Effect.ensuring(Effect.sync(() => clipboardChunks.delete(requestId))),
-        );
-      }),
+      Effect.suspend(() =>
+        sendCommand("clipboard.read", newRequestId(), {
+          selection,
+          mimeType,
+          ...(filesReachable ? { files: true } : {}),
+        }),
+      ).pipe(
+        Effect.flatMap((result) => {
+          if (result.text !== undefined) {
+            return Effect.succeed(new Blob([result.text], { type: mimeType }));
+          }
+          if (result.relativePath !== undefined) {
+            return takeClipboardFile(options.access, result.relativePath, mimeType).pipe(
+              Effect.provide(FetchHttpClient.layer),
+              Effect.mapError(
+                () => new LiveSessionError({ message: "clipboard data could not be downloaded" }),
+              ),
+            );
+          }
+          return Effect.fail(new LiveSessionError({ message: "clipboard read returned no data" }));
+        }),
+      ),
 
     writeClipboard: (items) =>
       Effect.gen(function* () {
-        const requestId = newRequestId();
-        for (const item of items) {
-          const buffer = yield* Effect.tryPromise({
-            try: () => item.data.arrayBuffer(),
-            catch: () => new LiveSessionError({ message: "clipboard data could not be read" }),
-          });
-          const bytes = new Uint8Array(buffer);
-          // An empty item still sends one chunk, so the server knows the type.
-          for (
-            let offset = 0;
-            offset === 0 || offset < bytes.length;
-            offset += CLIPBOARD_CHUNK_BYTES
-          ) {
-            const chunk = bytes.subarray(offset, offset + CLIPBOARD_CHUNK_BYTES);
-            const sent = sendReliable({
-              type: "clipboard.write.chunk",
-              requestId,
-              mimeType: item.mimeType,
-              data: Base64.encode(chunk),
-            });
-            if (!sent) {
-              return yield* Effect.fail(transportUnavailableError());
+        const uploaded: string[] = [];
+        const removeUploaded = Effect.forEach(
+          uploaded,
+          (relativePath) => Effect.ignore(deleteClipboardFile(options.access, relativePath)),
+          { discard: true },
+        ).pipe(Effect.provide(FetchHttpClient.layer));
+        const write = Effect.gen(function* () {
+          let inlineBudget = CLIPBOARD_INLINE_BYTES;
+          const payload: Array<{ mimeType: string; text?: string; relativePath?: string }> = [];
+          for (const item of items) {
+            const text = yield* inlineClipboardText(item.data, inlineBudget);
+            if (text !== undefined) {
+              inlineBudget -= jsonByteLength(text);
+              payload.push({ mimeType: item.mimeType, text });
+              continue;
             }
+            if (!filesReachable) {
+              return yield* Effect.fail(
+                new LiveSessionError({
+                  message: "clipboard data is too large for this connection",
+                }),
+              );
+            }
+            const relativePath = yield* uploadClipboardFile(options.access, item.data).pipe(
+              Effect.provide(FetchHttpClient.layer),
+              Effect.mapError(
+                () => new LiveSessionError({ message: "clipboard data could not be uploaded" }),
+              ),
+            );
+            if (relativePath === undefined) {
+              return yield* Effect.fail(
+                new LiveSessionError({ message: "clipboard data could not be uploaded" }),
+              );
+            }
+            uploaded.push(relativePath);
+            payload.push({ mimeType: item.mimeType, relativePath });
           }
-        }
-        yield* sendCommand("clipboard.write", requestId, {});
+          yield* sendCommand("clipboard.write", newRequestId(), { items: payload });
+        });
+        // The browser deletes the files of a write it received; these are the ones it may not have.
+        yield* write.pipe(Effect.onError(() => removeUploaded));
       }),
   } satisfies LiveSessionConnection;
 });
@@ -1064,3 +1086,22 @@ function decodeRasterFrame(packet: Blob): Effect.Effect<Option.Option<LiveSessio
 }
 
 export type { LiveSessionConnectionCallbacks, LiveSessionConnectionOptions, LiveSessionSnapshot };
+
+const jsonByteLength = (text: string) => new TextEncoder().encode(JSON.stringify(text)).length;
+
+/** The item's data as text when it is UTF-8 that fits the remaining inline budget. */
+const inlineClipboardText = (data: Blob, budget: number) =>
+  Effect.gen(function* () {
+    if (data.size > budget) return undefined;
+    const buffer = yield* Effect.tryPromise({
+      try: () => data.arrayBuffer(),
+      catch: () => new LiveSessionError({ message: "clipboard data could not be read" }),
+    });
+    let text: string;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(buffer);
+    } catch {
+      return undefined;
+    }
+    return jsonByteLength(text) <= budget ? text : undefined;
+  });

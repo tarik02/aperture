@@ -61,12 +61,6 @@ func (session *liveSession) handleSessionMessage(client *liveSessionClient, tran
 				session.writeCommandError(transport, message, err)
 				return
 			}
-			for _, chunk := range result.chunks {
-				if err := transport.send(liveSessionDeliveryReliable, mustJSON(chunk)); err != nil {
-					session.writeCommandError(transport, message, fmt.Errorf("send clipboard data: %w", err))
-					return
-				}
-			}
 			result.Type = message.Type + ".result"
 			result.RequestID = message.RequestID
 			result.OK = liveSessionBool(true)
@@ -117,7 +111,6 @@ func liveSessionMessageDelivery(message liveSessionClientMessage) (liveSessionDe
 		"input.keyboard.key",
 		"input.keyboard.text",
 		"presence.cursor.clear",
-		"clipboard.write.chunk",
 		"follow.set":
 		return liveSessionDeliveryReliable, true
 	default:
