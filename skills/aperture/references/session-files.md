@@ -13,13 +13,13 @@ The four directories cannot be deleted or moved. In-progress uploads and recordi
 
 ## Listing and managing
 
-`GET /api/sessions/:id/files` (`sessions:read`) lists files and directories of any retained session; `POST …/files`, `POST …/files/directories`, `POST …/files/move` and `DELETE …/files` (`sessions:write`) manage them. Bodies, limits and error codes are in the spec. Over MCP, `session_files.list` returns the same file metadata (`name`, `relativePath`, `size`, `modifiedAt`, `mimeType`, `sandboxPath`), and a session token can use it where it cannot use `/api/*`.
+`GET /api/sessions/:id/files` (`sessions:read`) lists files and directories of any retained session; `POST …/files`, `POST …/files/directories`, `POST …/files/move` and `DELETE …/files` (`sessions:write`) manage them. Bodies, limits and error codes are in the spec. Over MCP, `session_files.list` returns the same file metadata (`name`, `relativePath`, `size`, `modifiedAt`, `mimeType`, `sandboxPath`), The owner session token (`aps_`) and an editor capability (`ape_`) may also call these `/api` file routes for their own session, without a tenant header, while it runs or is suspended; viewer capabilities get `403 insufficient_scope`.
 
 ## Uploads
 
 Two multipart routes store every part that carries a filename, sanitizing names and suffixing instead of overwriting, and answer `201 {"files": [...]}` with the listing's file entries:
 
-- `POST /sessions/:id/uploads` while the session runs, with `sessions:write` or the `aps_` token; files land in `uploads/`.
+- `POST /sessions/:id/uploads` while the session runs, with `sessions:write`, the `aps_` token or an `ape_` editor capability; files land in `uploads/`.
 - `POST /api/sessions/:id/files?directory=<dir>` for any retained session, with `sessions:write`; `directory` defaults to `uploads`.
 
 ```bash

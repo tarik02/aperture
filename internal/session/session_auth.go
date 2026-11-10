@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/db"
 )
 
@@ -22,6 +23,26 @@ func (s *Service) AuthenticateSessionToken(ctx context.Context, routeSessionID, 
 		return nil, err
 	}
 	return &SessionTokenAuth{SessionID: sessionRow.ID, TenantID: sessionRow.TenantID, Session: sessionRow}, nil
+}
+
+// AuthorizeSessionFiles authorizes the session token or an editor capability to manage the
+// session's files. Viewers only watch the session, so their capability is denied.
+func (s *Service) AuthorizeSessionFiles(ctx context.Context, routeSessionID, authorization string) (*db.Session, error) {
+	raw, err := bearerToken(authorization)
+	if err != nil {
+		return nil, err
+	}
+	if strings.HasPrefix(raw, "aps_") {
+		return s.authorizedSession(ctx, routeSessionID, authorization)
+	}
+	capability, err := s.AuthenticateCollaborationCapability(ctx, routeSessionID, authorization)
+	if err != nil {
+		return nil, err
+	}
+	if capability.Role != CollaborationRoleEditor {
+		return nil, auth.ErrScopeDenied
+	}
+	return capability.Session, nil
 }
 
 // ValidateSessionTokenForwardAuth checks a session token for Traefik ForwardAuth.

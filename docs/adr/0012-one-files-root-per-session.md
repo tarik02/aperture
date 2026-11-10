@@ -28,7 +28,7 @@ Files used to be spread across three places: downloads and recordings under the 
 - The wrapper's own `GET /sessions/:sessionId/files` listing and download routes are removed. They only worked while the session ran and duplicated the control-plane listing and signed downloads, which work in every retained state.
 - Upload responses return the regular session file shape, including `sandboxPath`. Host paths are never exposed.
 - Session files are separate from snapshots. Promotion materializes only the overlay lower and upper directories (the browser profile), and the files root is outside both, so a snapshot never contains session files. A session created from a snapshot gets a new, empty files root. The profile may still remember past downloads in its history, pointing at `/session/files/downloads/…` paths that do not exist in the new session.
-- Session files are served over the REST API and MCP only. Session-token holders reach them through session-bound MCP; there is no REST route authorized by the session token.
+- Session files are served over the REST API and MCP only. Session-token holders reach them through session-bound MCP; there is no REST route authorized by the session token. (Superseded: see the addendum on session credentials.)
 - Hidden entries (in-progress uploads, recording segments) are not session files.
 
 ## Addendum: managing files and directories
@@ -79,3 +79,7 @@ Limitations:
 ## Addendum: recordings that do not finish
 
 A recording writes segments into a hidden `.recording-<id>` directory and publishes the finished file without replacing an existing one. When the pipeline fails or finalizing fails, its non-empty segments are kept as numbered `…-failed` files next to the target and the hidden directory is removed, since the API could never reach it. A wrapper that starts or wakes does the same for segment directories a previous process left behind. A requested recording path is a session file path below `recordings/`, and its directory is created at start. Recording status never reports host paths.
+
+## Addendum: session credentials on the files routes
+
+The `/api/sessions/:sessionId/files` routes now also accept the session token and an editor capability bound to that session (ADR 0004). This replaces the decision above that session-token holders reach files only through session-bound MCP. A session credential sets the session's tenant and nothing else, so it never reaches other `/api/*` routes or other sessions.
