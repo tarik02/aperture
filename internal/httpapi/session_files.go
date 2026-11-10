@@ -9,11 +9,58 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/paths"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/sessionfiles"
 	"github.com/gin-gonic/gin"
 )
+
+// fileActorKindContextKey records who a file request acts for, as file events report it.
+const fileActorKindContextKey = "fileActorKind"
+
+// isSessionFilesPath reports the account API routes that manage a session's files, which the
+// session token and editor capabilities may also use.
+func isSessionFilesPath(path string) bool {
+	return path == "/api/sessions/:sessionId/files" || strings.HasPrefix(path, "/api/sessions/:sessionId/files/")
+}
+
+// hasSessionCredential reports a bearer credential bound to one session rather than an API token.
+func hasSessionCredential(c *gin.Context) bool {
+	raw, ok := strings.CutPrefix(strings.TrimSpace(c.GetHeader("Authorization")), "Bearer ")
+	return ok && (isSessionAccessToken(raw) || strings.HasPrefix(raw, "ape_") || strings.HasPrefix(raw, "apv_"))
+}
+
+// authorizeSessionFilesCredential lets the session token or an editor capability use the session
+// files routes of its own session, without waking it: files live on disk in every retained state.
+func (s *Server) authorizeSessionFilesCredential(c *gin.Context) {
+	if s.Sessions == nil {
+		WriteError(c, errSessionServiceUnavailable)
+		c.Abort()
+		return
+	}
+	sessionRow, err := s.Sessions.AuthorizeSessionFiles(c.Request.Context(), c.Param("sessionId"), c.GetHeader("Authorization"))
+	if err != nil {
+		s.recordSessionTokenFailure(err)
+		if errors.Is(err, session.ErrSessionTokenMissing) || errors.Is(err, session.ErrSessionTokenInvalid) ||
+			errors.Is(err, session.ErrSessionTokenRevoked) {
+			err = auth.ErrTokenInvalid
+		}
+		WriteError(c, err)
+		c.Abort()
+		return
+	}
+	c.Set("tenantId", sessionRow.TenantID)
+	c.Set(fileActorKindContextKey, "session_capability")
+	c.Next()
+}
+
+func fileActorKind(c *gin.Context) string {
+	if kind := c.GetString(fileActorKindContextKey); kind != "" {
+		return kind
+	}
+	return "account"
+}
 
 func (s *Server) sessionFile(c *gin.Context) {
 	if s.Repository == nil || s.jobToken == "" {
@@ -96,7 +143,7 @@ func (s *Server) uploadSessionFiles(c *gin.Context, directory string, parts *mul
 		events = append(events, session.FileEvent{
 			Type:    "session.file_uploaded",
 			Message: "file uploaded",
-			Data:    map[string]any{"path": file.RelativePath, "sizeBytes": file.Size, "actorKind": "account", "clientIp": requestClientIP(c)},
+			Data:    map[string]any{"path": file.RelativePath, "sizeBytes": file.Size, "actorKind": fileActorKind(c), "clientIp": requestClientIP(c)},
 		})
 	}
 	if err := s.Sessions.RecordFileEvents(c.Request.Context(), tenantIDFromContext(c), layout.SessionID, events); err != nil {

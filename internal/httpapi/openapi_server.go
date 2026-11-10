@@ -60,6 +60,12 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 		return
 	}
 
+	path := c.FullPath()
+	if isSessionFilesPath(path) && hasSessionCredential(c) {
+		s.authorizeSessionFilesCredential(c)
+		return
+	}
+
 	principal, err := s.authenticate(c)
 	if err != nil {
 		WriteError(c, err)
@@ -68,7 +74,6 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 	}
 	c.Set("principal", principal)
 
-	path := c.FullPath()
 	// A user acting without a selected tenant holds no scopes yet; say what is
 	// missing instead of failing the scope checks below.
 	if isTenantScopedPath(path) && principal.Type == auth.PrincipalTypeUser &&
