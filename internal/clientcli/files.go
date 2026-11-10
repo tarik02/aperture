@@ -208,7 +208,10 @@ func newFilesDownloadCmd(conn *connection) *cobra.Command {
 				// under either separator so it cannot leave the directory.
 				destination = filepath.Base(filepath.FromSlash(path.Base(args[1])))
 			}
-			target, err := os.CreateTemp(filepath.Dir(destination), ".aperture-download-*")
+			// A partial file next to the destination, with the mode a plain
+			// create would give, so a failed download leaves an existing file intact.
+			partial := fmt.Sprintf("%s.part-%d", destination, os.Getpid())
+			target, err := os.OpenFile(partial, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
 			if err != nil {
 				return err
 			}
