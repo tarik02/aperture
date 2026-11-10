@@ -813,6 +813,26 @@
           };
         };
 
+        apertureCli = buildGoModule {
+          pname = "aperture-cli";
+          version = deployVersion;
+          inherit src;
+          vendorHash = "sha256-LWbVaB5LEfdXZiu/AcWnaksJ0aP/Shtc/hcr9lU+0cQ=";
+          subPackages = [ "cmd/aperture-cli" ];
+          env.CGO_ENABLED = "0";
+          doCheck = false;
+          ldflags = [
+            "-s"
+            "-w"
+            "-X github.com/aperture/aperture/internal/version.Version=${deployVersion}"
+            "-X github.com/aperture/aperture/internal/version.Commit=${sourceRevision}"
+          ];
+          overrideModAttrs = _: {
+            name = "aperture-${deployVersion}-go-modules";
+          };
+          meta.mainProgram = "aperture-cli";
+        };
+
         gpuDriverPackages = [
           gpuMesa
         ]
@@ -1207,6 +1227,7 @@
         packages = {
           default = aperture;
           aperture = aperture;
+          aperture-cli = apertureCli;
           aperture-companion = apertureCompanion;
           patched-weston = patchedWeston;
         }

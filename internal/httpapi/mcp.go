@@ -351,6 +351,14 @@ type mcpSessionIDInput struct {
 	SessionID string `json:"sessionId"`
 }
 
+type mcpSessionUpdateProxyInput struct {
+	TenantID  string                          `json:"tenantId,omitempty"`
+	SessionID string                          `json:"sessionId"`
+	Rules     []proxyRuleRequest              `json:"rules" jsonschema:"Ordered rules, first match wins. match is host or host:port, with the host exact, *.suffix or *. via is direct, refuse, local, an upstream name or an inline proxy URL. An empty list clears the configuration."`
+	Upstreams map[string]proxyUpstreamRequest `json:"upstreams,omitempty" jsonschema:"Named upstreams the rules may route through."`
+	Drain     bool                            `json:"drain,omitempty" jsonschema:"Reset live tunnel streams so existing connections pick up the new rules."`
+}
+
 // recordingStartDescription guides the choice of the options; the schema describes each one.
 const recordingStartDescription = "Start a tab recording of one ready top-level target. For automation use capture bursts: the edited video keeps the stretches around browser tool calls (burst preset tight for brisk clips, relaxed for pages that keep moving after an action); use continuous for human-driven sessions or with idle. Pace sets how automation moves while recording: fast (default) for most clips, slow for demos a viewer should follow, instant when only the result matters. Motion natural makes the pointer travel like a hand; the recording reports a motionSeed that replays the same paths. Edit settings are checked here; capture bursts, idle and ripple need ffmpeg on the instance."
 
@@ -632,6 +640,7 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.suspend", Description: "Suspend a running session."}, s.mcpSessionSuspend)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.reopen", Description: "Reopen a retained deleted or failed session. Suspended sessions wake automatically when a browser tool is called."}, s.mcpSessionReopen)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.replace_tags", Description: "Replace all tags on a session."}, s.mcpSessionReplaceTags)
+		mcp.AddTool(server, &mcp.Tool{Name: "sessions.update_proxy", Description: "Replace a session's egress proxy rules. Route a host:port via local to reach a service on the machine that attaches the session's local tunnel with `aperture-cli tunnel`; the browser addresses it as localhost."}, s.mcpSessionUpdateProxy)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.delete", Description: "Delete a tenant-owned session."}, s.mcpSessionDelete)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.promote", Description: "Promote a stopped retained session into a snapshot."}, s.mcpSessionsPromote)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.session_token_rotate", Description: "Rotate the live session token for later browser access."}, s.mcpSessionTokenRotate)
@@ -1143,6 +1152,31 @@ func (s *Server) mcpSessionSuspend(ctx context.Context, _ *mcp.CallToolRequest, 
 		return nil, mcpStatusOutput{}, err
 	}
 	updated, err := s.Sessions.Suspend(ctx, view.Session.TenantID, view.Session.ID)
+	if err != nil {
+		return nil, mcpStatusOutput{}, mcpToolError("session_unavailable", err)
+	}
+	return nil, mcpStatusOutput{Session: s.mcpSessionView(updated)}, nil
+}
+func (s *Server) mcpSessionUpdateProxy(ctx context.Context, _ *mcp.CallToolRequest, in mcpSessionUpdateProxyInput) (*mcp.CallToolResult, mcpStatusOutput, error) {
+	a, err := mcpAuthFromContext(ctx)
+	if err != nil {
+		return nil, mcpStatusOutput{}, err
+	}
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, true)
+	if err != nil {
+		return nil, mcpStatusOutput{}, err
+	}
+	config, err := proxyConfigRequest{Upstreams: in.Upstreams, Rules: in.Rules}.config()
+	if err == nil {
+		err = config.Validate()
+	}
+	if err != nil {
+		return nil, mcpStatusOutput{}, mcpToolError("invalid_arguments", err)
+	}
+	if _, err := s.Sessions.UpdateProxy(ctx, view.Session.TenantID, view.Session.ID, config, in.Drain); err != nil {
+		return nil, mcpStatusOutput{}, mcpToolError("session_unavailable", err)
+	}
+	updated, err := s.Sessions.Get(ctx, view.Session.TenantID, view.Session.ID)
 	if err != nil {
 		return nil, mcpStatusOutput{}, mcpToolError("session_unavailable", err)
 	}
