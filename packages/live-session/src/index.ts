@@ -6,3 +6,4 @@ export * from "./viewport.ts";
 export * as LiveSessionConnection from "./connection.ts";
 export { LiveSessionError, type LiveSessionTransportKind } from "./connection.ts";
 export * from "./access.ts";
+export * from "./mac-shortcuts.ts";
