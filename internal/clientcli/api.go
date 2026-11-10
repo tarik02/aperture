@@ -19,7 +19,7 @@ func newChannelsCmd(conn *connection) *cobra.Command {
 		Short: "list the browser channels a session can start with",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return conn.run(cmd, http.MethodGet, "/api/browser/channels", nil, nil)
+			return conn.list(cmd, "/api/browser/channels", nil, table{rows: "channels", columns: []column{{"NAME", "name"}}})
 		},
 	}
 }

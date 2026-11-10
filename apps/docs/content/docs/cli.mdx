@@ -31,7 +31,7 @@ export APERTURE_TOKEN=apt_…
 aperture whoami
 ```
 
-Answers are the API's JSON, so they pipe into `jq`. An API error exits non-zero and prints `aperture: <code>: <message>` to standard error.
+Answers are the API's JSON, so they pipe into `jq`. The list commands print a table when standard output is a terminal and JSON otherwise; `--format json` or `--format table` picks one. An API error exits non-zero and prints `aperture: <code>: <message>` to standard error.
 
 ## Commands
 

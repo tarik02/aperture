@@ -20,6 +20,7 @@ type connection struct {
 	baseURL   string
 	tokenFile string
 	tenantID  string
+	format    string
 }
 
 func (c *connection) base() (*url.URL, error) {

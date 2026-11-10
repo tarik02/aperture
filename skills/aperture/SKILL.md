@@ -65,7 +65,7 @@ Open the WebSocket `/sessions/<id>/session` with subprotocol `aperture-session.v
 
 ### Work from a shell
 
-`aperture` (flake package `aperture-cli`, or the `aperture-cli` archive of a release) is the control plane as commands, for a machine that uses an instance without running one. It reads `APERTURE_URL` and `APERTURE_TOKEN` (or `--url`, `--token-file`), prints the API's JSON, and exits non-zero with `<code>: <message>` on an API error. `sessions`, `snapshots`, `recordings`, `files`, `channels` and `whoami` cover the common operations (`sessions pages` lists the target IDs a recording needs); `aperture api METHOD PATH [-d JSON|@FILE|-] [-q KEY=VALUE]` sends anything else in the spec. `--help` on each command lists its flags.
+`aperture` (flake package `aperture-cli`, or the `aperture-cli` archive of a release) is the control plane as commands, for a machine that uses an instance without running one. It reads `APERTURE_URL` and `APERTURE_TOKEN` (or `--url`, `--token-file`), prints the API's JSON (lists become tables only at a terminal; `--format json` forces JSON), and exits non-zero with `<code>: <message>` on an API error. `sessions`, `snapshots`, `recordings`, `files`, `channels` and `whoami` cover the common operations (`sessions pages` lists the target IDs a recording needs); `aperture api METHOD PATH [-d JSON|@FILE|-] [-q KEY=VALUE]` sends anything else in the spec. `--help` on each command lists its flags.
 
 ### Reach a local service from a session's browser
 

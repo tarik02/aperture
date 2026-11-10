@@ -29,7 +29,9 @@ func newFilesCmd(conn *connection) *cobra.Command {
 			Short: "list a session's files and directories",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				return conn.run(cmd, http.MethodGet, sessionPath(args[0], "/files"), nil, nil)
+				return conn.list(cmd, sessionPath(args[0], "/files"), nil, table{columns: []column{
+					{"TYPE", "type"}, {"PATH", "relativePath"}, {"SIZE", "size"}, {"MODIFIED", "modifiedAt"},
+				}})
 			},
 		},
 		newFilesUploadCmd(conn),

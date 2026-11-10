@@ -25,7 +25,10 @@ func newRecordingsCmd(conn *connection) *cobra.Command {
 			Short: "list a session's recordings",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				return conn.run(cmd, http.MethodGet, recordingPath(args[0], "", ""), nil, nil)
+				return conn.list(cmd, recordingPath(args[0], "", ""), nil, table{columns: []column{
+					{"ID", "recordingId"}, {"STATUS", "status"}, {"EDITING", "editing"}, {"STARTED", "startedAt"},
+					{"RAW", "relativePath"}, {"EDITED", "editedRelativePath"},
+				}})
 			},
 		},
 		&cobra.Command{

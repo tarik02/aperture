@@ -33,7 +33,9 @@ func newSnapshotsCmd(conn *connection) *cobra.Command {
 			if limit > 0 {
 				query.Set("limit", strconv.Itoa(limit))
 			}
-			return conn.run(cmd, http.MethodGet, "/api/snapshots", query, nil)
+			return conn.list(cmd, "/api/snapshots", query, table{rows: "data", columns: []column{
+				{"NAME", "name"}, {"DESCRIPTION", "description"}, {"CREATED", "createdAt"}, {"DELETED", "deletedAt"},
+			}})
 		},
 	}
 	list.Flags().StringVar(&name, "name", "", "substring of the snapshot name")

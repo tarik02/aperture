@@ -24,7 +24,9 @@ func newSessionsCmd(conn *connection) *cobra.Command {
 			Short: "list a session's pages and their target IDs without waking it",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				return conn.run(cmd, http.MethodGet, "/sessions/"+url.PathEscape(args[0])+"/browser/status", nil, nil)
+				return conn.list(cmd, "/sessions/"+url.PathEscape(args[0])+"/browser/status", nil, table{rows: "pages", columns: []column{
+					{"TARGET", "targetId"}, {"STATE", "state"}, {"TITLE", "title"}, {"URL", "url"},
+				}})
 			},
 		},
 		newSessionsProxyCmd(conn),
@@ -70,7 +72,10 @@ func newSessionsListCmd(conn *connection) *cobra.Command {
 			if limit > 0 {
 				query.Set("limit", strconv.Itoa(limit))
 			}
-			return conn.run(cmd, http.MethodGet, "/api/sessions", query, nil)
+			return conn.list(cmd, "/api/sessions", query, table{rows: "data", columns: []column{
+				{"ID", "id"}, {"STATUS", "status"}, {"LABEL", "label"}, {"SNAPSHOT", "baseSnapshotName"},
+				{"CREATED", "createdAt"}, {"LAST ACTIVE", "lastConnectedAt"},
+			}})
 		},
 	}
 	cmd.Flags().BoolVar(&active, "active", false, "only creating, running or suspended sessions that have not expired")
