@@ -899,6 +899,21 @@ export function SessionViewport({
       }
     }
 
+    if (macShortcuts) {
+      // Cmd means nothing to the browser on Linux; the shortcuts it is part of are translated.
+      if (event.code === "MetaLeft" || event.code === "MetaRight") {
+        return;
+      }
+      const keys = translateMacShortcut(event.nativeEvent, heldAltCode());
+      if (keys) {
+        for (const key of keys) {
+          control.sendInput({ type: "input.key", targetId, ...key });
+        }
+        translatedKeysRef.current.add(keyId);
+        return;
+      }
+    }
+
     if (!shouldForwardBrowserShortcut(event.nativeEvent)) {
       return;
     }
