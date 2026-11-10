@@ -12,7 +12,7 @@ import type { BrowserInputMessage } from "@aperture-browser/live-session";
 import { evdevKeycodeByCode } from "@aperture-browser/live-session";
 import { windowsVirtualKeyCodeForCodeOrKey } from "@aperture-browser/live-session";
 import { LiveSessionConnection } from "@aperture-browser/live-session";
-import type { ClipboardData, ClipboardSelection } from "@aperture-browser/live-session";
+import type { ClipboardData } from "@aperture-browser/live-session";
 import {
   strictParseOptions,
   type SessionAccess,
@@ -103,14 +103,11 @@ export interface LiveSessionControl {
   mediaSwitching: boolean;
   recordings: readonly Recording[];
   viewportOwnership: LiveSessionViewportOwnership | null;
-  /** The browser's clipboard and primary selection, or null when the server does not share them. */
+  /** The browser's clipboard, or null when the server does not share it. */
   clipboard: LiveSessionClipboard | null;
   /** Revision of the newest clipboard change that followed this client's copy or cut shortcut. */
   ownClipboardRevision: number | null;
-  readClipboard: (
-    selection: ClipboardSelection,
-    mimeType: string,
-  ) => Effect.Effect<Blob, LiveSessionConnection.LiveSessionError>;
+  readClipboard: (mimeType: string) => Effect.Effect<Blob, LiveSessionConnection.LiveSessionError>;
   writeClipboard: (
     items: ReadonlyArray<ClipboardData>,
   ) => Effect.Effect<void, LiveSessionConnection.LiveSessionError>;
@@ -335,15 +332,15 @@ export function useLiveSession({
           setClipboard(next);
           if (
             previous !== null &&
-            next.clipboard.revision > previous.clipboard.revision &&
-            !next.clipboard.pasted &&
+            next.revision > previous.revision &&
+            !next.pasted &&
             localCopyAt !== null &&
             performance.now() - localCopyAt <= localCopyWindowMs &&
             clientIdRef.current !== "" &&
             holderClientIdRef.current === clientIdRef.current
           ) {
             localCopyAtRef.current = null;
-            setOwnClipboardRevision(next.clipboard.revision);
+            setOwnClipboardRevision(next.revision);
           }
           return;
         }
@@ -483,10 +480,10 @@ export function useLiveSession({
     [],
   );
   const readClipboard = useCallback(
-    (selection: ClipboardSelection, mimeType: string) =>
+    (mimeType: string) =>
       Effect.suspend(() =>
         connectionRef.current
-          ? connectionRef.current.readClipboard(selection, mimeType)
+          ? connectionRef.current.readClipboard(mimeType)
           : Effect.fail(transportUnavailable()),
       ),
     [],

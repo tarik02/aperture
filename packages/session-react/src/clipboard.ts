@@ -2,9 +2,8 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import type {
   ClipboardData,
-  ClipboardSelection,
+  LiveSessionClipboard,
   LiveSessionError,
-  LiveSessionSelection,
 } from "@aperture-browser/live-session";
 import { toast } from "sonner";
 
@@ -64,23 +63,20 @@ const writeClipboardItems = (items: Record<string, Blob>): Effect.Effect<void, C
   });
 
 /**
- * Copies one of the browser's selections to the local clipboard: its text, read in full when the
+ * Copies the browser's clipboard to the local clipboard: its text, read in full when the
  * state only carried the beginning, and its HTML and PNG image when it has them.
  */
-export const copyBrowserSelection = (
-  selection: LiveSessionSelection,
-  kind: ClipboardSelection,
-  read: (kind: ClipboardSelection, mimeType: string) => Effect.Effect<Blob, LiveSessionError>,
+export const copyBrowserClipboard = (
+  clipboard: LiveSessionClipboard,
+  read: (mimeType: string) => Effect.Effect<Blob, LiveSessionError>,
 ): Effect.Effect<void, ClipboardError | LiveSessionError> =>
   Effect.gen(function* () {
-    const types = selection.types ?? [];
+    const types = clipboard.types ?? [];
     const textType = TEXT_TYPES.find((type) => types.includes(type));
     const text =
-      selection.truncated && textType
-        ? yield* read(kind, textType).pipe(
-            Effect.flatMap((blob) => Effect.promise(() => blob.text())),
-          )
-        : selection.text;
+      clipboard.truncated && textType
+        ? yield* read(textType).pipe(Effect.flatMap((blob) => Effect.promise(() => blob.text())))
+        : clipboard.text;
     const rich = RICH_TYPES.filter((type) => types.includes(type));
     if (rich.length === 0) {
       return yield* copyText(text);
@@ -88,7 +84,7 @@ export const copyBrowserSelection = (
     const items: Record<string, Blob> = {};
     for (const type of rich) {
       // ClipboardItem wants each blob typed exactly as its key.
-      items[type] = new Blob([yield* read(kind, type)], { type });
+      items[type] = new Blob([yield* read(type)], { type });
     }
     if (text !== "") {
       items["text/plain"] = new Blob([text], { type: "text/plain" });

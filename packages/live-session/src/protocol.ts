@@ -108,7 +108,8 @@ const Participant = Schema.Struct({
   recovering: Schema.optionalKey(Schema.Boolean),
 });
 
-const Selection = Schema.Struct({
+/** The browser's clipboard. */
+const Clipboard = Schema.Struct({
   text: Schema.String,
   truncated: Schema.optionalKey(Schema.Boolean),
   /** MIME types its owner offers; read them with clipboard.read. */
@@ -116,12 +117,6 @@ const Selection = Schema.Struct({
   /** Set when a client's paste, not a program in the browser, put the data there. */
   pasted: Schema.optionalKey(Schema.Boolean),
   revision: int,
-});
-
-/** The browser's clipboard and its primary selection, the text last selected. */
-const Clipboard = Schema.Struct({
-  clipboard: Selection,
-  primary: Selection,
 });
 
 const Snapshot = Schema.Struct({
@@ -279,7 +274,6 @@ export type LiveSessionPresentation = typeof Presentation.Type;
 export type LiveSessionPresentationQuality = typeof PresentationQuality.Type;
 export type CollaborationParticipant = typeof Participant.Type;
 export type LiveSessionClipboard = typeof Clipboard.Type;
-export type LiveSessionSelection = typeof Selection.Type;
 
 export const RasterFrameHeader = Schema.Struct({
   type: Schema.Literal("presentation.frame"),

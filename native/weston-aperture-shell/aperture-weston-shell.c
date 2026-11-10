@@ -24,7 +24,6 @@
 #include <weston/weston.h>
 
 #include "fractional-scale-v1-server-protocol.h"
-#include "primary-selection-unstable-v1-server-protocol.h"
 #include "text-input-unstable-v3-server-protocol.h"
 #include "viewporter-server-protocol.h"
 
@@ -61,16 +60,9 @@ enum {
 	aperture_max_pending_sends = 16,
 };
 
-enum aperture_selection_kind {
-	APERTURE_SELECTION_CLIPBOARD,
-	APERTURE_SELECTION_PRIMARY,
-	APERTURE_SELECTION_KIND_COUNT,
-};
-
 struct aperture_selection_read;
-struct aperture_primary_source;
 
-/* The text last read from one selection, as watchers see it, and the types its owner offers. */
+/* The text last read from the clipboard, as watchers see it, and the types its owner offers. */
 struct aperture_selection_state {
 	struct aperture_selection_read *read;
 	char *text;
@@ -101,20 +93,15 @@ struct aperture_shell {
 	struct wl_list control_clients;
 	struct wl_list fractional_scales;
 	struct wl_list text_inputs;
-	struct wl_list primary_devices;
-	struct wl_list primary_sources;
 	struct wl_event_source *control_source;
 	struct wl_listener destroy_listener;
 	struct wl_listener text_input_focus_listener;
-	struct wl_listener primary_focus_listener;
 	struct wl_listener selection_listener;
 	struct wl_global *fractional_scale_global;
-	struct wl_global *primary_selection_global;
 	struct wl_global *text_input_global;
 	struct wl_global *viewporter_global;
 	struct aperture_text_input *active_text_input;
-	struct aperture_primary_source *primary_source;
-	struct aperture_selection_state selections[APERTURE_SELECTION_KIND_COUNT];
+	struct aperture_selection_state selection;
 	struct wl_list pending_sends;
 	uint64_t next_send_id;
 	char *control_socket_path;
@@ -1695,11 +1682,6 @@ queue_watcher_output(struct aperture_control_client *client, const char *data, s
 	return flush_watcher_output(client);
 }
 
-static const char *const aperture_selection_names[APERTURE_SELECTION_KIND_COUNT] = {
-	[APERTURE_SELECTION_CLIPBOARD] = "clipboard",
-	[APERTURE_SELECTION_PRIMARY] = "primary",
-};
-
 /* Writes data as lowercase hex, or "-" when it is empty; out needs 2 * length + 1 bytes. */
 static size_t
 append_hex(char *out, const char *data, size_t length)
@@ -1756,21 +1738,19 @@ decode_hex(const char *hex, size_t *length)
 	return out;
 }
 
-/* "selection <kind> <truncated> <hex text> <hex newline-separated types> <pasted>\n" */
+/* "selection <truncated> <hex text> <hex newline-separated types> <pasted>\n" */
 static char *
-format_selection_line(enum aperture_selection_kind kind,
-		      const struct aperture_selection_state *state, size_t *length)
+format_selection_line(const struct aperture_selection_state *state, size_t *length)
 {
 	size_t types_length = state->types ? strlen(state->types) : 0;
-	size_t capacity = strlen("selection ") + strlen(aperture_selection_names[kind]) + 4 +
+	size_t capacity = strlen("selection ") + 3 +
 			  state->length * 2 + 2 + types_length * 2 + 6;
 	char *line = malloc(capacity);
 	size_t offset;
 
 	if (!line)
 		return NULL;
-	offset = (size_t)snprintf(line, capacity, "selection %s %d ",
-				  aperture_selection_names[kind], state->truncated ? 1 : 0);
+	offset = (size_t)snprintf(line, capacity, "selection %d ", state->truncated ? 1 : 0);
 	offset += append_hex(line + offset, state->text, state->length);
 	line[offset++] = ' ';
 	offset += append_hex(line + offset, state->types, types_length);
@@ -1780,11 +1760,10 @@ format_selection_line(enum aperture_selection_kind kind,
 }
 
 static int
-send_selection_to_watcher(struct aperture_control_client *client,
-			  enum aperture_selection_kind kind)
+send_selection_to_watcher(struct aperture_control_client *client)
 {
 	size_t length;
-	char *line = format_selection_line(kind, &client->shell->selections[kind], &length);
+	char *line = format_selection_line(&client->shell->selection, &length);
 	int result = line ? queue_watcher_output(client, line, length) : -1;
 
 	free(line);
@@ -1792,34 +1771,32 @@ send_selection_to_watcher(struct aperture_control_client *client,
 }
 
 static void
-publish_selection(struct aperture_shell *shell, enum aperture_selection_kind kind)
+publish_selection(struct aperture_shell *shell)
 {
 	struct aperture_control_client *client;
 	struct aperture_control_client *next;
 
 	wl_list_for_each_safe(client, next, &shell->control_clients, link) {
-		if (client->watching && send_selection_to_watcher(client, kind) < 0)
+		if (client->watching && send_selection_to_watcher(client) < 0)
 			destroy_control_client(client);
 	}
 }
 
 static void
-set_selection_text(struct aperture_shell *shell, enum aperture_selection_kind kind,
-		   char *text, size_t length, bool truncated)
+set_selection_text(struct aperture_shell *shell, char *text, size_t length, bool truncated)
 {
-	struct aperture_selection_state *state = &shell->selections[kind];
+	struct aperture_selection_state *state = &shell->selection;
 
 	free(state->text);
 	state->text = text;
 	state->length = length;
 	state->truncated = truncated;
-	publish_selection(shell, kind);
+	publish_selection(shell);
 }
 
-/* Reads the text a selection owner writes into a pipe, without blocking the compositor. */
+/* Reads the text the clipboard owner writes into a pipe, without blocking the compositor. */
 struct aperture_selection_read {
 	struct aperture_shell *shell;
-	enum aperture_selection_kind kind;
 	struct wl_event_source *source;
 	int fd;
 	char *data;
@@ -1829,8 +1806,7 @@ struct aperture_selection_read {
 static void
 destroy_selection_read(struct aperture_selection_read *selection_read)
 {
-	struct aperture_selection_state *state =
-		&selection_read->shell->selections[selection_read->kind];
+	struct aperture_selection_state *state = &selection_read->shell->selection;
 
 	if (state->read == selection_read)
 		state->read = NULL;
@@ -1844,13 +1820,12 @@ static void
 finish_selection_read(struct aperture_selection_read *selection_read, bool truncated)
 {
 	struct aperture_shell *shell = selection_read->shell;
-	enum aperture_selection_kind kind = selection_read->kind;
 	char *text = selection_read->data;
 	size_t length = selection_read->length;
 
 	selection_read->data = NULL;
 	destroy_selection_read(selection_read);
-	set_selection_text(shell, kind, text, length, truncated);
+	set_selection_text(shell, text, length, truncated);
 }
 
 static int
@@ -1965,24 +1940,21 @@ offers_mime_type(const struct wl_array *mime_types, const char *wanted)
 	return false;
 }
 
-typedef void (*aperture_selection_send_fn)(void *owner, const char *mime_type, int fd);
-
-/* Asks a selection owner for its text. send takes ownership of the write end. */
+/* Asks the clipboard owner for its text. */
 static void
-read_selection(struct aperture_shell *shell, enum aperture_selection_kind kind,
-	       const struct wl_array *mime_types, aperture_selection_send_fn send, void *owner)
+read_selection(struct aperture_shell *shell, struct weston_data_source *source)
 {
-	struct aperture_selection_state *state = &shell->selections[kind];
+	struct aperture_selection_state *state = &shell->selection;
 	struct aperture_selection_read *selection_read;
-	const char *mime_type = mime_types ? preferred_text_mime_type(mime_types) : NULL;
+	const char *mime_type = source ? preferred_text_mime_type(&source->mime_types) : NULL;
 	int fds[2];
 
 	if (state->read)
 		destroy_selection_read(state->read);
 	free(state->types);
-	state->types = mime_types ? join_mime_types(mime_types) : NULL;
+	state->types = source ? join_mime_types(&source->mime_types) : NULL;
 	if (!mime_type) {
-		set_selection_text(shell, kind, NULL, 0, false);
+		set_selection_text(shell, NULL, 0, false);
 		return;
 	}
 	if (pipe2(fds, O_CLOEXEC) < 0) {
@@ -1997,7 +1969,6 @@ read_selection(struct aperture_shell *shell, enum aperture_selection_kind kind,
 		return;
 	}
 	selection_read->shell = shell;
-	selection_read->kind = kind;
 	selection_read->fd = fds[0];
 	selection_read->source = wl_event_loop_add_fd(
 		wl_display_get_event_loop(shell->compositor->wl_display), fds[0],
@@ -2009,15 +1980,7 @@ read_selection(struct aperture_shell *shell, enum aperture_selection_kind kind,
 		return;
 	}
 	state->read = selection_read;
-	send(owner, mime_type, fds[1]);
-}
-
-static void
-send_clipboard_source(void *owner, const char *mime_type, int fd)
-{
-	struct weston_data_source *source = owner;
-
-	source->send(source, mime_type, fd);
+	source->send(source, mime_type, fds[1]);
 }
 
 static void
@@ -2029,300 +1992,8 @@ handle_selection(struct wl_listener *listener, void *data)
 	struct aperture_shell *shell = wl_container_of(listener, shell, selection_listener);
 	struct weston_data_source *source = shell->input_seat.selection_data_source;
 
-	shell->selections[APERTURE_SELECTION_CLIPBOARD].pasted =
-		source && source->accept == owned_source_accept;
-	read_selection(shell, APERTURE_SELECTION_CLIPBOARD, source ? &source->mime_types : NULL,
-		       send_clipboard_source, source);
-}
-
-/* Weston has no primary selection, so the shell implements zwp_primary_selection_v1 itself:
- * Chromium then fills it on every text selection, and middle-click pastes it. */
-struct aperture_primary_source {
-	struct wl_list link;
-	struct aperture_shell *shell;
-	struct wl_resource *resource;
-	struct wl_array mime_types;
-	/* Offers made for this source; they go inert once it is gone. */
-	struct wl_list offers;
-};
-
-static void
-primary_offer_receive(struct wl_client *client, struct wl_resource *resource,
-		      const char *mime_type, int32_t fd)
-{
-	struct aperture_primary_source *source = wl_resource_get_user_data(resource);
-
-	if (source)
-		zwp_primary_selection_source_v1_send_send(source->resource, mime_type, fd);
-	close(fd);
-}
-
-static void
-primary_offer_destroy(struct wl_client *client, struct wl_resource *resource)
-{
-	wl_resource_destroy(resource);
-}
-
-static const struct zwp_primary_selection_offer_v1_interface primary_offer_interface = {
-	.receive = primary_offer_receive,
-	.destroy = primary_offer_destroy,
-};
-
-static void
-destroy_primary_offer_resource(struct wl_resource *resource)
-{
-	wl_list_remove(wl_resource_get_link(resource));
-}
-
-static void
-send_primary_selection(struct aperture_shell *shell, struct wl_resource *device)
-{
-	struct aperture_primary_source *source = shell->primary_source;
-	struct wl_resource *offer;
-	char **mime_type;
-
-	if (!source) {
-		zwp_primary_selection_device_v1_send_selection(device, NULL);
-		return;
-	}
-	offer = wl_resource_create(wl_resource_get_client(device),
-				   &zwp_primary_selection_offer_v1_interface,
-				   wl_resource_get_version(device), 0);
-	if (!offer) {
-		wl_client_post_no_memory(wl_resource_get_client(device));
-		return;
-	}
-	wl_resource_set_implementation(offer, &primary_offer_interface, source,
-				       destroy_primary_offer_resource);
-	wl_list_insert(&source->offers, wl_resource_get_link(offer));
-	zwp_primary_selection_device_v1_send_data_offer(device, offer);
-	wl_array_for_each(mime_type, &source->mime_types)
-		zwp_primary_selection_offer_v1_send_offer(offer, *mime_type);
-	zwp_primary_selection_device_v1_send_selection(device, offer);
-}
-
-/* Only the client with keyboard focus may see the selection. */
-static void
-send_primary_selection_to_focus(struct aperture_shell *shell)
-{
-	struct weston_keyboard *keyboard = weston_seat_get_keyboard(&shell->input_seat);
-	struct wl_resource *device;
-	struct wl_client *client;
-
-	if (!keyboard || !keyboard->focus || !keyboard->focus->resource)
-		return;
-	client = wl_resource_get_client(keyboard->focus->resource);
-	wl_resource_for_each(device, &shell->primary_devices) {
-		if (wl_resource_get_client(device) == client)
-			send_primary_selection(shell, device);
-	}
-}
-
-static void
-send_primary_source(void *owner, const char *mime_type, int fd)
-{
-	struct aperture_primary_source *source = owner;
-
-	zwp_primary_selection_source_v1_send_send(source->resource, mime_type, fd);
-	close(fd);
-}
-
-static void
-set_primary_selection(struct aperture_shell *shell, struct aperture_primary_source *source)
-{
-	struct aperture_primary_source *previous = shell->primary_source;
-
-	if (previous == source)
-		return;
-	shell->primary_source = source;
-	if (previous)
-		zwp_primary_selection_source_v1_send_cancelled(previous->resource);
-	send_primary_selection_to_focus(shell);
-	read_selection(shell, APERTURE_SELECTION_PRIMARY, source ? &source->mime_types : NULL,
-		       send_primary_source, source);
-}
-
-static void
-primary_source_offer(struct wl_client *client, struct wl_resource *resource,
-		     const char *mime_type)
-{
-	struct aperture_primary_source *source = wl_resource_get_user_data(resource);
-	char **slot = wl_array_add(&source->mime_types, sizeof *slot);
-
-	if (!slot || !(*slot = strdup(mime_type))) {
-		if (slot)
-			source->mime_types.size -= sizeof *slot;
-		wl_client_post_no_memory(client);
-	}
-}
-
-static void
-primary_source_destroy(struct wl_client *client, struct wl_resource *resource)
-{
-	wl_resource_destroy(resource);
-}
-
-static const struct zwp_primary_selection_source_v1_interface primary_source_interface = {
-	.offer = primary_source_offer,
-	.destroy = primary_source_destroy,
-};
-
-static void
-destroy_primary_source_resource(struct wl_resource *resource)
-{
-	struct aperture_primary_source *source = wl_resource_get_user_data(resource);
-	struct wl_resource *offer;
-	struct wl_resource *next;
-	char **mime_type;
-
-	wl_resource_for_each_safe(offer, next, &source->offers) {
-		wl_resource_set_user_data(offer, NULL);
-		wl_list_remove(wl_resource_get_link(offer));
-		wl_list_init(wl_resource_get_link(offer));
-	}
-	if (source->shell->primary_source == source) {
-		source->shell->primary_source = NULL;
-		send_primary_selection_to_focus(source->shell);
-		read_selection(source->shell, APERTURE_SELECTION_PRIMARY, NULL, NULL, NULL);
-	}
-	wl_list_remove(&source->link);
-	wl_array_for_each(mime_type, &source->mime_types)
-		free(*mime_type);
-	wl_array_release(&source->mime_types);
-	free(source);
-}
-
-static void
-primary_device_set_selection(struct wl_client *client, struct wl_resource *resource,
-			     struct wl_resource *source_resource, uint32_t serial)
-{
-	struct aperture_shell *shell = wl_resource_get_user_data(resource);
-
-	set_primary_selection(shell, source_resource ?
-			      wl_resource_get_user_data(source_resource) : NULL);
-}
-
-static void
-primary_device_destroy(struct wl_client *client, struct wl_resource *resource)
-{
-	wl_resource_destroy(resource);
-}
-
-static const struct zwp_primary_selection_device_v1_interface primary_device_interface = {
-	.set_selection = primary_device_set_selection,
-	.destroy = primary_device_destroy,
-};
-
-static void
-destroy_primary_device_resource(struct wl_resource *resource)
-{
-	wl_list_remove(wl_resource_get_link(resource));
-}
-
-static void
-primary_manager_create_source(struct wl_client *client, struct wl_resource *resource,
-			      uint32_t id)
-{
-	struct aperture_primary_source *source = calloc(1, sizeof *source);
-
-	if (!source) {
-		wl_client_post_no_memory(client);
-		return;
-	}
-	source->resource = wl_resource_create(client, &zwp_primary_selection_source_v1_interface,
-					      wl_resource_get_version(resource), id);
-	if (!source->resource) {
-		free(source);
-		wl_client_post_no_memory(client);
-		return;
-	}
-	source->shell = wl_resource_get_user_data(resource);
-	wl_list_insert(&source->shell->primary_sources, &source->link);
-	wl_array_init(&source->mime_types);
-	wl_list_init(&source->offers);
-	wl_resource_set_implementation(source->resource, &primary_source_interface, source,
-				       destroy_primary_source_resource);
-}
-
-static void
-primary_manager_get_device(struct wl_client *client, struct wl_resource *resource,
-			   uint32_t id, struct wl_resource *seat_resource)
-{
-	struct aperture_shell *shell = wl_resource_get_user_data(resource);
-	struct weston_keyboard *keyboard;
-	struct wl_resource *device;
-
-	device = wl_resource_create(client, &zwp_primary_selection_device_v1_interface,
-				    wl_resource_get_version(resource), id);
-	if (!device) {
-		wl_client_post_no_memory(client);
-		return;
-	}
-	wl_resource_set_implementation(device, &primary_device_interface, shell,
-				       destroy_primary_device_resource);
-	wl_list_insert(&shell->primary_devices, wl_resource_get_link(device));
-
-	keyboard = weston_seat_get_keyboard(&shell->input_seat);
-	if (keyboard && keyboard->focus && keyboard->focus->resource &&
-	    wl_resource_get_client(keyboard->focus->resource) == client)
-		send_primary_selection(shell, device);
-}
-
-static void
-primary_manager_destroy(struct wl_client *client, struct wl_resource *resource)
-{
-	wl_resource_destroy(resource);
-}
-
-static const struct zwp_primary_selection_device_manager_v1_interface
-	primary_manager_interface = {
-		.create_source = primary_manager_create_source,
-		.get_device = primary_manager_get_device,
-		.destroy = primary_manager_destroy,
-	};
-
-static void
-bind_primary_selection_manager(struct wl_client *client, void *data, uint32_t version,
-			       uint32_t id)
-{
-	struct wl_resource *resource;
-
-	resource = wl_resource_create(client, &zwp_primary_selection_device_manager_v1_interface,
-				      version, id);
-	if (!resource) {
-		wl_client_post_no_memory(client);
-		return;
-	}
-	wl_resource_set_implementation(resource, &primary_manager_interface, data, NULL);
-}
-
-static void
-handle_primary_focus(struct wl_listener *listener, void *data)
-{
-	struct aperture_shell *shell = wl_container_of(listener, shell, primary_focus_listener);
-
-	send_primary_selection_to_focus(shell);
-}
-
-static int
-create_primary_selection_manager(struct aperture_shell *shell)
-{
-	shell->primary_selection_global = wl_global_create(
-		shell->compositor->wl_display, &zwp_primary_selection_device_manager_v1_interface,
-		1, shell, bind_primary_selection_manager);
-	return shell->primary_selection_global ? 0 : -1;
-}
-
-static bool
-parse_selection_kind(const char *name, enum aperture_selection_kind *kind)
-{
-	for (int candidate = 0; candidate < APERTURE_SELECTION_KIND_COUNT; candidate++) {
-		if (strcmp(name, aperture_selection_names[candidate]) == 0) {
-			*kind = (enum aperture_selection_kind)candidate;
-			return true;
-		}
-	}
-	return false;
+	shell->selection.pasted = source && source->accept == owned_source_accept;
+	read_selection(shell, source);
 }
 
 /* Answers a control command with a file descriptor alongside the response line. */
@@ -2490,27 +2161,18 @@ set_owned_clipboard(struct aperture_shell *shell, const char *encoded)
 	return NULL;
 }
 
-/* Asks a selection's owner for one type of its data and returns the pipe it writes into. */
+/* Asks the clipboard owner for one type of its data and returns the pipe it writes into. */
 static const char *
-open_selection(struct aperture_shell *shell, enum aperture_selection_kind kind,
-	       const char *mime_type, int *read_fd)
+open_selection(struct aperture_shell *shell, const char *mime_type, int *read_fd)
 {
 	struct weston_data_source *clipboard = shell->input_seat.selection_data_source;
-	struct aperture_primary_source *primary = shell->primary_source;
 	int fds[2];
 
-	if (kind == APERTURE_SELECTION_CLIPBOARD &&
-	    (!clipboard || !offers_mime_type(&clipboard->mime_types, mime_type)))
-		return "type is not offered";
-	if (kind == APERTURE_SELECTION_PRIMARY &&
-	    (!primary || !offers_mime_type(&primary->mime_types, mime_type)))
+	if (!clipboard || !offers_mime_type(&clipboard->mime_types, mime_type))
 		return "type is not offered";
 	if (pipe2(fds, O_CLOEXEC) < 0)
 		return "pipe failed";
-	if (kind == APERTURE_SELECTION_CLIPBOARD)
-		clipboard->send(clipboard, mime_type, fds[1]);
-	else
-		send_primary_source(primary, mime_type, fds[1]);
+	clipboard->send(clipboard, mime_type, fds[1]);
 	*read_fd = fds[0];
 	return NULL;
 }
@@ -2539,12 +2201,8 @@ handle_control_command(struct aperture_control_client *client)
 	if (strcmp(client->buffer, "selection-watch") == 0) {
 		write_control_response(client, "ok\n");
 		client->watching = true;
-		for (int kind = 0; kind < APERTURE_SELECTION_KIND_COUNT; kind++) {
-			if (send_selection_to_watcher(client, (enum aperture_selection_kind)kind) < 0) {
-				client->watching = false;
-				return;
-			}
-		}
+		if (send_selection_to_watcher(client) < 0)
+			client->watching = false;
 		return;
 	}
 
@@ -2559,18 +2217,15 @@ handle_control_command(struct aperture_control_client *client)
 		return;
 	}
 
-	text_offset = 0;
-	if (sscanf(client->buffer, "selection-read %128s %n", identifier, &text_offset) == 1 &&
-	    text_offset > 0) {
-		enum aperture_selection_kind kind;
+	if (strncmp(client->buffer, "selection-read ", 15) == 0) {
 		size_t mime_length;
-		char *mime_type = decode_hex(client->buffer + text_offset, &mime_length);
+		char *mime_type = decode_hex(client->buffer + 15, &mime_length);
 		int read_fd = -1;
 
-		if (!parse_selection_kind(identifier, &kind) || !mime_type || mime_length == 0)
+		if (!mime_type || mime_length == 0)
 			error = "invalid selection request";
 		else
-			error = open_selection(client->shell, kind, mime_type, &read_fd);
+			error = open_selection(client->shell, mime_type, &read_fd);
 		free(mime_type);
 		if (error) {
 			snprintf(response, sizeof response, "error %s\n", error);
@@ -3044,36 +2699,22 @@ destroy_shell(struct wl_listener *listener, void *data)
 	struct aperture_text_input *next_text_input;
 	struct aperture_output *capture;
 	struct aperture_output *next_capture;
-	struct aperture_primary_source *primary_source;
-	struct aperture_primary_source *next_primary_source;
-	struct wl_resource *primary_device;
-	struct wl_resource *next_primary_device;
 	struct aperture_pending_send *pending_send;
 	struct aperture_pending_send *next_pending_send;
 
 	wl_list_remove(&shell->destroy_listener.link);
 	wl_list_remove(&shell->text_input_focus_listener.link);
-	wl_list_remove(&shell->primary_focus_listener.link);
 	wl_list_remove(&shell->selection_listener.link);
 	if (shell->control_source)
 		wl_event_source_remove(shell->control_source);
 	if (shell->fractional_scale_global)
 		wl_global_destroy(shell->fractional_scale_global);
-	if (shell->primary_selection_global)
-		wl_global_destroy(shell->primary_selection_global);
-	/* Their destructors use the shell, and clients outlive it. */
-	wl_list_for_each_safe(primary_source, next_primary_source, &shell->primary_sources, link)
-		wl_resource_destroy(primary_source->resource);
-	wl_resource_for_each_safe(primary_device, next_primary_device, &shell->primary_devices)
-		wl_resource_destroy(primary_device);
 	wl_list_for_each_safe(pending_send, next_pending_send, &shell->pending_sends, link)
 		destroy_pending_send(pending_send);
-	for (int kind = 0; kind < APERTURE_SELECTION_KIND_COUNT; kind++) {
-		if (shell->selections[kind].read)
-			destroy_selection_read(shell->selections[kind].read);
-		free(shell->selections[kind].text);
-		free(shell->selections[kind].types);
-	}
+	if (shell->selection.read)
+		destroy_selection_read(shell->selection.read);
+	free(shell->selection.text);
+	free(shell->selection.types);
 	if (shell->text_input_global)
 		wl_global_destroy(shell->text_input_global);
 	if (shell->viewporter_global)
@@ -3143,10 +2784,7 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	wl_list_init(&shell->fractional_scales);
 	wl_list_init(&shell->text_inputs);
 	wl_list_init(&shell->text_input_focus_listener.link);
-	wl_list_init(&shell->primary_devices);
-	wl_list_init(&shell->primary_sources);
 	wl_list_init(&shell->pending_sends);
-	wl_list_init(&shell->primary_focus_listener.link);
 	wl_list_init(&shell->selection_listener.link);
 	weston_layer_init(&shell->background_layer, compositor);
 	weston_layer_init(&shell->normal_layer, compositor);
@@ -3167,9 +2805,6 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	shell->text_input_focus_listener.notify = handle_text_input_focus;
 	wl_signal_add(&weston_seat_get_keyboard(&shell->input_seat)->focus_signal,
 		      &shell->text_input_focus_listener);
-	shell->primary_focus_listener.notify = handle_primary_focus;
-	wl_signal_add(&weston_seat_get_keyboard(&shell->input_seat)->focus_signal,
-		      &shell->primary_focus_listener);
 	shell->selection_listener.notify = handle_selection;
 	wl_signal_add(&shell->input_seat.selection_signal, &shell->selection_listener);
 
@@ -3180,8 +2815,6 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	if (create_viewporter(shell) < 0)
 		goto err;
 	if (create_text_input_manager(shell) < 0)
-		goto err;
-	if (create_primary_selection_manager(shell) < 0)
 		goto err;
 	if (setup_control_socket(shell) < 0)
 		goto err;

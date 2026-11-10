@@ -26,12 +26,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// liveSessionSelectionWireLimit bounds one selection's JSON-encoded text. Data channel messages
-// may be limited to 64 KiB, and a clipboard.state carries both selections.
+// liveSessionSelectionWireLimit bounds the clipboard's JSON-encoded text in clipboard.state, since
+// data channel messages may be limited to 64 KiB.
 const liveSessionSelectionWireLimit = 28 * 1024
 
-// liveSessionSelectionTypesLimit bounds one selection's JSON-encoded MIME types for the same
-// reason; the two selections leave this much room beside their texts.
+// liveSessionSelectionTypesLimit bounds its JSON-encoded MIME types for the same reason.
 const (
 	liveSessionSelectionTypesLimit      = 2 * 1024
 	liveSessionSelectionMaximumTypes    = 16
@@ -67,26 +66,20 @@ const (
 	liveSessionClipboardTransferTimeout = 10 * time.Second
 )
 
-// liveSessionClipboardCoalesceDelay gathers selection changes into one update. Chromium clears and
-// sets the primary selection on every step of a selection drag.
+// liveSessionClipboardCoalesceDelay gathers clipboard changes, such as a cut clearing and setting
+// it, into one update.
 const liveSessionClipboardCoalesceDelay = 100 * time.Millisecond
 
-// liveSessionSelection is one of the browser's selections: its text, if any, and the types its
-// owner offers. Revision grows with every change the browser makes, so clients can tell a fresh
+// liveSessionClipboard is the browser's clipboard: its text, if any, and the types its owner
+// offers. Revision grows with every change the browser makes, so clients can tell a fresh
 // copy of the same text from a repeat.
-type liveSessionSelection struct {
+type liveSessionClipboard struct {
 	Text      string   `json:"text"`
 	Truncated bool     `json:"truncated,omitempty"`
 	Types     []string `json:"types,omitempty"`
 	// Pasted is set when a client's paste, not a program, put the data there.
 	Pasted   bool   `json:"pasted,omitempty"`
 	Revision uint64 `json:"revision"`
-}
-
-// liveSessionClipboard is the browser's clipboard and its primary selection (the text last selected).
-type liveSessionClipboard struct {
-	Clipboard liveSessionSelection `json:"clipboard"`
-	Primary   liveSessionSelection `json:"primary"`
 }
 
 // liveSessionClipboardItem is one type of data a client pastes.
@@ -175,11 +168,11 @@ func (session *liveSession) followCompositorSelections(ctx context.Context) erro
 		}
 		switch fields[0] {
 		case "selection":
-			kind, selection, err := parseCompositorSelection(fields)
+			selection, err := parseCompositorSelection(fields)
 			if err != nil {
 				return err
 			}
-			session.updateSelection(kind, selection)
+			session.updateSelection(selection)
 		case "send":
 			id, mimeType, err := parseCompositorSend(fields)
 			if err != nil {
@@ -193,46 +186,42 @@ func (session *liveSession) followCompositorSelections(ctx context.Context) erro
 }
 
 // parseCompositorSelection reads
-// "selection <clipboard|primary> <truncated> <hex text> <hex types> <pasted>", where hex is "-"
+// "selection <truncated> <hex text> <hex types> <pasted>", where hex is "-"
 // when empty and types are newline-separated.
-func parseCompositorSelection(fields []string) (string, liveSessionSelection, error) {
-	if len(fields) != 6 {
-		return "", liveSessionSelection{}, fmt.Errorf("selection line is invalid: %q", strings.Join(fields, " "))
+func parseCompositorSelection(fields []string) (liveSessionClipboard, error) {
+	if len(fields) != 5 {
+		return liveSessionClipboard{}, fmt.Errorf("selection line is invalid: %q", strings.Join(fields, " "))
 	}
-	kind := fields[1]
-	if kind != "clipboard" && kind != "primary" {
-		return "", liveSessionSelection{}, fmt.Errorf("selection kind is unknown: %q", kind)
-	}
-	var selection liveSessionSelection
-	switch fields[2] {
+	var selection liveSessionClipboard
+	switch fields[1] {
 	case "0":
 	case "1":
 		selection.Truncated = true
 	default:
-		return "", liveSessionSelection{}, fmt.Errorf("selection truncation flag is invalid: %q", fields[2])
+		return liveSessionClipboard{}, fmt.Errorf("selection truncation flag is invalid: %q", fields[1])
 	}
-	text, err := decodeCompositorHex(fields[3])
+	text, err := decodeCompositorHex(fields[2])
 	if err != nil {
-		return "", liveSessionSelection{}, errors.New("selection text is not hex")
+		return liveSessionClipboard{}, errors.New("selection text is not hex")
 	}
-	types, err := decodeCompositorHex(fields[4])
+	types, err := decodeCompositorHex(fields[3])
 	if err != nil {
-		return "", liveSessionSelection{}, errors.New("selection types are not hex")
+		return liveSessionClipboard{}, errors.New("selection types are not hex")
 	}
 	if types != "" {
 		selection.Types = limitSelectionTypes(strings.Split(types, "\n"))
 	}
-	switch fields[5] {
+	switch fields[4] {
 	case "0":
 	case "1":
 		selection.Pasted = true
 	default:
-		return "", liveSessionSelection{}, fmt.Errorf("selection pasted flag is invalid: %q", fields[5])
+		return liveSessionClipboard{}, fmt.Errorf("selection pasted flag is invalid: %q", fields[4])
 	}
 	var wireTruncated bool
 	selection.Text, wireTruncated = limitSelectionText(text)
 	selection.Truncated = selection.Truncated || wireTruncated
-	return kind, selection, nil
+	return selection, nil
 }
 
 // parseCompositorSend reads "send <id> <hex type>": a program wants the data this wrapper pasted.
@@ -278,7 +267,7 @@ func limitSelectionText(text string) (string, bool) {
 	return text, false
 }
 
-// limitSelectionTypes keeps the offered types that fit beside the two selections' texts, so an
+// limitSelectionTypes keeps the offered types that fit beside the clipboard's text, so an
 // owner offering a pathological list cannot push clipboard.state past a data channel limit.
 func limitSelectionTypes(types []string) []string {
 	kept := make([]string, 0, min(len(types), liveSessionSelectionMaximumTypes))
@@ -314,14 +303,10 @@ func jsonRuneWireWidth(r rune) int {
 	return utf8.RuneLen(r)
 }
 
-func (session *liveSession) updateSelection(kind string, next liveSessionSelection) {
+func (session *liveSession) updateSelection(next liveSessionClipboard) {
 	session.mu.Lock()
-	selection := &session.clipboard.Clipboard
-	if kind == "primary" {
-		selection = &session.clipboard.Primary
-	}
-	next.Revision = selection.Revision + 1
-	*selection = next
+	next.Revision = session.clipboard.Revision + 1
+	session.clipboard = next
 	if session.clipboardBroadcast == nil {
 		session.clipboardBroadcast = time.AfterFunc(liveSessionClipboardCoalesceDelay, session.broadcastClipboard)
 	}
@@ -351,9 +336,6 @@ func (session *liveSession) readClipboard(client *liveSessionClient, message liv
 	if err := requireBrowserMutation(client); err != nil {
 		return liveSessionServerMessage{}, err
 	}
-	if message.Selection != "clipboard" && message.Selection != "primary" {
-		return liveSessionServerMessage{}, errors.New("clipboard selection is invalid")
-	}
 	if !validClipboardType(message.MimeType) {
 		return liveSessionServerMessage{}, errors.New("clipboard type is invalid")
 	}
@@ -365,7 +347,7 @@ func (session *liveSession) readClipboard(client *liveSessionClient, message liv
 	}
 	ctx, cancel := context.WithTimeout(session.runtime.ctx, liveSessionClipboardTransferTimeout)
 	defer cancel()
-	command := fmt.Sprintf("selection-read %s %s\n", message.Selection, hex.EncodeToString([]byte(message.MimeType)))
+	command := "selection-read " + hex.EncodeToString([]byte(message.MimeType)) + "\n"
 	pipe, err := compositorControlFile(ctx, session.runtime.controlSocket, command)
 	if err != nil {
 		return liveSessionServerMessage{}, err

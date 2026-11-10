@@ -50,11 +50,10 @@ import {
   formatViewportScale,
   VIEWPORT_DEVICE_SCALE_FACTORS,
   VIEWPORT_PRESETS,
-  type ClipboardSelection,
-  type LiveSessionSelection,
+  type LiveSessionClipboard,
 } from "@aperture-browser/live-session";
 import type { ReadClipboard, UseBrowserControlResult } from "../hooks/use-browser-control.ts";
-import { copyBrowserSelection, copyTextWithToast, readLocalClipboard } from "../clipboard.ts";
+import { copyBrowserClipboard, copyTextWithToast, readLocalClipboard } from "../clipboard.ts";
 import { useEffectCallback, useFork } from "../effect.tsx";
 import { toast } from "sonner";
 import type { RecordingSettings } from "@aperture-browser/api-client";
@@ -115,8 +114,8 @@ export interface BrowserMenuDevTools {
  */
 function useCopyOwnClipboardChanges(control: UseBrowserControlResult) {
   const copy = useEffectCallback(
-    (selection: LiveSessionSelection) =>
-      copyBrowserSelection(selection, "clipboard", control.readClipboard).pipe(
+    (clipboard: LiveSessionClipboard) =>
+      copyBrowserClipboard(clipboard, control.readClipboard).pipe(
         Effect.catchTags({
           ClipboardError: () =>
             Effect.sync(() =>
@@ -130,24 +129,24 @@ function useCopyOwnClipboardChanges(control: UseBrowserControlResult) {
       ),
     [control.readClipboard],
   );
-  const selection = control.clipboard?.clipboard ?? null;
+  const clipboard = control.clipboard;
   const revision = control.ownClipboardRevision;
 
   useEffect(() => {
-    if (revision === null || selection?.revision !== revision || !hasSelectionData(selection)) {
+    if (revision === null || clipboard?.revision !== revision || !hasClipboardData(clipboard)) {
       return;
     }
-    copy(selection);
-    // Only a new revision copies; the selection is read from the render that saw it.
+    copy(clipboard);
+    // Only a new revision copies; the clipboard is read from the render that saw it.
   }, [revision]);
 }
 
-function hasSelectionData(selection: LiveSessionSelection) {
-  return selection.text !== "" || (selection.types ?? []).length > 0;
+function hasClipboardData(clipboard: LiveSessionClipboard) {
+  return clipboard.text !== "" || (clipboard.types ?? []).length > 0;
 }
 
-function selectionImage(selection: LiveSessionSelection) {
-  return (selection.types ?? []).includes("image/png");
+function clipboardImage(clipboard: LiveSessionClipboard) {
+  return (clipboard.types ?? []).includes("image/png");
 }
 
 // Chromium puts U+FFFC in place of a selected element, such as an image or a form field.
@@ -155,16 +154,16 @@ function hasVisibleText(text: string) {
   return /[^\s\uFFFC]/u.test(text);
 }
 
-/** Whether the menu has something to show for a selection: visible text or an image. */
-function showsSelection(selection: LiveSessionSelection) {
-  return hasVisibleText(selection.text) || selectionImage(selection);
+/** Whether the menu has something to show for the clipboard: visible text or an image. */
+function showsClipboard(clipboard: LiveSessionClipboard) {
+  return hasVisibleText(clipboard.text) || clipboardImage(clipboard);
 }
 
 function ClipboardMenu({ control }: { control: UseBrowserControlResult }) {
   const copy = useEffectCallback(
-    (selection: LiveSessionSelection, kind: ClipboardSelection, copied: string) =>
-      copyBrowserSelection(selection, kind, control.readClipboard).pipe(
-        Effect.andThen(Effect.sync(() => toast.success(copied))),
+    (clipboard: LiveSessionClipboard) =>
+      copyBrowserClipboard(clipboard, control.readClipboard).pipe(
+        Effect.andThen(Effect.sync(() => toast.success("Clipboard copied"))),
         Effect.catchTags({
           ClipboardError: (error) =>
             Effect.sync(() => toast.error("Copy failed", { description: error.message })),
@@ -224,8 +223,7 @@ function ClipboardMenu({ control }: { control: UseBrowserControlResult }) {
   if (!clipboard) {
     return null;
   }
-  const showsClipboard = showsSelection(clipboard.clipboard);
-  const showsPrimary = showsSelection(clipboard.primary);
+  const shown = showsClipboard(clipboard);
   const targetId = control.activeTargetId;
 
   return (
@@ -250,30 +248,18 @@ function ClipboardMenu({ control }: { control: UseBrowserControlResult }) {
         <TooltipContent side="bottom">Browser clipboard</TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="end" className="aperture:w-80">
-        {showsClipboard ? (
-          <SelectionMenuGroup
-            label="Clipboard"
-            kind="clipboard"
-            selection={clipboard.clipboard}
+        {shown ? (
+          <ClipboardMenuGroup
+            clipboard={clipboard}
             read={control.readClipboard}
-            onCopy={() => copy(clipboard.clipboard, "clipboard", "Clipboard copied")}
+            onCopy={() => copy(clipboard)}
           />
         ) : null}
-        {showsClipboard && showsPrimary ? <DropdownMenuSeparator /> : null}
-        {showsPrimary ? (
-          <SelectionMenuGroup
-            label="Selected text"
-            kind="primary"
-            selection={clipboard.primary}
-            read={control.readClipboard}
-            onCopy={() => copy(clipboard.primary, "primary", "Selected text copied")}
-          />
-        ) : null}
-        {showsClipboard || showsPrimary ? (
+        {shown ? (
           <DropdownMenuSeparator />
         ) : (
           <p className="aperture:px-2 aperture:py-1.5 aperture:text-xs aperture:text-muted-foreground">
-            Nothing copied or selected in the browser yet.
+            Nothing copied in the browser yet.
           </p>
         )}
         <DropdownMenuItem disabled={!targetId} onClick={() => targetId && paste(targetId)}>
@@ -285,35 +271,31 @@ function ClipboardMenu({ control }: { control: UseBrowserControlResult }) {
   );
 }
 
-function SelectionMenuGroup({
-  label,
-  kind,
-  selection,
+function ClipboardMenuGroup({
+  clipboard,
   read,
   onCopy,
 }: {
-  label: string;
-  kind: ClipboardSelection;
-  selection: LiveSessionSelection;
+  clipboard: LiveSessionClipboard;
   read: ReadClipboard;
   onCopy: () => void;
 }) {
-  const image = selectionImage(selection);
+  const image = clipboardImage(clipboard);
   return (
     <DropdownMenuGroup>
-      <DropdownMenuLabel>{label}</DropdownMenuLabel>
+      <DropdownMenuLabel>Clipboard</DropdownMenuLabel>
       <DropdownMenuItem onClick={onCopy} className="aperture:items-start">
         {image ? <Image /> : <Copy />}
         <div className="aperture:flex aperture:min-w-0 aperture:flex-col aperture:gap-1.5">
-          {image ? <SelectionImagePreview kind={kind} selection={selection} read={read} /> : null}
-          {hasVisibleText(selection.text) ? (
+          {image ? <ClipboardImagePreview clipboard={clipboard} read={read} /> : null}
+          {hasVisibleText(clipboard.text) ? (
             <span className="aperture:line-clamp-4 aperture:font-mono aperture:text-xs aperture:break-words aperture:whitespace-pre-wrap">
-              {selection.text}
+              {clipboard.text}
             </span>
           ) : null}
         </div>
       </DropdownMenuItem>
-      {selection.truncated ? (
+      {clipboard.truncated ? (
         <p className="aperture:px-2 aperture:pb-1 aperture:text-xs aperture:text-muted-foreground">
           Only the beginning is shown; copying takes all of it.
         </p>
@@ -322,20 +304,18 @@ function SelectionMenuGroup({
   );
 }
 
-/** Loads the selection's image while the menu is open. */
-function SelectionImagePreview({
-  kind,
-  selection,
+/** Loads the clipboard's image while the menu is open. */
+function ClipboardImagePreview({
+  clipboard,
   read,
 }: {
-  kind: ClipboardSelection;
-  selection: LiveSessionSelection;
+  clipboard: LiveSessionClipboard;
   read: ReadClipboard;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   useFork(
     () =>
-      read(kind, "image/png").pipe(
+      read("image/png").pipe(
         Effect.flatMap((blob) =>
           Effect.acquireRelease(
             Effect.sync(() => URL.createObjectURL(blob)),
@@ -351,7 +331,7 @@ function SelectionImagePreview({
         Effect.scoped,
         Effect.catchTag("LiveSessionError", () => Effect.void),
       ),
-    [kind, selection.revision, read],
+    [clipboard.revision, read],
   );
   return url ? (
     <img

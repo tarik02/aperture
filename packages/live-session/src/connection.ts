@@ -87,19 +87,13 @@ export interface LiveSessionConnection {
     type: string,
     payload?: Record<string, unknown>,
   ) => Effect.Effect<LiveSessionCommandResult, LiveSessionError>;
-  /** Reads one type of data from one of the browser's selections. */
-  readonly readClipboard: (
-    selection: ClipboardSelection,
-    mimeType: string,
-  ) => Effect.Effect<Blob, LiveSessionError>;
+  /** Reads one type of data from the browser's clipboard. */
+  readonly readClipboard: (mimeType: string) => Effect.Effect<Blob, LiveSessionError>;
   /** Makes the given data, one entry per type, the browser's clipboard. */
   readonly writeClipboard: (
     items: ReadonlyArray<ClipboardData>,
   ) => Effect.Effect<void, LiveSessionError>;
 }
-
-/** One of the browser's selections: what it copied, or the text last selected. */
-export type ClipboardSelection = "clipboard" | "primary";
 
 export interface ClipboardData {
   readonly mimeType: string;
@@ -589,10 +583,9 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
     command: (type, payload = {}) =>
       Effect.suspend(() => sendCommand(type, newRequestId(), payload)),
 
-    readClipboard: (selection, mimeType) =>
+    readClipboard: (mimeType) =>
       Effect.suspend(() =>
         sendCommand("clipboard.read", newRequestId(), {
-          selection,
           mimeType,
           ...(filesReachable ? { files: true } : {}),
         }),

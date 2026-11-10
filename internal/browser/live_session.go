@@ -99,7 +99,7 @@ type liveSession struct {
 	lastActiveTargetID string
 	thumbnails         wrapperThumbnailCache
 	favicons           wrapperFaviconCache
-	// clipboard is the browser's selections, sent to clients that asked for them.
+	// clipboard is the browser's clipboard, sent to clients that asked for it.
 	clipboard liveSessionClipboard
 	// clipboardBroadcast is the pending coalesced clipboard.state, or nil.
 	clipboardBroadcast *time.Timer
@@ -219,7 +219,6 @@ type liveSessionClientMessage struct {
 	Visible               *bool   `json:"visible"`
 	AutoSize              *bool   `json:"autoSize"`
 	Clipboard             *bool   `json:"clipboard"`
-	Selection             string  `json:"selection"`
 	MimeType              string  `json:"mimeType"`
 	// Files lets clipboard.read answer with a session file when the data does not fit inline.
 	Files   bool                            `json:"files"`
