@@ -26,10 +26,14 @@ export const markerURL = chrome.runtime.getURL("marker.html");
 
 const tabURL = (tab: chrome.tabs.Tab) => tab.url ?? tab.pendingUrl ?? "";
 
-/** A page the user or a session opened, as opposed to a marker tab. */
-export const isUserTab = (tab: chrome.tabs.Tab): tab is IdentifiedTab =>
-  Boolean(tab.id && tabURL(tab) && !tabURL(tab).startsWith(markerURL));
-
 /** The placeholder tab a managed window is created with. */
 export const isMarkerTab = (tab: chrome.tabs.Tab): tab is IdentifiedTab =>
   Boolean(tab.id && tabURL(tab).startsWith(markerURL));
+
+/**
+ * A page the user or a session opened, as opposed to a marker tab. A tab a page opened
+ * has no URL until its first response arrives, and it still counts: left in its
+ * opener's window, it keeps that window from settling for as long as the page loads.
+ */
+export const isUserTab = (tab: chrome.tabs.Tab): tab is IdentifiedTab =>
+  Boolean(tab.id) && !isMarkerTab(tab);

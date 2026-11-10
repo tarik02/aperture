@@ -11,15 +11,16 @@ import { loadManagedWindows, saveManagedWindows, type ManagedWindows } from "./m
 import { NativeHost } from "./native-host.ts";
 
 /**
- * Brings every normal window to the state Aperture expects: exactly one user tab per
- * managed window. Extra tabs move to windows of their own, and windows left with only
- * a marker tab close.
+ * Brings every window to the state Aperture expects: exactly one user tab per managed
+ * window. Extra tabs move to windows of their own, and windows left with only a marker
+ * tab close. A popup a page opened with window.open is never managed, so its tab moves
+ * to a managed window too, keeping its opener.
  */
 export const reconcile = Effect.gen(function* () {
   const host = yield* NativeHost;
   const managedWindows = yield* loadManagedWindows;
   const windows = yield* chromeCall("windows.getAll", () =>
-    chrome.windows.getAll({ populate: true, windowTypes: ["normal"] }),
+    chrome.windows.getAll({ populate: true, windowTypes: ["normal", "popup"] }),
   );
   const liveWindowIds = new Set(windows.map((window) => String(window.id)));
 

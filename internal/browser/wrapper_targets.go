@@ -329,7 +329,13 @@ func (registry *wrapperTargetRegistry) reconcileSettledWindows(ctx context.Conte
 				matching = append(matching, target)
 			}
 		}
-		if unresolvedWindow || len(matching) != 1 {
+		// A tab a page just opened shares its opener's window, or has no window
+		// yet, until the extension moves it to its own. The bound tab is still
+		// there, so its stream stays up instead of being rebuilt a moment later.
+		if unresolvedWindow || registry.sharesWindow(binding, matching) {
+			continue
+		}
+		if len(matching) != 1 {
 			registry.mu.Lock()
 			var unavailable []wrapperTargetSnapshot
 			for targetID, target := range registry.targets {
@@ -373,6 +379,23 @@ func (registry *wrapperTargetRegistry) reconcileSettledWindows(ctx context.Conte
 		registry.retireOutput(ctx, target.CaptureID)
 	}
 	return nil
+}
+
+// sharesWindow reports whether the window's ready target is still in it,
+// alongside tabs that have not been moved out yet.
+func (registry *wrapperTargetRegistry) sharesWindow(binding wrapperWindowBinding, matching []cdpTargetWindow) bool {
+	if len(matching) < 2 {
+		return false
+	}
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	for _, discovered := range matching {
+		target, exists := registry.targets[string(discovered.Target.TargetID)]
+		if exists && target.WindowID == binding.WindowID && target.SurfaceID == binding.SurfaceID && target.State == wrapperTargetReady {
+			return true
+		}
+	}
+	return false
 }
 
 func (registry *wrapperTargetRegistry) ensureTarget(ctx context.Context, binding wrapperWindowBinding, discovered cdpTargetWindow) error {
