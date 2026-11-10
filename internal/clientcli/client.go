@@ -64,6 +64,14 @@ func (c *connection) tenant() string {
 	return strings.TrimSpace(os.Getenv(tenantEnv))
 }
 
+// httpClient refuses redirects: following one would resend the request as a
+// GET, so a delete behind an http-to-https redirect would quietly do nothing.
+var httpClient = &http.Client{
+	CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+		return fmt.Errorf("the instance redirects to %s://%s; use that address", req.URL.Scheme, req.URL.Host)
+	},
+}
+
 // apiError is the instance's error envelope.
 type apiError struct {
 	Status  int
@@ -124,7 +132,7 @@ func (c *connection) send(ctx context.Context, method, path string, query url.Va
 		req.Header.Set("X-Aperture-Tenant-Id", tenant)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

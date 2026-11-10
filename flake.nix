@@ -790,6 +790,7 @@
             meta = with pkgs.lib; {
               description = "chromium session supervisor";
               license = licenses.mit;
+              mainProgram = "aperture-server";
             };
           }).overrideAttrs
             (oldAttrs: {

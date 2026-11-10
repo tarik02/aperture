@@ -16,9 +16,10 @@ func newSnapshotsCmd(conn *connection) *cobra.Command {
 	}
 
 	var (
-		name   string
-		cursor string
-		limit  int
+		name    string
+		deleted string
+		cursor  string
+		limit   int
 	)
 	list := &cobra.Command{
 		Use:   "list",
@@ -27,6 +28,7 @@ func newSnapshotsCmd(conn *connection) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := url.Values{}
 			setIfPresent(query, "name", name)
+			setIfPresent(query, "deleted", deleted)
 			setIfPresent(query, "cursor", cursor)
 			if limit > 0 {
 				query.Set("limit", strconv.Itoa(limit))
@@ -35,6 +37,7 @@ func newSnapshotsCmd(conn *connection) *cobra.Command {
 		},
 	}
 	list.Flags().StringVar(&name, "name", "", "substring of the snapshot name")
+	list.Flags().StringVar(&deleted, "deleted", "", "active (default), deleted or all")
 	list.Flags().StringVar(&cursor, "cursor", "", "cursor of the next page")
 	list.Flags().IntVar(&limit, "limit", 0, "page size")
 

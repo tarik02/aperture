@@ -85,6 +85,7 @@ jobs:
           name: aperture-pr-binaries
           path: |
             dist/*.tar.gz
+            dist/*.zip
             dist/checksums.txt
             dist/extensions/*.zip
           if-no-files-found: error

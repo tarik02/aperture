@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/hashicorp/yamux"
@@ -20,14 +21,21 @@ type LocalTunnelClient struct {
 	URL string
 	// Token is a credential with session owner access.
 	Token string
+	// TenantID selects the tenant for a token that covers several.
+	TenantID string
 	// Allow approves a target before it is dialed. The session's rules are
-	// set remotely, so the client decides what it exposes.
+	// set remotely, so the client decides what it exposes; without Allow
+	// every target is refused.
 	Allow func(Target) bool
 	// Attached is called once the session accepted the tunnel.
 	Attached func()
 	// Refused is called for each target the client would not or could not reach.
 	Refused func(Target, error)
 }
+
+// localTunnelStreamTimeout bounds a stream's SOCKS handshake and the dial of
+// its target, so the session cannot park streams on the client.
+const localTunnelStreamTimeout = 15 * time.Second
 
 // ErrTargetNotAllowed is reported for a target the client does not expose.
 var ErrTargetNotAllowed = errors.New("proxy: target not allowed")
@@ -37,6 +45,9 @@ var ErrTargetNotAllowed = errors.New("proxy: target not allowed")
 func (c LocalTunnelClient) Serve(ctx context.Context) error {
 	header := http.Header{}
 	header.Set("Authorization", "Bearer "+c.Token)
+	if c.TenantID != "" {
+		header.Set("X-Aperture-Tenant-Id", c.TenantID)
+	}
 	conn, resp, err := websocket.Dial(ctx, c.URL, &websocket.DialOptions{
 		HTTPHeader:   header,
 		Subprotocols: []string{LocalTunnelSubprotocol},
@@ -54,6 +65,10 @@ func (c LocalTunnelClient) Serve(ctx context.Context) error {
 			}
 		}
 		return fmt.Errorf("proxy: dial local tunnel: %w", err)
+	}
+	if conn.Subprotocol() != LocalTunnelSubprotocol {
+		_ = conn.Close(websocket.StatusProtocolError, "")
+		return ErrTunnelNotFound
 	}
 
 	adapter := newWSAdapter(conn)
@@ -96,6 +111,7 @@ func (c LocalTunnelClient) Serve(ctx context.Context) error {
 func (c LocalTunnelClient) serveStream(ctx context.Context, stream net.Conn) {
 	defer func() { _ = stream.Close() }()
 
+	_ = stream.SetDeadline(time.Now().Add(localTunnelStreamTimeout))
 	target, _, err := readConnectRequest(stream)
 	if err != nil {
 		return
@@ -108,12 +124,12 @@ func (c LocalTunnelClient) serveStream(ctx context.Context, stream net.Conn) {
 		}
 	}
 
-	if c.Allow != nil && !c.Allow(target) {
+	if c.Allow == nil || !c.Allow(target) {
 		refuse(ErrTargetNotAllowed)
 		return
 	}
 
-	var dialer net.Dialer
+	dialer := net.Dialer{Timeout: localTunnelStreamTimeout}
 	upstream, err := dialer.DialContext(ctx, "tcp", target.String())
 	if err != nil {
 		refuse(err)
@@ -123,6 +139,7 @@ func (c LocalTunnelClient) serveStream(ctx context.Context, stream net.Conn) {
 		_ = upstream.Close()
 		return
 	}
+	_ = stream.SetDeadline(time.Time{})
 
 	_ = Relay(ctx, stream, upstream)
 }

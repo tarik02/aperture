@@ -15,6 +15,7 @@ import (
 	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/event"
 	"github.com/aperture/aperture/internal/playwrightmcp"
+	"github.com/aperture/aperture/internal/proxy"
 	"github.com/aperture/aperture/internal/recording"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/snapshot"
@@ -352,11 +353,21 @@ type mcpSessionIDInput struct {
 }
 
 type mcpSessionUpdateProxyInput struct {
-	TenantID  string                          `json:"tenantId,omitempty"`
-	SessionID string                          `json:"sessionId"`
-	Rules     []proxyRuleRequest              `json:"rules" jsonschema:"Ordered rules, first match wins. match is host or host:port, with the host exact, *.suffix or *. via is direct, refuse, local, an upstream name or an inline proxy URL. An empty list clears the configuration."`
-	Upstreams map[string]proxyUpstreamRequest `json:"upstreams,omitempty" jsonschema:"Named upstreams the rules may route through."`
-	Drain     bool                            `json:"drain,omitempty" jsonschema:"Reset live tunnel streams so existing connections pick up the new rules."`
+	TenantID  string                      `json:"tenantId,omitempty"`
+	SessionID string                      `json:"sessionId"`
+	Rules     []mcpProxyRule              `json:"rules" jsonschema:"Ordered rules, first match wins. An empty list clears the configuration."`
+	Upstreams map[string]mcpProxyUpstream `json:"upstreams,omitempty" jsonschema:"Named upstreams the rules may route through. Secrets are write-only: pass each upstream again whenever the rules are replaced."`
+	Drain     bool                        `json:"drain,omitempty" jsonschema:"Reset live tunnel streams so existing connections pick up the new rules."`
+}
+
+type mcpProxyRule struct {
+	Match string `json:"match" jsonschema:"host or host:port, with the host exact, *.suffix or *. * never matches localhost."`
+	Via   string `json:"via" jsonschema:"direct, refuse, local (the attached local tunnel), an upstream name, or an inline proxy URL without a secret."`
+}
+
+type mcpProxyUpstream struct {
+	URL  string `json:"url" jsonschema:"Proxy URL (http, https, socks, socks5, socks5h) or tunnel URL (ws+yamux+socks5, wss+yamux+socks5)."`
+	Auth string `json:"auth,omitempty" jsonschema:"Bearer secret of a tunnel upstream. Leave out for a proxy URL."`
 }
 
 // recordingStartDescription guides the choice of the options; the schema describes each one.
@@ -1166,11 +1177,17 @@ func (s *Server) mcpSessionUpdateProxy(ctx context.Context, _ *mcp.CallToolReque
 	if err != nil {
 		return nil, mcpStatusOutput{}, err
 	}
-	config, err := proxyConfigRequest{Upstreams: in.Upstreams, Rules: in.Rules}.config()
-	if err == nil {
-		err = config.Validate()
+	config := proxy.Config{}
+	if len(in.Upstreams) > 0 {
+		config.Upstreams = make(map[string]proxy.UpstreamConfig, len(in.Upstreams))
+		for name, upstream := range in.Upstreams {
+			config.Upstreams[name] = proxy.UpstreamConfig{URL: strings.TrimSpace(upstream.URL), Auth: upstream.Auth}
+		}
 	}
-	if err != nil {
+	for _, rule := range in.Rules {
+		config.Rules = append(config.Rules, proxy.Rule{Match: strings.TrimSpace(rule.Match), Via: strings.TrimSpace(rule.Via)})
+	}
+	if err := config.Validate(); err != nil {
 		return nil, mcpStatusOutput{}, mcpToolError("invalid_arguments", err)
 	}
 	if _, err := s.Sessions.UpdateProxy(ctx, view.Session.TenantID, view.Session.ID, config, in.Drain); err != nil {

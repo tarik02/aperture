@@ -47,8 +47,9 @@ func newTunnelCmd(conn *connection) *cobra.Command {
 			defer stop()
 
 			client := proxy.LocalTunnelClient{
-				URL:   tunnelURL,
-				Token: token,
+				URL:      tunnelURL,
+				Token:    token,
+				TenantID: conn.tenant(),
 				Allow: func(target proxy.Target) bool {
 					return targets[strings.ToLower(target.String())]
 				},
@@ -56,7 +57,7 @@ func newTunnelCmd(conn *connection) *cobra.Command {
 					cmd.PrintErrf("tunnel attached: %s\n", strings.Join(args[1:], ", "))
 				},
 				Refused: func(target proxy.Target, err error) {
-					cmd.PrintErrf("refused %s: %v\n", target, err)
+					cmd.PrintErrf("refused %q: %v\n", target.String(), err)
 				},
 			}
 			err = client.Serve(ctx)
@@ -64,7 +65,7 @@ func newTunnelCmd(conn *connection) *cobra.Command {
 			case errors.Is(err, proxy.ErrTunnelUnauthorized):
 				return errors.New("the token has no owner access to this session")
 			case errors.Is(err, proxy.ErrTunnelNotFound):
-				return errors.New("no running session at this address")
+				return errors.New("no running session with a local tunnel at this address")
 			}
 			return err
 		},
@@ -120,10 +121,11 @@ func tunnelTargets(args []string) (map[string]bool, error) {
 		if err != nil || host == "" {
 			return nil, fmt.Errorf("target %q: want HOST:PORT", arg)
 		}
-		if number, err := strconv.ParseUint(port, 10, 16); err != nil || number == 0 {
+		number, err := strconv.ParseUint(port, 10, 16)
+		if err != nil || number == 0 {
 			return nil, fmt.Errorf("target %q: invalid port", arg)
 		}
-		targets[strings.ToLower(net.JoinHostPort(host, port))] = true
+		targets[strings.ToLower(net.JoinHostPort(host, strconv.FormatUint(number, 10)))] = true
 	}
 	return targets, nil
 }

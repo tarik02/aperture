@@ -31,7 +31,7 @@ export APERTURE_TOKEN=apt_…
 aperture whoami
 ```
 
-Answers are the API's JSON, so they pipe into `jq`. An API error exits non-zero and prints `<code>: <message>`.
+Answers are the API's JSON, so they pipe into `jq`. An API error exits non-zero and prints `aperture: <code>: <message>` to standard error.
 
 ## Commands
 
@@ -58,7 +58,7 @@ aperture sessions suspend "$id"
 
 ```bash
 target=$(aperture sessions pages "$id" | jq -r '.pages[0].targetId')
-recording=$(aperture recordings start "$id" --target "$target" --capture bursts | jq -r .id)
+recording=$(aperture recordings start "$id" --target "$target" --capture bursts | jq -r .recordingId)
 # drive the browser
 edited=$(aperture recordings stop "$id" "$recording" --wait | jq -r .editedRelativePath)
 aperture files download "$id" "$edited"

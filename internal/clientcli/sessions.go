@@ -153,7 +153,7 @@ func newSessionsCreateCmd(conn *connection) *cobra.Command {
 				}
 				body["tags"] = values
 			}
-			if len(rules) > 0 || len(proxy.upstreams) > 0 {
+			if len(rules) > 0 || len(proxy.upstreams) > 0 || len(proxy.authFiles) > 0 {
 				config, err := proxy.config(rules)
 				if err != nil {
 					return err

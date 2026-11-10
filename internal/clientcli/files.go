@@ -186,7 +186,12 @@ func newFilesDownloadCmd(conn *connection) *cobra.Command {
 			}
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
-				return err
+				// The error text of a failed request carries the signed URL.
+				var failed *url.Error
+				if errors.As(err, &failed) {
+					err = failed.Err
+				}
+				return fmt.Errorf("download: %w", err)
 			}
 			defer func() { _ = resp.Body.Close() }()
 			if resp.StatusCode != http.StatusOK {
@@ -199,9 +204,11 @@ func newFilesDownloadCmd(conn *connection) *cobra.Command {
 			}
 			destination := output
 			if destination == "" {
-				destination = path.Base(args[1])
+				// The name comes from the instance; keep only its last element
+				// under either separator so it cannot leave the directory.
+				destination = filepath.Base(filepath.FromSlash(path.Base(args[1])))
 			}
-			target, err := os.Create(destination)
+			target, err := os.CreateTemp(filepath.Dir(destination), ".aperture-download-*")
 			if err != nil {
 				return err
 			}
@@ -209,8 +216,11 @@ func newFilesDownloadCmd(conn *connection) *cobra.Command {
 			if closeErr := target.Close(); err == nil {
 				err = closeErr
 			}
+			if err == nil {
+				err = os.Rename(target.Name(), destination)
+			}
 			if err != nil {
-				_ = os.Remove(destination)
+				_ = os.Remove(target.Name())
 				return err
 			}
 			cmd.PrintErrf("%s (%d bytes)\n", destination, written)
