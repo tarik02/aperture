@@ -63,6 +63,18 @@ In: `POST /sessions/<id>/uploads` (multipart) returns `relativePath`s that `brow
 
 Open the WebSocket `/sessions/<id>/session` with subprotocol `aperture-session.v1`, send `session.hello`, act on the `session.snapshot`. Protocol, viewport ownership, pacing, WebRTC: [live-session.md](references/live-session.md).
 
+### Work from a shell
+
+`aperture` (flake package `aperture-cli`, or the `aperture-cli` archive of a release) is the control plane as commands, for a machine that uses an instance without running one. It reads `APERTURE_URL` and `APERTURE_TOKEN` (or `--url`, `--token-file`), prints the API's JSON (lists become tables only at a terminal; `--format json` forces JSON), and exits non-zero with `<code>: <message>` on an API error. `sessions`, `snapshots`, `recordings`, `files`, `channels` and `whoami` cover the common operations (`sessions pages` lists the target IDs a recording needs); `aperture api METHOD PATH [-d JSON|@FILE|-] [-q KEY=VALUE]` sends anything else in the spec. `--help` on each command lists its flags.
+
+### Reach a local service from a session's browser
+
+1. Route the service through the local tunnel: `aperture sessions proxy <id> localhost:3000=local`, `--rule localhost:3000=local` on `sessions create`, or `sessions.update_proxy` over MCP. This replaces the session's whole rule list.
+2. Attach the tunnel on the machine that runs the service and leave it running: `aperture tunnel <id> localhost:3000`. It takes the session token as well as an API token.
+3. Open `http://localhost:3000` in the session. Done when the page loads; `refused` lines from the client name a target outside its list.
+
+Protocol and limits: [local tunnel](references/live-session.md#local-tunnel).
+
 ### Administer tenants, tokens, users
 
 `/api/admin/*` with `system:admin`, `/api/tenant*` with `tenant:write`; routes and bodies are in the spec, delegation and allowlist rules in [control-plane.md](references/control-plane.md). A tenant with `ownerUserId` is a user's personal tenant, private to its owner: system administrators get `tenant_not_found` for it and never see it listed. `POST`/`DELETE /api/admin/users/{userId}/personal-tenant` create or delete one without revealing it, and `createPersonalTenant` on user creation does the same (default from `auto_create_personal_tenant`); the owner manages it through `/api/auth/personal-tenant`. Deleting one is final, and `allow_personal_tenants: false` refuses creation with `personal_tenants_disabled`.

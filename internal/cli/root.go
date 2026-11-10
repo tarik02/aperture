@@ -23,7 +23,7 @@ func Execute() error {
 
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "aperture",
+		Use:     "aperture-server",
 		Short:   "chromium session supervisor",
 		Version: version.Short(),
 	}

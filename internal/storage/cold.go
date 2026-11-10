@@ -56,7 +56,7 @@ func Prepare(ctx context.Context, cfg config.Config, repo *db.Repository) error 
 		}
 		if len(moves) > 0 {
 			return fmt.Errorf(
-				"%w: %d snapshot or session files directories under %s belong under cold_root %s; stop Aperture and run `aperture storage migrate`",
+				"%w: %d snapshot or session files directories under %s belong under cold_root %s; stop Aperture and run `aperture-server storage migrate`",
 				ErrStoreRootHasColdData, len(moves), cfg.StoreRoot, cfg.ColdRoot,
 			)
 		}

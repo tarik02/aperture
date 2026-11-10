@@ -1,0 +1,94 @@
+---
+title: Command line client
+description: Use an Aperture instance from a shell with the aperture client - sessions, snapshots, recordings, files, and the local tunnel.
+---
+
+`aperture` is the client of a running instance. It is one static binary with no runtime dependencies, for machines that use an instance without running one. The server is a different binary, `aperture-server`.
+
+## Install
+
+Each release, nightly builds included, carries `aperture-cli_<version>_<os>_<arch>` for Linux, macOS and Windows on amd64 and arm64, as `.tar.gz` (`.zip` on Windows). Unpack it and put `aperture` on your `PATH`.
+
+With Nix:
+
+```bash
+nix profile install github:tarik02/aperture#aperture-cli
+```
+
+## Connect
+
+| Setting  | Flag           | Environment          |
+| -------- | -------------- | -------------------- |
+| Instance | `--url`        | `APERTURE_URL`       |
+| Token    | `--token-file` | `APERTURE_TOKEN`     |
+| Tenant   | `--tenant`     | `APERTURE_TENANT_ID` |
+
+The token is an API token, or a session token (`aps_`) for the commands that act on one session: `files`, `tunnel` and `sessions pages`. A tenant is only needed with a token that covers several.
+
+```bash
+export APERTURE_URL=https://aperture.example
+export APERTURE_TOKEN=apt_…
+aperture whoami
+```
+
+Answers are the API's JSON, so they pipe into `jq`. The list commands print a table when standard output is a terminal and JSON otherwise; `--format json` or `--format table` picks one. An API error exits non-zero and prints `aperture: <code>: <message>` to standard error.
+
+## Commands
+
+| Command      | Does                                                                                                |
+| ------------ | --------------------------------------------------------------------------------------------------- |
+| `sessions`   | `list`, `get`, `create`, `pages`, `proxy`, `promote`, `suspend`, `reopen`, `rotate-token`, `delete` |
+| `snapshots`  | `list`, `delete`, `restore`                                                                         |
+| `recordings` | `list`, `get`, `start`, `stop`, `retarget`, `caption`, `focus`, `reset-focus`, `attention`          |
+| `files`      | `list`, `upload`, `download`, `url`, `delete`, `move`, `mkdir`                                      |
+| `tunnel`     | Attaches the local tunnel                                                                           |
+| `channels`   | Lists the browser channels a session can start with                                                 |
+| `whoami`     | Shows the principal and scopes behind the token                                                     |
+| `api`        | Sends any other request: `aperture api METHOD PATH [-d JSON\|@FILE\|-] [-q KEY=VALUE]`              |
+
+`--help` on a command lists its flags.
+
+```bash
+id=$(aperture sessions create --channel chromium --snapshot signed-in | jq -r .session.id)
+aperture files upload "$id" invoice.pdf
+aperture sessions suspend "$id"
+```
+
+## Record a tab
+
+```bash
+target=$(aperture sessions pages "$id" | jq -r '.pages[0].targetId')
+recording=$(aperture recordings start "$id" --target "$target" --capture bursts | jq -r .recordingId)
+# drive the browser
+edited=$(aperture recordings stop "$id" "$recording" --wait | jq -r .editedRelativePath)
+aperture files download "$id" "$edited"
+```
+
+`stop --wait` returns once the edited video exists.
+
+## Proxy rules
+
+`sessions proxy` replaces a session's whole rule list. A rule is `MATCH=VIA`, and the first match wins.
+
+```bash
+aperture sessions proxy "$id" '*.internal.example=corp' --upstream corp=@corp-proxy-url
+aperture sessions proxy "$id" '*=operator' \
+  --upstream operator=wss+yamux+socks5://tunnel.example/x \
+  --upstream-auth-file operator=operator-secret
+aperture sessions proxy "$id" --clear
+```
+
+A proxy URL with a password (`--upstream NAME=@FILE`) and a tunnel's bearer secret (`--upstream-auth-file`) are read from files, so neither appears in the process list. The instance never returns them: pass each upstream again, with its secret, whenever you replace the rules.
+
+`sessions create` takes the same flags with `--rule`.
+
+## Reach a local service
+
+The session's browser runs on the instance. A local tunnel lets it open a dev server on your machine as `localhost`.
+
+```bash
+aperture sessions proxy "$id" localhost:3000=local
+aperture tunnel "$id" localhost:3000
+```
+
+`tunnel` serves until interrupted. It dials only the `HOST:PORT` targets it was given and refuses every other connection the rules send it, so the machine being exposed decides what it exposes. The tunnel ends when the session suspends; attach again after it wakes. The browser must address the service as `localhost`, because loopback IPs bypass the proxy.

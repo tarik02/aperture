@@ -14,7 +14,7 @@ From the repository:
 
 ```bash
 nix build .#aperture
-./result/bin/aperture --help
+./result/bin/aperture-server --help
 ```
 
 Install into your user profile:
@@ -25,7 +25,7 @@ nix profile install .#aperture
 
 The package provides:
 
-- `aperture` — main supervisor CLI and HTTP API
+- `aperture-server` — the supervisor, its HTTP API and the local admin commands
 - `aperture-mount-session` / `aperture-unmount-session` — privileged overlay helpers (sudo)
 - `browser-session-wrapper` — bwrap Chromium launcher used by user systemd units
 - systemd user units under `$out/share/systemd/user/` (Nix fixup may also link `$out/lib/systemd/user/`)
@@ -115,9 +115,9 @@ Aperture keeps its persistent state in three separately configurable places:
 
 `runtime_root` holds transient state such as runtime env files and is usually on a tmpfs; `cold_root` must not overlap it.
 
-Set `store_root` and `cold_root` in the config file, not through environment variables or flags. The sudo mount helpers read only the root-owned config file, and they must see the same roots as the service. `aperture serve` refuses to start when the helper config sets a different `store_root` or `cold_root`.
+Set `store_root` and `cold_root` in the config file, not through environment variables or flags. The sudo mount helpers read only the root-owned config file, and they must see the same roots as the service. `aperture-server serve` refuses to start when the helper config sets a different `store_root` or `cold_root`.
 
-`cold_root` holds a `.aperture-root` marker with the install ID stored in the database. `aperture serve` checks it before using `cold_root`:
+`cold_root` holds a `.aperture-root` marker with the install ID stored in the database. `aperture-server serve` checks it before using `cold_root`:
 
 - A marker with this install's ID: start.
 - A marker with another ID: refuse to start. `cold_root` holds another install's data, or the database was replaced. If the database was restored from a backup older than this marker or recreated for the same data, replace the contents of `cold_root/.aperture-root` with the install ID the error prints.
@@ -134,18 +134,18 @@ Promotion copies the session's overlay upper directory from `store_root` into th
 
 #### Moving snapshots and session files to a new `cold_root`
 
-When `cold_root` differs from `store_root`, `aperture serve` refuses to start while snapshots or session files remain in the old locations under `store_root`, so they cannot silently disappear. To move them:
+When `cold_root` differs from `store_root`, `aperture-server serve` refuses to start while snapshots or session files remain in the old locations under `store_root`, so they cannot silently disappear. To move them:
 
 1. Stop or suspend every running session, then stop both API colors (`aperture@blue`, `aperture@green`).
 2. Set `cold_root` in the config file.
-3. Run `aperture storage migrate --config /etc/aperture/aperture.toml` as the Aperture user.
+3. Run `aperture-server storage migrate --config /etc/aperture/aperture.toml` as the Aperture user.
 4. Start Aperture again.
 
 The command refuses to run while any session overlay is mounted. On the same filesystem it renames each entry. Across filesystems it copies each snapshot and session files directory to a staging name next to its destination, verifies every file byte for byte, renames the copy into place, and removes the sources only after every entry is published. It keeps permissions, modification times, symlinks, and the hard links snapshots share, and it updates the paths recorded in the database. It refuses a `cold_root` marked by another install and writes this install's marker. An interrupted run can be repeated; entries that already exist at the destination are verified against their source instead of copied again, and a mismatch stops the migration.
 
 The command moves data only out of `store_root`. To move an existing `cold_root` elsewhere, stop Aperture and copy the whole tree, including `.aperture-root`, preserving hard links (for example `rsync -aH`).
 
-On first `aperture serve`, the database is migrated and a local job token is created at `$runtime_root/job-token` (mode `0600`). The GC timer uses `aperture trigger gc`, which reads that token and calls `POST /internal/jobs/gc` on the loopback listener.
+On first `aperture-server serve`, the database is migrated and a local job token is created at `$runtime_root/job-token` (mode `0600`). The GC timer uses `aperture-server trigger gc`, which reads that token and calls `POST /internal/jobs/gc` on the loopback listener.
 
 ### Personal tenants
 
@@ -163,7 +163,7 @@ Users manage their own personal tenant from **Personal tenant** in the account m
 
 A user without an explicit tenant selection lands in their personal tenant when they have one; otherwise the existing rule applies and a single membership is selected automatically.
 
-The local `aperture admin` CLI works directly on the database and still sees every tenant.
+The local `aperture-server admin` CLI works directly on the database and still sees every tenant.
 
 ## User systemd services
 
@@ -201,12 +201,12 @@ Edit the file to substitute your login user for `%aperture_user%` and the store-
 ## Bootstrap and operation
 
 ```bash
-aperture admin provision --admin-token-file ./admin-token
+aperture-server admin provision --admin-token-file ./admin-token
 ```
 
 The command migrates the database, creates a `default` tenant when no active tenant exists, and writes the initial system-admin token with mode `0600`. It is safe to run again; existing tokens and tenants are left unchanged.
 
-Garbage collection is not scheduled inside `aperture serve`; enable `aperture-gc.timer` or run `aperture trigger gc` manually.
+Garbage collection is not scheduled inside `aperture-server serve`; enable `aperture-gc.timer` or run `aperture-server trigger gc` manually.
 
 ## NixOS module
 

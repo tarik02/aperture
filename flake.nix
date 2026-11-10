@@ -610,7 +610,7 @@
             vendorHash = "sha256-LWbVaB5LEfdXZiu/AcWnaksJ0aP/Shtc/hcr9lU+0cQ=";
 
             subPackages = [
-              "cmd/aperture"
+              "cmd/aperture-server"
               "cmd/aperture-extension-native-host"
               "cmd/aperture-mount-session"
               "cmd/aperture-unmount-session"
@@ -757,10 +757,10 @@
               substituteInPlace $out/lib/systemd/user/aperture@.service \
                 --replace-fail '@runtimeShell@' ${pkgs.runtimeShell} \
                 --replace-fail '@apertureBinDir@' $out/bin \
-                --replace-fail '@apertureBin@' $out/bin/aperture \
+                --replace-fail '@apertureBin@' $out/bin/aperture-server \
                 --replace-fail '@deployVersion@' ${deployVersion}
               substituteInPlace $out/lib/systemd/user/aperture-gc.service \
-                --replace-fail '@apertureBin@' $out/bin/aperture
+                --replace-fail '@apertureBin@' $out/bin/aperture-server
               substituteInPlace $out/lib/systemd/user/aperture-traefik.service \
                 --replace-fail '@runtimeShell@' ${pkgs.runtimeShell} \
                 --replace-fail '@staticConfigTemplate@' $out/share/aperture/traefik/static.yaml.template \
@@ -790,6 +790,7 @@
             meta = with pkgs.lib; {
               description = "chromium session supervisor";
               license = licenses.mit;
+              mainProgram = "aperture-server";
             };
           }).overrideAttrs
             (oldAttrs: {
@@ -811,6 +812,26 @@
           overrideModAttrs = _: {
             name = "aperture-${deployVersion}-go-modules";
           };
+        };
+
+        apertureCli = buildGoModule {
+          pname = "aperture-cli";
+          version = deployVersion;
+          inherit src;
+          vendorHash = "sha256-LWbVaB5LEfdXZiu/AcWnaksJ0aP/Shtc/hcr9lU+0cQ=";
+          subPackages = [ "cmd/aperture" ];
+          env.CGO_ENABLED = "0";
+          doCheck = false;
+          ldflags = [
+            "-s"
+            "-w"
+            "-X github.com/aperture/aperture/internal/version.Version=${deployVersion}"
+            "-X github.com/aperture/aperture/internal/version.Commit=${sourceRevision}"
+          ];
+          overrideModAttrs = _: {
+            name = "aperture-${deployVersion}-go-modules";
+          };
+          meta.mainProgram = "aperture";
         };
 
         gpuDriverPackages = [
@@ -1207,6 +1228,7 @@
         packages = {
           default = aperture;
           aperture = aperture;
+          aperture-cli = apertureCli;
           aperture-companion = apertureCompanion;
           patched-weston = patchedWeston;
         }

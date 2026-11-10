@@ -89,3 +89,11 @@ Any CDP request wakes a `suspended` session, discovery included, and answers onc
 A local tunnel lets the browser reach services on the client's machine, such as a dev server. The session's [proxy rules](control-plane.md#egress-proxy) decide what it carries: connections whose rule says `"via": "local"`, for example `{"match": "localhost:3000", "via": "local"}`; the browser addresses them as `localhost`.
 
 Open `GET /sessions/:id/tunnel` with subprotocol `aperture-tunnel.v1`. Binary messages then carry a yamux session in which the client is the yamux server: Aperture opens one stream per matching browser connection, and each stream is a SOCKS5 conversation (no-auth greeting, `CONNECT` to the target) that the client answers by dialing the target locally. A session has one tunnel; a new attach replaces it, and `via: local` connections fail while none is attached.
+
+`aperture` (flake package `aperture-cli`, or the `aperture-cli` archive of a release) is the client:
+
+```bash
+APERTURE_TOKEN=<aps_ token> aperture tunnel https://aperture.example/sessions/<id> localhost:3000 localhost:5173
+```
+
+It serves until interrupted and dials only the listed `host:port` targets, refusing every other connection the rules send it, so each target needs a matching `via: local` rule and each rule a listed target. `--token-file` reads the token from a file instead. The tunnel ends when the session suspends; attach again after it wakes.

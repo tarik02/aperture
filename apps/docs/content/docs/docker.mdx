@@ -105,7 +105,7 @@ docker compose \
   -f compose.storage.yaml \
   up -d
 docker compose -f packaging/docker/compose.yaml -f compose.storage.yaml exec aperture \
-  s6-setuidgid aperture aperture --config /etc/aperture/aperture.toml storage migrate
+  s6-setuidgid aperture aperture-server --config /etc/aperture/aperture.toml storage migrate
 ```
 
 ### GPU rendering and encoding
@@ -223,14 +223,14 @@ A new data volume has no API tokens. Bootstrap it once and store the printed sys
 
 ```bash
 docker compose -f packaging/docker/compose.yaml exec aperture \
-  aperture --config /etc/aperture/aperture.toml admin bootstrap
+  aperture-server --config /etc/aperture/aperture.toml admin bootstrap
 ```
 
 Create a tenant and copy its `tenant id` from the output:
 
 ```bash
 docker compose -f packaging/docker/compose.yaml exec aperture \
-  aperture --config /etc/aperture/aperture.toml admin tenants create \
+  aperture-server --config /etc/aperture/aperture.toml admin tenants create \
   --display-name docker
 ```
 

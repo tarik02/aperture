@@ -8,9 +8,28 @@ before:
     - pnpm --filter @aperture-browser/web build
 
 builds:
-  - id: aperture
+  - id: aperture-cli
     main: ./cmd/aperture
     binary: aperture
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    goamd64:
+      - v1
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/aperture/aperture/internal/version.Version={{ .Version }} -X github.com/aperture/aperture/internal/version.Commit={{ .FullCommit }}
+
+  - id: aperture-server
+    main: ./cmd/aperture-server
+    binary: aperture-server
     env:
       - CGO_ENABLED=1
     goos:
@@ -73,14 +92,28 @@ builds:
       - -s -w
 
 archives:
-  - ids:
-      - aperture
+  - id: aperture-cli
+    ids:
+      - aperture-cli
+    formats:
+      - tar.gz
+    name_template: "aperture-cli_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - LICENSE
+
+  - id: aperture-server
+    ids:
+      - aperture-server
       - aperture-mount-session
       - aperture-unmount-session
       - browser-session-wrapper
     formats:
       - tar.gz
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: "aperture-server_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     wrap_in_directory: true
     files:
       - LICENSE
