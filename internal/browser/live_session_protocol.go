@@ -66,9 +66,12 @@ func (session *liveSession) handleSessionMessage(client *liveSessionClient, tran
 			result.OK = liveSessionBool(true)
 			_ = transport.send(liveSessionDeliveryReliable, mustJSON(result))
 		}
-		if message.Type == "recording.stop" || message.Type == "recording.cancel" {
-			go run() // these wait for the gate and for the capture to end; the client's other messages must not
-		} else {
+		switch message.Type {
+		case "recording.stop", "recording.cancel", "clipboard.read", "clipboard.write":
+			// These wait for the capture to end or for the browser to hand over clipboard data; the
+			// client's other messages must not.
+			go run()
+		default:
 			run()
 		}
 		return
@@ -131,6 +134,8 @@ func isLiveSessionCommand(messageType string) bool {
 		"presentation.quality.set",
 		"presentation.cursor.set",
 		"automation.pacing.set",
+		"clipboard.read",
+		"clipboard.write",
 		"recording.start",
 		"recording.stop",
 		"recording.cancel":
@@ -284,6 +289,10 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		}
 		client.watchable.Store(message.Pacing == automationPacingWatchable)
 		return liveSessionServerMessage{}, nil
+	case "clipboard.read":
+		return session.readClipboard(client, message)
+	case "clipboard.write":
+		return session.commitClipboardWrite(client, message)
 	case "recording.start":
 		if !client.canRecord() {
 			return liveSessionServerMessage{}, errRecordingRole

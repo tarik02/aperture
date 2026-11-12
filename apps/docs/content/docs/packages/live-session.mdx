@@ -9,7 +9,7 @@ npm install @aperture-browser/live-session effect
 
 - The `aperture-session.v1` protocol, decoded with Effect Schema.
 - `LiveSessionConnection.make`, a scoped Effect that connects over WebRTC and falls back to WebSocket raster frames. Its `access` option selects direct credentials or a consumer-authenticated relay. `access.baseUrl` supports relative URLs and preserves mount prefixes.
-- Helpers that map DOM keyboard and pointer events to browser input messages, and the viewport math for scaling between the page and the remote browser.
+- Clipboard reads and writes over that connection, and helpers that map DOM keyboard and pointer events to browser input messages, and the viewport math for scaling between the page and the remote browser.
 
 `getSessionStatus(access)` loads media/ICE configuration using the same connection settings. Direct access takes `{ kind: "direct", baseUrl?, sessionId, credentials }`; relay access takes `{ kind: "relay", baseUrl, sessionId }` and must use the page's origin.
 
@@ -19,4 +19,4 @@ For a ready-made UI, or a React hook over this client, see [session-react](/docs
 
 ## Server compatibility
 
-Setting the `autoSize` connection option adds an `autoSize` field to the session hello, which opts the client into [viewport ownership](https://github.com/tarik02/aperture/blob/master/docs/adr/0014-one-viewport-owner-for-auto-size.md). Servers without viewport ownership, from before [#126](https://github.com/tarik02/aperture/pull/126) and the first nightly that includes it, reject that hello and close the connection. `session-react` always sets it. Run a server at least as new as the packages you embed, or leave `autoSize` unset when using this package directly against an older server.
+Setting the `autoSize` connection option adds an `autoSize` field to the session hello, which opts the client into [viewport ownership](https://github.com/tarik02/aperture/blob/master/docs/adr/0014-one-viewport-owner-for-auto-size.md). Setting the `clipboard` connection option adds a `clipboard` field, which opts it into browser clipboard state and the `clipboard.read`/`clipboard.write` commands. Servers without viewport ownership, from before [#126](https://github.com/tarik02/aperture/pull/126) and the first nightly that includes it, reject the `autoSize` hello; servers before [#204](https://github.com/tarik02/aperture/pull/204) reject the `clipboard` one. `session-react` always sets both. Run a server at least as new as the packages you embed, or leave those options unset when using this package directly against an older server.

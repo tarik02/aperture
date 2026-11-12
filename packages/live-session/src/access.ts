@@ -1,6 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
+import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import {
@@ -72,14 +74,16 @@ export function sessionProtocols(access: SessionAccess): string[] {
   return protocols;
 }
 
-/** GETs a session route with the credentials this access sends itself. */
-function sessionGet(access: SessionAccess, url: URL) {
+/** Sends a session request with the credentials this access sends itself. */
+function sessionRequest(access: SessionAccess, request: HttpClientRequest.HttpClientRequest) {
   const { token, tenantId } = directAuthorization(access);
-  const headers: Record<string, string> = {};
-  if (token !== undefined) headers.Authorization = `Bearer ${token}`;
-  if (tenantId !== undefined) headers["X-Aperture-Tenant-Id"] = tenantId;
+  let authorized = request;
+  if (token !== undefined) authorized = HttpClientRequest.bearerToken(authorized, token);
+  if (tenantId !== undefined) {
+    authorized = HttpClientRequest.setHeader(authorized, "X-Aperture-Tenant-Id", tenantId);
+  }
   return Effect.flatMap(HttpClient.HttpClient, (http) =>
-    HttpClient.filterStatusOk(http).get(url.toString(), { headers }),
+    HttpClient.filterStatusOk(http).execute(authorized),
   ).pipe(
     Effect.provideService(FetchHttpClient.RequestInit, {
       // Bearer access must not also carry the page's cookies; relay and cookie access need them.
@@ -88,6 +92,11 @@ function sessionGet(access: SessionAccess, url: URL) {
       cache: "no-store",
     }),
   );
+}
+
+/** GETs a session route with the credentials this access sends itself. */
+function sessionGet(access: SessionAccess, url: URL) {
+  return sessionRequest(access, HttpClientRequest.get(url.toString()));
 }
 
 export const getSessionStatus = Effect.fn("getSessionStatus")(function* (access: SessionAccess) {
@@ -137,5 +146,90 @@ export const getTargetThumbnail = Effect.fn("getTargetThumbnail")(function* (
       Effect.map(response.arrayBuffer, (body) => new Blob([body], { type: "image/jpeg" })),
     ),
     toApiRequestError,
+  );
+});
+
+/** The session files directory clipboard data passes through; the browser deletes what is left. */
+const CLIPBOARD_DIRECTORY = "clipboard";
+
+/** Whether this access reaches the session files API, which clipboard data too large for a
+ * session message passes through. Relays do not forward it. */
+export const reachesSessionFiles = (access: SessionAccess) => access.kind === "direct";
+
+function sessionFilesURL(access: SessionAccess, route = "") {
+  return mountURL(
+    access,
+    UrlPath.make`api/sessions/${access.sessionId}/files${UrlPath.raw(route)}`,
+  );
+}
+
+const UploadedFiles = Schema.Struct({
+  files: Schema.Array(Schema.Struct({ relativePath: Schema.String })),
+});
+
+const DownloadURL = Schema.Struct({ url: Schema.String });
+
+/** Stores data for a paste in the clipboard directory and returns its relative path. */
+export const uploadClipboardFile = Effect.fn("uploadClipboardFile")(function* (
+  access: SessionAccess,
+  data: Blob,
+) {
+  const form = new FormData();
+  form.append("files", data, `paste-${crypto.randomUUID()}`);
+  const request = HttpClientRequest.post(sessionFilesURL(access).toString()).pipe(
+    HttpClientRequest.setUrlParam("directory", CLIPBOARD_DIRECTORY),
+    HttpClientRequest.bodyFormData(form),
+  );
+  const uploaded = yield* sessionRequest(access, request).pipe(
+    Effect.flatMap(HttpClientResponse.schemaBodyJson(UploadedFiles)),
+    toApiRequestError,
+  );
+  return uploaded.files[0]?.relativePath;
+});
+
+/** Deletes a clipboard file; one the browser already deleted counts as deleted. */
+export const deleteClipboardFile = Effect.fn("deleteClipboardFile")(function* (
+  access: SessionAccess,
+  relativePath: string,
+) {
+  const request = HttpClientRequest.make("DELETE")(sessionFilesURL(access).toString()).pipe(
+    HttpClientRequest.setUrlParam("relativePath", relativePath),
+  );
+  yield* sessionRequest(access, request).pipe(
+    Effect.catchTag("HttpClientError", (error) =>
+      error.response?.status === 404 ? Effect.void : Effect.fail(error),
+    ),
+    toApiRequestError,
+  );
+});
+
+/** Downloads the clipboard file the browser stored for a copy, then deletes it. */
+export const takeClipboardFile = Effect.fn("takeClipboardFile")(function* (
+  access: SessionAccess,
+  relativePath: string,
+  mimeType: string,
+) {
+  const download = Effect.gen(function* () {
+    const { url } = yield* sessionRequest(
+      access,
+      HttpClientRequest.post(sessionFilesURL(access, "/download-url").toString()).pipe(
+        HttpClientRequest.bodyJsonUnsafe({ relativePath, ttlSeconds: 60 }),
+      ),
+    ).pipe(Effect.flatMap(HttpClientResponse.schemaBodyJson(DownloadURL)));
+    // The signed URL is the credential.
+    const response = yield* Effect.flatMap(HttpClient.HttpClient, (http) =>
+      HttpClient.filterStatusOk(http).get(url),
+    ).pipe(
+      Effect.provideService(FetchHttpClient.RequestInit, {
+        credentials: "omit",
+        redirect: "error",
+        cache: "no-store",
+      }),
+    );
+    const body = yield* response.arrayBuffer;
+    return new Blob([body], { type: mimeType });
+  }).pipe(toApiRequestError);
+  return yield* download.pipe(
+    Effect.ensuring(Effect.ignore(deleteClipboardFile(access, relativePath))),
   );
 });

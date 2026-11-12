@@ -7,8 +7,17 @@ import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import type { IceServer } from "@aperture-browser/api-client";
-import { sessionWebSocketURL, sessionProtocols, type SessionAccess } from "./access.ts";
+import {
+  deleteClipboardFile,
+  reachesSessionFiles,
+  sessionWebSocketURL,
+  sessionProtocols,
+  takeClipboardFile,
+  uploadClipboardFile,
+  type SessionAccess,
+} from "./access.ts";
 import {
   decodeServerMessage,
   RasterFrameHeader,
@@ -54,6 +63,11 @@ interface LiveSessionConnectionOptions {
    * viewport ownership state; omit it to keep the pre-ownership protocol.
    */
   autoSize?: () => boolean;
+  /**
+   * Reads the current clipboard preference for each hello. Sending it opts the client into
+   * browser clipboard state and commands; omit it to keep the pre-clipboard protocol.
+   */
+  clipboard?: () => boolean;
   iceServers: readonly IceServer[];
   webrtcSupported: boolean;
   callbacks: LiveSessionConnectionCallbacks;
@@ -73,7 +87,22 @@ export interface LiveSessionConnection {
     type: string,
     payload?: Record<string, unknown>,
   ) => Effect.Effect<LiveSessionCommandResult, LiveSessionError>;
+  /** Reads one type of data from the browser's clipboard. */
+  readonly readClipboard: (mimeType: string) => Effect.Effect<Blob, LiveSessionError>;
+  /** Makes the given data, one entry per type, the browser's clipboard. */
+  readonly writeClipboard: (
+    items: ReadonlyArray<ClipboardData>,
+  ) => Effect.Effect<void, LiveSessionError>;
 }
+
+export interface ClipboardData {
+  readonly mimeType: string;
+  readonly data: Blob;
+}
+
+/** JSON-encoded clipboard text sent inside one session message, below the 64 KiB a data channel
+ * may allow. Larger or binary data passes through session files. */
+const CLIPBOARD_INLINE_BYTES = 48 * 1024;
 
 interface TransportRequest {
   kind: LiveSessionTransportKind;
@@ -168,6 +197,7 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
     type: "session.hello",
     ...(identity ?? options.identity),
     ...(options.autoSize === undefined ? {} : { autoSize: options.autoSize() }),
+    ...(options.clipboard === undefined ? {} : { clipboard: options.clipboard() }),
   });
 
   const transportCallbacks: TransportCallbacks = {
@@ -470,6 +500,28 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
     return active?.sendRealtime({ realtimeCounter, ...message }) ?? false;
   };
 
+  const newRequestId = () => {
+    nextRequestId += 1;
+    return `request-${nextRequestId}`;
+  };
+
+  const transportUnavailableError = () =>
+    new LiveSessionError({ message: "live session transport is unavailable" });
+
+  const filesReachable = reachesSessionFiles(options.access);
+
+  const sendCommand = (type: string, requestId: string, payload: Record<string, unknown>) => {
+    const deferred = Deferred.makeUnsafe<LiveSessionCommandResult, LiveSessionError>();
+    pendingCommands.set(requestId, deferred);
+    if (!sendReliable({ type, requestId, ...payload })) {
+      pendingCommands.delete(requestId);
+      return Effect.fail(transportUnavailableError());
+    }
+    return Deferred.await(deferred).pipe(
+      Effect.onInterrupt(() => Effect.sync(() => pendingCommands.delete(requestId))),
+    );
+  };
+
   const close = () => {
     disposed = true;
     stopTransports("live session connection closed");
@@ -529,20 +581,74 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
     sendRealtime,
 
     command: (type, payload = {}) =>
-      Effect.suspend(() => {
-        nextRequestId += 1;
-        const requestId = `request-${nextRequestId}`;
-        const deferred = Deferred.makeUnsafe<LiveSessionCommandResult, LiveSessionError>();
-        pendingCommands.set(requestId, deferred);
-        if (!sendReliable({ type, requestId, ...payload })) {
-          pendingCommands.delete(requestId);
-          return Effect.fail(
-            new LiveSessionError({ message: "live session transport is unavailable" }),
-          );
-        }
-        return Deferred.await(deferred).pipe(
-          Effect.onInterrupt(() => Effect.sync(() => pendingCommands.delete(requestId))),
-        );
+      Effect.suspend(() => sendCommand(type, newRequestId(), payload)),
+
+    readClipboard: (mimeType) =>
+      Effect.suspend(() =>
+        sendCommand("clipboard.read", newRequestId(), {
+          mimeType,
+          ...(filesReachable ? { files: true } : {}),
+        }),
+      ).pipe(
+        Effect.flatMap((result) => {
+          if (result.text !== undefined) {
+            return Effect.succeed(new Blob([result.text], { type: mimeType }));
+          }
+          if (result.relativePath !== undefined) {
+            return takeClipboardFile(options.access, result.relativePath, mimeType).pipe(
+              Effect.provide(FetchHttpClient.layer),
+              Effect.mapError(
+                () => new LiveSessionError({ message: "clipboard data could not be downloaded" }),
+              ),
+            );
+          }
+          return Effect.fail(new LiveSessionError({ message: "clipboard read returned no data" }));
+        }),
+      ),
+
+    writeClipboard: (items) =>
+      Effect.gen(function* () {
+        const uploaded: string[] = [];
+        const removeUploaded = Effect.forEach(
+          uploaded,
+          (relativePath) => Effect.ignore(deleteClipboardFile(options.access, relativePath)),
+          { discard: true },
+        ).pipe(Effect.provide(FetchHttpClient.layer));
+        const write = Effect.gen(function* () {
+          let inlineBudget = CLIPBOARD_INLINE_BYTES;
+          const payload: Array<{ mimeType: string; text?: string; relativePath?: string }> = [];
+          for (const item of items) {
+            const text = yield* inlineClipboardText(item.data, inlineBudget);
+            if (text !== undefined) {
+              inlineBudget -= jsonByteLength(text);
+              payload.push({ mimeType: item.mimeType, text });
+              continue;
+            }
+            if (!filesReachable) {
+              return yield* Effect.fail(
+                new LiveSessionError({
+                  message: "clipboard data is too large for this connection",
+                }),
+              );
+            }
+            const relativePath = yield* uploadClipboardFile(options.access, item.data).pipe(
+              Effect.provide(FetchHttpClient.layer),
+              Effect.mapError(
+                () => new LiveSessionError({ message: "clipboard data could not be uploaded" }),
+              ),
+            );
+            if (relativePath === undefined) {
+              return yield* Effect.fail(
+                new LiveSessionError({ message: "clipboard data could not be uploaded" }),
+              );
+            }
+            uploaded.push(relativePath);
+            payload.push({ mimeType: item.mimeType, relativePath });
+          }
+          yield* sendCommand("clipboard.write", newRequestId(), { items: payload });
+        });
+        // The browser deletes the files of a write it received; these are the ones it may not have.
+        yield* write.pipe(Effect.onError(() => removeUploaded));
       }),
   } satisfies LiveSessionConnection;
 });
@@ -973,3 +1079,22 @@ function decodeRasterFrame(packet: Blob): Effect.Effect<Option.Option<LiveSessio
 }
 
 export type { LiveSessionConnectionCallbacks, LiveSessionConnectionOptions, LiveSessionSnapshot };
+
+const jsonByteLength = (text: string) => new TextEncoder().encode(JSON.stringify(text)).length;
+
+/** The item's data as text when it is UTF-8 that fits the remaining inline budget. */
+const inlineClipboardText = (data: Blob, budget: number) =>
+  Effect.gen(function* () {
+    if (data.size > budget) return undefined;
+    const buffer = yield* Effect.tryPromise({
+      try: () => data.arrayBuffer(),
+      catch: () => new LiveSessionError({ message: "clipboard data could not be read" }),
+    });
+    let text: string;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(buffer);
+    } catch {
+      return undefined;
+    }
+    return jsonByteLength(text) <= budget ? text : undefined;
+  });

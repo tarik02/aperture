@@ -20,9 +20,9 @@ Authorization failures use the API error envelope; failures inside the session a
 
 Both WebSockets take the exact subprotocol `aperture-session.v1`; API tokens and capabilities ride along as further subprotocols, `authorization.bearer.<token>` and, for a system-admin token, `x-aperture-tenant-id.<tenantId>`.
 
-1. The client sends `session.hello` with `name` and `avatarHash`, and `autoSize: true|false` when it wants to take part in [viewport ownership](#viewport-ownership).
-2. The server answers `session.snapshot`: `clientId`, `resumeSecret`, `role`, `transport`, `targets`, `activeTargetId`, `participants`, `holderClientId` and lease `mode`, `recordings`, and the viewport-owner fields for clients that opted in. The snapshot is the whole recoverable state; realtime data is never in it.
-3. State arrives as `targets.state`, `presentation.state`, `viewport.state`, `input.state`, `presence.state`, `recordings.state`, and the realtime `presence.cursor`, `presence.cursor.clear` and `paint.point`.
+1. The client sends `session.hello` with `name` and `avatarHash`, and `autoSize: true|false` when it wants to take part in [viewport ownership](#viewport-ownership), and `clipboard: true` when it wants the [browser clipboard](#browser-clipboard).
+2. The server answers `session.snapshot`: `clientId`, `resumeSecret`, `role`, `transport`, `targets`, `activeTargetId`, `participants`, `holderClientId` and lease `mode`, `recordings`, and the viewport-owner fields for clients that opted in, and `clipboard` for owners and editors that opted in. The snapshot is the whole recoverable state; realtime data is never in it.
+3. State arrives as `targets.state`, `presentation.state`, `viewport.state`, `input.state`, `presence.state`, `recordings.state`, `clipboard.state`, and the realtime `presence.cursor`, `presence.cursor.clear` and `paint.point`.
 
 **Resume.** When the transport drops, reconnect within five seconds and send `session.hello` with `clientId` and `resumeSecret` instead of `name` and `avatarHash`, plus the normal authorization. The client keeps its identity, lease and recordings; the new snapshot is the truth to reconcile against. Commands that were in flight have failed; wait for a new user action instead of replaying them.
 
@@ -46,6 +46,15 @@ Both WebSockets take the exact subprotocol `aperture-session.v1`; API tokens and
 ## Viewport ownership
 
 One client at a time, the viewport owner, resizes the browser to its own presentation size. Only clients whose hello carried `autoSize` receive `viewportOwnerClientId` and `autoSize` in snapshots and `viewport.state`. `viewport.auto-size.set {enabled: true}` and `viewport.owner.claim` take ownership; `viewport.set` with `autoSize: true` resizes only for the owner and fails with `viewport_not_owned` otherwise. A `viewport.set` without `autoSize`, or the viewport route, is an explicit resize: it applies and leaves ownership vacant until a client takes it again. The route answers with `targetId`, the media `generation` and the applied `viewport` (logical size, DPR-scaled content size, media canvas in 64 px steps, effective scale); widths below 500 become 500.
+
+## Browser clipboard
+
+Owners and editors whose hello carried `clipboard: true` receive the browser's clipboard in the snapshot and in `clipboard.state`: `clipboard {text, truncated?, types?, pasted?, revision}`. `types` lists the MIME types the clipboard's owner offers. `pasted` marks data a client's `clipboard.write` put there rather than a program in the browser. `revision` grows with every change, so copying the same text again is still visible. The text is cut to about 28 KiB of JSON and then carries `truncated: true`, and a pathological list of types is cut for the same reason. A server that predates this rejects a hello with `clipboard`. Only sessions on the aperture PipeWire shell share the clipboard; elsewhere the snapshot omits it and the commands below fail.
+
+Small text travels inside the messages; anything else passes through session files in `clipboard/`, which needs the session files API (the owner or an editor, not through a relay). Clipboards carry passwords, so files there are deleted as soon as they are used, and the session deletes any left after a minute. At most 16 MiB moves per transfer.
+
+- `clipboard.read {mimeType, files?}` (owner, editor) answers `clipboard.read.result` with `mimeType` and either `text`, for UTF-8 data up to about 48 KiB of JSON, or, when the read set `files: true`, `relativePath`: download it through a signed URL, then delete it. Without `files`, larger or binary data fails the read.
+- `clipboard.write {items: [{mimeType, text} | {mimeType, relativePath}]}` pastes one entry per type, at most eight. Keep the texts together under about 48 KiB of JSON; upload anything else to `clipboard/` first (`POST /api/sessions/:id/files?directory=clipboard`) and name the file. The session deletes those files whether or not the write succeeds. The client must hold the input lease; it is a paste, so it follows [ADR 0003](../../../docs/adr/0003-session-wide-collaboration-coordinator.md). The data becomes the browser's clipboard; press Ctrl+V through the input lease to paste it. `text/plain` is also offered as `text/plain;charset=utf-8` and `UTF8_STRING`.
 
 ## Automation pacing
 

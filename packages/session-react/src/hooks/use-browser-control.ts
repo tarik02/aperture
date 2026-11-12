@@ -16,9 +16,11 @@ import {
   getTargetThumbnail,
   LiveSessionError,
   type BrowserInputMessage,
+  type ClipboardData,
 } from "@aperture-browser/live-session";
 import type {
   SessionAccess,
+  LiveSessionClipboard,
   LiveSessionPresentation,
   LiveSessionPresentationQuality,
   LiveSessionRasterFrame,
@@ -64,6 +66,9 @@ export interface BrowserCommands {
 export type BrowserMediaPath = "webrtc-live" | "websocket-live";
 export type BrowserMediaPhase = "idle" | "connecting" | "live" | "failed";
 
+/** Reads one type of data from the browser's clipboard. */
+export type ReadClipboard = (mimeType: string) => Effect.Effect<Blob, LiveSessionError>;
+
 export interface UseBrowserControlResult {
   phase: LiveSessionControl["phase"];
   targets: readonly LiveSessionTarget[];
@@ -95,6 +100,14 @@ export interface UseBrowserControlResult {
   viewportAutoSizeDefault: boolean;
   captured: boolean;
   recordings: readonly Recording[];
+  /** The browser's clipboard, or null when the server does not share it. */
+  clipboard: LiveSessionClipboard | null;
+  /** Revision of the newest clipboard change that followed this client's copy or cut shortcut. */
+  ownClipboardRevision: number | null;
+  /** Reads one type of data from one of the browser's selections. */
+  readClipboard: ReadClipboard;
+  /** Makes the given data the browser's clipboard. */
+  writeClipboard: (items: ReadonlyArray<ClipboardData>) => Effect.Effect<void, LiveSessionError>;
   /** Loads a JPEG preview of one tab, or is null while the session has no access. */
   loadTargetThumbnail:
     | ((targetId: string) => Effect.Effect<Blob, ApiRequestError, HttpClient.HttpClient>)
@@ -679,6 +692,10 @@ export function useBrowserControl({
     viewportAutoSizeDefault,
     captured,
     recordings: live.recordings,
+    clipboard: live.clipboard,
+    ownClipboardRevision: live.ownClipboardRevision,
+    readClipboard: live.readClipboard,
+    writeClipboard: live.writeClipboard,
     canRecord,
     loadTargetThumbnail,
     recordingBusy,

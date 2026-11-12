@@ -9,7 +9,7 @@ Every session has one files root; a session file is a regular file below it, nam
 | `uploads/` | files sent in through the uploads routes |
 | `outputs/` | Playwright MCP output such as screenshots; a tool given an explicit file name writes to that path instead |
 
-The four directories cannot be deleted or moved. In-progress uploads and recording segments are hidden and are not session files. Files outlive suspension and deletion until the session expires; they never enter a promoted snapshot, and a session created from a snapshot starts with none.
+The four directories cannot be deleted or moved. `clipboard/` holds [clipboard data](live-session.md#browser-clipboard) in transit while the session runs; its files are deleted once used, and any file there older than a minute is deleted. In-progress uploads and recording segments are hidden and are not session files. Files outlive suspension and deletion until the session expires; they never enter a promoted snapshot, and a session created from a snapshot starts with none.
 
 ## Listing and managing
 

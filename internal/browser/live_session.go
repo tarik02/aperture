@@ -99,6 +99,15 @@ type liveSession struct {
 	lastActiveTargetID string
 	thumbnails         wrapperThumbnailCache
 	favicons           wrapperFaviconCache
+	// clipboard is the browser's clipboard, sent to clients that asked for it.
+	clipboard liveSessionClipboard
+	// clipboardBroadcast is the pending coalesced clipboard.state, or nil.
+	clipboardBroadcast *time.Timer
+	// pasted is the data behind the clipboard this wrapper set; clipboardWriteMu orders pastes.
+	pasted           []liveSessionClipboardItem
+	clipboardWriteMu sync.Mutex
+	// clipboardReadSlots bounds clipboard reads in flight; each waits on the compositor.
+	clipboardReadSlots chan struct{}
 }
 
 type liveSessionClient struct {
@@ -139,6 +148,7 @@ type liveSessionClient struct {
 	autoSizeAware             bool
 	autoSize                  bool
 	autoSizeSequence          uint64
+	clipboardAware            bool
 }
 
 type liveSessionCloseRequest struct {
@@ -208,8 +218,13 @@ type liveSessionClientMessage struct {
 	RealtimeCounter       uint64  `json:"realtimeCounter"`
 	Visible               *bool   `json:"visible"`
 	AutoSize              *bool   `json:"autoSize"`
-	Enabled               *bool   `json:"enabled"`
-	Pacing                string  `json:"pacing"`
+	Clipboard             *bool   `json:"clipboard"`
+	MimeType              string  `json:"mimeType"`
+	// Files lets clipboard.read answer with a session file when the data does not fit inline.
+	Files   bool                            `json:"files"`
+	Items   []liveSessionClipboardWriteItem `json:"items"`
+	Enabled *bool                           `json:"enabled"`
+	Pacing  string                          `json:"pacing"`
 	// recording.start's edit settings; see recording.Config.
 	Capture string            `json:"capture"`
 	Pace    string            `json:"pace"`
@@ -261,6 +276,12 @@ type liveSessionServerMessage struct {
 	// because older clients reject unknown properties.
 	ViewportOwnerClientID string `json:"viewportOwnerClientId,omitempty"`
 	AutoSize              *bool  `json:"autoSize,omitempty"`
+	// Clipboard is sent only to clients whose hello asked for it, for the same reason.
+	Clipboard *liveSessionClipboard `json:"clipboard,omitempty"`
+	// A clipboard.read result carries its data as Text or as the session file at RelativePath.
+	MimeType     string  `json:"mimeType,omitempty"`
+	Text         *string `json:"text,omitempty"`
+	RelativePath string  `json:"relativePath,omitempty"`
 }
 
 type liveSessionPresentation struct {
@@ -292,19 +313,24 @@ func newLiveSession(runtime *wrapperRuntime) (*liveSession, error) {
 		input = compositorInput
 	}
 	session := &liveSession{
-		runtime:       runtime,
-		input:         input,
-		browser:       newLiveSessionBrowser(runtime),
-		clients:       make(map[string]*liveSessionClient),
-		recordings:    make(map[string]*wrapperRecording),
-		gate:          make(chan struct{}, 1),
-		cursorVisible: true,
+		runtime:            runtime,
+		input:              input,
+		browser:            newLiveSessionBrowser(runtime),
+		clients:            make(map[string]*liveSessionClient),
+		recordings:         make(map[string]*wrapperRecording),
+		gate:               make(chan struct{}, 1),
+		clipboardReadSlots: make(chan struct{}, liveSessionClipboardConcurrentReads),
+		cursorVisible:      true,
 	}
 	session.viewportScheduler = newLiveSessionViewportScheduler(session)
 	return session, nil
 }
 
 func (session *liveSession) run(ctx context.Context) {
+	if multiTargetCompositorEnabled(session.runtime.values) {
+		go session.watchClipboard(ctx)
+		go session.sweepClipboardFiles(ctx)
+	}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
