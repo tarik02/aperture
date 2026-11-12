@@ -603,7 +603,8 @@ type mcpConnectionOutput struct {
 }
 
 func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
-	server := mcp.NewServer(&mcp.Implementation{Name: "aperture", Version: s.DeployVersion}, nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "aperture", Version: s.DeployVersion}, &mcp.ServerOptions{Instructions: mcpInstructions(a)})
+	addMCPGuideResources(server)
 	// A session outlives the request that created it; authorize every message
 	// with the credentials of the request that carried it, so revocations and
 	// membership changes apply immediately.

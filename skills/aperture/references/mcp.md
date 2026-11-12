@@ -23,6 +23,8 @@ Access tokens (`apo_...`) last one hour and refresh tokens (`apr_...`) 30 days; 
 - Native, central only: the rest of `sessions.*` (`create`, `create_from_snapshot`, `list`, `get`, `bulk_get`, `reopen`, `replace_tags`, `update_proxy`, `delete`, `session_token_rotate`), `snapshots.*`, `events.list`, `browser.channels`, `tenant.*`, `tenants.*`, `tokens.*`.
 - Browser tools: Playwright MCP's `browser_*` tools, for the session named by the arguments or the URL.
 
+The `initialize` result carries short instructions for the endpoint, and `resources/list` serves this skill as `aperture://guide/SKILL.md` and `aperture://guide/references/*.md`, for clients that cannot install it.
+
 Status, connection, list and bulk tools read without waking a suspended session; browser tools, `browser.targets` and recording tools wake it for the call. Connecting and listing tools never wake anything.
 
 ## Browser tools
