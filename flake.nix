@@ -142,7 +142,12 @@
           </fontconfig>
         '';
 
-        browserCursorTheme = pkgs.adwaita-icon-theme;
+        # libwayland-cursor, which Chromium loads cursors through, ignores XCURSOR_THEME and
+        # only ever opens the theme named "default"; without one it draws its built-in bitmaps.
+        browserCursorPath = pkgs.runCommand "aperture-cursor-theme" { } ''
+          mkdir -p $out
+          ln -s ${pkgs.adwaita-icon-theme}/share/icons/Adwaita $out/default
+        '';
 
         runtimeGstreamer =
           (pkgs.gst_all_1.gstreamer.override {
@@ -380,8 +385,8 @@
               makeWrapper $out/libexec/chromium/chromium $out/bin/chromium \
                 --set CHROME_WRAPPER chromium \
                 --set FONTCONFIG_FILE ${browserFontsConf} \
-                --set XCURSOR_PATH ${browserCursorTheme}/share/icons \
-                --set XCURSOR_THEME Adwaita \
+                --set XCURSOR_PATH ${browserCursorPath} \
+                --set XCURSOR_THEME default \
                 --set XCURSOR_SIZE 24 \
                 --prefix LD_LIBRARY_PATH : ${
                   lib.makeLibraryPath [
@@ -697,6 +702,12 @@
                 ${pkgs.wayland-protocols}/share/wayland-protocols/staging/fractional-scale/fractional-scale-v1.xml \
                 $TMPDIR/aperture-wayland-protocols/fractional-scale-v1-server-protocol.h
               ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
+                ${pkgs.wayland-protocols}/share/wayland-protocols/staging/cursor-shape/cursor-shape-v1.xml \
+                $TMPDIR/aperture-wayland-protocols/cursor-shape-v1-protocol.c
+              ${pkgs.wayland-scanner.bin}/bin/wayland-scanner server-header \
+                ${pkgs.wayland-protocols}/share/wayland-protocols/staging/cursor-shape/cursor-shape-v1.xml \
+                $TMPDIR/aperture-wayland-protocols/cursor-shape-v1-server-protocol.h
+              ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
                 ${pkgs.wayland-protocols}/share/wayland-protocols/stable/viewporter/viewporter.xml \
                 $TMPDIR/aperture-wayland-protocols/viewporter-protocol.c
               ${pkgs.wayland-scanner.bin}/bin/wayland-scanner server-header \
@@ -713,13 +724,15 @@
                 $TMPDIR/aperture-wayland-protocols/text-input-unstable-v3-server-protocol.h
               $CC -shared -fPIC \
                 -I$TMPDIR/aperture-wayland-protocols \
+                -DAPERTURE_XCURSOR_PATH='"${browserCursorPath}"' \
                 native/weston-aperture-shell/aperture-weston-shell.c \
+                $TMPDIR/aperture-wayland-protocols/cursor-shape-v1-protocol.c \
                 $TMPDIR/aperture-wayland-protocols/fractional-scale-v1-protocol.c \
                 $TMPDIR/aperture-wayland-protocols/viewporter-protocol.c \
                 $TMPDIR/aperture-wayland-protocols/tablet-v2-protocol.c \
                 $TMPDIR/aperture-wayland-protocols/text-input-unstable-v3-protocol.c \
                 -o $out/lib/weston/aperture-weston-shell.so \
-                $(pkg-config --cflags --libs weston libweston-${lib.versions.major patchedWeston.version} wayland-server pixman-1 xkbcommon)
+                $(pkg-config --cflags --libs weston libweston-${lib.versions.major patchedWeston.version} wayland-server wayland-client wayland-cursor pixman-1 xkbcommon)
 
               mkdir -p $out/share/aperture/extensions/tab-window-enforcer
               cp extensions/tab-window-enforcer/dist/* $out/share/aperture/extensions/tab-window-enforcer/

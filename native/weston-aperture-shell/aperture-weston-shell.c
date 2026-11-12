@@ -16,10 +16,13 @@
 #include <libweston/backend-pipewire.h>
 #include <libweston/libweston.h>
 #include <libweston/shell-utils.h>
+#include <wayland-client.h>
+#include <wayland-cursor.h>
 #include <wayland-server-core.h>
 #include <wayland-server-protocol.h>
 #include <weston/weston.h>
 
+#include "cursor-shape-v1-server-protocol.h"
 #include "fractional-scale-v1-server-protocol.h"
 #include "text-input-unstable-v3-server-protocol.h"
 #include "viewporter-server-protocol.h"
@@ -59,9 +62,36 @@ struct aperture_shell {
 	struct wl_list control_clients;
 	struct wl_list fractional_scales;
 	struct wl_list text_inputs;
+	struct wl_list cursor_surfaces;
+	struct wl_list cursor_shape_devices;
 	struct wl_event_source *control_source;
 	struct wl_listener destroy_listener;
 	struct wl_listener text_input_focus_listener;
+	struct wl_listener create_surface_listener;
+	struct wl_listener pointer_focus_listener;
+	struct wl_listener pointer_motion_listener;
+	struct wl_listener cursor_view_destroy_listener;
+	struct weston_transform cursor_transform;
+	struct weston_view *cursor_view;
+	struct wl_listener cursor_client_destroy_listener;
+	struct wl_global *cursor_shape_global;
+	struct wl_client *cursor_client;
+	struct wl_event_source *cursor_client_source;
+	struct wl_display *cursor_display;
+	struct wl_compositor *cursor_compositor;
+	struct wl_shm *cursor_shm;
+	struct wl_surface *cursor_client_surface;
+	struct wl_cursor_theme *cursor_base_theme;
+	struct wl_cursor_theme *cursor_theme;
+	struct weston_surface *cursor_shape_surface;
+	int cursor_theme_size;
+	int32_t cursor_shape_pending_hotspot_x;
+	int32_t cursor_shape_pending_hotspot_y;
+	float cursor_shape_pending_ratio;
+	float cursor_shape_ratio;
+	float cursor_scale;
+	uint32_t cursor_shape;
+	bool cursor_shape_wanted;
 	struct wl_global *fractional_scale_global;
 	struct wl_global *text_input_global;
 	struct wl_global *viewporter_global;
@@ -111,6 +141,14 @@ struct aperture_fractional_scale {
 	struct weston_surface *surface;
 	struct wl_resource *resource;
 	struct wl_listener surface_destroy_listener;
+};
+
+struct aperture_cursor_surface {
+	struct weston_surface *surface;
+	struct wl_list link;
+	struct aperture_shell *shell;
+	struct wl_listener commit_listener;
+	struct wl_listener destroy_listener;
 };
 
 struct aperture_viewport {
@@ -460,6 +498,482 @@ layout_surface(struct aperture_shell *shell, struct aperture_shell_surface *surf
 									   surface->view->surface)));
 	weston_view_move_to_layer(surface->view, &shell->normal_layer.view_list);
 	weston_view_schedule_repaint(surface->view);
+}
+
+static const int32_t aperture_cursor_size = 24;
+
+/* Indexed by wp_cursor_shape_device_v1.shape. Xcursor themes name cursors after the
+ * CSS keywords the protocol takes its shapes from. */
+static const char *const aperture_cursor_shape_names[] = {
+	NULL,	       "default",    "context-menu", "help",	  "pointer",	 "progress",
+	"wait",	       "cell",	     "crosshair",    "text",	  "vertical-text", "alias",
+	"copy",	       "move",	     "no-drop",	     "not-allowed", "grab",	 "grabbing",
+	"e-resize",    "n-resize",   "ne-resize",    "nw-resize", "s-resize",	 "se-resize",
+	"sw-resize",   "w-resize",   "ew-resize",    "ns-resize", "nesw-resize", "nwse-resize",
+	"col-resize",  "row-resize", "all-scroll",   "zoom-in",	  "zoom-out",	 "dnd-ask",
+	"all-resize",
+};
+
+static void
+untrack_cursor_view(struct aperture_shell *shell)
+{
+	wl_list_remove(&shell->cursor_transform.link);
+	wl_list_init(&shell->cursor_transform.link);
+	wl_list_remove(&shell->cursor_view_destroy_listener.link);
+	shell->cursor_view = NULL;
+}
+
+static void
+handle_cursor_view_destroy(struct wl_listener *listener, void *data)
+{
+	struct aperture_shell *shell =
+		wl_container_of(listener, shell, cursor_view_destroy_listener);
+	struct weston_view *view = data;
+
+	/* libweston destroys the sprite view when the client hides its cursor or sets a
+	 * surface of its own, and tells nobody else. */
+	if (view->surface == shell->cursor_shape_surface)
+		shell->cursor_shape_wanted = false;
+	untrack_cursor_view(shell);
+}
+
+static struct wl_cursor *
+find_theme_cursor(struct wl_cursor_theme *theme, const char *name)
+{
+	static const char *const fallbacks[] = { "default", "left_ptr" };
+	struct wl_cursor *cursor;
+	size_t i;
+
+	if (!theme)
+		return NULL;
+	cursor = wl_cursor_theme_get_cursor(theme, name);
+	for (i = 0; !cursor && i < sizeof fallbacks / sizeof fallbacks[0]; i++)
+		cursor = wl_cursor_theme_get_cursor(theme, fallbacks[i]);
+
+	return cursor && cursor->image_count ? cursor : NULL;
+}
+
+/* libweston cannot build a surface from pixels, so the shell is a client of its own
+ * compositor for the one surface that shows theme cursors. This is that client's side;
+ * it never waits on the compositor, which runs on the same thread. */
+static void
+commit_cursor_shape(struct aperture_shell *shell, uint32_t scale_numerator)
+{
+	const char *name = aperture_cursor_shape_names[shell->cursor_shape];
+	int size = (int)scaled_dimension(aperture_cursor_size, scale_numerator);
+	struct wl_cursor_theme *previous = NULL;
+	struct wl_cursor *cursor;
+	struct wl_cursor *base;
+	struct wl_buffer *buffer;
+
+	if (!shell->cursor_client_surface)
+		return;
+	if (!shell->cursor_base_theme)
+		shell->cursor_base_theme = wl_cursor_theme_load("default", aperture_cursor_size,
+								shell->cursor_shm);
+	if (shell->cursor_theme_size != size) {
+		previous = shell->cursor_theme;
+		shell->cursor_theme = wl_cursor_theme_load("default", size, shell->cursor_shm);
+		shell->cursor_theme_size = size;
+	}
+
+	cursor = find_theme_cursor(shell->cursor_theme, name);
+	base = find_theme_cursor(shell->cursor_base_theme, name);
+	buffer = cursor && base ? wl_cursor_image_get_buffer(cursor->images[0]) : NULL;
+	if (buffer) {
+		/* A theme has few sizes and loads the nearest one; the ratio to the base
+		 * size is what the image already covers of the wanted scale. */
+		shell->cursor_shape_pending_ratio =
+			(float)cursor->images[0]->width / (float)base->images[0]->width;
+		shell->cursor_shape_pending_hotspot_x = (int32_t)cursor->images[0]->hotspot_x;
+		shell->cursor_shape_pending_hotspot_y = (int32_t)cursor->images[0]->hotspot_y;
+		wl_surface_attach(shell->cursor_client_surface, buffer, 0, 0);
+		wl_surface_damage(shell->cursor_client_surface, 0, 0, INT32_MAX, INT32_MAX);
+		wl_surface_commit(shell->cursor_client_surface);
+	}
+	/* Requests are read in order, so the surface has left these buffers by the time
+	 * the compositor destroys them. */
+	if (previous)
+		wl_cursor_theme_destroy(previous);
+	wl_display_flush(shell->cursor_display);
+}
+
+/* Outputs stay at scale 1 and a surface is magnified by its fit transform, so the
+ * cursor sprite needs the same magnification to keep its size relative to the page. */
+static void
+update_cursor_scale(struct aperture_shell *shell)
+{
+	struct weston_pointer *pointer = weston_seat_get_pointer(&shell->input_seat);
+	struct aperture_shell_surface *focus = NULL;
+	uint32_t scale_numerator = aperture_scale_denominator;
+	float scale;
+
+	if (!pointer)
+		return;
+	if (pointer->focus)
+		focus = find_shell_surface_for_weston_surface(shell, pointer->focus->surface);
+	if (focus && focus->scale_numerator)
+		scale_numerator = focus->scale_numerator;
+	if (shell->cursor_shape_wanted &&
+	    (int)scaled_dimension(aperture_cursor_size, scale_numerator) != shell->cursor_theme_size)
+		commit_cursor_shape(shell, scale_numerator);
+	if (!pointer->sprite)
+		return;
+
+	scale = (float)scale_numerator / (float)aperture_scale_denominator;
+	if (pointer->sprite->surface == shell->cursor_shape_surface)
+		scale /= shell->cursor_shape_ratio;
+	if (shell->cursor_view == pointer->sprite && shell->cursor_scale == scale)
+		return;
+
+	weston_matrix_init(&shell->cursor_transform.matrix);
+	weston_matrix_scale(&shell->cursor_transform.matrix, scale, scale, 1.0f);
+	if (shell->cursor_view != pointer->sprite) {
+		if (shell->cursor_view)
+			untrack_cursor_view(shell);
+		weston_view_add_transform(pointer->sprite,
+					  &pointer->sprite->geometry.transformation_list,
+					  &shell->cursor_transform);
+		wl_signal_add(&pointer->sprite->destroy_signal,
+			      &shell->cursor_view_destroy_listener);
+		shell->cursor_view = pointer->sprite;
+	} else {
+		weston_view_geometry_dirty(pointer->sprite);
+	}
+	shell->cursor_scale = scale;
+
+	weston_view_set_position_with_offset(pointer->sprite, pointer->pos,
+					     weston_coord_surface_invert(pointer->hotspot));
+	weston_view_schedule_repaint(pointer->sprite);
+}
+
+/* Makes the shell's cursor surface the pointer sprite, the way wl_pointer.set_cursor
+ * does for a client's, so libweston moves it and drops it like any other cursor. */
+static void
+install_cursor_shape(struct aperture_shell *shell)
+{
+	struct weston_pointer *pointer = weston_seat_get_pointer(&shell->input_seat);
+	struct weston_surface *surface = shell->cursor_shape_surface;
+
+	if (!pointer || !shell->cursor_shape_wanted || surface->width == 0)
+		return;
+
+	if (pointer->sprite && pointer->sprite->surface != surface) {
+		struct weston_surface *previous = pointer->sprite->surface;
+
+		if (weston_surface_is_mapped(previous))
+			weston_surface_unmap(previous);
+		wl_list_remove(&pointer->sprite_destroy_listener.link);
+		previous->committed = NULL;
+		previous->committed_private = NULL;
+		weston_view_destroy(pointer->sprite);
+		pointer->sprite = NULL;
+	}
+	if (!pointer->sprite) {
+		wl_signal_add(&surface->destroy_signal, &pointer->sprite_destroy_listener);
+		pointer->sprite = weston_view_create(surface);
+	}
+	shell->cursor_shape_ratio = shell->cursor_shape_pending_ratio;
+	pointer->hotspot = weston_coord_surface(shell->cursor_shape_pending_hotspot_x,
+						shell->cursor_shape_pending_hotspot_y, surface);
+	if (!weston_surface_is_mapped(surface)) {
+		weston_surface_map(surface);
+		weston_view_move_to_layer(pointer->sprite,
+					  &shell->compositor->cursor_layer.view_list);
+	}
+
+	update_cursor_scale(shell);
+	weston_view_set_position_with_offset(pointer->sprite, pointer->pos,
+					     weston_coord_surface_invert(pointer->hotspot));
+	weston_view_schedule_repaint(pointer->sprite);
+}
+
+static void
+handle_pointer_focus(struct wl_listener *listener, void *data)
+{
+	struct aperture_shell *shell =
+		wl_container_of(listener, shell, pointer_focus_listener);
+
+	update_cursor_scale(shell);
+}
+
+static void
+handle_pointer_motion(struct wl_listener *listener, void *data)
+{
+	struct aperture_shell *shell =
+		wl_container_of(listener, shell, pointer_motion_listener);
+
+	update_cursor_scale(shell);
+}
+
+static void
+destroy_cursor_surface(struct aperture_cursor_surface *cursor_surface)
+{
+	if (cursor_surface->shell->cursor_shape_surface == cursor_surface->surface)
+		cursor_surface->shell->cursor_shape_surface = NULL;
+	wl_list_remove(&cursor_surface->link);
+	wl_list_remove(&cursor_surface->commit_listener.link);
+	wl_list_remove(&cursor_surface->destroy_listener.link);
+	free(cursor_surface);
+}
+
+static void
+handle_cursor_surface_destroy(struct wl_listener *listener, void *data)
+{
+	struct aperture_cursor_surface *cursor_surface =
+		wl_container_of(listener, cursor_surface, destroy_listener);
+
+	destroy_cursor_surface(cursor_surface);
+}
+
+static void
+handle_cursor_surface_commit(struct wl_listener *listener, void *data)
+{
+	struct aperture_cursor_surface *cursor_surface =
+		wl_container_of(listener, cursor_surface, commit_listener);
+	struct aperture_shell *shell = cursor_surface->shell;
+	struct weston_pointer *pointer = weston_seat_get_pointer(&shell->input_seat);
+
+	if (data == shell->cursor_shape_surface) {
+		install_cursor_shape(shell);
+	} else if (pointer && pointer->sprite && pointer->sprite->surface == data) {
+		shell->cursor_shape_wanted = false;
+		update_cursor_scale(shell);
+	}
+}
+
+/* libweston has no signal for a new cursor sprite. A client commits the cursor surface
+ * after wl_pointer.set_cursor, and any surface can become one, so every surface is
+ * watched; one that is reused without a commit is caught on the next pointer motion. */
+static void
+handle_create_surface(struct wl_listener *listener, void *data)
+{
+	struct aperture_shell *shell =
+		wl_container_of(listener, shell, create_surface_listener);
+	struct weston_surface *surface = data;
+	struct aperture_cursor_surface *cursor_surface = calloc(1, sizeof *cursor_surface);
+
+	if (!cursor_surface)
+		return;
+
+	cursor_surface->shell = shell;
+	cursor_surface->surface = surface;
+	cursor_surface->commit_listener.notify = handle_cursor_surface_commit;
+	wl_signal_add(&surface->commit_signal, &cursor_surface->commit_listener);
+	cursor_surface->destroy_listener.notify = handle_cursor_surface_destroy;
+	wl_signal_add(&surface->destroy_signal, &cursor_surface->destroy_listener);
+	wl_list_insert(&shell->cursor_surfaces, &cursor_surface->link);
+	if (shell->cursor_client && surface->resource &&
+	    wl_resource_get_client(surface->resource) == shell->cursor_client)
+		shell->cursor_shape_surface = surface;
+}
+
+static void
+cursor_registry_global(void *data, struct wl_registry *registry, uint32_t name,
+		       const char *interface, uint32_t version)
+{
+	struct aperture_shell *shell = data;
+	struct wl_region *region;
+
+	if (strcmp(interface, wl_compositor_interface.name) == 0 && !shell->cursor_compositor)
+		shell->cursor_compositor =
+			wl_registry_bind(registry, name, &wl_compositor_interface, 1);
+	else if (strcmp(interface, wl_shm_interface.name) == 0 && !shell->cursor_shm)
+		shell->cursor_shm = wl_registry_bind(registry, name, &wl_shm_interface, 1);
+	if (!shell->cursor_compositor || !shell->cursor_shm || shell->cursor_client_surface)
+		return;
+
+	shell->cursor_client_surface = wl_compositor_create_surface(shell->cursor_compositor);
+	region = wl_compositor_create_region(shell->cursor_compositor);
+	wl_surface_set_input_region(shell->cursor_client_surface, region);
+	wl_region_destroy(region);
+}
+
+static void
+cursor_registry_global_remove(void *data, struct wl_registry *registry, uint32_t name)
+{
+}
+
+static const struct wl_registry_listener cursor_registry_listener = {
+	.global = cursor_registry_global,
+	.global_remove = cursor_registry_global_remove,
+};
+
+static int
+handle_cursor_client_events(int fd, uint32_t mask, void *data)
+{
+	struct aperture_shell *shell = data;
+
+	if (mask & (WL_EVENT_HANGUP | WL_EVENT_ERROR)) {
+		wl_event_source_remove(shell->cursor_client_source);
+		shell->cursor_client_source = NULL;
+		return 0;
+	}
+	if (wl_display_prepare_read(shell->cursor_display) == 0)
+		wl_display_read_events(shell->cursor_display);
+	wl_display_dispatch_pending(shell->cursor_display);
+	wl_display_flush(shell->cursor_display);
+
+	return 0;
+}
+
+static void
+handle_cursor_client_destroy(struct wl_listener *listener, void *data)
+{
+	struct aperture_shell *shell =
+		wl_container_of(listener, shell, cursor_client_destroy_listener);
+
+	wl_list_remove(&shell->cursor_client_destroy_listener.link);
+	wl_list_init(&shell->cursor_client_destroy_listener.link);
+	shell->cursor_client = NULL;
+}
+
+static void
+destroy_cursor_shape_device_resource(struct wl_resource *resource)
+{
+	wl_list_remove(wl_resource_get_link(resource));
+}
+
+static void
+cursor_shape_device_destroy(struct wl_client *client, struct wl_resource *resource)
+{
+	wl_resource_destroy(resource);
+}
+
+static void
+cursor_shape_device_set_shape(struct wl_client *client, struct wl_resource *resource,
+			      uint32_t serial, uint32_t shape)
+{
+	struct aperture_shell *shell = wl_resource_get_user_data(resource);
+	struct weston_pointer *pointer;
+
+	if (shape == 0 ||
+	    shape >= sizeof aperture_cursor_shape_names / sizeof aperture_cursor_shape_names[0]) {
+		wl_resource_post_error(resource, WP_CURSOR_SHAPE_DEVICE_V1_ERROR_INVALID_SHAPE,
+				       "unknown cursor shape %u", shape);
+		return;
+	}
+	if (!shell)
+		return;
+	pointer = weston_seat_get_pointer(&shell->input_seat);
+	if (!pointer || !pointer->focus || !pointer->focus->surface->resource ||
+	    wl_resource_get_client(pointer->focus->surface->resource) != client ||
+	    pointer->focus_serial - serial > UINT32_MAX / 2)
+		return;
+
+	shell->cursor_shape = shape;
+	shell->cursor_shape_wanted = true;
+	/* Any other size is loaded by update_cursor_scale. */
+	if (shell->cursor_theme_size)
+		commit_cursor_shape(shell, (uint32_t)shell->cursor_theme_size *
+						   aperture_scale_denominator / aperture_cursor_size);
+	update_cursor_scale(shell);
+}
+
+static const struct wp_cursor_shape_device_v1_interface cursor_shape_device_interface = {
+	.destroy = cursor_shape_device_destroy,
+	.set_shape = cursor_shape_device_set_shape,
+};
+
+static void
+create_cursor_shape_device(struct wl_client *client, struct wl_resource *manager, uint32_t id,
+			   struct aperture_shell *shell)
+{
+	struct wl_resource *resource = wl_resource_create(
+		client, &wp_cursor_shape_device_v1_interface, wl_resource_get_version(manager), id);
+
+	if (!resource) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+	wl_resource_set_implementation(resource, &cursor_shape_device_interface, shell,
+				       destroy_cursor_shape_device_resource);
+	if (shell)
+		wl_list_insert(&shell->cursor_shape_devices, wl_resource_get_link(resource));
+	else
+		wl_list_init(wl_resource_get_link(resource));
+}
+
+static void
+cursor_shape_manager_destroy(struct wl_client *client, struct wl_resource *resource)
+{
+	wl_resource_destroy(resource);
+}
+
+static void
+cursor_shape_manager_get_pointer(struct wl_client *client, struct wl_resource *resource,
+				 uint32_t id, struct wl_resource *pointer)
+{
+	create_cursor_shape_device(client, resource, id, wl_resource_get_user_data(resource));
+}
+
+static void
+cursor_shape_manager_get_tablet_tool_v2(struct wl_client *client, struct wl_resource *resource,
+					uint32_t id, struct wl_resource *tablet_tool)
+{
+	create_cursor_shape_device(client, resource, id, NULL);
+}
+
+static const struct wp_cursor_shape_manager_v1_interface cursor_shape_manager_interface = {
+	.destroy = cursor_shape_manager_destroy,
+	.get_pointer = cursor_shape_manager_get_pointer,
+	.get_tablet_tool_v2 = cursor_shape_manager_get_tablet_tool_v2,
+};
+
+static void
+bind_cursor_shape_manager(struct wl_client *client, void *data, uint32_t version, uint32_t id)
+{
+	struct wl_resource *resource =
+		wl_resource_create(client, &wp_cursor_shape_manager_v1_interface, version, id);
+
+	if (!resource) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+	wl_resource_set_implementation(resource, &cursor_shape_manager_interface, data, NULL);
+}
+
+static int
+create_cursor_shape_manager(struct aperture_shell *shell)
+{
+	struct wl_display *display = shell->compositor->wl_display;
+	struct wl_registry *registry;
+	int fds[2];
+
+#ifdef APERTURE_XCURSOR_PATH
+	setenv("XCURSOR_PATH", APERTURE_XCURSOR_PATH, 0);
+#endif
+	if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, fds) < 0)
+		return -1;
+	shell->cursor_client = wl_client_create(display, fds[0]);
+	if (!shell->cursor_client) {
+		close(fds[0]);
+		close(fds[1]);
+		return -1;
+	}
+	shell->cursor_client_destroy_listener.notify = handle_cursor_client_destroy;
+	wl_client_add_destroy_listener(shell->cursor_client,
+				       &shell->cursor_client_destroy_listener);
+	shell->cursor_display = wl_display_connect_to_fd(fds[1]);
+	if (!shell->cursor_display) {
+		close(fds[1]);
+		return -1;
+	}
+	registry = wl_display_get_registry(shell->cursor_display);
+	if (!registry)
+		return -1;
+	wl_registry_add_listener(registry, &cursor_registry_listener, shell);
+	wl_display_flush(shell->cursor_display);
+	shell->cursor_client_source = wl_event_loop_add_fd(
+		wl_display_get_event_loop(display), fds[1], WL_EVENT_READABLE,
+		handle_cursor_client_events, shell);
+	if (!shell->cursor_client_source)
+		return -1;
+
+	shell->cursor_shape_global = wl_global_create(
+		display, &wp_cursor_shape_manager_v1_interface, 2, shell,
+		bind_cursor_shape_manager);
+	return shell->cursor_shape_global ? 0 : -1;
 }
 
 static void
@@ -1559,6 +2073,7 @@ bind_surface_tree(struct aperture_shell *shell, struct aperture_shell_surface *r
 		layout_surface(shell, surface, width, height);
 	}
 	weston_desktop_surface_propagate_layer(root->desktop_surface);
+	update_cursor_scale(shell);
 }
 
 static void
@@ -2049,9 +2564,37 @@ destroy_shell(struct wl_listener *listener, void *data)
 	struct aperture_text_input *next_text_input;
 	struct aperture_output *capture;
 	struct aperture_output *next_capture;
+	struct aperture_cursor_surface *cursor_surface;
+	struct aperture_cursor_surface *next_cursor_surface;
+	struct wl_resource *cursor_shape_device;
+	struct wl_resource *next_cursor_shape_device;
 
 	wl_list_remove(&shell->destroy_listener.link);
 	wl_list_remove(&shell->text_input_focus_listener.link);
+	wl_list_remove(&shell->create_surface_listener.link);
+	wl_list_remove(&shell->pointer_focus_listener.link);
+	wl_list_remove(&shell->pointer_motion_listener.link);
+	if (shell->cursor_view)
+		untrack_cursor_view(shell);
+	wl_resource_for_each_safe(cursor_shape_device, next_cursor_shape_device,
+				  &shell->cursor_shape_devices) {
+		wl_resource_set_user_data(cursor_shape_device, NULL);
+		wl_list_remove(wl_resource_get_link(cursor_shape_device));
+		wl_list_init(wl_resource_get_link(cursor_shape_device));
+	}
+	if (shell->cursor_shape_global)
+		wl_global_destroy(shell->cursor_shape_global);
+	wl_list_remove(&shell->cursor_client_destroy_listener.link);
+	if (shell->cursor_client_source)
+		wl_event_source_remove(shell->cursor_client_source);
+	if (shell->cursor_theme)
+		wl_cursor_theme_destroy(shell->cursor_theme);
+	if (shell->cursor_base_theme)
+		wl_cursor_theme_destroy(shell->cursor_base_theme);
+	if (shell->cursor_display)
+		wl_display_disconnect(shell->cursor_display);
+	wl_list_for_each_safe(cursor_surface, next_cursor_surface, &shell->cursor_surfaces, link)
+		destroy_cursor_surface(cursor_surface);
 	if (shell->control_source)
 		wl_event_source_remove(shell->control_source);
 	if (shell->fractional_scale_global)
@@ -2119,7 +2662,17 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	wl_list_init(&shell->control_clients);
 	wl_list_init(&shell->fractional_scales);
 	wl_list_init(&shell->text_inputs);
+	wl_list_init(&shell->cursor_surfaces);
+	wl_list_init(&shell->cursor_shape_devices);
+	wl_list_init(&shell->cursor_client_destroy_listener.link);
+	shell->cursor_shape_ratio = 1.0f;
 	wl_list_init(&shell->text_input_focus_listener.link);
+	wl_list_init(&shell->pointer_focus_listener.link);
+	wl_list_init(&shell->pointer_motion_listener.link);
+	wl_list_init(&shell->cursor_transform.link);
+	shell->cursor_view_destroy_listener.notify = handle_cursor_view_destroy;
+	shell->create_surface_listener.notify = handle_create_surface;
+	wl_signal_add(&compositor->create_surface_signal, &shell->create_surface_listener);
 	weston_layer_init(&shell->background_layer, compositor);
 	weston_layer_init(&shell->normal_layer, compositor);
 	weston_layer_set_position(&shell->background_layer, WESTON_LAYER_POSITION_BACKGROUND);
@@ -2133,6 +2686,12 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	if (weston_seat_init_pointer(&shell->input_seat) < 0)
 		goto err;
 	shell->input_pointer_initialized = true;
+	shell->pointer_focus_listener.notify = handle_pointer_focus;
+	wl_signal_add(&weston_seat_get_pointer(&shell->input_seat)->focus_signal,
+		      &shell->pointer_focus_listener);
+	shell->pointer_motion_listener.notify = handle_pointer_motion;
+	wl_signal_add(&weston_seat_get_pointer(&shell->input_seat)->motion_signal,
+		      &shell->pointer_motion_listener);
 	if (weston_seat_init_keyboard(&shell->input_seat, NULL) < 0)
 		goto err;
 	shell->input_keyboard_initialized = true;
@@ -2145,6 +2704,8 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	if (create_fractional_scale_manager(shell) < 0)
 		goto err;
 	if (create_viewporter(shell) < 0)
+		goto err;
+	if (create_cursor_shape_manager(shell) < 0)
 		goto err;
 	if (create_text_input_manager(shell) < 0)
 		goto err;
