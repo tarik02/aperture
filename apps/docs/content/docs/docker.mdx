@@ -145,9 +145,13 @@ The Compose files select the GPU mode:
 - The base definition uses software mode and does not need `/dev/dri`.
 - The GPU override selects hardware mode for either image. A missing render node fails session startup.
 
-`APERTURE_WEBRTC_MEDIA_PRODUCER_CODEC` accepts `auto`, `vp8`, or `h264-va`. The default `auto` uses H.264 VA when the selected GPU exposes the required GStreamer elements and falls back to VP8 otherwise. Explicit `h264-va` requires hardware, while explicit `vp8` permits GPU rendering with software media encoding.
+`APERTURE_WEBRTC_MEDIA_PRODUCER_CODEC` accepts `auto`, `vp8`, `h264-va`, `h264-nvenc`, or `h264-software`. The default `auto` tries VA-API H.264, NVIDIA NVENC H.264, and software VP8 in that order. Selection depends on a working encoder, not a GPU vendor name. Explicit codecs fail with the rejected backend's error instead of silently choosing another codec. `h264-va` requires an accessible DRM render node. `h264-nvenc` requires NVIDIA devices and driver libraries, including encode support exposed through CDI. `h264-software` requires the optional `x264enc` plugin, which is not bundled in the Docker image. Hardware encoders are excluded by `gpu_mode=software`; software codecs still permit GPU rendering.
 
-The session wrapper logs the resolved GPU mode, render node, and media codec when it starts. The passive `/browser/status` response reports browser lifecycle and page readiness instead.
+Each candidate must emit a non-empty encoded keyframe using its actual streaming profile, configured dimensions, frame rate, and bitrate. The probe tests raw-frame conversion and resizing in a child process with a five-second deadline. Unsupported optional encoder properties are omitted based on GStreamer property capabilities. Only successful results are cached, in the session process for at most 30 seconds, keyed by profile settings, executable and plugin identities, device identities, and driver environment. Available presentation profiles must pass the same probe before being advertised.
+
+PipeWire targets do not exist at this startup stage. The probe uses representative system-memory raw frames and checks capture dependencies, but does not prove the live PipeWire source or every future viewport size. A missing or unhealthy PipeWire stream can still fail target selection. Encoder fallback does not disable working GPU rendering.
+
+The session wrapper logs each rejected candidate and the selected backend, plus the resolved GPU mode, render node, and media codec. The passive `/browser/status` response reports browser lifecycle and page readiness instead.
 
 ### Non-default host ports
 
