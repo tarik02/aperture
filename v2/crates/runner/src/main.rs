@@ -5,6 +5,7 @@
 mod automation;
 mod cdp;
 mod egress;
+mod files;
 mod live;
 mod targets;
 
@@ -200,6 +201,10 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
             .await
             .context("failed to connect to the browser")?;
         registry.attach(devtools.clone());
+        let downloads = files::follow_downloads(devtools.clone(), &spec.files_dir)
+            .await
+            .context("failed to follow the browser's downloads")?;
+        let file_requests = files::Requests::follow(devtools.clone(), registry.targets());
 
         let streams = live::stream::Streams::new(compositor.clone());
         let recorder = live::record::Recordings::new(
@@ -229,9 +234,11 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
                 recordings: recorder,
                 egress: egress.clone(),
                 rtc_ports: spec.rtc_ports,
+                downloads,
+                file_requests,
+                files: spec.files_dir.clone(),
             };
-            let files = spec.files_dir.clone();
-            tokio::spawn(async move { live::serve(&socket, served, automation, &files).await })
+            tokio::spawn(async move { live::serve(&socket, served, automation).await })
         });
         status.live = Some(Live {
             socket: live_socket,
@@ -410,6 +417,9 @@ fn start_browser(
         .arg(&spec.files_dir)
         .arg(&spec.files_dir)
         .args(["--setenv", "TMPDIR", "/tmp"])
+        // File names are UTF-8: without a locale that says so the browser crashes on a
+        // file it is handed whose name has more than ASCII.
+        .args(["--setenv", "LC_ALL", "C.UTF-8"])
         .arg("--setenv")
         .arg("HOME")
         .arg(&home)

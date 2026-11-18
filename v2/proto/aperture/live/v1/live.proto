@@ -38,9 +38,11 @@ message ClientMessage {
     Hello hello = 9;
     RtcOffer rtc_offer = 10;
     VideoShown video_shown = 11;
-    // Puts text on the session's clipboard, for a paste there to take: a client that
+    // Puts content on the session's clipboard, for a paste there to take: a client that
     // pastes sends what it has, then the keys that paste.
     Clipboard clipboard = 12;
+    Drop drop = 13;
+    FilesChosen files_chosen = 14;
   }
 }
 
@@ -54,8 +56,10 @@ message ServerMessage {
     RtcRefused rtc_refused = 6;
     VideoFrame video_frame = 7;
     VideoStatus video_status = 8;
-    // Text was copied in the session.
+    // Something was copied in the session.
     Clipboard clipboard = 9;
+    Downloads downloads = 10;
+    FileRequests file_requests = 11;
   }
 }
 
@@ -232,9 +236,78 @@ message Text {
   bool composing = 2;
 }
 
-// The clipboard's text, at most 1 MiB of it.
+// What the session's browser downloaded since the session started, oldest first; the
+// last hundred of them. Sent in answer to `hello` and whenever it changes. A file is
+// fetched from the session's files, as `files/downloads/{name}` beside the session socket.
+message Downloads {
+  repeated Download downloads = 1;
+}
+
+message Download {
+  string id = 1;
+  // The file's name: the one the page suggested until the browser has saved it, which may
+  // be under another.
+  string name = 2;
+  string url = 3;
+  uint64 received_bytes = 4;
+  // Left out while the page does not say.
+  optional uint64 total_bytes = 5;
+  DownloadState state = 6;
+}
+
+enum DownloadState {
+  DOWNLOAD_STATE_UNSPECIFIED = 0;
+  DOWNLOAD_STATE_RUNNING = 1;
+  DOWNLOAD_STATE_DONE = 2;
+  DOWNLOAD_STATE_FAILED = 3;
+}
+
+// The pages that ask for files and have no answer yet, as a page does when a file input
+// is clicked: the browser shows no dialog of its own. Sent in answer to `hello` and
+// whenever it changes. A request ends with its answer or with its page.
+message FileRequests {
+  repeated FileRequest requests = 1;
+}
+
+message FileRequest {
+  uint64 id = 1;
+  // The target whose page asks.
+  string target = 2;
+  // The page takes more than one file.
+  bool multiple = 3;
+}
+
+// Answers a page's request for files with files a client put into the session first (see
+// `uploads` beside the session socket), by their names there. With none the page is left
+// without, as when a dialog is dismissed.
+message FilesChosen {
+  uint64 id = 1;
+  repeated string files = 2;
+}
+
+// Drops content onto the watched target at a position, as one who dragged it there would:
+// text, a picture, or files, which a client puts into the session first (see `uploads`
+// beside the session socket) and names here.
+message Drop {
+  // In the target's logical pixels.
+  double x = 1;
+  double y = 2;
+  Clipboard content = 3;
+}
+
+// Content that is copied or dragged: the same content in each form it is had in, at most
+// 8 MiB of them together.
 message Clipboard {
-  string text = 1;
+  repeated Form forms = 1;
+
+  message Form {
+    // The form's MIME type. `text/plain` is text, as UTF-8; `text/html` is marked-up text;
+    // `image/png` is a picture; `text/uri-list` is files of the session, as the lines of
+    // their `file://` URIs, which a session takes of its own files only. Other forms are
+    // left out.
+    string type = 1;
+    bytes data = 2;
+  }
 }
 
 // The viewport of the target the client watches: the size its page gets, in logical (CSS)

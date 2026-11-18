@@ -3,13 +3,21 @@ use smithay::{
     desktop::{Window, WindowSurfaceType},
     input::{
         keyboard::{FilterResult, KeyboardHandle, Keycode, Keysym, xkb},
-        pointer::{AxisFrame, ButtonEvent, MotionEvent, PointerHandle},
+        pointer::{
+            AxisFrame, ButtonEvent, GrabStartData as PointerGrabStartData, MotionEvent,
+            PointerHandle,
+        },
+    },
+    reexports::{
+        calloop::timer::{TimeoutAction, Timer},
+        wayland_server::protocol::wl_data_device_manager::DndAction,
     },
     utils::{Logical, Point, SERIAL_COUNTER},
+    wayland::selection::data_device::{SourceMetadata, start_dnd},
 };
 
 use crate::{
-    Button, Input,
+    Button, Input, data,
     keymap::KeyPosition,
     render::frame_rect,
     state::{State, window_id},
@@ -20,6 +28,9 @@ const SCROLL_STEP: f64 = 15.0;
 
 /// Linux evdev codes are offset by 8 in XKB.
 const EVDEV_XKB_OFFSET: u32 = 8;
+
+/// How long a window has to say whether it takes what is dragged over it.
+const DROP_WITHIN: std::time::Duration = std::time::Duration::from_millis(1500);
 
 fn button_code(button: Button) -> u32 {
     match button {
@@ -96,6 +107,46 @@ impl State {
                 pointer.axis(self, frame);
                 pointer.frame(self);
             }
+            Input::Drop {
+                window,
+                x,
+                y,
+                content,
+            } => {
+                let Ok(window) = self.window(window) else {
+                    return;
+                };
+                // One thing is dragged at a time.
+                if self.drop_held {
+                    return;
+                }
+                self.focus_window(&window);
+                let pointer = self.pointer();
+                let start = PointerGrabStartData {
+                    focus: None,
+                    button: button_code(Button::Left),
+                    location: pointer.current_location(),
+                };
+                let source = SourceMetadata {
+                    mime_types: data::offered(&content),
+                    dnd_action: DndAction::Copy,
+                };
+                self.dropping = Some(content);
+                self.drop_held = true;
+                let display = self.display_handle.clone();
+                let seat = self.seat.clone();
+                let serial = SERIAL_COUNTER.next_serial();
+                start_dnd(&display, &seat, self, serial, Some(start), None, source);
+                // The window learns of the drag as it comes over it, and says whether it
+                // takes it: see `ServerDndGrabHandler`. One that says nothing gets it
+                // dropped all the same, which ends the drag.
+                self.pointer_motion(&window, (x, y).into());
+                let waited = Timer::from_duration(DROP_WITHIN);
+                let _ = self.idle.insert_source(waited, |_, (), state| {
+                    state.drop_dragged();
+                    TimeoutAction::Drop
+                });
+            }
             Input::PointerLeave => {
                 self.pointer_window = None;
                 let pointer = self.pointer();
@@ -160,6 +211,24 @@ impl State {
                 }
             }
         }
+    }
+
+    /// Lets go of what is dragged with [`Input::Drop`], if it still is.
+    pub fn drop_dragged(&mut self) {
+        if !std::mem::take(&mut self.drop_held) {
+            return;
+        }
+        let pointer = self.pointer();
+        pointer.button(
+            self,
+            &ButtonEvent {
+                button: button_code(Button::Left),
+                state: ButtonState::Released,
+                serial: SERIAL_COUNTER.next_serial(),
+                time: self.time_msec(),
+            },
+        );
+        pointer.frame(self);
     }
 
     pub fn focus_window(&mut self, window: &Window) {

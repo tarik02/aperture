@@ -1,9 +1,7 @@
 //! One client of the session: the session socket it speaks the live protocol on, the
 //! target it watches, and the way that target's pixels reach it.
 
-use std::sync::Arc;
-
-use aperture_compositor::{Button, Cursor, Input, Viewport, WindowId};
+use aperture_compositor::{Button, Cursor, Form, Forms, Input, Viewport, WindowId, data};
 use axum::extract::ws::{Message as Frame, WebSocket};
 use buffa::Message as _;
 use tokio::sync::{broadcast, mpsc, watch};
@@ -18,13 +16,13 @@ use super::{
     stream::{Key, Packet, Subscription},
     tiles,
 };
-use crate::proto::aperture::live::v1::{self as pb, client_message, server_message};
+use crate::{
+    files::{self, Download, Progress},
+    proto::aperture::live::v1::{self as pb, client_message, server_message},
+};
 
 /// What a client's WebRTC connection has to tell that waits for its session socket's turn.
 const CHANNEL_MESSAGES: usize = 256;
-
-/// The longest text a client puts on the clipboard, in bytes.
-const CLIPBOARD_MOST: usize = 1024 * 1024;
 
 /// Serves the client until its socket closes or the session ends.
 pub async fn serve(live: Live, socket: WebSocket) {
@@ -33,6 +31,8 @@ pub async fn serve(live: Live, socket: WebSocket) {
     let mut client = Client {
         cursor: live.compositor.cursor(),
         clipboard: live.compositor.clipboard(),
+        downloads: live.downloads.clone(),
+        file_requests: live.file_requests.open(),
         live,
         socket,
         greeted: false,
@@ -61,7 +61,9 @@ struct Client {
     live: Live,
     cursor: watch::Receiver<Cursor>,
     /// What the session copied; the client is told what is copied from now on.
-    clipboard: watch::Receiver<Option<Arc<str>>>,
+    clipboard: watch::Receiver<Option<Forms>>,
+    downloads: watch::Receiver<Vec<Download>>,
+    file_requests: watch::Receiver<Vec<files::Request>>,
     socket: WebSocket,
     /// The client said hello.
     greeted: bool,
@@ -174,14 +176,31 @@ impl Client {
                     }
                     self.send_cursor().await?;
                 }
+                changed = self.file_requests.changed() => {
+                    if changed.is_err() {
+                        return Ok(());
+                    }
+                    self.send_file_requests().await?;
+                }
+                changed = self.downloads.changed() => {
+                    if changed.is_err() {
+                        return Ok(());
+                    }
+                    self.send_downloads().await?;
+                }
                 changed = self.clipboard.changed() => {
                     if changed.is_err() {
                         return Ok(());
                     }
-                    let text = self.clipboard.borrow_and_update().clone();
-                    if let Some(text) = text {
+                    let copied = self.clipboard.borrow_and_update().clone();
+                    if let Some(copied) = copied {
+                        let forms = copied.iter().map(|form| pb::clipboard::Form {
+                            r#type: form.kind.clone(),
+                            data: form.data.clone(),
+                            ..Default::default()
+                        });
                         let clipboard = pb::Clipboard {
-                            text: text.to_string(),
+                            forms: forms.collect(),
                             ..Default::default()
                         };
                         self.send(server_message::Message::Clipboard(Box::new(clipboard)))
@@ -224,6 +243,8 @@ impl Client {
                 self.format = self.formats.first().copied().unwrap_or(Format::H264);
                 self.send_targets().await?;
                 self.send_cursor().await?;
+                self.send_downloads().await?;
+                self.send_file_requests().await?;
                 self.select(None).await;
                 self.show().await;
                 return self.send_selected().await;
@@ -310,10 +331,35 @@ impl Client {
                 composing: m.composing,
             },
             Message::Clipboard(m) => {
-                if m.text.len() <= CLIPBOARD_MOST {
-                    self.live.compositor.set_clipboard(m.text);
+                if let Some(content) = self.content(*m) {
+                    self.live.compositor.set_clipboard(content);
                 }
                 return Ok(());
+            }
+            Message::FilesChosen(m) => {
+                let uploads = self.live.files.join(files::UPLOADS);
+                // Files that are not there are left out, as names that are no names.
+                let chosen = m
+                    .files
+                    .iter()
+                    .filter_map(|name| files::named(&uploads, name))
+                    .filter(|path| path.is_file())
+                    .collect();
+                if let Err(err) = self.live.file_requests.answer(m.id, chosen).await {
+                    debug!(%err, "a page did not take the files it asked for");
+                }
+                return Ok(());
+            }
+            Message::Drop(m) => {
+                let Some(content) = m.content.into_option().and_then(|m| self.content(m)) else {
+                    return Ok(());
+                };
+                Input::Drop {
+                    window,
+                    x: m.x,
+                    y: m.y,
+                    content,
+                }
             }
             Message::Hello(_)
             | Message::Select(_)
@@ -532,6 +578,92 @@ impl Client {
             targets,
             ..Default::default()
         })))
+        .await
+    }
+
+    /// What a client copied or dragged, in the forms that are carried; none when nothing
+    /// is left of it, or it is too much.
+    fn content(&self, content: pb::Clipboard) -> Option<Forms> {
+        let forms: Vec<Form> = content
+            .forms
+            .into_iter()
+            .filter(|form| data::KINDS.contains(&form.r#type.as_str()))
+            // Files are the session's own or none: the browser reads what it is named.
+            .filter(|form| form.r#type != "text/uri-list" || self.names_own_files(&form.data))
+            .map(|form| Form {
+                kind: form.r#type,
+                data: form.data,
+            })
+            .collect();
+        let size: usize = forms.iter().map(|form| form.data.len()).sum();
+        (!forms.is_empty() && size <= data::MOST).then(|| forms.into())
+    }
+
+    /// Whether every line of a list of URIs is a file of the session's files.
+    fn names_own_files(&self, list: &[u8]) -> bool {
+        let Ok(list) = std::str::from_utf8(list) else {
+            return false;
+        };
+        list.lines().filter(|line| !line.is_empty()).all(|line| {
+            let path = url::Url::parse(line)
+                .ok()
+                .filter(|uri| uri.scheme() == "file")
+                .and_then(|uri| uri.to_file_path().ok());
+            path.is_some_and(|path| {
+                let plain = path
+                    .components()
+                    .all(|part| !matches!(part, std::path::Component::ParentDir));
+                plain && path.starts_with(&self.live.files)
+            })
+        })
+    }
+
+    async fn send_file_requests(&mut self) -> Result<(), axum::Error> {
+        let requests = self
+            .file_requests
+            .borrow_and_update()
+            .iter()
+            .map(|request| pb::FileRequest {
+                id: request.id,
+                target: request.target.clone(),
+                multiple: request.multiple,
+                ..Default::default()
+            })
+            .collect();
+        let requests = pb::FileRequests {
+            requests,
+            ..Default::default()
+        };
+        self.send(server_message::Message::FileRequests(Box::new(requests)))
+            .await
+    }
+
+    async fn send_downloads(&mut self) -> Result<(), axum::Error> {
+        let downloads = self
+            .downloads
+            .borrow_and_update()
+            .iter()
+            .map(|download| pb::Download {
+                id: download.id.clone(),
+                name: download.name.clone(),
+                url: download.url.clone(),
+                received_bytes: download.received,
+                total_bytes: download.total,
+                state: match download.state {
+                    Progress::Running => pb::DownloadState::DOWNLOAD_STATE_RUNNING,
+                    Progress::Done => pb::DownloadState::DOWNLOAD_STATE_DONE,
+                    Progress::Failed => pb::DownloadState::DOWNLOAD_STATE_FAILED,
+                }
+                .into(),
+                ..Default::default()
+            })
+            .collect();
+        self.send(server_message::Message::Downloads(Box::new(
+            pb::Downloads {
+                downloads,
+                ..Default::default()
+            },
+        )))
         .await
     }
 

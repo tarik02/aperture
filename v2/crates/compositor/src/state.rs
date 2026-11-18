@@ -64,6 +64,7 @@ use tracing::{info, warn};
 use crate::{
     Config, Cursor, Error, Frame, Frames, Pixels, Viewport, WindowId, WindowInfo,
     cursor::Theme,
+    data::{self, Form, Forms},
     keymap::KeyTable,
     render::{Change, Renderer, WindowFrame},
     text::TextInput,
@@ -164,12 +165,16 @@ pub struct State {
     watched: HashMap<WindowId, Watched>,
     pub windows_tx: watch::Sender<Vec<WindowInfo>>,
     pub cursor_tx: watch::Sender<Cursor>,
-    /// The text a client last copied.
-    pub clipboard_tx: watch::Sender<Option<Arc<str>>>,
-    /// How many times the clipboard changed hands: text read from a client that is no
+    /// What a client last copied.
+    pub clipboard_tx: watch::Sender<Option<Forms>>,
+    /// How many times the clipboard changed hands: what is read from a client that is no
     /// longer the one that holds it is out of date.
     clipboard_changes: Arc<AtomicU64>,
     pub idle: LoopHandle<'static, Self>,
+    /// What is dragged onto a window, from `Input::Drop` until the window has taken it.
+    pub dropping: Option<Forms>,
+    /// It is still held: not dropped yet.
+    pub drop_held: bool,
     next_window_id: u32,
     /// Frames presented, which clients compare against the refresh rate.
     presented: u64,
@@ -191,12 +196,6 @@ pub struct State {
     _decoration_state: XdgDecorationState,
     pub text_input: TextInput,
 }
-
-/// The forms text is on the clipboard in, the one clients prefer first.
-pub const TEXT_FORMS: [&str; 3] = ["text/plain;charset=utf-8", "UTF8_STRING", "text/plain"];
-
-/// The longest text the clipboard carries, in bytes.
-pub const CLIPBOARD_MOST: usize = 1024 * 1024;
 
 impl State {
     pub fn new(
@@ -339,6 +338,8 @@ impl State {
             clipboard_tx: watch::Sender::new(None),
             clipboard_changes: Arc::default(),
             idle: handle.clone(),
+            dropping: None,
+            drop_held: false,
             next_window_id: 1,
             presented: 0,
             clock,
@@ -366,39 +367,49 @@ impl State {
         Ok(state)
     }
 
-    /// Reads the text a client put on the clipboard, in the form `form`, and tells it to
-    /// whoever follows the clipboard.
-    pub fn read_clipboard(&mut self, form: String) {
-        let Ok((read, write)) = std::io::pipe() else {
-            return;
-        };
-        if request_data_device_client_selection(&self.seat, form, write.into()).is_err() {
-            return;
+    /// Reads what a client put on the clipboard, in the forms it is `taken` in, and tells
+    /// it to whoever follows the clipboard.
+    pub fn read_clipboard(&mut self, taken: Vec<(&'static str, String)>) {
+        let mut pipes = Vec::new();
+        for (kind, name) in taken {
+            let Ok((read, write)) = std::io::pipe() else {
+                return;
+            };
+            if request_data_device_client_selection(&self.seat, name, write.into()).is_ok() {
+                pipes.push((kind, read));
+            }
         }
         let change = self.clipboard_changes.fetch_add(1, Ordering::Relaxed) + 1;
         let changes = self.clipboard_changes.clone();
         let told = self.clipboard_tx.clone();
         // The client writes when it gets to it.
         std::thread::spawn(move || {
-            let mut text = Vec::new();
-            let read = read.take(CLIPBOARD_MOST as u64 + 1).read_to_end(&mut text);
-            if read.is_err() || text.len() > CLIPBOARD_MOST {
-                return;
+            let mut forms = Vec::new();
+            let mut left = data::MOST;
+            for (kind, read) in pipes {
+                let mut content = Vec::new();
+                let read = read.take(left as u64 + 1).read_to_end(&mut content);
+                // A form that does not fit is left out, with those after it.
+                if read.is_err() || content.len() > left {
+                    break;
+                }
+                left -= content.len();
+                forms.push(Form {
+                    kind: kind.to_owned(),
+                    data: content,
+                });
             }
-            let Ok(text) = String::from_utf8(text) else {
-                return;
-            };
-            if changes.load(Ordering::Relaxed) == change {
-                told.send_replace(Some(text.into()));
+            if !forms.is_empty() && changes.load(Ordering::Relaxed) == change {
+                told.send_replace(Some(forms.into()));
             }
         });
     }
 
-    /// Puts text on the clipboard, for clients to paste.
-    pub fn set_clipboard(&mut self, text: Arc<str>) {
+    /// Puts content on the clipboard, for clients to paste.
+    pub fn set_clipboard(&mut self, forms: Forms) {
         self.clipboard_changes.fetch_add(1, Ordering::Relaxed);
-        let forms = TEXT_FORMS.map(str::to_owned).to_vec();
-        set_data_device_selection(&self.display_handle, &self.seat, forms, text);
+        let offered = data::offered(&forms);
+        set_data_device_selection(&self.display_handle, &self.seat, offered, forms);
     }
 
     pub fn time_msec(&self) -> u32 {

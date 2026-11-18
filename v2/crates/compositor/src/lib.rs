@@ -6,6 +6,7 @@
 //! The Wayland state lives on a thread of its own, behind [`Handle`].
 
 mod cursor;
+pub mod data;
 mod handlers;
 mod input;
 mod keymap;
@@ -26,6 +27,7 @@ use smithay::{
 };
 use tokio::sync::{oneshot, watch};
 
+pub use crate::data::{Form, Forms};
 use crate::state::{Job, State};
 
 #[derive(Debug, Clone)]
@@ -211,6 +213,13 @@ pub enum Input {
         code: u32,
         pressed: bool,
     },
+    /// Drops content onto a window, as one who dragged it there would.
+    Drop {
+        window: WindowId,
+        x: f64,
+        y: f64,
+        content: Forms,
+    },
     /// Text as it is. A field that takes text input gets it whole; anything else gets it
     /// typed through the keymap, without the characters no key produces.
     Text {
@@ -241,7 +250,7 @@ pub struct Handle {
     jobs: channel::Sender<Job>,
     windows: watch::Receiver<Vec<WindowInfo>>,
     cursor: watch::Receiver<Cursor>,
-    clipboard: watch::Receiver<Option<Arc<str>>>,
+    clipboard: watch::Receiver<Option<Forms>>,
     render_node: Option<PathBuf>,
     started: Instant,
 }
@@ -323,14 +332,14 @@ impl Handle {
         self.call(move |state| state.screenshot(window)).await?
     }
 
-    /// The text the session's clients last copied; none before they did.
-    pub fn clipboard(&self) -> watch::Receiver<Option<Arc<str>>> {
+    /// What the session's clients last copied; none before they did.
+    pub fn clipboard(&self) -> watch::Receiver<Option<Forms>> {
         self.clipboard.clone()
     }
 
-    /// Puts text on the session's clipboard, for its clients to paste.
-    pub fn set_clipboard(&self, text: String) {
-        self.submit(move |state| state.set_clipboard(text.into()));
+    /// Puts content on the session's clipboard, for its clients to paste.
+    pub fn set_clipboard(&self, forms: Forms) {
+        self.submit(move |state| state.set_clipboard(forms));
     }
 
     pub fn input(&self, input: Input) {

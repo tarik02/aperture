@@ -1,3 +1,4 @@
+use smithay::reexports::wayland_server::protocol::wl_data_device_manager::DndAction;
 use smithay::{
     backend::{allocator::dmabuf::Dmabuf, renderer::utils::on_commit_buffer_handler},
     delegate_compositor, delegate_cursor_shape, delegate_data_device, delegate_dmabuf,
@@ -44,12 +45,11 @@ use smithay::{
         tablet_manager::TabletSeatHandler,
     },
 };
-use std::{fs::File, io::Write, os::fd::OwnedFd, sync::Arc};
+use std::{fs::File, io::Write, os::fd::OwnedFd};
 use tracing::info;
 
-use crate::state::{
-    ClientState, Shown, State, TEXT_FORMS, Tag, configure_when_ready, tell_scale, window_id,
-};
+use crate::data::{self, Forms};
+use crate::state::{ClientState, Shown, State, Tag, configure_when_ready, tell_scale, window_id};
 
 impl CompositorHandler for State {
     fn compositor_state(&mut self) -> &mut CompositorState {
@@ -320,8 +320,8 @@ impl SeatHandler for State {
 impl TabletSeatHandler for State {}
 
 impl SelectionHandler for State {
-    /// The text the compositor put on the clipboard.
-    type SelectionUserData = Arc<str>;
+    /// What the compositor put on the clipboard.
+    type SelectionUserData = Forms;
 
     fn new_selection(
         &mut self,
@@ -335,30 +335,28 @@ impl SelectionHandler for State {
         let Some(source) = source else {
             return;
         };
-        let offered = source.mime_types();
-        let form = TEXT_FORMS
-            .iter()
-            .find(|form| offered.iter().any(|offered| offered == *form));
-        if let Some(form) = form {
-            let form = (*form).to_owned();
+        let taken = data::taken(&source.mime_types());
+        if !taken.is_empty() {
             // The selection is the client's only once this returns.
             self.idle
-                .insert_idle(move |state| state.read_clipboard(form));
+                .insert_idle(move |state| state.read_clipboard(taken));
         }
     }
 
     fn send_selection(
         &mut self,
         _target: SelectionTarget,
-        _form: String,
+        name: String,
         fd: OwnedFd,
         _seat: Seat<Self>,
-        text: &Arc<str>,
+        forms: &Forms,
     ) {
-        let text = text.clone();
+        let forms = forms.clone();
         // The client reads when it gets to it.
         std::thread::spawn(move || {
-            let _ = File::from(fd).write_all(text.as_bytes());
+            if let Some(content) = data::asked(&forms, &name) {
+                let _ = File::from(fd).write_all(content);
+            }
         });
     }
 }
@@ -370,7 +368,36 @@ impl DataDeviceHandler for State {
 }
 
 impl ClientDndGrabHandler for State {}
-impl ServerDndGrabHandler for State {}
+impl ServerDndGrabHandler for State {
+    fn action(&mut self, action: DndAction, _seat: Seat<Self>) {
+        // The window takes what is dragged over it: it is dropped. After this returns,
+        // as the drag is in the middle of telling the window.
+        if !action.is_empty() {
+            self.idle.insert_idle(Self::drop_dragged);
+        }
+    }
+
+    fn send(&mut self, name: String, fd: OwnedFd, _seat: Seat<Self>) {
+        let Some(content) = self.dropping.clone() else {
+            return;
+        };
+        // The client reads when it gets to it.
+        std::thread::spawn(move || {
+            if let Some(content) = data::asked(&content, &name) {
+                let _ = File::from(fd).write_all(content);
+            }
+        });
+    }
+
+    fn finished(&mut self, _seat: Seat<Self>) {
+        self.dropping = None;
+    }
+
+    fn cancelled(&mut self, _seat: Seat<Self>) {
+        self.dropping = None;
+        self.drop_held = false;
+    }
+}
 
 impl PrimarySelectionHandler for State {
     fn primary_selection_state(&self) -> &PrimarySelectionState {

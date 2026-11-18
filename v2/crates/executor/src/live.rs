@@ -53,10 +53,14 @@ async fn viewer() -> Html<&'static str> {
 
 async fn forward(
     State(sessions): State<Arc<Sessions>>,
-    Path((id, rest)): Path<(String, String)>,
+    Path((id, _)): Path<(String, String)>,
     request: Request,
 ) -> Response {
-    forward_to(&sessions, &id, &format!("/{rest}"), request).await
+    // As the client wrote it: a path taken apart and put together again is another one
+    // where it has escapes.
+    let rest = request.uri().path().strip_prefix(path(&id).as_str());
+    let rest = rest.unwrap_or_default().to_owned();
+    forward_to(&sessions, &id, &rest, request).await
 }
 
 async fn mcp(

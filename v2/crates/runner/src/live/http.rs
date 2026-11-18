@@ -1,19 +1,25 @@
 //! The session's live endpoints, on a socket in its runtime directory. Whoever reaches the
 //! socket is trusted: the executor checks callers before it forwards them here.
 
-use std::{io::Cursor, path::Path, sync::Arc};
+use std::{
+    io::Cursor,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use aperture_compositor::{Frame, Handle, Viewport};
 use aperture_runner::{PortRange, proxy};
 use axum::{
     Json, Router,
+    body::Body,
     extract::{Path as RoutePath, State, WebSocketUpgrade},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post, put},
 };
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use tokio::sync::watch;
+use tokio::{io::AsyncWriteExt, sync::watch};
 use tower_http::services::ServeDir;
 
 use super::{
@@ -23,7 +29,12 @@ use super::{
     record::{Recording, Recordings},
     stream::Streams,
 };
-use crate::{automation::Automation, egress::Egress, targets::Target};
+use crate::{
+    automation::Automation,
+    egress::Egress,
+    files::{self, Download, UPLOADS},
+    targets::Target,
+};
 
 /// What the live endpoints serve.
 #[derive(Clone)]
@@ -34,15 +45,17 @@ pub struct Live {
     pub recordings: Recordings,
     pub egress: Arc<Egress>,
     pub rtc_ports: Option<PortRange>,
+    pub downloads: watch::Receiver<Vec<Download>>,
+    pub file_requests: files::Requests,
+    /// The session's files.
+    pub files: PathBuf,
 }
 
-/// Serves until the listener fails. `files` are the session's files.
-pub async fn serve(
-    socket: &Path,
-    live: Live,
-    automation: Arc<Automation>,
-    files: &Path,
-) -> std::io::Result<()> {
+/// The largest file that is taken for the browser, in bytes.
+const UPLOAD_MOST: u64 = 1024 * 1024 * 1024;
+
+/// Serves until the listener fails.
+pub async fn serve(socket: &Path, live: Live, automation: Arc<Automation>) -> std::io::Result<()> {
     let _ = std::fs::remove_file(socket);
     let listener = tokio::net::UnixListener::bind(socket)?;
     let app = Router::new()
@@ -54,7 +67,10 @@ pub async fn serve(
         .route("/recordings", get(recordings_list).post(recording_start))
         .route("/recordings/{id}", get(recording_get))
         .route("/recordings/{id}/stop", post(recording_stop))
-        .nest_service("/files", ServeDir::new(files))
+        .route("/downloads", get(downloads_list))
+        .route("/uploads", get(uploads_list))
+        .route("/uploads/{name}", put(upload).delete(upload_remove))
+        .nest_service("/files", ServeDir::new(&live.files))
         .nest_service("/mcp", mcp::service(automation))
         .with_state(live);
     axum::serve(listener, app).await
@@ -63,6 +79,102 @@ pub async fn serve(
 /// A client's session socket.
 async fn session_socket(State(live): State<Live>, upgrade: WebSocketUpgrade) -> Response {
     upgrade.on_upgrade(move |socket| client::serve(live, socket))
+}
+
+async fn downloads_list(State(live): State<Live>) -> Json<Vec<Download>> {
+    Json(live.downloads.borrow().clone())
+}
+
+/// A file put into the session for the browser to take.
+#[derive(Serialize)]
+struct Uploaded {
+    name: String,
+    size: u64,
+    /// Where the file is, for the browser as for the session's tools.
+    path: PathBuf,
+}
+
+async fn uploads_list(State(live): State<Live>) -> Response {
+    let directory = live.files.join(UPLOADS);
+    let mut uploads = Vec::new();
+    let mut entries = match tokio::fs::read_dir(&directory).await {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Json(uploads).into_response();
+        }
+        Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Ok(metadata) = entry.metadata().await else {
+            continue;
+        };
+        if metadata.is_file() && files::named(&directory, &name).is_some() {
+            uploads.push(Uploaded {
+                path: entry.path(),
+                name,
+                size: metadata.len(),
+            });
+        }
+    }
+    uploads.sort_by(|a, b| a.name.cmp(&b.name));
+    Json(uploads).into_response()
+}
+
+/// Takes the request's body as the file `name` of the session's uploads, in place of one
+/// there was.
+async fn upload(
+    State(live): State<Live>,
+    RoutePath(name): RoutePath<String>,
+    body: Body,
+) -> Response {
+    let directory = live.files.join(UPLOADS);
+    let Some(path) = files::named(&directory, &name) else {
+        return (StatusCode::BAD_REQUEST, "not a file name").into_response();
+    };
+    // Under a name no listing shows until the file is whole.
+    let partial = directory.join(format!(".{name}.part"));
+    let written = async {
+        tokio::fs::create_dir_all(&directory).await?;
+        let mut file = tokio::fs::File::create(&partial).await?;
+        let mut chunks = body.into_data_stream();
+        let mut size = 0;
+        while let Some(chunk) = chunks.next().await {
+            let chunk = chunk.map_err(std::io::Error::other)?;
+            size += chunk.len() as u64;
+            if size > UPLOAD_MOST {
+                return Ok(None);
+            }
+            file.write_all(&chunk).await?;
+        }
+        file.flush().await?;
+        tokio::fs::rename(&partial, &path).await?;
+        std::io::Result::Ok(Some(size))
+    };
+    match written.await {
+        Ok(Some(size)) => Json(Uploaded { name, size, path }).into_response(),
+        Ok(None) => {
+            let _ = tokio::fs::remove_file(&partial).await;
+            (StatusCode::PAYLOAD_TOO_LARGE, "the file is too large").into_response()
+        }
+        Err(err) => {
+            let _ = tokio::fs::remove_file(&partial).await;
+            (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
+        }
+    }
+}
+
+async fn upload_remove(State(live): State<Live>, RoutePath(name): RoutePath<String>) -> Response {
+    let Some(path) = files::named(&live.files.join(UPLOADS), &name) else {
+        return (StatusCode::BAD_REQUEST, "not a file name").into_response();
+    };
+    match tokio::fs::remove_file(&path).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            StatusCode::NOT_FOUND.into_response()
+        }
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+    }
 }
 
 #[derive(Serialize)]

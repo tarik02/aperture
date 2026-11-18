@@ -14,6 +14,11 @@
   #state { opacity: 0.7; }
   /* Takes the keyboard without showing: what is typed goes to the session. */
   #keys { position: fixed; left: 0; bottom: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; resize: none; }
+  #files { position: fixed; right: 6px; top: 40px; z-index: 1; display: grid; gap: 6px; max-height: 50vh; max-width: 420px; overflow: auto; padding: 8px; background: #262a33; border: 1px solid #3a3f4b; border-radius: 6px; }
+  #files[hidden], #asked[hidden] { display: none; }
+  #files a { color: #7aa2f7; }
+  #files button { background: #1a1d23; color: inherit; border: 1px solid #3a3f4b; border-radius: 4px; padding: 2px 8px; }
+  #downloads { display: grid; gap: 4px; }
   #stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
   video, canvas { max-width: 100%; max-height: 100%; background: #000; outline: none; }
 </style>
@@ -27,10 +32,12 @@
     <select id="viewport" title="The page's size"><option value="">Viewport</option><option>1280x720</option><option>1920x1080</option><option>1024x768</option><option>390x844</option><option value="fit">Fit this window</option></select>
     <select id="scale" title="Pixels per CSS pixel"><option value="1">1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option><option value="3">3x</option></select>
     <button id="copied" title="The session copied text. This copies it here." hidden>Copy</button>
+    <button id="filed" title="The session's downloads, and the files a page asks for" hidden></button>
     <button id="keyboard" title="Type into the session">⌨</button>
     <span id="state">connecting</span>
   </span>
 </div>
+<div id="files" hidden><div id="asked" hidden><span></span> <button id="choose">Choose…</button> <button id="refuse">Cancel</button><input id="chosen" type="file" hidden></div><div id="downloads"></div></div>
 <div id="stage"><video id="video" autoplay muted playsinline tabindex="0" hidden></video><canvas id="canvas" tabindex="0" hidden></canvas><textarea id="keys" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Keyboard of the session"></textarea></div>
 <script>
   // KeyboardEvent.code to Linux evdev key codes.
@@ -232,7 +239,9 @@
       state.textContent = `${way}: ${name(status.quality)}, ${controls.codec.querySelector(`[value=${status.format}]`)?.textContent ?? status.format}, ${status.fps} fps`;
       return;
     }
-    if (message.clipboard) return void copy(message.clipboard.text ?? "");
+    if (message.clipboard) return void copy(message.clipboard.forms ?? []);
+    if (message.downloads) return showDownloads(message.downloads.downloads ?? []);
+    if (message.fileRequests) requests = message.fileRequests.requests ?? [];
     if (message.tile) return void (drawn = drawn.then(() => drawTile(message.tile)));
     if (message.videoFrame) return void (drawn = drawn.then(() => decodeFrame(message.videoFrame)));
     if (message.targets) targets = message.targets.targets ?? [];
@@ -245,6 +254,7 @@
         if (controls.viewport.value !== "fit") controls.viewport.value = [...controls.viewport.options].some((option) => option.value === sized) ? sized : "";
       }
     }
+    if (message.fileRequests || message.selected) showRequest();
     if (message.cursor) video.style.cursor = canvas.style.cursor = message.cursor.hidden ? "none" : message.cursor.named ?? "default";
     const bar = document.getElementById("targets");
     bar.replaceChildren(...targets.map((item) => {
@@ -341,11 +351,110 @@
     if (event.inputType === "deleteContentForward") tap(KEYS.Delete);
   });
   keys.addEventListener("input", rest);
-  keys.addEventListener("paste", (event) => {
+  const base64 = async (blob) => {
+    const reader = new FileReader();
+    const read = new Promise((done) => { reader.onload = done; });
+    reader.readAsDataURL(blob);
+    await read;
+    return reader.result.split(",")[1];
+  };
+  // Files get to the session's browser by way of the session's files: they are put there,
+  // and the browser is told where they are.
+  const upload = async (file) => {
+    const answer = await fetch(`${base}/uploads/${encodeURIComponent(file.name)}${location.search}`, { method: "PUT", body: file });
+    if (!answer.ok) throw new Error(await answer.text());
+    return answer.json();
+  };
+  const listed = async (files) => {
+    const uris = (await Promise.all(files.map(upload))).map(({ path }) => `file://${path.split("/").map(encodeURIComponent).join("/")}\r\n`);
+    return { type: "text/uri-list", data: await base64(new Blob(uris)) };
+  };
+  // What is dropped on the picture is dropped on the page, there.
+  for (const surface of [video, canvas]) {
+    surface.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+    });
+    surface.addEventListener("drop", async (event) => {
+      event.preventDefault();
+      const at = position(event);
+      const files = [...event.dataTransfer.files];
+      const texts = ["text/plain", "text/html"].map((type) => [type, event.dataTransfer.getData(type)]).filter(([, text]) => text);
+      const forms = files.length ? [await listed(files)] : await Promise.all(texts.map(async ([type, text]) => ({ type, data: await base64(new Blob([text])) })));
+      if (forms.length) send({ drop: { ...at, content: { forms } } });
+    });
+  }
+
+  // The session's downloads, and the files its pages ask for.
+  const panel = document.getElementById("files");
+  const filed = document.getElementById("filed");
+  const asked = document.getElementById("asked");
+  const chosen = document.getElementById("chosen");
+  let requests = [];
+  let done = 0;
+  filed.onclick = () => { panel.hidden = !panel.hidden; };
+  const showDownloads = (downloads) => {
+    const size = (bytes) => bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} kB`;
+    document.getElementById("downloads").replaceChildren(...downloads.toReversed().map((download) => {
+      const row = document.createElement("div");
+      const state = download.state.split("_").at(-1).toLowerCase();
+      const received = Number(download.receivedBytes ?? 0);
+      if (state === "done") {
+        const link = document.createElement("a");
+        link.href = `${base}/files/downloads/${encodeURIComponent(download.name)}${location.search}`;
+        link.download = link.textContent = download.name;
+        row.append(link, ` ${size(received)}`);
+      } else {
+        const part = download.totalBytes ? `${Math.round(100 * received / Number(download.totalBytes))}%` : size(received);
+        row.textContent = `${download.name} ${state === "failed" ? "failed" : part}`;
+      }
+      return row;
+    }));
+    // A download that got done is shown.
+    const finished = downloads.filter((download) => download.state === "DOWNLOAD_STATE_DONE").length;
+    if (finished > done) panel.hidden = false;
+    done = finished;
+    filed.textContent = `⬇ ${downloads.length}`;
+    filed.hidden = !downloads.length && asked.hidden;
+  };
+  const showRequest = () => {
+    const request = requests.find((one) => one.target === selected);
+    asked.hidden = !request;
+    if (!request) return;
+    asked.firstElementChild.textContent = request.multiple ? "The page asks for files." : "The page asks for a file.";
+    chosen.multiple = Boolean(request.multiple);
+    const answer = (files) => send({ filesChosen: { id: String(request.id), files } });
+    document.getElementById("choose").onclick = () => chosen.click();
+    document.getElementById("refuse").onclick = () => answer([]);
+    chosen.onchange = async () => {
+      const put = await Promise.all([...chosen.files].map(upload));
+      chosen.value = "";
+      answer(put.map(({ name }) => name));
+    };
+    filed.textContent ||= "⬇ 0";
+    filed.hidden = panel.hidden = false;
+  };
+
+  // A picture as the PNG the session's clipboard carries.
+  const png = async (picture) => {
+    if (picture.type === "image/png") return picture;
+    const bitmap = await createImageBitmap(picture);
+    const drawn = new OffscreenCanvas(bitmap.width, bitmap.height);
+    drawn.getContext("2d").drawImage(bitmap, 0, 0);
+    return drawn.convertToBlob({ type: "image/png" });
+  };
+  // The session gets what is pasted here, then the keys that paste there.
+  keys.addEventListener("paste", async (event) => {
     event.preventDefault();
-    const text = event.clipboardData.getData("text/plain");
-    if (!text) return;
-    send({ clipboard: { text } });
+    const parts = ["text/plain", "text/html"].map((type) => [type, event.clipboardData.getData(type)]).filter(([, text]) => text).map(([type, text]) => [type, new Blob([text])]);
+    const files = [...event.clipboardData.files];
+    // One picture is pasted as a picture, which more pages take than take a file.
+    const picture = files.length === 1 && files[0].type.startsWith("image/");
+    if (picture) parts.push(["image/png", await png(files[0])]);
+    const forms = await Promise.all(parts.map(async ([type, blob]) => ({ type, data: await base64(blob) })));
+    if (files.length && !picture) forms.push(await listed(files));
+    if (!forms.length) return;
+    send({ clipboard: { forms } });
     // Pasting is Control and V there, whatever it is here.
     METAS.forEach((code) => press(code, false));
     const controlled = CONTROLS.some((code) => held.has(code));
@@ -355,22 +464,29 @@
   });
 
   // What the session copied goes to the clipboard here where the browser lets a page
-  // write to it at any time; elsewhere a button does it at a click.
+  // write to it at any time. Elsewhere a button does it at a click: text is copied, a
+  // picture opens to be copied by hand.
   const copied = document.getElementById("copied");
-  const copy = async (text) => {
+  const copy = async (forms) => {
+    const had = await Promise.all(forms.filter((form) => ["text/plain", "text/html", "image/png"].includes(form.type)).map(async (form) => [form.type, new Blob([await bytes(form.data)], { type: form.type })]));
+    if (!had.length) return;
+    const blobs = Object.fromEntries(had);
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.write([new ClipboardItem(blobs)]);
       copied.hidden = true;
     } catch {
+      const text = await blobs["text/plain"]?.text();
+      copied.textContent = text === undefined ? "Copied picture" : "Copy";
       copied.hidden = false;
       copied.onclick = () => {
+        copied.hidden = true;
+        if (text === undefined) return void window.open(URL.createObjectURL(blobs["image/png"] ?? blobs["text/html"]));
         const from = document.createElement("textarea");
         from.value = text;
         document.body.append(from);
         from.select();
         document.execCommand("copy");
         from.remove();
-        copied.hidden = true;
         keys.focus({ preventScroll: true });
       };
     }
