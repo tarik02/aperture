@@ -83,7 +83,7 @@ check("both sessions survive an executor restart", listed.length === 2 && listed
 // B's window, watched and controlled from A's browser through the viewer page.
 const live = `${base}/sessions/${b.id}/live`;
 c = cdp(b.id);
-const page = `<body style='margin:0;background:%23246;color:white;font:48px sans-serif'><h1>Session B</h1><button style='position:absolute;left:100px;top:300px;width:300px;height:100px;font-size:32px' onclick="document.title='clicked'">click me</button><input id=i style='position:absolute;left:100px;top:450px;width:400px;font-size:32px' oninput="document.title='typed:'+this.value">`;
+const page = `<body style='margin:0;background:%23246;color:white;font:48px sans-serif'><h1>Session B</h1><button style='position:absolute;left:100px;top:300px;width:300px;height:100px;font-size:32px' onclick="document.title='clicked'">click me</button><input id=i style='position:absolute;left:100px;top:450px;width:400px;font-size:32px' oninput="document.title='typed:'+this.value"><div style='height:3000px'></div>`;
 const created = await c.send("Target.createTarget", { url: `data:text/html,${page}` });
 const bPage = (await c.send("Target.attachToTarget", { targetId: created.targetId, flatten: true })).sessionId;
 const bTitle = async () => (await c.send("Runtime.evaluate", { expression: "document.title", returnByValue: true }, bPage)).result.value;
@@ -184,6 +184,19 @@ await tool("click", { tab: created.targetId, selector: "button" });
 await sleep(700);
 await tool("recording", { action: "reset_focus" });
 await tool("recording", { action: "attention", selector: "#i", duration_ms: 600 });
+// Scrolling and filling a field show as they would by hand.
+const typingStarted = Date.now();
+await tool("fill", { tab: created.targetId, selector: "#i", value: "typed by the agent, letter by letter" });
+const typingTook = Date.now() - typingStarted;
+check("a field is filled as if typed while recorded", typingTook > 900 && (await bTitle()) === "typed:typed by the agent, letter by letter");
+await tool("scroll", { tab: created.targetId, deltaY: 900 });
+await tool("scroll", { tab: created.targetId, deltaY: -900 });
+const wheels = () => readFileSync(`${D}/data/sessions/${b.id}/files/${recordingStarted.journal}`, "utf8").trim().split("\n").filter((line) => JSON.parse(line).kind === "wheel").length;
+const wheelsBefore = wheels();
+const toBottom = await tool("scroll", { tab: created.targetId, to: "bottom" });
+await tool("scroll", { tab: created.targetId, to: "top" });
+const wheelsAfter = wheels();
+check("a scroll to an edge travels there while recorded", /"atBottom": true/u.test(toBottom.text) && wheelsAfter - wheelsBefore > 20);
 // Nothing happens for a while, which the edit cuts.
 await sleep(2500);
 const recordingStopped = JSON.parse((await tool("recording", { action: "stop", id: recordingStarted.id })).text);
@@ -210,8 +223,21 @@ const timeline = await (await fetch(`${live}/files/${edited.timeline}`, { header
 console.log("timeline:", JSON.stringify({ duration_ms: timeline.duration_ms, edited_duration_ms: timeline.edited_duration_ms, map: timeline.map }));
 check("the edit cut the idle stretch", timeline.edited_duration_ms < timeline.duration_ms - 1000 && timeline.map.length >= 1 && timeline.events.every((e) => e.edited_at_ms <= e.at_ms));
 check("journal times are in the video's time", journal.every((e) => e.at_ms >= 0 && e.at_ms <= e.end_ms && e.end_ms <= recordingStopped.duration_ms + 100) && journal.some((e) => e.at_ms > 500));
+check("the wheel turns in many small steps while recorded", journal.filter((e) => e.kind === "wheel").length > 20);
 check("the pointer travels to where it acts while recorded", journal.filter((e) => e.kind === "move").length > 30);
 check("the journal's press is where the click went", journal.some((e) => e.kind === "press" && e.button === "left" && Math.abs(e.x - 250) < 150 && Math.abs(e.y - 350) < 50));
+// A caret blinks in the field all the while. With every change of a pixel counting, only
+// its steady beat tells it from something happening.
+await tool("click", { tab: created.targetId, selector: "#i" });
+const blinking = JSON.parse((await tool("recording", { action: "start", tab: created.targetId, idle: "cut", motion_threshold: 0 })).text);
+await tool("hover", { tab: created.targetId, x: 700, y: 200 });
+await sleep(4500);
+await tool("recording", { action: "stop", id: blinking.id });
+let blinkingEdit;
+for (let i = 0; i < 120; i++) { blinkingEdit = JSON.parse((await tool("recording", { action: "status", id: blinking.id })).text).edit; if (blinkingEdit.state !== "editing") break; await sleep(500); }
+const blinkingTimeline = await (await fetch(`${live}/files/${blinkingEdit.timeline}`, { headers: auth })).json();
+console.log("blinking:", JSON.stringify({ duration_ms: blinkingTimeline.duration_ms, edited_duration_ms: blinkingTimeline.edited_duration_ms }));
+check("a blinking caret does not keep a page from being idle", blinkingTimeline.edited_duration_ms < blinkingTimeline.duration_ms - 1500);
 check("the viewer's cursor is back", (await evaluate("video.style.cursor")) !== "none");
 check("the viewer still plays after the recording", JSON.parse(await evaluate("JSON.stringify({ state: peer.connectionState })")).state === "connected");
 

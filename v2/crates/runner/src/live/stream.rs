@@ -26,8 +26,9 @@ pub struct Packet {
     /// When the frame was drawn, or encoded again, on the compositor's clock.
     pub time: Duration,
     pub keyframe: bool,
-    /// Whether the frame shows something new, rather than the last one encoded again.
-    pub fresh: bool,
+    /// How many pixels of the picture changed since the frame before; none for a frame that
+    /// is the last one encoded again.
+    pub changed: u64,
     /// The picture's size in pixels.
     pub size: (u32, u32),
 }
@@ -127,6 +128,8 @@ impl Streams {
         let mut keyframe = true;
         // The frame is encoded again, at a rest of the window, rather than drawn anew.
         let mut again = false;
+        // What the last frame encoded had counted, see `Frame::changed`.
+        let mut counted = 0;
         loop {
             tokio::select! {
                 () = shared.keyframe.notified() => {
@@ -148,6 +151,9 @@ impl Streams {
                     let force = std::mem::take(&mut keyframe);
                     let fresh = !std::mem::take(&mut again);
                     let time = if fresh { frame.time } else { self.compositor.elapsed() };
+                    // The count starts over when the window is watched anew.
+                    let changed = frame.changed.checked_sub(counted).unwrap_or(frame.changed);
+                    counted = frame.changed;
                     // As the encoder takes it: without a last odd row or column.
                     let size = (frame.width & !1, frame.height & !1);
                     let task = tokio::task::spawn_blocking(move || {
@@ -162,7 +168,7 @@ impl Streams {
                         Ok((data, _)) if data.is_empty() => {}
                         Ok((data, keyframe)) => {
                             // Nobody taking it right now is fine.
-                            let packet = Packet { data, time, keyframe, fresh, size };
+                            let packet = Packet { data, time, keyframe, changed, size };
                             let _ = shared.packets.send(Arc::new(packet));
                         }
                         Err(err) => {

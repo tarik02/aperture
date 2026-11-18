@@ -43,6 +43,10 @@ const LOAD_WITHIN: Duration = Duration::from_secs(30);
 /// How long the page gets to take in input the compositor delivered, before the command
 /// that caused it counts as done.
 const INPUT_SETTLES_WITHIN: Duration = Duration::from_millis(500);
+/// How long a character of a text takes to type at a fast pace, and how long a whole text
+/// takes at most.
+const TYPING_STEP: Duration = Duration::from_millis(35);
+const TYPING_AT_MOST: Duration = Duration::from_secs(3);
 /// What a slow pace adds to each step of the pointer's travel.
 const SLOW_STEP: Duration = Duration::from_millis(14);
 
@@ -118,6 +122,47 @@ impl Automation {
         self.tools.iter().map(|tool| tool.spec()).collect()
     }
 
+    /// A scroll of the page to one of its edges, as a scroll by the distance there. To an
+    /// edge, the page is put there in one step, which a recording at a pace would show as
+    /// a jump; by a distance, the wheel turns in steps. None for a scroll that is to go as
+    /// it is.
+    async fn travel_to_edge(&self, arguments: &Value) -> Option<Value> {
+        let edge = arguments["to"].as_str()?;
+        let tab = arguments["tab"].as_i64()?;
+        let within = ["ref", "selector"]
+            .iter()
+            .any(|key| !arguments[*key].is_null());
+        let browser = &self.context.browser;
+        if within || !browser.human_input(tab).await {
+            return None;
+        }
+        let measured = browser
+            .cdp(tab)
+            .await
+            .ok()?
+            .send(
+                "Runtime.evaluate",
+                json!({
+                    "expression": "(() => { const e = document.scrollingElement; return [e.scrollLeft, e.scrollTop, e.scrollWidth - e.clientWidth, e.scrollHeight - e.clientHeight]; })()",
+                    "returnByValue": true,
+                }),
+                None,
+            )
+            .await
+            .ok()?;
+        let at = |index: usize| measured["result"]["value"][index].as_f64();
+        let (left, top, right, bottom) = (at(0)?, at(1)?, at(2)?, at(3)?);
+        let (dx, dy) = match edge {
+            "top" => (0.0, -top),
+            "bottom" => (0.0, bottom - top),
+            "left" => (-left, 0.0),
+            "right" => (right - left, 0.0),
+            _ => return None,
+        };
+        (dx.abs() >= 1.0 || dy.abs() >= 1.0)
+            .then(|| json!({ "tab": tab, "deltaX": dx, "deltaY": dy }))
+    }
+
     /// Calls a tool. What goes wrong comes back as the tool's result, where a model reads
     /// it.
     pub async fn call(&self, name: &str, mut arguments: Value) -> ToolOutput {
@@ -133,6 +178,13 @@ impl Automation {
         }
         let started = self.recordings.now();
         let tab = arguments.get("tab").cloned();
+        if name == "scroll"
+            && let Some(travel) = self.travel_to_edge(&arguments).await
+        {
+            // The page travels there first; the call itself then finds it there, and says
+            // where that is.
+            let _ = tool.call(self.context.clone(), travel).await;
+        }
         let output = match tool.call(self.context.clone(), arguments).await {
             Ok(output) => output,
             Err(err) => ToolOutput::error(format!("{err:#}")),
@@ -468,6 +520,40 @@ impl TabSession {
             .map(|target| target.window)
     }
 
+    /// Inserts text a character at a time, as typing looks, where the browser would insert
+    /// it at once: what a recording at a pace shows of a field being filled. False when the
+    /// text is to go in at once after all.
+    async fn type_out(&self, text: &str, pace: Pace) -> Result<bool, CdpError> {
+        let (each, at_most) = match pace {
+            Pace::Instant => return Ok(false),
+            Pace::Fast => (TYPING_STEP, TYPING_AT_MOST),
+            Pace::Slow => (TYPING_STEP * 2, TYPING_AT_MOST * 2),
+        };
+        let characters: Vec<char> = text.chars().collect();
+        if characters.len() < 2 {
+            return Ok(false);
+        }
+        // A long text is typed faster, so that no field takes too long to fill.
+        let each = each.min(at_most / characters.len() as u32);
+        let mut character = [0; 4];
+        for typed in characters {
+            let text = typed.encode_utf8(&mut character);
+            self.browser
+                .call_in(
+                    Some(&self.session),
+                    "Input.insertText",
+                    json!({ "text": text }),
+                )
+                .await
+                .map_err(|err| match err {
+                    cdp::Error::Refused(message) => CdpError::Protocol(message),
+                    cdp::Error::Gone => CdpError::Disconnected,
+                })?;
+            sleep(each).await;
+        }
+        Ok(true)
+    }
+
     /// Gives pointer and key commands to the compositor instead of the page. `None` for
     /// what the compositor has no input for, which goes to the page as it is.
     async fn deliver(&self, method: &str, params: &Value) -> Option<()> {
@@ -569,6 +655,14 @@ impl Cdp for TabSession {
             "Input.dispatchMouseEvent" | "Input.dispatchKeyEvent"
         );
         if input && session_id.is_none() && self.deliver(method, &params).await.is_some() {
+            return Ok(json!({}));
+        }
+        if method == "Input.insertText"
+            && session_id.is_none()
+            && let Some(pace) = self.recordings.pace(&self.target)
+            && let Some(text) = params["text"].as_str()
+            && self.type_out(text, pace).await?
+        {
             return Ok(json!({}));
         }
         if method == "Input.dispatchMouseEvent" && params["type"] == "mouseWheel" {
@@ -810,6 +904,10 @@ impl Tool for RecordingTool {
                         "description": "start: remove, or fast-forward, the stretches in which nothing happens. Continuous capture only.",
                     },
                     "ripple": { "type": "boolean", "description": "start: mark clicks with a ripple." },
+                    "motion_threshold": {
+                        "type": "number",
+                        "description": "start: the share of the picture, 0 to 1, that must change for something to have happened (default 0.0002). Lower it to keep subtle changes from being cut as idle.",
+                    },
                     "pace": {
                         "type": "string",
                         "enum": ["instant", "fast", "slow"],
@@ -860,7 +958,14 @@ impl Tool for RecordingTool {
                     None => None,
                 };
                 let mut options = serde_json::Map::new();
-                for key in ["capture", "idle", "ripple", "burst", "pace"] {
+                for key in [
+                    "capture",
+                    "idle",
+                    "ripple",
+                    "burst",
+                    "pace",
+                    "motion_threshold",
+                ] {
                     if let Some(value) = args.get(key).filter(|value| !value.is_null()) {
                         options.insert(key.to_owned(), value.clone());
                     }

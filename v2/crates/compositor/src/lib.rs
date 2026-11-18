@@ -65,6 +65,11 @@ pub struct Frame {
     pub rgba: Vec<u8>,
     /// On the compositor's clock, which starts with it.
     pub time: Duration,
+    /// How many pixels changed since the window was first watched, counted up from frame
+    /// to frame: by how much it grew between two frames says how much of the picture
+    /// changed between them, also when frames in between were skipped. Flicker is not
+    /// counted: a small area that changes at a steady beat, as a blinking caret does.
+    pub changed: u64,
 }
 
 /// A window's frames: the latest one, replaced as the window changes, `None` until the window

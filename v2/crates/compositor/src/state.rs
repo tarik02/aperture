@@ -45,13 +45,50 @@ use tokio::sync::watch;
 use tracing::{info, warn};
 
 use crate::{
-    Config, Cursor, Error, Frame, Frames, Viewport, WindowId, WindowInfo, cursor::Theme,
-    keymap::KeyTable, render::WindowFrame,
+    Config, Cursor, Error, Frame, Frames, Viewport, WindowId, WindowInfo,
+    cursor::Theme,
+    keymap::KeyTable,
+    render::{Change, WindowFrame},
 };
 
 /// Windows are told to draw, and drawn, this often.
 const REFRESH: i32 = 60_000;
 const FRAME_INTERVAL: Duration = Duration::from_nanos(1_000_000_000_000 / REFRESH as u64);
+
+/// The slowest a small area changes over and over for it to be a flicker rather than
+/// something moving.
+const FLICKER_BEAT_AT_LEAST: Duration = Duration::from_millis(150);
+/// A flicker is at most this share of the picture: 1 in this many pixels.
+const FLICKER_AT_MOST: u64 = 50;
+
+/// Tells flicker from change: the same small area changing at a steady beat, as a blinking
+/// caret or a ticking clock does. Nothing happens on a page that only flickers.
+#[derive(Default)]
+struct Flicker {
+    /// The last change, and when it came.
+    last: Option<(Change, Instant)>,
+    /// How long after the change before it the last one came, where both were of one area.
+    beat: Option<Duration>,
+}
+
+impl Flicker {
+    /// Whether the change is one more beat of a flicker. The first two changes of an area
+    /// are not: a beat is known only once it has repeated.
+    fn is(&mut self, change: Change, whole: u64, now: Instant) -> bool {
+        let area = |change: &Change| (change.left, change.top, change.right, change.bottom);
+        let small = change.area() * FLICKER_AT_MOST <= whole;
+        let beat = match &self.last {
+            Some((last, at)) if small && area(last) == area(&change) => Some(now - *at),
+            _ => None,
+        };
+        let steady = beat.zip(self.beat).is_some_and(|(beat, before)| {
+            beat >= FLICKER_BEAT_AT_LEAST && beat.abs_diff(before) <= before / 4
+        });
+        self.last = Some((change, now));
+        self.beat = beat;
+        steady
+    }
+}
 
 /// Work executed on the compositor thread, which owns all Wayland state.
 pub type Job = Box<dyn FnOnce(&mut State) + Send>;
@@ -59,6 +96,9 @@ pub type Job = Box<dyn FnOnce(&mut State) + Send>;
 /// A window someone watches: its image, and where its frames go.
 struct Watched {
     frame: Option<WindowFrame>,
+    /// Pixels that changed since the window was first watched, flicker apart.
+    changed: u64,
+    flicker: Flicker,
     frames: watch::Sender<Option<Arc<Frame>>>,
 }
 
@@ -330,6 +370,8 @@ impl State {
         self.window(id)?;
         let watched = self.watched.entry(id).or_insert_with(|| Watched {
             frame: None,
+            changed: 0,
+            flicker: Flicker::default(),
             frames: watch::Sender::new(None),
         });
         // Nobody watched for a while: what the channel holds is out of date.
@@ -351,6 +393,7 @@ impl State {
             height,
             rgba: frame.pixels().to_vec(),
             time: self.start.elapsed(),
+            changed: 0,
         })
     }
 
@@ -410,18 +453,24 @@ impl State {
                 .filter(|(over, ..)| over == id)
                 .map(|(_, position, image)| (*position, image));
             match WindowFrame::render(&mut watched.frame, &mut self.renderer, window, pointer) {
-                Ok(true) => {
+                Ok(None) => {}
+                Ok(Some(change)) => {
                     if let Some(frame) = &watched.frame {
                         let (width, height) = frame.size();
+                        let whole = u64::from(width) * u64::from(height);
+                        // Viewers get a flicker like any change; it only does not count.
+                        if !watched.flicker.is(change, whole, Instant::now()) {
+                            watched.changed += change.pixels;
+                        }
                         watched.frames.send_replace(Some(Arc::new(Frame {
                             width,
                             height,
                             rgba: frame.pixels().to_vec(),
                             time,
+                            changed: watched.changed,
                         })));
                     }
                 }
-                Ok(false) => {}
                 Err(err) => warn!(id = id.0, %err, "failed to render a window"),
             }
         }

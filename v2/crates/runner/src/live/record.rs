@@ -297,13 +297,15 @@ impl Recordings {
             options,
             edit: None,
         };
+        let threshold = recording.options.motion_threshold;
         let (stop, stopped) = oneshot::channel();
         let task = tokio::spawn({
             let recordings = self.clone();
             let id = id.clone();
             let journal = journal.clone();
             async move {
-                let outcome = record(subscription, writer, stopped, &journal.start).await;
+                let outcome =
+                    record(subscription, writer, stopped, &journal.start, threshold).await;
                 recordings.ended(&id, outcome);
             }
         });
@@ -894,6 +896,7 @@ async fn record(
     writer: Writer,
     mut stopped: oneshot::Receiver<()>,
     start: &OnceLock<Duration>,
+    motion_threshold: f64,
 ) -> anyhow::Result<Raw> {
     let mut first = None;
     let mut last = Duration::ZERO;
@@ -913,7 +916,9 @@ async fn record(
         if size == (0, 0) {
             size = packet.size;
         }
-        if packet.fresh {
+        // Something happened where enough of the picture changed.
+        let whole = f64::from(packet.size.0) * f64::from(packet.size.1);
+        if packet.changed > 0 && packet.changed as f64 >= whole * motion_threshold {
             changed_at_ms.push(last.as_millis() as i64);
         }
         writer.write(packet, last)

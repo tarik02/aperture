@@ -78,19 +78,19 @@ impl WindowFrame {
 
     /// Renders `window` into `frame`, reallocating it when the frame size changed, with the
     /// pointer on top where one is given, by its position in the window's surface
-    /// coordinates. Returns whether any pixel changed. A window without content leaves no
-    /// frame.
+    /// coordinates. Returns what changed, nothing when the window looks as it did. A window
+    /// without content leaves no frame.
     pub fn render(
         frame: &mut Option<Self>,
         renderer: &mut PixmanRenderer,
         window: &Window,
         pointer: Option<(Point<f64, Logical>, &PointerImage)>,
-    ) -> Result<bool, Error> {
+    ) -> Result<Option<Change>, Error> {
         let rect = frame_rect(window);
         let size: Size<i32, Physical> = rect.size.to_physical_precise_round(SCALE);
         if size.w <= 0 || size.h <= 0 {
             *frame = None;
-            return Ok(false);
+            return Ok(None);
         }
         let resized = frame.as_ref().is_none_or(|frame| frame.size != size);
         let frame = if resized {
@@ -167,10 +167,10 @@ impl WindowFrame {
         let Some(region) =
             region.and_then(|region| region.intersection(Rectangle::from_size(size)))
         else {
-            return Ok(false);
+            return Ok(None);
         };
         if region.is_empty() {
-            return Ok(false);
+            return Ok(None);
         }
 
         let buffer_region = Rectangle::new(
@@ -181,9 +181,19 @@ impl WindowFrame {
             .copy_framebuffer(&target, buffer_region, Fourcc::Abgr8888)
             .map_err(render_error)?;
         let data = renderer.map_texture(&mapping).map_err(render_error)?;
-        if frame.pixels.is_empty() {
+        let first = frame.pixels.is_empty();
+        if first {
             frame.pixels = vec![0; size.w as usize * size.h as usize * 4];
         }
+        // Clients say more is damaged than changed, often the whole window for a blinking
+        // caret, so what changed is counted from the pixels themselves.
+        let mut change = Change {
+            pixels: 0,
+            left: usize::MAX,
+            top: usize::MAX,
+            right: 0,
+            bottom: 0,
+        };
         let stride = size.w as usize * 4;
         let row = region.size.w as usize * 4;
         for (y, source) in data
@@ -191,10 +201,58 @@ impl WindowFrame {
             .take(region.size.h as usize)
             .enumerate()
         {
-            let start = (region.loc.y as usize + y) * stride + region.loc.x as usize * 4;
-            frame.pixels[start..start + row].copy_from_slice(source);
+            let y = region.loc.y as usize + y;
+            let start = y * stride + region.loc.x as usize * 4;
+            let kept = &mut frame.pixels[start..start + row];
+            // Where in the row pixels differ, from the first to after the last.
+            let (from, to) = if first {
+                (0, region.size.w as usize)
+            } else if kept != source {
+                let differs: Vec<bool> = kept
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(source.as_chunks::<4>().0)
+                    .map(|(old, new)| old != new)
+                    .collect();
+                change.pixels += differs.iter().filter(|differs| **differs).count() as u64;
+                let from = differs.iter().position(|differs| *differs).unwrap_or(0);
+                let to = differs
+                    .iter()
+                    .rposition(|differs| *differs)
+                    .map_or(0, |at| at + 1);
+                (from, to)
+            } else {
+                continue;
+            };
+            if first {
+                change.pixels += region.size.w as u64;
+            }
+            let x = region.loc.x as usize;
+            change.left = change.left.min(x + from);
+            change.right = change.right.max(x + to);
+            change.top = change.top.min(y);
+            change.bottom = change.bottom.max(y + 1);
+            kept.copy_from_slice(source);
         }
-        Ok(true)
+        Ok((change.pixels > 0).then_some(change))
+    }
+}
+
+/// What changed in a window's picture from one frame to the next: how many pixels, and the
+/// rectangle they are in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Change {
+    pub pixels: u64,
+    pub left: usize,
+    pub top: usize,
+    pub right: usize,
+    pub bottom: usize,
+}
+
+impl Change {
+    pub fn area(&self) -> u64 {
+        ((self.right - self.left) * (self.bottom - self.top)) as u64
     }
 }
 

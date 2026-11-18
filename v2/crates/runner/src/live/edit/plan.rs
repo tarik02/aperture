@@ -29,7 +29,7 @@ const RIPPLE_MS: i64 = 600;
 const POINTER_DEAD_ZONE: f64 = 0.5;
 
 /// What a recording says, as it starts, about the edit made when it stops.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Options {
     /// `bursts` keeps only the stretches around what the automation did.
@@ -41,6 +41,23 @@ pub struct Options {
     pub burst: Burst,
     /// How automation moves the pointer while the recording runs.
     pub pace: Pace,
+    /// The share of the picture that must change for something to have happened, for
+    /// `idle` and `bursts` to tell: from 0 to 1.
+    pub motion_threshold: f64,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            capture: Capture::default(),
+            idle: None,
+            ripple: false,
+            burst: Burst::default(),
+            pace: Pace::default(),
+            // A typed character counts, a mark a few pixels large does not.
+            motion_threshold: 0.0002,
+        }
+    }
 }
 
 /// How fast automation acts on a target that is being recorded.
@@ -98,6 +115,9 @@ impl Options {
     pub fn check(&self) -> Result<(), String> {
         if self.capture == Capture::Bursts && self.idle.is_some() {
             return Err("idle applies to continuous capture, not to bursts".into());
+        }
+        if !(0.0..=1.0).contains(&self.motion_threshold) {
+            return Err("motion_threshold must be 0 to 1".into());
         }
         let burst = self.burst;
         let sizes = [
