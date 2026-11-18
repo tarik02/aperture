@@ -54,6 +54,10 @@ const SYSTEM_ROOTS: &[&str] = &[
     "/var/cache/fontconfig",
 ];
 
+/// Where a GPU's drivers are and what describes the device to them, for a browser that
+/// draws on one.
+const GPU_ROOTS: &[&str] = &["/run/opengl-driver", "/sys/dev/char", "/sys/devices"];
+
 /// Ports on the loopback of the browser's sandbox, which is its own: the browser's proxy,
 /// and where it serves DevTools.
 const PROXY_PORT: u16 = 1080;
@@ -137,6 +141,7 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
             height: spec.viewport.height,
         },
         cursor_theme: spec.cursor_theme.clone(),
+        gpu: spec.gpu,
     })
     .context("failed to start the compositor")?;
     let mut windows = compositor.windows();
@@ -170,7 +175,14 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
     let mut live = None;
     let mut recordings = None;
 
-    let mut browser = start_browser(spec, &display, &extension_socket, &egress_socket, &shared)?;
+    let mut browser = start_browser(
+        spec,
+        &display,
+        &extension_socket,
+        &egress_socket,
+        &shared,
+        compositor.render_node(),
+    )?;
     let outcome = async {
         let cdp = tokio::select! {
             cdp = browser_endpoint(&devtools_socket) => cdp?,
@@ -281,6 +293,7 @@ fn start_browser(
     extension_socket: &Path,
     egress_socket: &Path,
     shared: &Path,
+    render_node: Option<&Path>,
 ) -> anyhow::Result<Child> {
     let profile = &spec.profile;
     for name in [
@@ -331,6 +344,15 @@ fn start_browser(
     }
     if Path::new("/run/systemd/resolve").exists() {
         command.args(["--ro-bind", "/run/systemd/resolve", "/run/systemd/resolve"]);
+    }
+    if let Some(node) = render_node {
+        // The device, and what tells its driver which GPU it is.
+        command.arg("--dev-bind").arg(node).arg(node);
+        for described in GPU_ROOTS {
+            if Path::new(described).exists() {
+                command.args(["--ro-bind", described, described]);
+            }
+        }
     }
     command
         .arg("--dir")
@@ -435,15 +457,28 @@ fn start_browser(
             // The browser would quit with its last window, and the extension closes the
             // window a page leaves for one of its own.
             "--keep-alive-for-test",
-            // The sandbox has no GPU device, so the browser renders in software.
-            "--use-gl=angle",
-            "--use-angle=swiftshader",
-            "--enable-unsafe-swiftshader",
             "--no-sandbox",
             "--no-first-run",
             "--no-default-browser-check",
             "--disable-breakpad",
         ])
+        .args(match render_node {
+            // The browser draws on the GPU the compositor draws on, and hands it its
+            // pages as buffers there.
+            Some(node) => vec![
+                "--use-gl=angle".to_owned(),
+                "--use-angle=gles-egl".to_owned(),
+                format!("--render-node-override={}", node.display()),
+                "--ignore-gpu-blocklist".to_owned(),
+                "--enable-gpu-rasterization".to_owned(),
+                "--enable-zero-copy".to_owned(),
+            ],
+            None => vec![
+                "--use-gl=angle".to_owned(),
+                "--use-angle=swiftshader".to_owned(),
+                "--enable-unsafe-swiftshader".to_owned(),
+            ],
+        })
         .arg(format!("--remote-debugging-port={DEVTOOLS_PORT}"))
         .arg(format!("--proxy-server=socks5://127.0.0.1:{PROXY_PORT}"))
         .args(&spec.browser_args)

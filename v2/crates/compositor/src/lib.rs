@@ -13,7 +13,7 @@ mod render;
 mod state;
 
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, mpsc},
     time::{Duration, Instant},
 };
@@ -31,6 +31,9 @@ pub struct Config {
     /// The cursor theme the pointer is drawn from, a directory with `cursors` in it. Without
     /// one, only cursors that clients draw themselves can be drawn.
     pub cursor_theme: Option<PathBuf>,
+    /// Whether windows are drawn on a GPU, where one works, and clients may share their
+    /// GPU buffers. Without, everything is drawn on the CPU.
+    pub gpu: bool,
 }
 
 /// The size windows without a parent are given, in logical pixels.
@@ -149,6 +152,7 @@ pub struct Handle {
     jobs: channel::Sender<Job>,
     windows: watch::Receiver<Vec<WindowInfo>>,
     cursor: watch::Receiver<Cursor>,
+    render_node: Option<PathBuf>,
     started: Instant,
 }
 
@@ -171,6 +175,7 @@ pub fn start(config: Config) -> anyhow::Result<Handle> {
                     let _ = started.send(Ok((
                         state.windows_tx.subscribe(),
                         state.cursor_tx.subscribe(),
+                        state.render_node.clone(),
                     )));
                     (event_loop, state)
                 }
@@ -183,13 +188,14 @@ pub fn start(config: Config) -> anyhow::Result<Handle> {
                 tracing::error!(%err, "the compositor stopped");
             }
         })?;
-    let (windows, cursor) = starting
+    let (windows, cursor, render_node) = starting
         .recv()
         .map_err(|_| anyhow::anyhow!("the compositor thread ended while starting"))??;
     Ok(Handle {
         jobs,
         windows,
         cursor,
+        render_node,
         started: clock,
     })
 }
@@ -199,6 +205,12 @@ impl Handle {
     /// ends.
     pub fn windows(&self) -> watch::Receiver<Vec<WindowInfo>> {
         self.windows.clone()
+    }
+
+    /// The device file of the GPU that draws the windows, which clients are to draw on
+    /// too; none when the CPU draws.
+    pub fn render_node(&self) -> Option<&Path> {
+        self.render_node.as_deref()
     }
 
     pub fn cursor(&self) -> watch::Receiver<Cursor> {

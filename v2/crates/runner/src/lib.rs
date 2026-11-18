@@ -32,6 +32,10 @@ pub struct Spec {
     /// The cursor theme the pointer is drawn from in recordings, a directory with `cursors`
     /// in it.
     pub cursor_theme: Option<PathBuf>,
+    /// Whether the session draws on a GPU where one works: its windows, and the browser
+    /// its pages. On the CPU without.
+    #[serde(default)]
+    pub gpu: bool,
     /// Local addresses and networks the browser may reach; the rest of what is local to
     /// the node is refused it.
     pub egress_allow: Vec<String>,

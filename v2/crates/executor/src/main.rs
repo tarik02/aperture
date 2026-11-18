@@ -61,6 +61,9 @@ struct Arguments {
     /// in it.
     #[arg(long, env = "APERTURE_CURSOR_THEME")]
     cursor_theme: Option<PathBuf>,
+    /// Draw sessions on the CPU also where a GPU works.
+    #[arg(long, env = "APERTURE_NO_GPU")]
+    no_gpu: bool,
     /// `aperture-runner`. Next to this program by default.
     #[arg(long, env = "APERTURE_RUNNER")]
     runner: Option<PathBuf>,
@@ -159,6 +162,7 @@ async fn main() -> anyhow::Result<()> {
             viewport: VIEWPORT,
             rtc_ports: arguments.rtc_ports,
             cursor_theme: arguments.cursor_theme,
+            gpu: !arguments.no_gpu,
             egress_allow: arguments.egress_allow,
             browser_args: arguments.browser_args,
         },

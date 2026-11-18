@@ -1299,7 +1299,10 @@
               pkgs.openssl
               pkgs.gst_all_1.gstreamer
               pkgs.gst_all_1.gst-plugins-base
+              pkgs.libglvnd
             ];
+            # libEGL is found when the compositor starts; vendor drivers come from the system.
+            LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.libglvnd ];
             APERTURE_BWRAP = lib.getExe pkgs.bubblewrap;
             APERTURE_CHROMIUM = lib.getExe' runtimeChromium "chromium";
             APERTURE_TAB_WINDOW_EXTENSION = "${tabWindowEnforcer}/share/aperture/extensions/tab-window-enforcer";

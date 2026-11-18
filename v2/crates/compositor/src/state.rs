@@ -1,12 +1,12 @@
 use std::{
     collections::HashMap,
+    path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
 
 use anyhow::Context;
 use smithay::{
-    backend::renderer::pixman::PixmanRenderer,
     desktop::{PopupManager, Space, Window, utils::OutputPresentationFeedback},
     input::{Seat, SeatState, keyboard::XkbConfig, pointer::CursorImageStatus},
     output::{Mode, Output, PhysicalProperties, Subpixel},
@@ -31,6 +31,7 @@ use smithay::{
     wayland::{
         compositor::{CompositorClientState, CompositorState, with_states},
         cursor_shape::CursorShapeManagerState,
+        dmabuf::{DmabufFeedbackBuilder, DmabufState},
         output::OutputManagerState,
         presentation::{PresentationState, Refresh},
         selection::{data_device::DataDeviceState, primary_selection::PrimarySelectionState},
@@ -48,7 +49,7 @@ use crate::{
     Config, Cursor, Error, Frame, Frames, Viewport, WindowId, WindowInfo,
     cursor::Theme,
     keymap::KeyTable,
-    render::{Change, WindowFrame},
+    render::{Change, Renderer, WindowFrame},
 };
 
 /// Windows are told to draw, and drawn, this often.
@@ -112,7 +113,10 @@ pub struct State {
     pub space: Space<Window>,
     pub popups: PopupManager,
     pub output: Output,
-    renderer: PixmanRenderer,
+    pub renderer: Renderer,
+    /// The device file of the GPU that draws, if one does.
+    pub render_node: Option<PathBuf>,
+    pub dmabuf_state: DmabufState,
     pub key_table: KeyTable,
     pub viewport: Viewport,
     /// The tag of the next window to open, see `Handle::expect`.
@@ -248,6 +252,20 @@ impl State {
             })
             .map_err(|err| anyhow::anyhow!("failed to insert the frame timer: {err}"))?;
 
+        let (renderer, gpu) = Renderer::new(config.gpu)?;
+        let mut dmabuf_state = DmabufState::new();
+        let mut render_node = None;
+        if let Some(gpu) = gpu {
+            // Clients allocate on the render node and only in formats the renderer takes.
+            match DmabufFeedbackBuilder::new(gpu.node.dev_id(), gpu.formats).build() {
+                Ok(feedback) => {
+                    dmabuf_state.create_global_with_default_feedback::<Self>(&dh, &feedback);
+                    render_node = Some(gpu.path);
+                }
+                Err(err) => warn!(%err, "clients cannot share GPU buffers"),
+            }
+        }
+
         let mut state = Self {
             start,
             display_handle: dh,
@@ -255,7 +273,9 @@ impl State {
             space,
             popups: PopupManager::default(),
             output,
-            renderer: PixmanRenderer::new().context("failed to create the pixman renderer")?,
+            renderer,
+            render_node,
+            dmabuf_state,
             key_table: KeyTable::default(),
             viewport: config.viewport,
             expected: None,
