@@ -1,6 +1,7 @@
-//! A running session's live endpoints, served by the executor at `/sessions/{id}/live`:
-//! requests go on to the session's runner, which serves them on a socket in its runtime
-//! directory, and the path itself answers with a page that shows the session.
+//! A running session's live endpoints, served by the executor at `/sessions/{id}/live`, and
+//! its automation at `/sessions/{id}/mcp`: requests go on to the session's runner, which
+//! serves them on a socket in its runtime directory. The live path itself answers with a
+//! page that shows the session.
 
 use std::sync::Arc;
 
@@ -22,11 +23,16 @@ pub fn path(session_id: &str) -> String {
     format!("/sessions/{session_id}/live")
 }
 
+pub fn mcp_path(session_id: &str) -> String {
+    format!("/sessions/{session_id}/mcp")
+}
+
 pub fn router(sessions: Arc<Sessions>) -> Router {
     Router::new()
         .route("/sessions/{id}/live", get(viewer))
         .route("/sessions/{id}/live/", get(viewer))
         .route("/sessions/{id}/live/{*rest}", any(forward))
+        .route("/sessions/{id}/mcp", any(mcp))
         .with_state(sessions)
 }
 
@@ -37,14 +43,27 @@ async fn viewer() -> Html<&'static str> {
 async fn forward(
     State(sessions): State<Arc<Sessions>>,
     Path((id, rest)): Path<(String, String)>,
-    mut request: Request,
+    request: Request,
 ) -> Response {
-    let live = match sessions.live(&id) {
+    forward_to(&sessions, &id, &format!("/{rest}"), request).await
+}
+
+async fn mcp(
+    State(sessions): State<Arc<Sessions>>,
+    Path(id): Path<String>,
+    request: Request,
+) -> Response {
+    forward_to(&sessions, &id, "/mcp", request).await
+}
+
+/// Passes the request on to the session's runner, as a request for `path` there.
+async fn forward_to(sessions: &Sessions, id: &str, path: &str, mut request: Request) -> Response {
+    let live = match sessions.live(id) {
         Ok(live) => live,
         Err(err) => return refuse(err),
     };
     // The runner knows nothing of the executor's paths or its token.
-    *request.uri_mut() = match format!("/{rest}").parse::<Uri>() {
+    *request.uri_mut() = match path.parse::<Uri>() {
         Ok(uri) => uri,
         Err(err) => return (StatusCode::BAD_REQUEST, err.to_string()).into_response(),
     };

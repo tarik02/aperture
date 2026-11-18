@@ -1,7 +1,7 @@
 //! The session's live endpoints, on a socket in its runtime directory. Whoever reaches the
 //! socket is trusted: the executor checks callers before it forwards them here.
 
-use std::{io::Cursor, path::Path};
+use std::{io::Cursor, path::Path, sync::Arc};
 
 use aperture_compositor::{Frame, Handle};
 use aperture_runner::PortRange;
@@ -15,8 +15,11 @@ use axum::{
 use serde::Serialize;
 use tokio::sync::watch;
 
-use super::peer::{self, ConnectError};
-use crate::targets::Target;
+use super::{
+    mcp,
+    peer::{self, ConnectError},
+};
+use crate::{automation::Automation, targets::Target};
 
 #[derive(Clone)]
 struct Live {
@@ -30,6 +33,7 @@ pub async fn serve(
     socket: &Path,
     compositor: Handle,
     targets: watch::Receiver<Vec<Target>>,
+    automation: Arc<Automation>,
     rtc_ports: Option<PortRange>,
 ) -> std::io::Result<()> {
     let _ = std::fs::remove_file(socket);
@@ -38,6 +42,7 @@ pub async fn serve(
         .route("/rtc", post(connect))
         .route("/targets", get(targets_list))
         .route("/targets/{id}/screenshot.png", get(screenshot))
+        .nest_service("/mcp", mcp::service(automation))
         .with_state(Live {
             compositor,
             targets,

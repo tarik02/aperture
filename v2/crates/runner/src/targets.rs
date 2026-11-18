@@ -334,6 +334,7 @@ impl Inner {
             });
         }
 
+        let mut fresh = Vec::new();
         {
             let mut state = self.state.lock().expect("not poisoned");
             let state = &mut *state;
@@ -371,6 +372,7 @@ impl Inner {
                     .is_some_and(|ready| ready.window == binding.window);
                 if !known {
                     info!(page = %page.id, window = binding.window.0, "target ready");
+                    fresh.push(page.id.clone());
                     state.next_order += 1;
                     state.ready.insert(
                         page.id.clone(),
@@ -393,6 +395,11 @@ impl Inner {
                 ready.url.clone_from(&page.url);
                 true
             });
+        }
+        for page in fresh {
+            if let Err(err) = focus_page(&browser, &page).await {
+                debug!(page, "failed to focus a page: {err:#}");
+            }
         }
         self.publish();
         Ok(())
@@ -427,6 +434,29 @@ impl Inner {
             changed
         });
     }
+}
+
+/// Puts the browser's own focus on the page. The extension opens a page's window without
+/// focus, and there the browser would give keys from the keyboard to nothing, until a click
+/// landed on the page.
+async fn focus_page(browser: &cdp::Client, page: &str) -> anyhow::Result<()> {
+    let attached = browser
+        .call(
+            "Target.attachToTarget",
+            json!({ "targetId": page, "flatten": true }),
+        )
+        .await?;
+    let session = attached["sessionId"]
+        .as_str()
+        .context("the browser attached no session")?;
+    let focused = browser
+        .call_in(Some(session), "Page.bringToFront", json!({}))
+        .await;
+    browser
+        .call("Target.detachFromTarget", json!({ "sessionId": session }))
+        .await?;
+    focused?;
+    Ok(())
 }
 
 struct Page {

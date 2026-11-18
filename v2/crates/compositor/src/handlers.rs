@@ -44,7 +44,7 @@ use smithay::{
 };
 use tracing::info;
 
-use crate::state::{ClientState, State, Tag, configure_when_ready, window_id};
+use crate::state::{ClientState, Shown, State, Tag, configure_when_ready, window_id};
 
 impl CompositorHandler for State {
     fn compositor_state(&mut self) -> &mut CompositorState {
@@ -68,6 +68,13 @@ impl CompositorHandler for State {
             }
             if let Some(window) = self.window_for_surface(&root) {
                 window.on_commit();
+                // A window takes the keyboard once it has content. Given it earlier, the
+                // client would not take it for a window it has yet to show, and would not
+                // be given it again.
+                let shown = window.geometry().size;
+                if shown.w > 0 && shown.h > 0 && window.user_data().insert_if_missing(|| Shown) {
+                    self.focus_window(&window);
+                }
             }
         }
 
@@ -129,8 +136,7 @@ impl XdgShellHandler for State {
         if let Some(tag) = self.expected.take() {
             window.user_data().insert_if_missing(|| Tag(tag));
         }
-        self.space.map_element(window.clone(), (0, 0), false);
-        self.focus_new(&window);
+        self.space.map_element(window, (0, 0), false);
         info!(id = id.0, "window opened");
     }
 

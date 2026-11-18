@@ -27,7 +27,7 @@ use smithay::{
             protocol::wl_surface::WlSurface,
         },
     },
-    utils::{Clock, Monotonic, SERIAL_COUNTER, Transform},
+    utils::{Clock, Monotonic, Transform},
     wayland::{
         compositor::{CompositorClientState, CompositorState, with_states},
         cursor_shape::CursorShapeManagerState,
@@ -465,25 +465,13 @@ impl State {
             changed
         });
     }
-
-    /// A window that just opened takes the keyboard.
-    pub fn focus_new(&mut self, window: &Window) {
-        if let Some(toplevel) = window.toplevel() {
-            let keyboard = self.seat.get_keyboard().expect("seat has a keyboard");
-            if !keyboard.is_grabbed() {
-                self.space.raise_element(window, true);
-                keyboard.set_focus(
-                    self,
-                    Some(toplevel.wl_surface().clone()),
-                    SERIAL_COUNTER.next_serial(),
-                );
-            }
-        }
-    }
 }
 
 /// What a window was expected as when it opened.
 pub struct Tag(pub String);
+
+/// Marks a window that has had content, and with it the keyboard, once.
+pub struct Shown;
 
 pub fn window_id(window: &Window) -> Option<WindowId> {
     window.user_data().get::<WindowId>().copied()

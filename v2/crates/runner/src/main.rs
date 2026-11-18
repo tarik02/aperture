@@ -2,6 +2,7 @@
 //! session to those who watch it, reports where the session is reached in the status file,
 //! and stops the browser on SIGTERM.
 
+mod automation;
 mod cdp;
 mod live;
 mod targets;
@@ -15,6 +16,7 @@ use std::{
     os::unix::fs::DirBuilderExt,
     path::{Path, PathBuf},
     process::{ExitCode, Stdio},
+    sync::Arc,
     time::Duration,
 };
 
@@ -135,17 +137,7 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
         .context("failed to listen for the extension")?;
     let mut ready = registry.targets();
 
-    let live_socket = spec.runtime_dir.join("live.sock");
-    let live = {
-        let socket = live_socket.clone();
-        let compositor = compositor.clone();
-        let targets = registry.targets();
-        let rtc_ports = spec.rtc_ports;
-        tokio::spawn(async move { live::serve(&socket, compositor, targets, rtc_ports).await })
-    };
-    status.live = Some(Live {
-        socket: live_socket,
-    });
+    let mut live = None;
 
     let mut browser = start_browser(spec, &display, &extension_socket)?;
     let outcome = async {
@@ -155,7 +147,30 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
             _ = terminate.recv() => return Ok(()),
             _ = interrupt.recv() => return Ok(()),
         };
-        registry.attach(cdp::connect(&cdp).await?);
+        let devtools = cdp::connect(&cdp)
+            .await
+            .context("failed to connect to the browser")?;
+        registry.attach(devtools.clone());
+
+        let automation = Arc::new(automation::Automation::new(
+            devtools,
+            compositor.clone(),
+            registry.targets(),
+            spec.files_dir.clone(),
+        ));
+        let live_socket = spec.runtime_dir.join("live.sock");
+        live = Some({
+            let socket = live_socket.clone();
+            let compositor = compositor.clone();
+            let targets = registry.targets();
+            let rtc_ports = spec.rtc_ports;
+            tokio::spawn(async move {
+                live::serve(&socket, compositor, targets, automation, rtc_ports).await
+            })
+        });
+        status.live = Some(Live {
+            socket: live_socket,
+        });
         // A session is running once there is a page to show.
         let first_target = async {
             while ready.borrow_and_update().is_empty() {
@@ -192,7 +207,9 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
     .await;
 
     stop(&mut browser, "browser").await;
-    live.abort();
+    if let Some(live) = live {
+        live.abort();
+    }
     outcome
 }
 
@@ -285,6 +302,11 @@ fn start_browser(spec: &Spec, display: &Path, extension_socket: &Path) -> anyhow
         .arg("--bind")
         .arg(&spec.files_dir)
         .arg(FILES)
+        // Also where it is outside: the automation tools, which run there, name the files
+        // a page is to upload by their paths.
+        .arg("--bind")
+        .arg(&spec.files_dir)
+        .arg(&spec.files_dir)
         .args(["--setenv", "TMPDIR", "/tmp"])
         .arg("--setenv")
         .arg("HOME")

@@ -59,6 +59,8 @@ message Endpoints {
   // `aperture.live.v1`), `<live_path>/targets/<id>/screenshot.png` is a browser target as it
   // looks now, and `<live_path>/` a page that shows the session.
   string live_path = 2;
+  // The executor's path of the session's automation, an MCP server over Streamable HTTP.
+  string mcp_path = 3;
 }
 
 message Snapshot {

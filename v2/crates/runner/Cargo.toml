@@ -7,7 +7,12 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 aperture-compositor.workspace = true
+async-trait = "0.1"
 axum = "0.8"
+browse-capture = { git = "https://github.com/anomalyco/browse", rev = "be5528ff2194c8defab74d41e13abb7cb149548e" }
+browse-core = { git = "https://github.com/anomalyco/browse", rev = "be5528ff2194c8defab74d41e13abb7cb149548e" }
+browse-page = { git = "https://github.com/anomalyco/browse", rev = "be5528ff2194c8defab74d41e13abb7cb149548e" }
+browse-script = { git = "https://github.com/anomalyco/browse", rev = "be5528ff2194c8defab74d41e13abb7cb149548e" }
 buffa = { version = "0.9", features = ["json"] }
 connectrpc = "0.9"
 if-addrs = "0.15"
@@ -15,6 +20,7 @@ gstreamer = "0.25"
 gstreamer-app = "0.25"
 gstreamer-video = "0.25"
 png = "0.18"
+rmcp = { version = "3.9.0", features = ["server", "transport-streamable-http-server"] }
 str0m = { version = "0.24.1", default-features = false, features = ["openssl"] }
 thiserror.workspace = true
 futures-util.workspace = true

@@ -149,6 +149,7 @@ impl From<Session> for pb::Session {
             State::Running => MessageField::some(pb::Endpoints {
                 cdp_path: cdp::path(&session.record.id),
                 live_path: live::path(&session.record.id),
+                mcp_path: live::mcp_path(&session.record.id),
                 ..Default::default()
             }),
             _ => MessageField::none(),
