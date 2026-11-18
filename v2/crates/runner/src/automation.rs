@@ -41,6 +41,18 @@ const INPUT_SETTLES_WITHIN: Duration = Duration::from_millis(500);
 /// itself, under the same name.
 const LEFT_OUT: &[&str] = &["recording"];
 
+/// Tools that change nothing on a page, which a recording's journal leaves out.
+const READS_ONLY: &[&str] = &[
+    "tabs",
+    "snapshot",
+    "screenshot",
+    "screenshot_diff",
+    "console",
+    "network",
+    "wait_for",
+    "recording",
+];
+
 const INSTRUCTIONS: &str = "A browser session. Its pages are tabs: `tabs` lists them, \
     `navigate` without a `tab` opens one and returns its id, and every other tool takes \
     that `tab`. A tab is named by its number or by its DevTools target id. Read a page with \
@@ -51,6 +63,7 @@ const INSTRUCTIONS: &str = "A browser session. Its pages are tabs: `tabs` lists 
 pub struct Automation {
     tools: Vec<Arc<dyn Tool>>,
     context: ToolContext,
+    recordings: Recordings,
 }
 
 impl Automation {
@@ -65,10 +78,13 @@ impl Automation {
             browser,
             compositor,
             targets,
+            recordings: recordings.clone(),
             tabs: Mutex::default(),
         });
-        let mut tools: Vec<Arc<dyn Tool>> =
-            vec![Arc::new(TabsTool), Arc::new(RecordingTool(recordings))];
+        let mut tools: Vec<Arc<dyn Tool>> = vec![
+            Arc::new(TabsTool),
+            Arc::new(RecordingTool(recordings.clone())),
+        ];
         let theirs = browse_page::tools()
             .into_iter()
             .chain(browse_capture::tools())
@@ -81,6 +97,7 @@ impl Automation {
                 browser: session,
                 file_roots: vec![files],
             },
+            recordings,
         }
     }
 
@@ -105,10 +122,17 @@ impl Automation {
                 Err(err) => return ToolOutput::error(format!("{err:#}")),
             }
         }
-        match tool.call(self.context.clone(), arguments).await {
+        let started = self.recordings.now();
+        let tab = arguments.get("tab").cloned();
+        let output = match tool.call(self.context.clone(), arguments).await {
             Ok(output) => output,
             Err(err) => ToolOutput::error(format!("{err:#}")),
+        };
+        if !READS_ONLY.contains(&name) {
+            let fields = json!({ "tool": name, "ok": !output.is_error, "tab": tab });
+            self.recordings.note(None, "call", started, fields);
         }
+        output
     }
 }
 
@@ -116,6 +140,7 @@ struct Session {
     browser: cdp::Client,
     compositor: Handle,
     targets: watch::Receiver<Vec<Target>>,
+    recordings: Recordings,
     tabs: Mutex<Tabs>,
 }
 
@@ -274,6 +299,7 @@ impl Browser for Session {
             self.browser.clone(),
             self.compositor.clone(),
             self.targets.clone(),
+            self.recordings.clone(),
             target.id,
         )
         .await?;
@@ -333,6 +359,7 @@ struct TabSession {
     browser: cdp::Client,
     compositor: Handle,
     targets: watch::Receiver<Vec<Target>>,
+    recordings: Recordings,
     target: String,
     session: String,
     /// Where the tab's events go; none once the session ended, which closes the streams of
@@ -345,6 +372,7 @@ impl TabSession {
         browser: cdp::Client,
         compositor: Handle,
         targets: watch::Receiver<Vec<Target>>,
+        recordings: Recordings,
         target: String,
     ) -> anyhow::Result<Arc<Self>> {
         // Before attaching, so no event of the session is missed.
@@ -364,6 +392,7 @@ impl TabSession {
             browser,
             compositor,
             targets,
+            recordings,
             target,
             session,
             events: Mutex::new(Some(events.clone())),
@@ -466,6 +495,31 @@ impl TabSession {
             ),
             _ => return None,
         };
+        // What the pointer did goes into the journals of the target's recordings.
+        let now = self.recordings.now();
+        match &input {
+            Input::PointerMotion { x, y, .. } => {
+                let fields = json!({ "x": x, "y": y });
+                self.recordings
+                    .note(Some(&self.target), "move", now, fields);
+            }
+            Input::PointerButton {
+                x,
+                y,
+                pressed: true,
+                ..
+            } => {
+                let fields = json!({
+                    "x": x,
+                    "y": y,
+                    "button": params["button"],
+                    "count": params["clickCount"].as_u64().unwrap_or(1),
+                });
+                self.recordings
+                    .note(Some(&self.target), "press", now, fields);
+            }
+            _ => {}
+        }
         self.compositor.input(input);
         if settles {
             // The command is done once the page has seen the input, which reaches it by
@@ -498,6 +552,17 @@ impl Cdp for TabSession {
         );
         if input && session_id.is_none() && self.deliver(method, &params).await.is_some() {
             return Ok(json!({}));
+        }
+        if method == "Input.dispatchMouseEvent" && params["type"] == "mouseWheel" {
+            let fields = json!({
+                "x": params["x"],
+                "y": params["y"],
+                "dx": params["deltaX"],
+                "dy": params["deltaY"],
+            });
+            let now = self.recordings.now();
+            self.recordings
+                .note(Some(&self.target), "wheel", now, fields);
         }
         self.browser
             .call_in(Some(session_id.unwrap_or(&self.session)), method, params)
@@ -692,18 +757,21 @@ impl Tool for RecordingTool {
             name: "recording".into(),
             description: "Record a tab to a video file of the session. `start` records `tab` \
                 (the newest tab when left out) from now on, with the pointer in the picture, \
-                and returns the recording's `id`; `stop` ends recording `id` and returns its \
-                file, duration and size; `list` gives every recording of the session."
+                and returns the recording's `id`; `caption` notes `text`, what you are doing \
+                now, in the journal of the recordings that run; `stop` ends recording `id` and \
+                returns its file, journal, duration and size; `list` gives every recording of \
+                the session."
                 .into(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "action": { "type": "string", "enum": ["start", "stop", "list"] },
+                    "action": { "type": "string", "enum": ["start", "caption", "stop", "list"] },
                     "tab": {
                         "type": ["integer", "string"],
                         "description": "start: the tab's number or target id.",
                     },
                     "id": { "type": "string", "description": "stop: the recording's id." },
+                    "text": { "type": "string", "description": "caption: what to note." },
                 },
                 "required": ["action"],
             }),
@@ -728,8 +796,14 @@ impl Tool for RecordingTool {
                 let id = args["id"].as_str().context("pass the recording's `id`")?;
                 Ok(shown(&self.0.stop(id).await?))
             }
+            "caption" => {
+                let text = args["text"].as_str().context("pass the caption's `text`")?;
+                let now = self.0.now();
+                self.0.note(None, "caption", now, json!({ "text": text }));
+                Ok(ToolOutput::text("noted"))
+            }
             "list" => Ok(shown(&self.0.list())),
-            other => bail!("unknown action {other:?}; use start, stop or list"),
+            other => bail!("unknown action {other:?}; use start, caption, stop or list"),
         }
     }
 }

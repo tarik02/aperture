@@ -177,6 +177,7 @@ const recordingStarted = JSON.parse((await tool("recording", { action: "start", 
 await sleep(300);
 check("the viewer's cursor is hidden while the pointer is recorded", (await evaluate("video.style.cursor")) === "none");
 for (const [x, y] of [[200, 200], [600, 300], [250, 350]]) { await tool("hover", { tab: created.targetId, x, y }); await sleep(250); }
+await tool("recording", { action: "caption", text: "clicking the button" });
 await tool("click", { tab: created.targetId, selector: "button" });
 await sleep(1200);
 const recordingStopped = JSON.parse((await tool("recording", { action: "stop", id: recordingStarted.id })).text);
@@ -185,6 +186,12 @@ check("the recording finished with a length", recordingStopped.state === "finish
 const recordedFile = Buffer.from(await (await fetch(`${live}/files/${recordingStopped.file}`, { headers: auth })).arrayBuffer());
 writeFileSync(`${D}/recording.mkv`, recordedFile);
 check("the recording is served as a Matroska file", recordedFile.length === recordingStopped.bytes && recordedFile.subarray(0, 4).toString("hex") === "1a45dfa3");
+const journal = (await (await fetch(`${live}/files/${recordingStopped.journal}`, { headers: auth })).text()).trim().split("\n").map((line) => JSON.parse(line));
+console.log("journal:", journal.map((e) => `${e.kind}@${e.at_ms}`).join(" "));
+const kinds = new Set(journal.map((e) => e.kind));
+check("the journal has what the automation did", ["move", "press", "call", "caption"].every((kind) => kinds.has(kind)) && journal.find((e) => e.kind === "caption").text === "clicking the button");
+check("journal times are in the video's time", journal.every((e) => e.at_ms >= 0 && e.at_ms <= e.end_ms && e.end_ms <= recordingStopped.duration_ms + 100) && journal.at(-1).at_ms > 500);
+check("the journal's press is where the click went", journal.some((e) => e.kind === "press" && e.button === "left" && Math.abs(e.x - 250) < 150 && Math.abs(e.y - 350) < 50));
 check("the viewer's cursor is back", (await evaluate("video.style.cursor")) !== "none");
 check("the viewer still plays after the recording", JSON.parse(await evaluate("JSON.stringify({ state: peer.connectionState })")).state === "connected");
 
