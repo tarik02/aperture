@@ -75,6 +75,8 @@ pub struct State {
     renderer: PixmanRenderer,
     pub key_table: KeyTable,
     pub viewport: Viewport,
+    /// The tag of the next window to open, see `Handle::expect`.
+    pub expected: Option<String>,
     watched: HashMap<WindowId, Watched>,
     pub windows_tx: watch::Sender<Vec<WindowInfo>>,
     pub cursor_tx: watch::Sender<Cursor>,
@@ -208,6 +210,7 @@ impl State {
             renderer: PixmanRenderer::new().context("failed to create the pixman renderer")?,
             key_table: KeyTable::default(),
             viewport: config.viewport,
+            expected: None,
             watched: HashMap::new(),
             windows_tx: watch::Sender::new(Vec::new()),
             cursor_tx: watch::Sender::new(Cursor::Named("default")),
@@ -439,6 +442,7 @@ impl State {
         Some(WindowInfo {
             id,
             parent,
+            tag: window.user_data().get::<Tag>().map(|tag| tag.0.clone()),
             title: title.unwrap_or_default(),
             app_id: app_id.unwrap_or_default(),
             width: geometry.size.w.max(0).unsigned_abs(),
@@ -477,6 +481,9 @@ impl State {
         }
     }
 }
+
+/// What a window was expected as when it opened.
+pub struct Tag(pub String);
 
 pub fn window_id(window: &Window) -> Option<WindowId> {
     window.user_data().get::<WindowId>().copied()

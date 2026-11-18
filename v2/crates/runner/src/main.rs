@@ -2,7 +2,9 @@
 //! session to those who watch it, reports where the session is reached in the status file,
 //! and stops the browser on SIGTERM.
 
+mod cdp;
 mod live;
+mod targets;
 
 mod proto {
     connectrpc::include_generated!();
@@ -28,6 +30,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tracing::{info, warn};
 
 const BROWSER_READY_WITHIN: Duration = Duration::from_secs(60);
+const TARGET_READY_WITHIN: Duration = Duration::from_secs(30);
 /// A browser asked to close writes its profile out first.
 const BROWSER_CLOSE_WITHIN: Duration = Duration::from_secs(15);
 const TERMINATE_WITHIN: Duration = Duration::from_secs(10);
@@ -109,8 +112,9 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
     let mut terminate = signal(SignalKind::terminate())?;
     let mut interrupt = signal(SignalKind::interrupt())?;
 
-    // The browser's runtime directory holds the display's socket and nothing else: it is
-    // all of the session's runtime directory that the sandbox gets to see.
+    // The browser's runtime directory holds the sockets of the display and of the
+    // extension's host and nothing else: it is all of the session's runtime directory that
+    // the sandbox gets to see.
     let sockets = spec.runtime_dir.join("browser");
     let _ = fs::remove_dir_all(&sockets);
     fs::DirBuilder::new().mode(0o700).create(&sockets)?;
@@ -125,18 +129,25 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
     .context("failed to start the compositor")?;
     let mut windows = compositor.windows();
 
+    // Before the browser starts: its extension reports as soon as it runs.
+    let extension_socket = sockets.join("extension.sock");
+    let registry = targets::Registry::bind(&extension_socket, compositor.clone())
+        .context("failed to listen for the extension")?;
+    let mut ready = registry.targets();
+
     let live_socket = spec.runtime_dir.join("live.sock");
     let live = {
         let socket = live_socket.clone();
         let compositor = compositor.clone();
+        let targets = registry.targets();
         let rtc_ports = spec.rtc_ports;
-        tokio::spawn(async move { live::serve(&socket, compositor, rtc_ports).await })
+        tokio::spawn(async move { live::serve(&socket, compositor, targets, rtc_ports).await })
     };
     status.live = Some(Live {
         socket: live_socket,
     });
 
-    let mut browser = start_browser(spec, &display)?;
+    let mut browser = start_browser(spec, &display, &extension_socket)?;
     let outcome = async {
         let cdp = tokio::select! {
             cdp = browser_endpoint(&spec.profile.upper) => cdp?,
@@ -144,6 +155,23 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
             _ = terminate.recv() => return Ok(()),
             _ = interrupt.recv() => return Ok(()),
         };
+        registry.attach(cdp::connect(&cdp).await?);
+        // A session is running once there is a page to show.
+        let first_target = async {
+            while ready.borrow_and_update().is_empty() {
+                if ready.changed().await.is_err() {
+                    break;
+                }
+            }
+        };
+        tokio::select! {
+            shown = timeout(TARGET_READY_WITHIN, first_target) => {
+                shown.context("the browser's first page did not get a window of its own")?;
+            }
+            exit = browser.wait() => bail!("the browser exited while starting: {}", exit?),
+            _ = terminate.recv() => return Ok(()),
+            _ = interrupt.recv() => return Ok(()),
+        }
         info!(session = %spec.session_id, cdp = cdp.port, "session running");
         status.cdp = Some(cdp.clone());
         status.phase = Phase::Running;
@@ -170,9 +198,9 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
 
 /// Starts the browser in its sandbox. The browser runs with `--no-sandbox`, so this one is
 /// what stands between a compromised renderer and the other sessions: it sees its own
-/// profile, cache and files, the display's socket, and the host's system trees read only.
-/// Of `/run` it gets no more than that socket.
-fn start_browser(spec: &Spec, display: &Path) -> anyhow::Result<Child> {
+/// profile, cache and files, the sockets of the display and of the extension's host, and the
+/// host's system trees read only. Of `/run` it gets no more than those sockets.
+fn start_browser(spec: &Spec, display: &Path, extension_socket: &Path) -> anyhow::Result<Child> {
     let profile = &spec.profile;
     for name in [
         "SingletonLock",
@@ -187,6 +215,15 @@ fn start_browser(spec: &Spec, display: &Path) -> anyhow::Result<Child> {
         fs::create_dir_all(dir)?;
     }
     let sockets = display.parent().context("the display has no directory")?;
+
+    // Chromium looks for native messaging hosts in its profile, and starts the host inside
+    // the sandbox.
+    let hosts = profile.upper.join("NativeMessagingHosts");
+    fs::create_dir_all(&hosts)?;
+    fs::write(
+        hosts.join(format!("{}.json", targets::NATIVE_HOST)),
+        serde_json::to_vec_pretty(&targets::native_host_manifest(&spec.tools.native_host))?,
+    )?;
 
     let mut command = Command::new(&spec.tools.bwrap);
     command.args([
@@ -218,7 +255,16 @@ fn start_browser(spec: &Spec, display: &Path) -> anyhow::Result<Child> {
         .arg(sockets)
         .arg("--bind")
         .arg(display)
-        .arg(display);
+        .arg(display)
+        .arg("--bind")
+        .arg(extension_socket)
+        .arg(extension_socket)
+        .arg("--ro-bind")
+        .arg(&spec.tools.extension)
+        .arg(&spec.tools.extension)
+        .arg("--ro-bind")
+        .arg(&spec.tools.native_host)
+        .arg(&spec.tools.native_host);
     if profile.lowers.is_empty() {
         command.arg("--bind").arg(&profile.upper).arg(PROFILE);
     } else {
@@ -256,11 +302,22 @@ fn start_browser(spec: &Spec, display: &Path) -> anyhow::Result<Child> {
         .arg("WAYLAND_DISPLAY")
         .arg(display)
         .args(["--setenv", "XDG_SESSION_TYPE", "wayland"])
+        .arg("--setenv")
+        .arg("APERTURE_EXTENSION_SOCKET")
+        .arg(extension_socket)
         .arg("--")
         .arg(&spec.tools.chromium)
         .arg(format!("--user-data-dir={PROFILE}"))
         .arg(format!("--disk-cache-dir={}", spec.cache_dir.display()))
         .arg(format!("--media-cache-dir={}", spec.cache_dir.display()))
+        .arg(format!(
+            "--disable-extensions-except={}",
+            spec.tools.extension.display()
+        ))
+        .arg(format!(
+            "--load-extension={}",
+            spec.tools.extension.display()
+        ))
         .args([
             "--remote-debugging-address=127.0.0.1",
             // The browser picks the port and writes it into its profile, see
@@ -271,6 +328,9 @@ fn start_browser(spec: &Spec, display: &Path) -> anyhow::Result<Child> {
             // No browser interface around the page, and none of the hints a fullscreen
             // window shows otherwise.
             "--kiosk",
+            // The browser would quit with its last window, and the extension closes the
+            // window a page leaves for one of its own.
+            "--keep-alive-for-test",
             // The sandbox has no GPU device, so the browser renders in software.
             "--use-gl=angle",
             "--use-angle=swiftshader",

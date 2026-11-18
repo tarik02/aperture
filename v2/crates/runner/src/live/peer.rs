@@ -1,4 +1,4 @@
-//! One client's WebRTC connection: a video track that shows the window the client selected,
+//! One client's WebRTC connection: a video track that shows the target the client selected,
 //! and the data channels the live protocol runs on.
 //!
 //! The client offers, with one video track to receive and its channels; the session answers
@@ -7,7 +7,7 @@
 
 use std::time::{Duration, Instant};
 
-use aperture_compositor::{Button, Cursor, Frames, Handle, Input, Viewport, WindowId, WindowInfo};
+use aperture_compositor::{Button, Cursor, Frames, Handle, Input, Viewport, WindowId};
 use aperture_runner::PortRange;
 use buffa::Message as _;
 use str0m::{
@@ -25,7 +25,10 @@ use super::{
     encode::VideoEncoder,
     net::{Datagram, Sockets},
 };
-use crate::proto::aperture::live::v1::{self as pb, client_message, server_message};
+use crate::{
+    proto::aperture::live::v1::{self as pb, client_message, server_message},
+    targets::Target,
+};
 
 /// Payload type of the only video codec offered: H.264 constrained baseline, the profile
 /// every browser decodes.
@@ -49,6 +52,7 @@ pub enum ConnectError {
 /// Answers a client's offer and runs its connection until it ends.
 pub async fn connect(
     compositor: Handle,
+    targets: watch::Receiver<Vec<Target>>,
     ports: Option<PortRange>,
     offer: &str,
 ) -> Result<String, ConnectError> {
@@ -78,7 +82,7 @@ pub async fn connect(
     let mut peer = Peer {
         rtc,
         sockets,
-        windows: compositor.windows(),
+        targets,
         cursor: compositor.cursor(),
         compositor,
         video: None,
@@ -104,7 +108,7 @@ struct Peer {
     rtc: Rtc,
     sockets: Sockets,
     compositor: Handle,
-    windows: watch::Receiver<Vec<WindowInfo>>,
+    targets: watch::Receiver<Vec<Target>>,
     cursor: watch::Receiver<Cursor>,
     /// The client's video track, once it is known.
     video: Option<Mid>,
@@ -114,8 +118,9 @@ struct Peer {
     /// The client's last message came as JSON text.
     json: bool,
     connected: bool,
-    selected: Option<WindowId>,
-    /// The client selected a window itself; until then the topmost one shows.
+    /// The target the client's video shows, and the window that shows the target.
+    selected: Option<(String, WindowId)>,
+    /// The client selected a target itself; until then the newest one shows.
     chosen: bool,
     commands: mpsc::Sender<Command>,
     encoded: mpsc::Receiver<Encoded>,
@@ -140,12 +145,12 @@ impl Peer {
                     let Some(encoded) = encoded else { return Ok(()) };
                     self.write(encoded)?;
                 }
-                changed = self.windows.changed() => {
-                    // The compositor ended.
+                changed = self.targets.changed() => {
+                    // The session ended.
                     if changed.is_err() {
                         return Ok(());
                     }
-                    self.send_windows()?;
+                    self.send_targets()?;
                     self.select(None).await?;
                 }
                 changed = self.cursor.changed() => {
@@ -217,15 +222,15 @@ impl Peer {
         use client_message::Message;
         if let Message::Hello(_) = &message {
             self.greeted = true;
-            self.send_windows()?;
+            self.send_targets()?;
             self.send_cursor()?;
             self.select(None).await?;
             return self.send_selected();
         }
         if let Message::Select(select) = &message {
             self.chosen = true;
-            self.select(Some(WindowId(select.window))).await?;
-            if let Some(window) = self.selected {
+            self.select(Some(&select.target)).await?;
+            if let Some((_, window)) = self.selected {
                 self.compositor.focus(window);
             }
             return Ok(());
@@ -237,7 +242,7 @@ impl Peer {
             });
             return Ok(());
         }
-        let Some(window) = self.selected else {
+        let Some((_, window)) = self.selected else {
             return Ok(());
         };
         let input = match message {
@@ -286,54 +291,59 @@ impl Peer {
         Ok(())
     }
 
-    /// Settles which window the client's video shows: the one it asks for, else the one it
-    /// has, else, and always until the client chose one, the topmost.
-    async fn select(&mut self, wanted: Option<WindowId>) -> Result<(), RtcError> {
-        let (exists, topmost) = {
-            let windows = self.windows.borrow();
-            let exists = |id: &WindowId| windows.iter().any(|window| window.id == *id);
-            let kept = wanted
-                .filter(&exists)
-                .or(self.selected.filter(|_| self.chosen).filter(&exists));
-            (kept, windows.last().map(|window| window.id))
+    /// Settles which target the client's video shows: the one it asks for, else the one it
+    /// has, else, and always until the client chose one, the newest. A target that moved to
+    /// another window is followed there.
+    async fn select(&mut self, wanted: Option<&str>) -> Result<(), RtcError> {
+        let selected = {
+            let targets = self.targets.borrow();
+            let find = |id: &str| targets.iter().find(|target| target.id == id);
+            let kept = self
+                .selected
+                .as_ref()
+                .filter(|_| self.chosen)
+                .and_then(|(id, _)| find(id));
+            wanted
+                .and_then(find)
+                .or(kept)
+                .or(targets.last())
+                .map(|target| (target.id.clone(), target.window))
         };
-        let target = exists.or(topmost);
-        if target == self.selected {
+        if selected == self.selected {
             return Ok(());
         }
-        self.selected = target;
-        let frames = match target {
-            Some(window) => self.compositor.frames(window).await.ok(),
+        let frames = match &selected {
+            Some((_, window)) => self.compositor.frames(*window).await.ok(),
             None => None,
         };
+        self.selected = selected;
         let _ = self.commands.send(Command::Watch(frames)).await;
         self.send_selected()
     }
 
-    fn send_windows(&mut self) -> Result<(), RtcError> {
-        let windows = self
-            .windows
+    fn send_targets(&mut self) -> Result<(), RtcError> {
+        let targets = self
+            .targets
             .borrow_and_update()
             .iter()
-            .map(|window| pb::Window {
-                id: window.id.0,
-                parent: window.parent.map(|parent| parent.0),
-                title: window.title.clone(),
-                app_id: window.app_id.clone(),
-                width: window.width,
-                height: window.height,
+            .map(|target| pb::Target {
+                id: target.id.clone(),
+                title: target.title.clone(),
+                url: target.url.clone(),
+                width: target.width,
+                height: target.height,
                 ..Default::default()
             })
             .collect();
-        self.send(server_message::Message::Windows(Box::new(pb::Windows {
-            windows,
+        self.send(server_message::Message::Targets(Box::new(pb::Targets {
+            targets,
             ..Default::default()
         })))
     }
 
     fn send_selected(&mut self) -> Result<(), RtcError> {
         self.send(server_message::Message::Selected(Box::new(pb::Selected {
-            window: self.selected.map(|window| window.0),
+            target: self.selected.as_ref().map(|(id, _)| id.clone()),
             ..Default::default()
         })))
     }

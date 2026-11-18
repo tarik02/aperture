@@ -44,7 +44,7 @@ use smithay::{
 };
 use tracing::info;
 
-use crate::state::{ClientState, State, configure_when_ready, window_id};
+use crate::state::{ClientState, State, Tag, configure_when_ready, window_id};
 
 impl CompositorHandler for State {
     fn compositor_state(&mut self) -> &mut CompositorState {
@@ -126,6 +126,9 @@ impl XdgShellHandler for State {
         let id = self.allocate_window_id();
         let window = Window::new_wayland_window(surface);
         window.user_data().insert_if_missing(|| id);
+        if let Some(tag) = self.expected.take() {
+            window.user_data().insert_if_missing(|| Tag(tag));
+        }
         self.space.map_element(window.clone(), (0, 0), false);
         self.focus_new(&window);
         info!(id = id.0, "window opened");

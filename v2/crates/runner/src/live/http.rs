@@ -3,7 +3,7 @@
 
 use std::{io::Cursor, path::Path};
 
-use aperture_compositor::{Frame, Handle, WindowId};
+use aperture_compositor::{Frame, Handle};
 use aperture_runner::PortRange;
 use axum::{
     Json, Router,
@@ -13,35 +13,42 @@ use axum::{
     routing::{get, post},
 };
 use serde::Serialize;
+use tokio::sync::watch;
 
 use super::peer::{self, ConnectError};
+use crate::targets::Target;
+
+#[derive(Clone)]
+struct Live {
+    compositor: Handle,
+    targets: watch::Receiver<Vec<Target>>,
+    rtc_ports: Option<PortRange>,
+}
 
 /// Serves until the listener fails.
 pub async fn serve(
     socket: &Path,
     compositor: Handle,
+    targets: watch::Receiver<Vec<Target>>,
     rtc_ports: Option<PortRange>,
 ) -> std::io::Result<()> {
     let _ = std::fs::remove_file(socket);
     let listener = tokio::net::UnixListener::bind(socket)?;
     let app = Router::new()
-        .route(
-            "/rtc",
-            post(move |compositor, offer| connect(compositor, rtc_ports, offer)),
-        )
-        .route("/windows", get(windows))
-        .route("/windows/{id}/screenshot.png", get(screenshot))
-        .with_state(compositor);
+        .route("/rtc", post(connect))
+        .route("/targets", get(targets_list))
+        .route("/targets/{id}/screenshot.png", get(screenshot))
+        .with_state(Live {
+            compositor,
+            targets,
+            rtc_ports,
+        });
     axum::serve(listener, app).await
 }
 
 /// Takes a WebRTC offer as SDP and answers with SDP.
-async fn connect(
-    State(compositor): State<Handle>,
-    rtc_ports: Option<PortRange>,
-    offer: String,
-) -> Response {
-    match peer::connect(compositor, rtc_ports, &offer).await {
+async fn connect(State(live): State<Live>, offer: String) -> Response {
+    match peer::connect(live.compositor, live.targets, live.rtc_ports, &offer).await {
         Ok(answer) => (
             StatusCode::CREATED,
             [(header::CONTENT_TYPE, "application/sdp")],
@@ -56,34 +63,41 @@ async fn connect(
 }
 
 #[derive(Serialize)]
-struct Window {
-    id: u32,
-    parent: Option<u32>,
+struct TargetView {
+    id: String,
     title: String,
-    app_id: String,
+    url: String,
     width: u32,
     height: u32,
 }
 
-async fn windows(State(compositor): State<Handle>) -> Json<Vec<Window>> {
-    let windows = compositor
-        .windows()
+async fn targets_list(State(live): State<Live>) -> Json<Vec<TargetView>> {
+    let targets = live
+        .targets
         .borrow()
         .iter()
-        .map(|window| Window {
-            id: window.id.0,
-            parent: window.parent.map(|parent| parent.0),
-            title: window.title.clone(),
-            app_id: window.app_id.clone(),
-            width: window.width,
-            height: window.height,
+        .map(|target| TargetView {
+            id: target.id.clone(),
+            title: target.title.clone(),
+            url: target.url.clone(),
+            width: target.width,
+            height: target.height,
         })
         .collect();
-    Json(windows)
+    Json(targets)
 }
 
-async fn screenshot(State(compositor): State<Handle>, RoutePath(id): RoutePath<u32>) -> Response {
-    let frame = match compositor.screenshot(WindowId(id)).await {
+async fn screenshot(State(live): State<Live>, RoutePath(id): RoutePath<String>) -> Response {
+    let window = live
+        .targets
+        .borrow()
+        .iter()
+        .find(|target| target.id == id)
+        .map(|target| target.window);
+    let Some(window) = window else {
+        return (StatusCode::NOT_FOUND, format!("target {id} not found")).into_response();
+    };
+    let frame = match live.compositor.screenshot(window).await {
         Ok(frame) => frame,
         Err(err @ aperture_compositor::Error::WindowNotFound(_)) => {
             return (StatusCode::NOT_FOUND, err.to_string()).into_response();

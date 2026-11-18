@@ -58,6 +58,10 @@ pub struct Profile {
 pub struct Tools {
     pub bwrap: PathBuf,
     pub chromium: PathBuf,
+    /// The unpacked extension that keeps every page in a browser window of its own.
+    pub extension: PathBuf,
+    /// The extension's native messaging host, `aperture-native-host`.
+    pub native_host: PathBuf,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

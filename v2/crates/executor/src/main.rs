@@ -64,6 +64,12 @@ struct Arguments {
     bwrap: PathBuf,
     #[arg(long, env = "APERTURE_CHROMIUM", default_value = "chromium")]
     chromium: PathBuf,
+    /// The unpacked extension that keeps every page in a browser window of its own.
+    #[arg(long, env = "APERTURE_TAB_WINDOW_EXTENSION")]
+    tab_window_extension: PathBuf,
+    /// `aperture-native-host`. Next to this program by default.
+    #[arg(long, env = "APERTURE_NATIVE_HOST")]
+    native_host: Option<PathBuf>,
     /// An argument for every session's browser. May be repeated.
     #[arg(long = "browser-arg", allow_hyphen_values = true)]
     browser_args: Vec<String>,
@@ -96,6 +102,12 @@ async fn main() -> anyhow::Result<()> {
             .context("failed to find the executor's own executable")?
             .with_file_name("aperture-runner"),
     };
+    let native_host = match arguments.native_host {
+        Some(host) => host,
+        None => std::env::current_exe()
+            .context("failed to find the executor's own executable")?
+            .with_file_name("aperture-native-host"),
+    };
     let store = Store::open(&data_dir)
         .with_context(|| format!("failed to open the store {}", data_dir.display()))?;
     let token = load_token(
@@ -111,6 +123,11 @@ async fn main() -> anyhow::Result<()> {
             tools: Tools {
                 bwrap: executable(&arguments.bwrap)?,
                 chromium: executable(&arguments.chromium)?,
+                extension: arguments
+                    .tab_window_extension
+                    .canonicalize()
+                    .context("the tab window extension was not found")?,
+                native_host: executable(&native_host)?,
             },
             viewport: VIEWPORT,
             rtc_ports: arguments.rtc_ports,

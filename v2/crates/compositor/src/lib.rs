@@ -44,6 +44,8 @@ pub struct WindowInfo {
     pub id: WindowId,
     /// The window this one is a dialog of.
     pub parent: Option<WindowId>,
+    /// What the window was expected as, see [`Handle::expect`].
+    pub tag: Option<String>,
     pub title: String,
     pub app_id: String,
     pub width: u32,
@@ -208,6 +210,21 @@ impl Handle {
         self.submit(move |state| {
             if let Ok(window) = state.window(window) {
                 state.focus_window(&window);
+            }
+        });
+    }
+
+    /// Tags the next window that opens with `tag`, so whoever is about to make the client
+    /// open one can tell it from the others. One window is expected at a time.
+    pub fn expect(&self, tag: String) {
+        self.submit(move |state| state.expected = Some(tag));
+    }
+
+    /// Stops expecting the window tagged `tag`, when it has not opened yet.
+    pub fn forget(&self, tag: String) {
+        self.submit(move |state| {
+            if state.expected.as_ref() == Some(&tag) {
+                state.expected = None;
             }
         });
     }

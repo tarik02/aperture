@@ -56,8 +56,8 @@ message Endpoints {
   string cdp_path = 1;
   // The executor's path of the session's live endpoints: `<live_path>/rtc` takes a WebRTC
   // offer as SDP and answers with SDP (the connection carries window video and
-  // `aperture.live.v1`), `<live_path>/windows/<id>/screenshot.png` is a window as it looks
-  // now, and `<live_path>/` a page that shows the session.
+  // `aperture.live.v1`), `<live_path>/targets/<id>/screenshot.png` is a browser target as it
+  // looks now, and `<live_path>/` a page that shows the session.
   string live_path = 2;
 }
 

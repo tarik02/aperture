@@ -11,7 +11,7 @@
   #stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
   video { max-width: 100%; max-height: 100%; background: #000; outline: none; }
 </style>
-<div id="bar"><span id="windows"></span><span id="state">connecting</span></div>
+<div id="bar"><span id="targets"></span><span id="state">connecting</span></div>
 <div id="stage"><video id="video" autoplay muted playsinline tabindex="0"></video></div>
 <script>
   // KeyboardEvent.code to Linux evdev key codes.
@@ -34,7 +34,7 @@
   const base = location.pathname.replace(/\/$/, "");
   const video = document.getElementById("video");
   const state = document.getElementById("state");
-  let windows = [];
+  let targets = [];
   let selected;
 
   const peer = new RTCPeerConnection();
@@ -52,20 +52,20 @@
   control.onopen = () => send({ hello: {} });
   control.onmessage = (event) => {
     const message = JSON.parse(event.data);
-    if (message.windows) windows = message.windows.windows ?? [];
-    if (message.selected) selected = message.selected.window;
+    if (message.targets) targets = message.targets.targets ?? [];
+    if (message.selected) selected = message.selected.target;
     if (message.cursor) video.style.cursor = message.cursor.hidden ? "none" : message.cursor.named ?? "default";
-    const bar = document.getElementById("windows");
-    bar.replaceChildren(...windows.map((item) => {
+    const bar = document.getElementById("targets");
+    bar.replaceChildren(...targets.map((item) => {
       const button = document.createElement("button");
-      button.textContent = item.title || item.appId || `window ${item.id}`;
+      button.textContent = item.title || item.url || item.id;
       button.className = item.id === selected ? "selected" : "";
-      button.onclick = () => send({ select: { window: item.id } });
+      button.onclick = () => send({ select: { target: item.id } });
       return button;
     }));
   };
 
-  // Positions are in the window's own pixels, whatever size the video is shown at.
+  // Positions are in the target's own pixels, whatever size the video is shown at.
   const position = (event) => {
     const box = video.getBoundingClientRect();
     return {

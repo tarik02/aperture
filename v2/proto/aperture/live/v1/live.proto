@@ -14,8 +14,8 @@ package aperture.live.v1;
 
 message ClientMessage {
   oneof message {
-    // The window the client's video shows and its input goes to. Until the first one, the
-    // session picks the topmost window.
+    // The browser target the client's video shows and its input goes to. Until the first
+    // one, the session picks the newest target.
     Select select = 1;
     PointerMotion pointer_motion = 2;
     PointerButton pointer_button = 3;
@@ -28,23 +28,23 @@ message ClientMessage {
   }
 }
 
-// The client's first message. The session answers with its windows, the window the client's
+// The client's first message. The session answers with its targets, the target the client's
 // video shows, and the cursor.
 message Hello {}
 
 message ServerMessage {
   oneof message {
-    Windows windows = 1;
+    Targets targets = 1;
     Selected selected = 2;
     Cursor cursor = 3;
   }
 }
 
 message Select {
-  uint32 window = 1;
+  string target = 1;
 }
 
-// Positions are in the selected window's logical pixels, from its top-left corner.
+// Positions are in the selected target's logical pixels, from its top-left corner.
 message PointerMotion {
   double x = 1;
   double y = 2;
@@ -87,31 +87,31 @@ message Text {
   string text = 1;
 }
 
-// The size windows fill, in logical pixels. It is the session's: every client sees it.
+// The size pages get, in logical pixels. It is the session's: every client sees it.
 message Viewport {
   uint32 width = 1;
   uint32 height = 2;
 }
 
-message Window {
-  uint32 id = 1;
-  // The window this one is a dialog of.
-  optional uint32 parent = 2;
-  string title = 3;
-  string app_id = 4;
-  uint32 width = 5;
-  uint32 height = 6;
+// A browser target: a page of the session's browser, shown in a window of its own.
+message Target {
+  // The page's DevTools target id, which lasts as long as the page.
+  string id = 1;
+  string title = 2;
+  string url = 3;
+  uint32 width = 4;
+  uint32 height = 5;
 }
 
-// Every window of the session, bottom to top. Sent after `hello` and whenever a window
+// Every target of the session, oldest first. Sent after `hello` and whenever a target
 // opens, closes or changes.
-message Windows {
-  repeated Window windows = 1;
+message Targets {
+  repeated Target targets = 1;
 }
 
-// The window the client's video shows from now on; none when the session has no window.
+// The target the client's video shows from now on; none when the session has no target.
 message Selected {
-  optional uint32 window = 1;
+  optional string target = 1;
 }
 
 message Cursor {

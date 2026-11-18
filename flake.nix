@@ -85,7 +85,9 @@
           || rel == ".data"
           || lib.hasPrefix ".data/" rel
           || rel == "vendor"
-          || lib.hasPrefix "vendor/" rel;
+          || lib.hasPrefix "vendor/" rel
+          || rel == "v2"
+          || lib.hasPrefix "v2/" rel;
 
         src = lib.cleanSourceWith {
           src = ./.;
@@ -603,6 +605,39 @@
             runHook preInstall
             mkdir -p $out/share/aperture/aperture-companion
             cp -R extensions/aperture-companion/dist/. $out/share/aperture/aperture-companion/
+            runHook postInstall
+          '';
+        };
+
+        # The extension that keeps every page in a Chromium window of its own, unpacked.
+        tabWindowEnforcer = pkgs.stdenvNoCC.mkDerivation {
+          pname = "aperture-tab-window-enforcer";
+          version = deployVersion;
+          inherit src;
+
+          pnpmWorkspaces = [ "@aperture-browser/tab-window-enforcer" ];
+          pnpmDeps = workspacePnpmDeps;
+
+          nativeBuildInputs = [
+            nodeRuntime
+            pnpmLatest
+            pkgs.pnpmConfigHook
+          ];
+
+          env.CI = "true";
+
+          buildPhase = ''
+            runHook preBuild
+            # pnpm 11.27.1 shims use `command -p`, which finds nothing in the sandbox.
+            find . -path '*/node_modules/.bin/*' -type f -exec sed -i 's/command -p //g' {} +
+            pnpm --filter @aperture-browser/tab-window-enforcer build
+            runHook postBuild
+          '';
+
+          installPhase = ''
+            runHook preInstall
+            mkdir -p $out/share/aperture/extensions/tab-window-enforcer
+            cp -R extensions/tab-window-enforcer/dist/. $out/share/aperture/extensions/tab-window-enforcer/
             runHook postInstall
           '';
         };
@@ -1266,6 +1301,7 @@
             ];
             APERTURE_BWRAP = lib.getExe pkgs.bubblewrap;
             APERTURE_CHROMIUM = lib.getExe' runtimeChromium "chromium";
+            APERTURE_TAB_WINDOW_EXTENSION = "${tabWindowEnforcer}/share/aperture/extensions/tab-window-enforcer";
             APERTURE_GST_PLUGIN_PATH = lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" gstPlugins;
           };
 
