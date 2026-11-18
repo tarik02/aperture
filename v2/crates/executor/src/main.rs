@@ -1,0 +1,213 @@
+// Service impls return concrete message types where the generated traits declare `impl Encodable`.
+#![allow(refining_impl_trait_internal, refining_impl_trait_reachable)]
+
+mod cdp;
+mod live;
+mod rpc;
+mod sessions;
+
+mod proto {
+    connectrpc::include_generated!();
+}
+
+use std::{
+    fs,
+    net::SocketAddr,
+    os::unix::fs::PermissionsExt,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+
+use anyhow::Context;
+use aperture_runner::{PortRange, Tools, Viewport};
+use aperture_store::Store;
+use axum::{
+    extract::{Request, State},
+    http::{StatusCode, header},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
+};
+use clap::Parser;
+use subtle::ConstantTimeEq;
+use tracing::info;
+
+use crate::sessions::{Config, Sessions};
+
+/// What a session's windows fill until a client asks for another size.
+const VIEWPORT: Viewport = Viewport {
+    width: 1280,
+    height: 720,
+};
+
+/// Runs browser sessions on this machine, for whoever holds its token.
+#[derive(Parser)]
+struct Arguments {
+    #[arg(long, env = "APERTURE_LISTEN", default_value = "127.0.0.1:7900")]
+    listen: SocketAddr,
+    /// Sessions and snapshots are kept here. `$XDG_STATE_HOME/aperture` by default.
+    #[arg(long, env = "APERTURE_DATA_DIR")]
+    data_dir: Option<PathBuf>,
+    /// Sockets and the state of running sessions. `$XDG_RUNTIME_DIR/aperture` by default.
+    #[arg(long, env = "APERTURE_RUNTIME_DIR")]
+    runtime_dir: Option<PathBuf>,
+    /// The token requests carry. Generated into the data directory by default.
+    #[arg(long, env = "APERTURE_TOKEN_FILE")]
+    token_file: Option<PathBuf>,
+    /// The UDP ports WebRTC media uses, such as `60000-60999`, for a firewall that opens only
+    /// some. Any port by default.
+    #[arg(long, env = "APERTURE_RTC_PORTS", value_parser = port_range)]
+    rtc_ports: Option<PortRange>,
+    /// `aperture-runner`. Next to this program by default.
+    #[arg(long, env = "APERTURE_RUNNER")]
+    runner: Option<PathBuf>,
+    #[arg(long, env = "APERTURE_BWRAP", default_value = "bwrap")]
+    bwrap: PathBuf,
+    #[arg(long, env = "APERTURE_CHROMIUM", default_value = "chromium")]
+    chromium: PathBuf,
+    /// An argument for every session's browser. May be repeated.
+    #[arg(long = "browser-arg", allow_hyphen_values = true)]
+    browser_args: Vec<String>,
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+        )
+        .init();
+    let arguments = Arguments::parse();
+
+    let data_dir = match arguments.data_dir {
+        Some(dir) => dir,
+        None => xdg("XDG_STATE_HOME", ".local/state")?.join("aperture"),
+    };
+    let runtime_root = match arguments.runtime_dir {
+        Some(dir) => dir,
+        None => match std::env::var_os("XDG_RUNTIME_DIR").filter(|dir| !dir.is_empty()) {
+            Some(dir) => PathBuf::from(dir).join("aperture"),
+            // Safety: no arguments, cannot fail.
+            None => PathBuf::from(format!("/tmp/aperture-{}", unsafe { libc::getuid() })),
+        },
+    };
+    let runner = match arguments.runner {
+        Some(runner) => runner,
+        None => std::env::current_exe()
+            .context("failed to find the executor's own executable")?
+            .with_file_name("aperture-runner"),
+    };
+    let store = Store::open(&data_dir)
+        .with_context(|| format!("failed to open the store {}", data_dir.display()))?;
+    let token = load_token(
+        &arguments
+            .token_file
+            .unwrap_or_else(|| data_dir.join("token")),
+    )?;
+    let sessions = Arc::new(Sessions::new(
+        store,
+        Config {
+            runtime_root,
+            runner: executable(&runner)?,
+            tools: Tools {
+                bwrap: executable(&arguments.bwrap)?,
+                chromium: executable(&arguments.chromium)?,
+            },
+            viewport: VIEWPORT,
+            rtc_ports: arguments.rtc_ports,
+            browser_args: arguments.browser_args,
+        },
+    ));
+
+    let connect = connectrpc::Router::new().add_service(Arc::new(rpc::Executor(sessions.clone())));
+    let app = cdp::router(sessions.clone())
+        .merge(live::router(sessions))
+        .fallback_service(connect.into_axum_service())
+        .layer(middleware::from_fn_with_state(
+            Arc::<str>::from(token),
+            require_token,
+        ));
+    let listener = tokio::net::TcpListener::bind(arguments.listen)
+        .await
+        .with_context(|| format!("failed to listen on {}", arguments.listen))?;
+    info!(listen = %arguments.listen, data = %data_dir.display(), "executor running");
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async {
+            let _ = tokio::signal::ctrl_c().await;
+        })
+        .await?;
+    Ok(())
+}
+
+/// The token comes in `Authorization: Bearer`, or in the query as `token` for what cannot
+/// set headers: a page a person opens, and what that page loads.
+async fn require_token(State(token): State<Arc<str>>, request: Request, next: Next) -> Response {
+    let header = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "));
+    let query = request.uri().query().and_then(|query| {
+        query
+            .split('&')
+            .find_map(|pair| pair.strip_prefix("token="))
+    });
+    match header.or(query) {
+        Some(given) if bool::from(given.as_bytes().ct_eq(token.as_bytes())) => {
+            next.run(request).await
+        }
+        _ => StatusCode::UNAUTHORIZED.into_response(),
+    }
+}
+
+fn port_range(ports: &str) -> Result<PortRange, String> {
+    let range = ports.split_once('-').and_then(|(first, last)| {
+        Some(PortRange {
+            first: first.trim().parse().ok()?,
+            last: last.trim().parse().ok()?,
+        })
+    });
+    range
+        .filter(|range| range.first > 0 && range.first <= range.last)
+        .ok_or_else(|| format!("{ports:?} is not a port range like 60000-60999"))
+}
+
+fn load_token(path: &Path) -> anyhow::Result<String> {
+    if !path.exists() {
+        let token = format!(
+            "{}{}",
+            uuid::Uuid::new_v4().simple(),
+            uuid::Uuid::new_v4().simple()
+        );
+        fs::write(path, &token).with_context(|| format!("failed to write {}", path.display()))?;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+    }
+    let token = fs::read_to_string(path)
+        .with_context(|| format!("failed to read the token {}", path.display()))?;
+    let token = token.trim();
+    anyhow::ensure!(!token.is_empty(), "the token {} is empty", path.display());
+    Ok(token.to_owned())
+}
+
+fn xdg(variable: &str, fallback: &str) -> anyhow::Result<PathBuf> {
+    match std::env::var_os(variable).filter(|dir| !dir.is_empty()) {
+        Some(dir) => Ok(PathBuf::from(dir)),
+        None => {
+            Ok(PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?).join(fallback))
+        }
+    }
+}
+
+/// The program's absolute path, looked up in `PATH` when it is given by name: the browser
+/// is started in a sandbox that has no `PATH`.
+fn executable(program: &Path) -> anyhow::Result<PathBuf> {
+    let found = if program.components().count() > 1 {
+        program.canonicalize().ok()
+    } else {
+        std::env::var_os("PATH").and_then(|path| {
+            std::env::split_paths(&path)
+                .map(|dir| dir.join(program))
+                .find(|candidate| candidate.is_file())
+        })
+    };
+    found.with_context(|| format!("{} not found", program.display()))
+}

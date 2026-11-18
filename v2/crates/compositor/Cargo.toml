@@ -1,0 +1,16 @@
+[package]
+name = "aperture-compositor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true }
+tracing.workspace = true
+
+[dependencies.smithay]
+version = "0.7"
+default-features = false
+features = ["wayland_frontend", "desktop", "renderer_pixman"]

@@ -1238,6 +1238,37 @@
           ];
         };
 
+        devShells.v2 =
+          let
+            gstPlugins = [
+              pkgs.gst_all_1.gstreamer
+              pkgs.gst_all_1.gst-plugins-base
+              pkgs.gst_all_1.gst-plugins-bad # h264parse, nvcodec, va, openh264
+              pkgs.gst_all_1.gst-plugins-ugly # x264enc
+            ];
+          in
+          pkgs.mkShell {
+            packages = [
+              pkgs.cargo
+              pkgs.rustc
+              pkgs.clippy
+              pkgs.rustfmt
+              pkgs.rust-analyzer
+              pkgs.buf
+              pkgs.pkg-config
+            ];
+            buildInputs = [
+              pkgs.libxkbcommon
+              pkgs.pixman
+              pkgs.openssl
+              pkgs.gst_all_1.gstreamer
+              pkgs.gst_all_1.gst-plugins-base
+            ];
+            APERTURE_BWRAP = lib.getExe pkgs.bubblewrap;
+            APERTURE_CHROMIUM = lib.getExe' runtimeChromium "chromium";
+            APERTURE_GST_PLUGIN_PATH = lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" gstPlugins;
+          };
+
         packages = {
           default = aperture;
           aperture = aperture;

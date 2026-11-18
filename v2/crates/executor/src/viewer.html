@@ -1,0 +1,109 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Aperture session</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #16181d; color: #c9ced6; font: 13px system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; }
+  #bar { display: flex; gap: 6px; padding: 6px; align-items: center; overflow-x: auto; }
+  #bar button { background: #262a33; color: inherit; border: 1px solid #3a3f4b; border-radius: 4px; padding: 3px 8px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #bar button.selected { border-color: #7aa2f7; color: #fff; }
+  #state { margin-left: auto; opacity: 0.7; }
+  #stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  video { max-width: 100%; max-height: 100%; background: #000; outline: none; }
+</style>
+<div id="bar"><span id="windows"></span><span id="state">connecting</span></div>
+<div id="stage"><video id="video" autoplay muted playsinline tabindex="0"></video></div>
+<script>
+  // KeyboardEvent.code to Linux evdev key codes.
+  const KEYS = {
+    Escape: 1, Digit1: 2, Digit2: 3, Digit3: 4, Digit4: 5, Digit5: 6, Digit6: 7, Digit7: 8, Digit8: 9, Digit9: 10,
+    Digit0: 11, Minus: 12, Equal: 13, Backspace: 14, Tab: 15, KeyQ: 16, KeyW: 17, KeyE: 18, KeyR: 19, KeyT: 20,
+    KeyY: 21, KeyU: 22, KeyI: 23, KeyO: 24, KeyP: 25, BracketLeft: 26, BracketRight: 27, Enter: 28, ControlLeft: 29,
+    KeyA: 30, KeyS: 31, KeyD: 32, KeyF: 33, KeyG: 34, KeyH: 35, KeyJ: 36, KeyK: 37, KeyL: 38, Semicolon: 39,
+    Quote: 40, Backquote: 41, ShiftLeft: 42, Backslash: 43, KeyZ: 44, KeyX: 45, KeyC: 46, KeyV: 47, KeyB: 48,
+    KeyN: 49, KeyM: 50, Comma: 51, Period: 52, Slash: 53, ShiftRight: 54, NumpadMultiply: 55, AltLeft: 56,
+    Space: 57, CapsLock: 58, F1: 59, F2: 60, F3: 61, F4: 62, F5: 63, F6: 64, F7: 65, F8: 66, F9: 67, F10: 68,
+    NumLock: 69, ScrollLock: 70, Numpad7: 71, Numpad8: 72, Numpad9: 73, NumpadSubtract: 74, Numpad4: 75,
+    Numpad5: 76, Numpad6: 77, NumpadAdd: 78, Numpad1: 79, Numpad2: 80, Numpad3: 81, Numpad0: 82,
+    NumpadDecimal: 83, IntlBackslash: 86, F11: 87, F12: 88, NumpadEnter: 96, ControlRight: 97, NumpadDivide: 98,
+    AltRight: 100, Home: 102, ArrowUp: 103, PageUp: 104, ArrowLeft: 105, ArrowRight: 106, End: 107,
+    ArrowDown: 108, PageDown: 109, Insert: 110, Delete: 111, MetaLeft: 125, MetaRight: 126, ContextMenu: 127,
+  };
+  const BUTTONS = ["MOUSE_BUTTON_LEFT", "MOUSE_BUTTON_MIDDLE", "MOUSE_BUTTON_RIGHT", "MOUSE_BUTTON_BACK", "MOUSE_BUTTON_FORWARD"];
+
+  const base = location.pathname.replace(/\/$/, "");
+  const video = document.getElementById("video");
+  const state = document.getElementById("state");
+  let windows = [];
+  let selected;
+
+  const peer = new RTCPeerConnection();
+  peer.addTransceiver("video", { direction: "recvonly" });
+  const control = peer.createDataChannel("control");
+  const pointer = peer.createDataChannel("pointer", { ordered: true, maxRetransmits: 0 });
+  peer.ontrack = (event) => { video.srcObject = new MediaStream([event.track]); };
+  peer.onconnectionstatechange = () => { state.textContent = peer.connectionState; };
+
+  const send = (message, channel = control) => {
+    if (channel.readyState === "open") channel.send(JSON.stringify(message));
+    else if (channel !== control) send(message);
+  };
+
+  control.onopen = () => send({ hello: {} });
+  control.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    if (message.windows) windows = message.windows.windows ?? [];
+    if (message.selected) selected = message.selected.window;
+    if (message.cursor) video.style.cursor = message.cursor.hidden ? "none" : message.cursor.named ?? "default";
+    const bar = document.getElementById("windows");
+    bar.replaceChildren(...windows.map((item) => {
+      const button = document.createElement("button");
+      button.textContent = item.title || item.appId || `window ${item.id}`;
+      button.className = item.id === selected ? "selected" : "";
+      button.onclick = () => send({ select: { window: item.id } });
+      return button;
+    }));
+  };
+
+  // Positions are in the window's own pixels, whatever size the video is shown at.
+  const position = (event) => {
+    const box = video.getBoundingClientRect();
+    return {
+      x: (event.clientX - box.left) * (video.videoWidth / box.width),
+      y: (event.clientY - box.top) * (video.videoHeight / box.height),
+    };
+  };
+  video.addEventListener("pointermove", (event) => send({ pointerMotion: position(event) }, pointer));
+  video.addEventListener("pointerleave", () => send({ pointerLeave: {} }));
+  for (const [type, pressed] of [["pointerdown", true], ["pointerup", false]]) {
+    video.addEventListener(type, (event) => {
+      video.focus();
+      if (pressed) video.setPointerCapture(event.pointerId);
+      send({ pointerButton: { ...position(event), button: BUTTONS[event.button], pressed } });
+      event.preventDefault();
+    });
+  }
+  video.addEventListener("contextmenu", (event) => event.preventDefault());
+  video.addEventListener("wheel", (event) => {
+    const notch = event.deltaMode === WheelEvent.DOM_DELTA_PIXEL ? 100 : 3;
+    send({ pointerScroll: { ...position(event), dx: event.deltaX / notch, dy: event.deltaY / notch } });
+    event.preventDefault();
+  }, { passive: false });
+  for (const [type, pressed] of [["keydown", true], ["keyup", false]]) {
+    video.addEventListener(type, (event) => {
+      const code = KEYS[event.code];
+      if (code !== undefined) send({ key: { code, pressed } });
+      event.preventDefault();
+    });
+  }
+
+  (async () => {
+    await peer.setLocalDescription(await peer.createOffer());
+    const answer = await fetch(`${base}/rtc${location.search}`, { method: "POST", body: peer.localDescription.sdp });
+    if (!answer.ok) {
+      state.textContent = `failed: ${await answer.text()}`;
+      return;
+    }
+    await peer.setRemoteDescription({ type: "answer", sdp: await answer.text() });
+  })();
+</script>

@@ -1,0 +1,125 @@
+syntax = "proto3";
+
+package aperture.live.v1;
+
+// What a client and a running session say to each other while the client watches and
+// controls it. Messages travel on the data channels of the client's WebRTC connection, one
+// message a frame: binary frames carry the message encoded as protobuf, text frames as
+// protobuf JSON. The session answers in the encoding of the client's last message, and says
+// nothing before the client's `hello`.
+//
+// The client opens the channels: `control`, reliable and ordered, for everything, and
+// optionally `pointer`, unreliable, for pointer motion, where a lost move is superseded by
+// the next one and must not hold up clicks and keys behind it.
+
+message ClientMessage {
+  oneof message {
+    // The window the client's video shows and its input goes to. Until the first one, the
+    // session picks the topmost window.
+    Select select = 1;
+    PointerMotion pointer_motion = 2;
+    PointerButton pointer_button = 3;
+    PointerScroll pointer_scroll = 4;
+    PointerLeave pointer_leave = 5;
+    Key key = 6;
+    Text text = 7;
+    Viewport viewport = 8;
+    Hello hello = 9;
+  }
+}
+
+// The client's first message. The session answers with its windows, the window the client's
+// video shows, and the cursor.
+message Hello {}
+
+message ServerMessage {
+  oneof message {
+    Windows windows = 1;
+    Selected selected = 2;
+    Cursor cursor = 3;
+  }
+}
+
+message Select {
+  uint32 window = 1;
+}
+
+// Positions are in the selected window's logical pixels, from its top-left corner.
+message PointerMotion {
+  double x = 1;
+  double y = 2;
+}
+
+enum MouseButton {
+  MOUSE_BUTTON_UNSPECIFIED = 0;
+  MOUSE_BUTTON_LEFT = 1;
+  MOUSE_BUTTON_RIGHT = 2;
+  MOUSE_BUTTON_MIDDLE = 3;
+  MOUSE_BUTTON_BACK = 4;
+  MOUSE_BUTTON_FORWARD = 5;
+}
+
+message PointerButton {
+  double x = 1;
+  double y = 2;
+  MouseButton button = 3;
+  bool pressed = 4;
+}
+
+message PointerScroll {
+  double x = 1;
+  double y = 2;
+  // Wheel notches, positive right and down.
+  double dx = 3;
+  double dy = 4;
+}
+
+message PointerLeave {}
+
+message Key {
+  // The physical key, as its Linux evdev code.
+  uint32 code = 1;
+  bool pressed = 2;
+}
+
+// Text to type as it is, e.g. what a phone's keyboard entered.
+message Text {
+  string text = 1;
+}
+
+// The size windows fill, in logical pixels. It is the session's: every client sees it.
+message Viewport {
+  uint32 width = 1;
+  uint32 height = 2;
+}
+
+message Window {
+  uint32 id = 1;
+  // The window this one is a dialog of.
+  optional uint32 parent = 2;
+  string title = 3;
+  string app_id = 4;
+  uint32 width = 5;
+  uint32 height = 6;
+}
+
+// Every window of the session, bottom to top. Sent after `hello` and whenever a window
+// opens, closes or changes.
+message Windows {
+  repeated Window windows = 1;
+}
+
+// The window the client's video shows from now on; none when the session has no window.
+message Selected {
+  optional uint32 window = 1;
+}
+
+message Cursor {
+  oneof cursor {
+    // A CSS cursor name.
+    string named = 1;
+    Hidden hidden = 2;
+  }
+
+  message Hidden {}
+}

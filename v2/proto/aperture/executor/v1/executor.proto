@@ -1,0 +1,145 @@
+syntax = "proto3";
+
+package aperture.executor.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// What one node does on request: browser sessions and the snapshots taken of them, on the
+// node's own storage.
+service ExecutorService {
+  // Creates a session, from a snapshot or empty, and starts its browser unless asked not to.
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  // Stops the session's browser and keeps its profile.
+  rpc SuspendSession(SuspendSessionRequest) returns (SuspendSessionResponse);
+  // Starts the browser of a suspended or failed session on the profile it left.
+  rpc ResumeSession(ResumeSessionRequest) returns (ResumeSessionResponse);
+  // Stops the session and removes its profile and files. Snapshots taken of it stay.
+  rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
+
+  // Keeps the session's profile as it is now. A running session is suspended for the
+  // moment it takes and resumed after.
+  rpc CreateSnapshot(CreateSnapshotRequest) returns (CreateSnapshotResponse);
+  rpc GetSnapshot(GetSnapshotRequest) returns (GetSnapshotResponse);
+  rpc ListSnapshots(ListSnapshotsRequest) returns (ListSnapshotsResponse);
+  // Sessions created from the snapshot keep working.
+  rpc DeleteSnapshot(DeleteSnapshotRequest) returns (DeleteSnapshotResponse);
+}
+
+enum SessionState {
+  SESSION_STATE_UNSPECIFIED = 0;
+  // No browser runs; the profile is kept.
+  SESSION_STATE_SUSPENDED = 1;
+  SESSION_STATE_STARTING = 2;
+  SESSION_STATE_RUNNING = 3;
+  SESSION_STATE_SUSPENDING = 4;
+  // The browser ended without being asked to; `failure` says how. The profile is kept.
+  SESSION_STATE_FAILED = 5;
+}
+
+message Session {
+  string id = 1;
+  SessionState state = 2;
+  // The snapshot the session was created from.
+  optional string snapshot_id = 3;
+  google.protobuf.Timestamp created_at = 4;
+  // Set while the session is running.
+  optional Endpoints endpoints = 5;
+  optional string failure = 6;
+}
+
+// Where a running session is reached.
+message Endpoints {
+  // The executor's path of the browser's CDP WebSocket. `<cdp_path>/json/version` and the
+  // other discovery routes are below it.
+  string cdp_path = 1;
+  // The executor's path of the session's live endpoints: `<live_path>/rtc` takes a WebRTC
+  // offer as SDP and answers with SDP (the connection carries window video and
+  // `aperture.live.v1`), `<live_path>/windows/<id>/screenshot.png` is a window as it looks
+  // now, and `<live_path>/` a page that shows the session.
+  string live_path = 2;
+}
+
+message Snapshot {
+  string id = 1;
+  optional string name = 2;
+  // The session it was taken of.
+  string session_id = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message CreateSessionRequest {
+  optional string snapshot_id = 1;
+  // Create the session without starting its browser.
+  bool suspended = 2;
+}
+
+message CreateSessionResponse {
+  Session session = 1;
+}
+
+message GetSessionRequest {
+  string id = 1;
+}
+
+message GetSessionResponse {
+  Session session = 1;
+}
+
+message ListSessionsRequest {}
+
+message ListSessionsResponse {
+  repeated Session sessions = 1;
+}
+
+message SuspendSessionRequest {
+  string id = 1;
+}
+
+message SuspendSessionResponse {
+  Session session = 1;
+}
+
+message ResumeSessionRequest {
+  string id = 1;
+}
+
+message ResumeSessionResponse {
+  Session session = 1;
+}
+
+message DeleteSessionRequest {
+  string id = 1;
+}
+
+message DeleteSessionResponse {}
+
+message CreateSnapshotRequest {
+  string session_id = 1;
+  optional string name = 2;
+}
+
+message CreateSnapshotResponse {
+  Snapshot snapshot = 1;
+}
+
+message GetSnapshotRequest {
+  string id = 1;
+}
+
+message GetSnapshotResponse {
+  Snapshot snapshot = 1;
+}
+
+message ListSnapshotsRequest {}
+
+message ListSnapshotsResponse {
+  repeated Snapshot snapshots = 1;
+}
+
+message DeleteSnapshotRequest {
+  string id = 1;
+}
+
+message DeleteSnapshotResponse {}
