@@ -1,0 +1,230 @@
+// The executor end to end, on real sessions: the store, the runner, the compositor, targets,
+// WebRTC and automation. It starts an executor of its own on port 7911, with its data in
+// /tmp/aperture-v2-e2e, and prints PASS or FAIL for each thing it checks.
+//
+//   cd v2 && cargo build && node e2e/e2e.mjs "$PWD/target/debug"
+//
+import { spawn, execSync } from "node:child_process";
+import { readFileSync, existsSync, rmSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
+
+const [bin] = process.argv.slice(2);
+const D = "/tmp/aperture-v2-e2e";
+// Runners a run that crashed left behind would be taken for this run's.
+execSync(`pkill -KILL -f "[a]perture-runner ${D}/" || true`);
+rmSync(D, { recursive: true, force: true });
+mkdirSync(D, { recursive: true });
+const base = "http://127.0.0.1:7911";
+const env = { ...process.env, APERTURE_DATA_DIR: `${D}/data`, APERTURE_RUNTIME_DIR: `${D}/run`, APERTURE_LISTEN: "127.0.0.1:7911" };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let executor;
+process.on("exit", () => executor?.kill("SIGINT"));
+process.on("uncaughtException", (err) => { console.log(err); process.exit(1); });
+async function startExecutor() {
+  executor = spawn(`${bin}/aperture-executor`, [], { env, stdio: ["ignore", "inherit", "inherit"] });
+  for (let i = 0; i < 100 && !existsSync(`${D}/data/token`); i++) await sleep(50);
+  await sleep(300);
+}
+await startExecutor();
+const token = readFileSync(`${D}/data/token`, "utf8").trim();
+const auth = { Authorization: `Bearer ${token}` };
+async function rpc(method, body = {}) {
+  const started = Date.now();
+  const res = await fetch(`${base}/aperture.executor.v1.ExecutorService/${method}`, {
+    method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  const json = await res.json();
+  console.log(`${method} ${res.status} ${Date.now() - started}ms`, JSON.stringify(json).slice(0, 260));
+  return json;
+}
+function cdp(sessionId) {
+  const ws = new WebSocket(`ws://127.0.0.1:7911/sessions/${sessionId}/cdp`, { headers: auth });
+  let next = 1; const pending = new Map();
+  ws.addEventListener("message", (e) => { const m = JSON.parse(e.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } });
+  const open = new Promise((ok, fail) => { ws.addEventListener("open", ok); ws.addEventListener("error", (e) => fail(new Error("ws error " + (e.message ?? "")))); });
+  return {
+    async send(method, params = {}, sessionId) {
+      await open;
+      const id = next++;
+      const reply = new Promise((r) => pending.set(id, r));
+      ws.send(JSON.stringify({ id, method, params, sessionId }));
+      const m = await reply;
+      if (m.error) throw new Error(`${method}: ${JSON.stringify(m.error)}`);
+      return m.result;
+    },
+    close: () => ws.close(),
+  };
+}
+const cookie = (name) => ({ name, value: "1", domain: "example.test", path: "/", expires: Date.now() / 1000 + 86400 });
+const cookies = async (id) => { const c = cdp(id); const r = await c.send("Storage.getCookies"); c.close(); return r.cookies.filter((x) => x.domain === "example.test").map((x) => x.name).sort().join(","); };
+const procs = () => execSync(`ps -eo pid,args | grep -F "${D}/" | grep -v -e grep -e e2e.mjs -e aperture-executor | cut -c1-160 || true`).toString().trim();
+const check = (name, ok) => { console.log(`${ok ? "PASS" : "FAIL"} ${name}`); if (!ok) process.exitCode = 1; };
+
+const a = (await rpc("CreateSession")).session;
+let c = cdp(a.id);
+console.log("browser:", (await c.send("Browser.getVersion")).product);
+await c.send("Storage.setCookies", { cookies: [cookie("from_a")] });
+c.close();
+
+const snap = (await rpc("CreateSnapshot", { sessionId: a.id, name: "base" })).snapshot;
+check("A running again after snapshot", (await rpc("GetSession", { id: a.id })).session.state === "SESSION_STATE_RUNNING");
+check("A keeps its cookie over the snapshot", (await cookies(a.id)) === "from_a");
+
+const b = (await rpc("CreateSession", { snapshotId: snap.id })).session;
+check("B starts with the snapshot's cookie", (await cookies(b.id)) === "from_a");
+c = cdp(b.id); await c.send("Storage.setCookies", { cookies: [cookie("from_b")] }); c.close();
+check("B has both", (await cookies(b.id)) === "from_a,from_b");
+check("A does not see B's cookie", (await cookies(a.id)) === "from_a");
+
+executor.kill("SIGINT"); await sleep(500);
+await startExecutor();
+const listed = (await rpc("ListSessions")).sessions;
+check("both sessions survive an executor restart", listed.length === 2 && listed.every((s) => s.state === "SESSION_STATE_RUNNING"));
+
+// B's window, watched and controlled from A's browser through the viewer page.
+const live = `${base}/sessions/${b.id}/live`;
+c = cdp(b.id);
+const page = `<body style='margin:0;background:%23246;color:white;font:48px sans-serif'><h1>Session B</h1><button style='position:absolute;left:100px;top:300px;width:300px;height:100px;font-size:32px' onclick="document.title='clicked'">click me</button><input id=i style='position:absolute;left:100px;top:450px;width:400px;font-size:32px' oninput="document.title='typed:'+this.value">`;
+const created = await c.send("Target.createTarget", { url: `data:text/html,${page}` });
+const bPage = (await c.send("Target.attachToTarget", { targetId: created.targetId, flatten: true })).sessionId;
+const bTitle = async () => (await c.send("Runtime.evaluate", { expression: "document.title", returnByValue: true }, bPage)).result.value;
+const liveTargets = async () => (await fetch(`${live}/targets`, { headers: auth })).json();
+const until = async (done) => { let value; for (let i = 0; i < 100; i++) { value = await liveTargets(); if (done(value)) break; await sleep(100); } return value; };
+let listed2 = await until((targets) => targets.some((t) => t.id === created.targetId));
+console.log("targets:", JSON.stringify(listed2).slice(0, 400));
+check("B's pages are targets, the first tab and the new one", listed2.length === 2 && listed2.at(-1).id === created.targetId);
+check("the new target is at the viewport size", listed2.at(-1).width === 1280 && listed2.at(-1).height === 720);
+const png = Buffer.from(await (await fetch(`${live}/targets/${created.targetId}/screenshot.png`, { headers: auth })).arrayBuffer());
+writeFileSync(`${D}/window.png`, png);
+check("screenshot is a PNG", png.subarray(1, 4).toString() === "PNG");
+const first = Buffer.from(await (await fetch(`${live}/targets/${listed2[0].id}/screenshot.png`, { headers: auth })).arrayBuffer());
+check("each target has a window of its own", first.subarray(1, 4).toString() === "PNG" && !first.equals(png));
+
+// A page a page opens becomes a target too, and a closed page stops being one.
+const before = new Set(listed2.map((t) => t.id));
+await c.send("Runtime.evaluate", { expression: "window.open('about:blank')", userGesture: true }, bPage);
+listed2 = await until((targets) => targets.length === 3);
+const popup = listed2.find((t) => !before.has(t.id));
+check("a popup is a target", listed2.length === 3 && popup !== undefined);
+if (popup) await c.send("Target.closeTarget", { targetId: popup.id });
+listed2 = await until((targets) => targets.length === 2);
+check("a closed page is no target", listed2.length === 2 && listed2.every((t) => before.has(t.id)));
+await c.send("Target.activateTarget", { targetId: created.targetId });
+
+const viewer = cdp(a.id);
+const { targetId } = await viewer.send("Target.createTarget", { url: `${live}?token=${token}` });
+const { sessionId } = await viewer.send("Target.attachToTarget", { targetId, flatten: true });
+const evaluate = async (expression) => (await viewer.send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }, sessionId)).result.value;
+let seen = "";
+for (let i = 0; i < 60; i++) { await sleep(250); seen = await evaluate(`JSON.stringify({state: peer.connectionState, video: [video.videoWidth, video.videoHeight], time: video.currentTime, targets: targets.length, selected})`); if (JSON.parse(seen).video[0] > 0 && JSON.parse(seen).selected) break; }
+console.log("viewer:", seen);
+check("the viewer plays B's newest target over WebRTC", JSON.parse(seen).video[0] === 1280 && JSON.parse(seen).video[1] === 720 && JSON.parse(seen).selected === created.targetId);
+
+// Input goes the whole way: a click and keys in the viewer reach B's page.
+const box = JSON.parse(await evaluate(`JSON.stringify(video.getBoundingClientRect())`));
+const inner = (await c.send("Runtime.evaluate", { expression: "innerWidth + 'x' + innerHeight", returnByValue: true }, bPage)).result.value;
+check(`the page fills the viewport (${inner})`, inner === "1280x720");
+const browserUi = 0;
+const at = (x, y) => ({ x: box.x + x * (box.width / 1280), y: box.y + (y + browserUi) * (box.height / 720) });
+const click = async (x, y) => { for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) await viewer.send("Input.dispatchMouseEvent", { type, ...at(x, y), button: type === "mouseMoved" ? "none" : "left", clickCount: 1 }, sessionId); };
+await click(250, 350);
+await sleep(500);
+check("a click in the viewer reaches B's page", (await bTitle()) === "clicked");
+await click(300, 470);
+await sleep(300);
+for (const [key, code, vk] of [["h", "KeyH", 72], ["i", "KeyI", 73]]) for (const type of ["keyDown", "keyUp"]) await viewer.send("Input.dispatchKeyEvent", { type, key, code, windowsVirtualKeyCode: vk }, sessionId);
+await sleep(500);
+check("keys in the viewer reach B's page", (await bTitle()) === "typed:hi");
+
+// Automation: an agent's tools over MCP, on the same page, while the viewer watches.
+const mcpUrl = `${base}${listed.find((s) => s.id === b.id).endpoints.mcpPath}`;
+let mcpSession; let mcpId = 0;
+const mcp = async (method, params, notify = false) => {
+  const res = await fetch(mcpUrl, { method: "POST", headers: { ...auth, "Content-Type": "application/json", Accept: "application/json, text/event-stream", ...(mcpSession ? { "Mcp-Session-Id": mcpSession } : {}) }, body: JSON.stringify({ jsonrpc: "2.0", ...(notify ? {} : { id: ++mcpId }), method, params }) });
+  mcpSession ??= res.headers.get("mcp-session-id");
+  if (notify) return;
+  const text = await res.text();
+  const data = text.startsWith("{") ? text : text.split("\n").filter((line) => line.startsWith("data: {")).at(-1)?.slice(6);
+  if (!data) throw new Error(`mcp ${method}: ${res.status} ${text.slice(0, 200)}`);
+  const message = JSON.parse(data);
+  if (message.error) throw new Error(`mcp ${method}: ${JSON.stringify(message.error)}`);
+  return message.result;
+};
+const tool = async (name, args = {}) => { const started = Date.now(); const result = await mcp("tools/call", { name, arguments: args }); const text = result.content.filter((c) => c.type === "text").map((c) => c.text).join("\n"); console.log(`tool ${name} ${Date.now() - started}ms${result.isError ? " ERROR" : ""}:`, text.replace(/\s+/gu, " ").slice(0, 220)); return { ...result, text }; };
+const init = await mcp("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "0" } });
+await mcp("notifications/initialized", {}, true);
+const toolNames = (await mcp("tools/list", {})).tools.map((t) => t.name);
+console.log("mcp:", init.serverInfo?.name, "tools:", toolNames.join(","));
+check("the session serves its tools over MCP", toolNames.includes("navigate") && toolNames.includes("click") && toolNames.includes("tabs") && toolNames.includes("execute") && !toolNames.includes("recording"));
+const listedTabs = JSON.parse((await tool("tabs")).text);
+check("tabs lists the session's targets", listedTabs.length === 2 && listedTabs.some((t) => t.target === created.targetId));
+await c.send("Runtime.evaluate", { expression: "document.title = 'reset'; document.querySelector('button').style.cursor = 'pointer'; i.value = ''" }, bPage);
+const snapshot = await tool("snapshot", { tab: created.targetId });
+check("snapshot reads the page", /click me/u.test(snapshot.text));
+const hovered = await tool("hover", { tab: created.targetId, selector: "button" });
+await sleep(300);
+check("the viewer sees automation move the pointer", !hovered.isError && (await evaluate("video.style.cursor")) === "pointer");
+const clicked = await tool("click", { tab: created.targetId, selector: "button" });
+check("click reaches the page", !clicked.isError && (await bTitle()) === "clicked");
+const filled = await tool("fill", { tab: created.targetId, selector: "#i", value: "by agent" });
+check("fill reaches the page", !filled.isError && (await bTitle()) === "typed:by agent");
+await tool("click", { tab: created.targetId, selector: "#i" });
+const pressed = await tool("press", { tab: created.targetId, key: "x" });
+check("press types through the keyboard", !pressed.isError && (await bTitle()) === "typed:by agentx");
+const pictured = await mcp("tools/call", { name: "screenshot", arguments: { tab: created.targetId } });
+check("screenshot returns an image", pictured.content.some((c) => c.type === "image" && c.data.length > 1000));
+const opened = await tool("navigate", { url: "data:text/html,<title>agent tab</title><h1>opened by the agent</h1><input id=q autofocus>" });
+// Keys reach a tab nobody clicked in.
+await tool("press", { tab: opened.text.match(/"tab": (\d+)/u)?.[1] | 0, selector: "#q", key: "k" });
+check("keys reach a tab no pointer touched", /"k"/u.test((await tool("eval", { tab: opened.text.match(/"tab": (\d+)/u)?.[1] | 0, expression: "q.value" })).text));
+const afterOpen = await liveTargets();
+check("navigate without a tab opens a target", !opened.isError && afterOpen.length === 3 && afterOpen.some((t) => t.title === "agent tab"));
+const ran = await tool("execute", { code: "return await page.title()", tab: afterOpen.find((t) => t.title === "agent tab")?.id });
+check("execute runs a script against a tab", !ran.isError && /agent tab/u.test(ran.text));
+await tool("tabs", { action: "close", tab: afterOpen.find((t) => t.title === "agent tab")?.id });
+check("tabs close closes the target", (await until((targets) => targets.length === 2)).length === 2);
+
+await sleep(500);
+const shot = await viewer.send("Page.captureScreenshot", { format: "png" }, sessionId);
+writeFileSync(`${D}/viewer.png`, Buffer.from(shot.data, "base64"));
+viewer.close(); c.close();
+execSync(`grep -h "target ready\\|target closed\\|refused the extension\\|video encoders\\|encoder failed\\|no video\\|failed to encode" ${D}/data/sessions/${b.id}/logs/runner.log | sed 's/\\x1b\\[[0-9;]*m//g' > ${D}/encoders.log || true`);
+console.log("encoders:", readFileSync(`${D}/encoders.log`, "utf8").trim());
+
+await rpc("SuspendSession", { id: a.id });
+check("A suspended", (await rpc("GetSession", { id: a.id })).session.state === "SESSION_STATE_SUSPENDED");
+await rpc("ResumeSession", { id: a.id });
+check("A resumes with its cookie", (await cookies(a.id)) === "from_a");
+
+// A browser that dies takes the session down, and says so.
+const bRuntime = `${D}/run/${b.id}`;
+const browserPid = execSync(`pgrep -f "bwrap .*${D}/data/sessions/${b.id}/" | head -1`).toString().trim();
+process.kill(Number(browserPid), "SIGKILL");
+await sleep(3000);
+const failed = (await rpc("GetSession", { id: b.id })).session;
+check("B failed after its browser was killed", failed.state === "SESSION_STATE_FAILED" && /browser exited/u.test(failed.failure ?? ""));
+check("B's processes are gone", !procs().includes(b.id));
+await rpc("ResumeSession", { id: b.id });
+const afterCrash = await cookies(b.id); console.log("B cookies after crash:", afterCrash);
+check("B resumes after the failure with its profile", afterCrash.startsWith("from_a"));
+
+// A runner that is killed takes its browser and desktop with it.
+const runnerPid = JSON.parse(readFileSync(`${bRuntime}/status.json`, "utf8")).pid;
+process.kill(runnerPid, "SIGKILL");
+await sleep(8000);
+const orphaned = (await rpc("GetSession", { id: b.id })).session;
+check("B failed after its runner was killed", orphaned.state === "SESSION_STATE_FAILED");
+check("B's processes are gone again", !procs().includes(b.id));
+console.log(procs());
+
+await rpc("DeleteSnapshot", { id: snap.id });
+check("the layer outlives its snapshot while sessions use it", readdirSync(`${D}/data/layers`).length === 1);
+await rpc("ResumeSession", { id: b.id });
+check("B still runs on it", (await cookies(b.id)).startsWith("from_a"));
+for (const id of [a.id, b.id]) execSync(`cp ${D}/data/sessions/${id}/logs/runner.log ${D}/runner-${id}.log; cp ${D}/run/${id}/status.json ${D}/status-${id}.json 2>/dev/null || true`);
+await rpc("DeleteSession", { id: a.id });
+await rpc("DeleteSession", { id: b.id });
+check("layers collected", readdirSync(`${D}/data/layers`).length === 0);
+check("sessions gone", readdirSync(`${D}/data/sessions`).length === 0);
+check("no session processes left", procs() === "");
+console.log(procs());
+executor.kill("SIGINT");
