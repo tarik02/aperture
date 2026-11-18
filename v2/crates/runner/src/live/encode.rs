@@ -57,22 +57,34 @@ const PROBE_SIZE: (u32, u32) = (640, 480);
 /// How long an encoder gets for a frame before it counts as failed.
 const ENCODE_WITHIN: gst::ClockTime = gst::ClockTime::from_seconds(5);
 
+/// Starts GStreamer and finds its plugins, once.
+pub fn init() -> anyhow::Result<()> {
+    static STARTED: OnceLock<Result<(), String>> = OnceLock::new();
+    STARTED
+        .get_or_init(|| {
+            gst::init().map_err(|err| err.to_string())?;
+            // Plugins come from a variable of the runner's own rather than
+            // GST_PLUGIN_SYSTEM_PATH_1_0, which other programs read too.
+            if let Some(paths) = std::env::var_os("APERTURE_GST_PLUGIN_PATH") {
+                let registry = gst::Registry::get();
+                for path in std::env::split_paths(&paths) {
+                    registry.scan_path(&path);
+                }
+            }
+            Ok(())
+        })
+        .clone()
+        .map_err(anyhow::Error::msg)
+}
+
 /// The encoders that work on this machine, best first. Found once, by encoding a frame with
 /// each: an element being installed says nothing about its device or driver.
 fn working() -> &'static [&'static Candidate] {
     static WORKING: OnceLock<Vec<&'static Candidate>> = OnceLock::new();
     WORKING.get_or_init(|| {
-        if let Err(err) = gst::init() {
-            warn!(%err, "gstreamer is unavailable");
+        if let Err(err) = init() {
+            warn!("gstreamer is unavailable: {err:#}");
             return Vec::new();
-        }
-        // Plugins come from a variable of the runner's own rather than
-        // GST_PLUGIN_SYSTEM_PATH_1_0, which other programs read too.
-        if let Some(paths) = std::env::var_os("APERTURE_GST_PLUGIN_PATH") {
-            let registry = gst::Registry::get();
-            for path in std::env::split_paths(&paths) {
-                registry.scan_path(&path);
-            }
         }
         let working: Vec<&Candidate> = ENCODERS
             .iter()
@@ -146,8 +158,9 @@ impl Pipeline {
         Ok(created)
     }
 
-    /// Encodes one frame and waits for it to come out, as an Annex B access unit.
-    fn encode(&self, buffer: gst::Buffer, keyframe: bool) -> anyhow::Result<Vec<u8>> {
+    /// Encodes one frame and waits for it to come out, as an Annex B access unit; also
+    /// whether it came out as a keyframe.
+    fn encode(&self, buffer: gst::Buffer, keyframe: bool) -> anyhow::Result<(Vec<u8>, bool)> {
         if keyframe {
             let event = gst_video::DownstreamForceKeyUnitEvent::builder()
                 .all_headers(true)
@@ -165,7 +178,8 @@ impl Pipeline {
         };
         let buffer = sample.buffer().context("a sample without a buffer")?;
         let map = buffer.map_readable()?;
-        Ok(map.as_slice().to_vec())
+        let keyframe = !buffer.flags().contains(gst::BufferFlags::DELTA_UNIT);
+        Ok((map.as_slice().to_vec(), keyframe))
     }
 
     /// What the pipeline reported as having gone wrong, if anything.
@@ -214,11 +228,15 @@ impl VideoEncoder {
         })
     }
 
-    /// Encodes the frame as an Annex B access unit; a keyframe when asked, and when the
-    /// frame's size differs from the last one's. A hardware encoder can fail while running,
+    /// Encodes the frame as an Annex B access unit, and says whether it is a keyframe: it is
+    /// when asked, and when the frame's size differs from the last one's. A hardware encoder can fail while running,
     /// with every session of the GPU taken or at a size it refuses: the frame then goes to
     /// the next encoder, which serves from then on.
-    pub fn encode(&mut self, frame: &Arc<Frame>, keyframe: bool) -> anyhow::Result<Vec<u8>> {
+    pub fn encode(
+        &mut self,
+        frame: &Arc<Frame>,
+        keyframe: bool,
+    ) -> anyhow::Result<(Vec<u8>, bool)> {
         // 4:2:0 has one chroma sample per two pixels each way, so a last odd row or column
         // is left out.
         let width = frame.width & !1;

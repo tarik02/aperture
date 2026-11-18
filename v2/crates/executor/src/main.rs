@@ -57,6 +57,10 @@ struct Arguments {
     /// some. Any port by default.
     #[arg(long, env = "APERTURE_RTC_PORTS", value_parser = port_range)]
     rtc_ports: Option<PortRange>,
+    /// The cursor theme the pointer is drawn from in recordings, a directory with `cursors`
+    /// in it.
+    #[arg(long, env = "APERTURE_CURSOR_THEME")]
+    cursor_theme: Option<PathBuf>,
     /// `aperture-runner`. Next to this program by default.
     #[arg(long, env = "APERTURE_RUNNER")]
     runner: Option<PathBuf>,
@@ -131,6 +135,7 @@ async fn main() -> anyhow::Result<()> {
             },
             viewport: VIEWPORT,
             rtc_ports: arguments.rtc_ports,
+            cursor_theme: arguments.cursor_theme,
             browser_args: arguments.browser_args,
         },
     ));

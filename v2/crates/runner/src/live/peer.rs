@@ -2,12 +2,12 @@
 //! and the data channels the live protocol runs on.
 //!
 //! The client offers, with one video track to receive and its channels; the session answers
-//! as ICE-lite with host candidates only (see [`net`](super::net)). Each client has an
-//! encoder of its own, so a keyframe for one costs the others nothing.
+//! as ICE-lite with host candidates only (see [`net`](super::net)). The video is the
+//! target's one stream (see [`stream`](super::stream)), which every client of it shares.
 
-use std::time::{Duration, Instant};
+use std::{sync::Arc, time::Instant};
 
-use aperture_compositor::{Button, Cursor, Frames, Handle, Input, Viewport, WindowId};
+use aperture_compositor::{Button, Cursor, Handle, Input, Viewport, WindowId};
 use aperture_runner::PortRange;
 use buffa::Message as _;
 use str0m::{
@@ -18,12 +18,12 @@ use str0m::{
     media::{Frequency, MediaKind, MediaTime, Mid},
     net::{Protocol, Receive},
 };
-use tokio::sync::{mpsc, watch};
-use tracing::{debug, info, warn};
+use tokio::sync::{broadcast, watch};
+use tracing::{info, warn};
 
 use super::{
-    encode::VideoEncoder,
     net::{Datagram, Sockets},
+    stream::{Packet, Streams, Subscription},
 };
 use crate::{
     proto::aperture::live::v1::{self as pb, client_message, server_message},
@@ -52,6 +52,7 @@ pub enum ConnectError {
 /// Answers a client's offer and runs its connection until it ends.
 pub async fn connect(
     compositor: Handle,
+    streams: Arc<Streams>,
     targets: watch::Receiver<Vec<Target>>,
     ports: Option<PortRange>,
     offer: &str,
@@ -76,9 +77,6 @@ pub async fn connect(
         SdpOffer::from_sdp_string(offer).map_err(|err| ConnectError::Offer(err.to_string()))?;
     let answer = rtc.sdp_api().accept_offer(offer)?;
 
-    let (commands, command_source) = mpsc::channel(8);
-    let (encoded_sink, encoded) = mpsc::channel(1);
-    tokio::spawn(encode(command_source, encoded_sink));
     let mut peer = Peer {
         rtc,
         sockets,
@@ -92,8 +90,8 @@ pub async fn connect(
         connected: false,
         selected: None,
         chosen: false,
-        commands,
-        encoded,
+        streams,
+        video_feed: None,
     };
     tokio::spawn(async move {
         match peer.run().await {
@@ -122,8 +120,9 @@ struct Peer {
     selected: Option<(String, WindowId)>,
     /// The client selected a target itself; until then the newest one shows.
     chosen: bool,
-    commands: mpsc::Sender<Command>,
-    encoded: mpsc::Receiver<Encoded>,
+    streams: Arc<Streams>,
+    /// The selected target's stream.
+    video_feed: Option<Subscription>,
 }
 
 impl Peer {
@@ -141,10 +140,13 @@ impl Peer {
                     let Some(datagram) = datagram else { return Ok(()) };
                     self.receive(datagram)?;
                 }
-                encoded = self.encoded.recv() => {
-                    let Some(encoded) = encoded else { return Ok(()) };
-                    self.write(encoded)?;
-                }
+                packet = next_packet(&mut self.video_feed) => match packet {
+                    Ok(packet) => self.write(&packet)?,
+                    // Frames were missed, and those that follow build on them.
+                    Err(broadcast::error::RecvError::Lagged(_)) => self.request_keyframe(),
+                    // The window closed; the targets say what shows next.
+                    Err(broadcast::error::RecvError::Closed) => self.video_feed = None,
+                },
                 changed = self.targets.changed() => {
                     // The session ended.
                     if changed.is_err() {
@@ -183,7 +185,7 @@ impl Peer {
             Event::Connected => {
                 info!("webrtc peer connected");
                 self.connected = true;
-                let _ = self.commands.send(Command::Keyframe).await;
+                self.request_keyframe();
             }
             Event::IceConnectionStateChange(IceConnectionState::Disconnected) => {
                 self.rtc.disconnect();
@@ -191,9 +193,7 @@ impl Peer {
             Event::MediaAdded(media) if media.kind == MediaKind::Video => {
                 self.video = Some(media.mid);
             }
-            Event::KeyframeRequest(_) => {
-                let _ = self.commands.send(Command::Keyframe).await;
-            }
+            Event::KeyframeRequest(_) => self.request_keyframe(),
             Event::ChannelOpen(id, label) if label == CONTROL_CHANNEL => {
                 self.control = Some(id);
             }
@@ -312,12 +312,11 @@ impl Peer {
         if selected == self.selected {
             return Ok(());
         }
-        let frames = match &selected {
-            Some((_, window)) => self.compositor.frames(*window).await.ok(),
+        self.video_feed = match &selected {
+            Some((_, window)) => self.streams.subscribe(*window).await.ok(),
             None => None,
         };
         self.selected = selected;
-        let _ = self.commands.send(Command::Watch(frames)).await;
         self.send_selected()
     }
 
@@ -401,7 +400,13 @@ impl Peer {
         ))
     }
 
-    fn write(&mut self, encoded: Encoded) -> Result<(), RtcError> {
+    fn request_keyframe(&self) {
+        if let Some(feed) = &self.video_feed {
+            feed.keyframe();
+        }
+    }
+
+    fn write(&mut self, packet: &Packet) -> Result<(), RtcError> {
         if !self.connected {
             return Ok(());
         }
@@ -416,91 +421,22 @@ impl Peer {
             return Ok(());
         };
         let rate = Frequency::NINETY_KHZ;
-        let ticks = encoded.time.as_nanos() * u128::from(rate.get()) / 1_000_000_000;
+        let ticks = packet.time.as_nanos() * u128::from(rate.get()) / 1_000_000_000;
         writer.write(
             pt,
             Instant::now(),
             MediaTime::new(ticks as u64, rate),
-            encoded.data,
+            packet.data.clone(),
         )
     }
 }
 
-enum Command {
-    /// The frames to encode from now on.
-    Watch(Option<Frames>),
-    /// The next frame must be one the client can start decoding at.
-    Keyframe,
-}
-
-struct Encoded {
-    data: Vec<u8>,
-    /// When the frame was drawn, on the compositor's clock.
-    time: Duration,
-}
-
-/// Encodes the frames a client watches, each as it replaces the last. Frames that come
-/// while one is encoded or waits for the peer are skipped, down to the latest.
-async fn encode(mut commands: mpsc::Receiver<Command>, encoded: mpsc::Sender<Encoded>) {
-    let mut encoder = match tokio::task::spawn_blocking(VideoEncoder::new).await {
-        Ok(Ok(encoder)) => encoder,
-        Ok(Err(err)) => {
-            warn!("no video: {err:#}");
-            return;
-        }
-        Err(_) => return,
-    };
-    let mut frames: Option<Frames> = None;
-    let mut keyframe = true;
-    loop {
-        tokio::select! {
-            command = commands.recv() => {
-                match command {
-                    Some(Command::Watch(watched)) => frames = watched,
-                    Some(Command::Keyframe) => {}
-                    None => return,
-                }
-                keyframe = true;
-                // A window at rest sends no new frame, so the one it shows is encoded again.
-                if let Some(frames) = &mut frames {
-                    frames.mark_changed();
-                }
-            }
-            changed = async { frames.as_mut().expect("checked by the guard").changed().await },
-                if frames.is_some() =>
-            {
-                // The window closed.
-                if changed.is_err() {
-                    frames = None;
-                    continue;
-                }
-                let frame = frames.as_mut().and_then(|frames| frames.borrow_and_update().clone());
-                let Some(frame) = frame else {
-                    continue;
-                };
-                let force = std::mem::take(&mut keyframe);
-                let time = frame.time;
-                let task = tokio::task::spawn_blocking(move || {
-                    let data = encoder.encode(&frame, force);
-                    (encoder, data)
-                });
-                let Ok((returned, data)) = task.await else {
-                    return;
-                };
-                encoder = returned;
-                match data {
-                    Ok(data) if data.is_empty() => {}
-                    Ok(data) => {
-                        if encoded.send(Encoded { data, time }).await.is_err() {
-                            return;
-                        }
-                    }
-                    Err(err) => {
-                        debug!("failed to encode a frame: {err:#}");
-                        keyframe = true;
-                    }
-                }
-            }
-        }
+/// The next frame of the stream; never, without one.
+async fn next_packet(
+    feed: &mut Option<Subscription>,
+) -> Result<Arc<Packet>, broadcast::error::RecvError> {
+    match feed {
+        Some(feed) => feed.packets.recv().await,
+        None => std::future::pending().await,
     }
 }

@@ -7,5 +7,7 @@ mod http;
 mod mcp;
 mod net;
 mod peer;
+pub mod record;
+pub mod stream;
 
-pub use http::serve;
+pub use http::{Live, serve};

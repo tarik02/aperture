@@ -8,7 +8,12 @@ use smithay::{
     utils::{Logical, Point, SERIAL_COUNTER},
 };
 
-use crate::{Button, Input, keymap::KeyPosition, render::frame_rect, state::State};
+use crate::{
+    Button, Input,
+    keymap::KeyPosition,
+    render::frame_rect,
+    state::{State, window_id},
+};
 
 /// Wheel distance of one notch, matching libinput's convention.
 const SCROLL_STEP: f64 = 15.0;
@@ -92,6 +97,7 @@ impl State {
                 pointer.frame(self);
             }
             Input::PointerLeave => {
+                self.pointer_window = None;
                 let pointer = self.pointer();
                 let location = pointer.current_location();
                 pointer.motion(
@@ -164,6 +170,7 @@ impl State {
     }
 
     fn pointer_motion(&mut self, window: &Window, point: Point<f64, Logical>) {
+        self.pointer_window = window_id(window);
         let location = point + frame_rect(window).loc.to_f64();
         let under = window
             .surface_under(location, WindowSurfaceType::ALL)

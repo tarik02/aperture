@@ -4,7 +4,12 @@ use smithay::{
         renderer::{
             Bind, ExportMem, Offscreen,
             damage::OutputDamageTracker,
-            element::{AsRenderElements, surface::WaylandSurfaceRenderElement},
+            element::{
+                AsRenderElements, Kind,
+                memory::MemoryRenderBufferRenderElement,
+                render_elements,
+                surface::{WaylandSurfaceRenderElement, render_elements_from_surface_tree},
+            },
             pixman::PixmanRenderer,
         },
     },
@@ -13,7 +18,13 @@ use smithay::{
     utils::{Logical, Physical, Point, Rectangle, Scale, Size, Transform},
 };
 
-use crate::Error;
+use crate::{Error, cursor::PointerImage};
+
+render_elements! {
+    FrameElement<=PixmanRenderer>;
+    Surface=WaylandSurfaceRenderElement<PixmanRenderer>,
+    Pointer=MemoryRenderBufferRenderElement<PixmanRenderer>,
+}
 
 /// Windows are drawn at one physical pixel per logical one.
 const SCALE: f64 = 1.0;
@@ -65,12 +76,15 @@ impl WindowFrame {
         &self.pixels
     }
 
-    /// Renders `window` into `frame`, reallocating it when the frame size changed. Returns
-    /// whether any pixel changed. A window without content leaves no frame.
+    /// Renders `window` into `frame`, reallocating it when the frame size changed, with the
+    /// pointer on top where one is given, by its position in the window's surface
+    /// coordinates. Returns whether any pixel changed. A window without content leaves no
+    /// frame.
     pub fn render(
         frame: &mut Option<Self>,
         renderer: &mut PixmanRenderer,
         window: &Window,
+        pointer: Option<(Point<f64, Logical>, &PointerImage)>,
     ) -> Result<bool, Error> {
         let rect = frame_rect(window);
         let size: Size<i32, Physical> = rect.size.to_physical_precise_round(SCALE);
@@ -88,8 +102,50 @@ impl WindowFrame {
         let location: Point<i32, Physical> =
             Point::<i32, Logical>::from((-rect.loc.x, -rect.loc.y))
                 .to_physical_precise_round(SCALE);
-        let elements: Vec<WaylandSurfaceRenderElement<PixmanRenderer>> =
-            window.render_elements(renderer, location, Scale::from(SCALE), 1.0);
+        // Front to back: the pointer is over everything.
+        let mut elements: Vec<FrameElement> = Vec::new();
+        if let Some((position, image)) = pointer {
+            let position = position - rect.loc.to_f64();
+            match image {
+                PointerImage::Themed(buffer, hotspot) => {
+                    let at = (position - hotspot.to_f64()).to_physical(SCALE);
+                    let element = MemoryRenderBufferRenderElement::from_buffer(
+                        renderer,
+                        at,
+                        buffer,
+                        None,
+                        None,
+                        None,
+                        Kind::Cursor,
+                    )
+                    .map_err(render_error)?;
+                    elements.push(FrameElement::Pointer(element));
+                }
+                PointerImage::Surface(surface, hotspot) => {
+                    let at: Point<i32, Physical> = (position - hotspot.to_f64())
+                        .to_physical(SCALE)
+                        .to_i32_round();
+                    elements.extend(
+                        render_elements_from_surface_tree(
+                            renderer,
+                            surface,
+                            at,
+                            Scale::from(SCALE),
+                            1.0,
+                            Kind::Cursor,
+                        )
+                        .into_iter()
+                        .map(FrameElement::Surface),
+                    );
+                }
+            }
+        }
+        elements.extend(
+            window
+                .render_elements(renderer, location, Scale::from(SCALE), 1.0)
+                .into_iter()
+                .map(FrameElement::Surface),
+        );
 
         // The image is reused, so it always holds the previous frame (age 1).
         let age = if resized { 0 } else { 1 };

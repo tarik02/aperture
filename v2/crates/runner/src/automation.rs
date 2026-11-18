@@ -29,7 +29,7 @@ use tokio::{
     time::{Instant, sleep, timeout},
 };
 
-use crate::{cdp, targets::Target};
+use crate::{cdp, live::record::Recordings, targets::Target};
 
 const TAB_READY_WITHIN: Duration = Duration::from_secs(15);
 const LOAD_WITHIN: Duration = Duration::from_secs(30);
@@ -37,7 +37,8 @@ const LOAD_WITHIN: Duration = Duration::from_secs(30);
 /// that caused it counts as done.
 const INPUT_SETTLES_WITHIN: Duration = Duration::from_millis(500);
 
-/// `browse`'s recorder films the page through DevTools; the session records its windows.
+/// `browse`'s recorder films the page through DevTools; the session records its targets
+/// itself, under the same name.
 const LEFT_OUT: &[&str] = &["recording"];
 
 const INSTRUCTIONS: &str = "A browser session. Its pages are tabs: `tabs` lists them, \
@@ -57,6 +58,7 @@ impl Automation {
         browser: cdp::Client,
         compositor: Handle,
         targets: watch::Receiver<Vec<Target>>,
+        recordings: Recordings,
         files: PathBuf,
     ) -> Self {
         let session = Arc::new(Session {
@@ -65,10 +67,13 @@ impl Automation {
             targets,
             tabs: Mutex::default(),
         });
-        let mut tools: Vec<Arc<dyn Tool>> = vec![Arc::new(TabsTool)];
-        tools.extend(browse_page::tools());
-        tools.extend(browse_capture::tools());
-        tools.retain(|tool| !LEFT_OUT.contains(&tool.spec().name.as_str()));
+        let mut tools: Vec<Arc<dyn Tool>> =
+            vec![Arc::new(TabsTool), Arc::new(RecordingTool(recordings))];
+        let theirs = browse_page::tools()
+            .into_iter()
+            .chain(browse_capture::tools())
+            .filter(|tool| !LEFT_OUT.contains(&tool.spec().name.as_str()));
+        tools.extend(theirs);
         tools.extend(browse_script::tools(&tools));
         Self {
             tools,
@@ -675,4 +680,61 @@ impl Tool for TabsTool {
             other => bail!("unknown action {other}; use list, new or close"),
         }
     }
+}
+
+/// Recordings of a tab, as files of the session.
+struct RecordingTool(Recordings);
+
+#[async_trait]
+impl Tool for RecordingTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "recording".into(),
+            description: "Record a tab to a video file of the session. `start` records `tab` \
+                (the newest tab when left out) from now on, with the pointer in the picture, \
+                and returns the recording's `id`; `stop` ends recording `id` and returns its \
+                file, duration and size; `list` gives every recording of the session."
+                .into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "enum": ["start", "stop", "list"] },
+                    "tab": {
+                        "type": ["integer", "string"],
+                        "description": "start: the tab's number or target id.",
+                    },
+                    "id": { "type": "string", "description": "stop: the recording's id." },
+                },
+                "required": ["action"],
+            }),
+        }
+    }
+
+    async fn call(&self, ctx: ToolContext, args: Value) -> anyhow::Result<ToolOutput> {
+        match args["action"].as_str().unwrap_or_default() {
+            "start" => {
+                let target = match args.get("tab").filter(|tab| !tab.is_null()) {
+                    Some(tab) => {
+                        let tab = ctx.browser.resolve_tab(tab)?;
+                        let tabs = ctx.browser.tabs().await?;
+                        let named = tabs.into_iter().find(|listed| listed.tab == tab);
+                        Some(named.and_then(|tab| tab.chosen).context("no such tab")?)
+                    }
+                    None => None,
+                };
+                Ok(shown(&self.0.start(target.as_deref()).await?))
+            }
+            "stop" => {
+                let id = args["id"].as_str().context("pass the recording's `id`")?;
+                Ok(shown(&self.0.stop(id).await?))
+            }
+            "list" => Ok(shown(&self.0.list())),
+            other => bail!("unknown action {other:?}; use start, stop or list"),
+        }
+    }
+}
+
+/// A value as a tool shows it: JSON.
+fn shown(value: &impl serde::Serialize) -> ToolOutput {
+    ToolOutput::text(serde_json::to_string_pretty(value).unwrap_or_default())
 }

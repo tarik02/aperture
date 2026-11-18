@@ -45,8 +45,8 @@ use tokio::sync::watch;
 use tracing::{info, warn};
 
 use crate::{
-    Config, Cursor, Error, Frame, Frames, Viewport, WindowId, WindowInfo, keymap::KeyTable,
-    render::WindowFrame,
+    Config, Cursor, Error, Frame, Frames, Viewport, WindowId, WindowInfo, cursor::Theme,
+    keymap::KeyTable, render::WindowFrame,
 };
 
 /// Windows are told to draw, and drawn, this often.
@@ -77,6 +77,13 @@ pub struct State {
     pub viewport: Viewport,
     /// The tag of the next window to open, see `Handle::expect`.
     pub expected: Option<String>,
+    /// The pointer's image, as the client under it last set it.
+    cursor_status: CursorImageStatus,
+    cursor_theme: Theme,
+    /// The window the pointer is over.
+    pub pointer_window: Option<WindowId>,
+    /// Whether the pointer is drawn into frames, see `Handle::draw_pointer`.
+    pointer_drawn: bool,
     watched: HashMap<WindowId, Watched>,
     pub windows_tx: watch::Sender<Vec<WindowInfo>>,
     pub cursor_tx: watch::Sender<Cursor>,
@@ -105,6 +112,7 @@ impl State {
         event_loop: &mut EventLoop<Self>,
         config: &Config,
         jobs: channel::Channel<Job>,
+        start: Instant,
     ) -> anyhow::Result<Self> {
         let display: Display<Self> = Display::new()?;
         let dh = display.handle();
@@ -201,7 +209,7 @@ impl State {
             .map_err(|err| anyhow::anyhow!("failed to insert the frame timer: {err}"))?;
 
         let mut state = Self {
-            start: Instant::now(),
+            start,
             display_handle: dh,
             stop: event_loop.get_signal(),
             space,
@@ -211,6 +219,10 @@ impl State {
             key_table: KeyTable::default(),
             viewport: config.viewport,
             expected: None,
+            cursor_status: CursorImageStatus::default_named(),
+            cursor_theme: Theme::new(config.cursor_theme.clone()),
+            pointer_window: None,
+            pointer_drawn: false,
             watched: HashMap::new(),
             windows_tx: watch::Sender::new(Vec::new()),
             cursor_tx: watch::Sender::new(Cursor::Named("default")),
@@ -331,7 +343,7 @@ impl State {
     pub fn screenshot(&mut self, id: WindowId) -> Result<Frame, Error> {
         let window = self.window(id)?;
         let mut frame = None;
-        WindowFrame::render(&mut frame, &mut self.renderer, &window)?;
+        WindowFrame::render(&mut frame, &mut self.renderer, &window, None)?;
         let frame = frame.ok_or(Error::NoContent(id))?;
         let (width, height) = frame.size();
         Ok(Frame {
@@ -377,6 +389,15 @@ impl State {
 
         self.watched
             .retain(|id, _| windows.iter().any(|(_, window)| window == id));
+        let pointer = self
+            .pointer_drawn
+            .then(|| self.cursor_theme.image(&self.cursor_status))
+            .flatten()
+            .zip(self.pointer_window)
+            .map(|(image, window)| {
+                let pointer = self.seat.get_pointer().expect("seat has a pointer");
+                (window, pointer.current_location(), image)
+            });
         for (window, id) in &windows {
             let Some(watched) = self.watched.get_mut(id) else {
                 continue;
@@ -384,7 +405,11 @@ impl State {
             if watched.frames.receiver_count() == 0 {
                 continue;
             }
-            match WindowFrame::render(&mut watched.frame, &mut self.renderer, window) {
+            let pointer = pointer
+                .as_ref()
+                .filter(|(over, ..)| over == id)
+                .map(|(_, position, image)| (*position, image));
+            match WindowFrame::render(&mut watched.frame, &mut self.renderer, window, pointer) {
                 Ok(true) => {
                     if let Some(frame) = &watched.frame {
                         let (width, height) = frame.size();
@@ -451,7 +476,18 @@ impl State {
     }
 
     pub fn set_cursor(&mut self, status: CursorImageStatus) {
-        let cursor = match status {
+        self.cursor_status = status;
+        self.announce_cursor();
+    }
+
+    pub fn draw_pointer(&mut self, drawn: bool) {
+        self.pointer_drawn = drawn;
+        self.announce_cursor();
+    }
+
+    fn announce_cursor(&mut self) {
+        let cursor = match &self.cursor_status {
+            _ if self.pointer_drawn => Cursor::Hidden,
             CursorImageStatus::Hidden => Cursor::Hidden,
             CursorImageStatus::Named(icon) => Cursor::Named(icon.name()),
             // A cursor the client draws itself, such as a page's own image.

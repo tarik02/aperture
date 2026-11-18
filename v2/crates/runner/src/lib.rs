@@ -27,6 +27,9 @@ pub struct Spec {
     /// The UDP ports WebRTC media uses, so a firewall needs to open only these; any port
     /// without.
     pub rtc_ports: Option<PortRange>,
+    /// The cursor theme the pointer is drawn from in recordings, a directory with `cursors`
+    /// in it.
+    pub cursor_theme: Option<PathBuf>,
     /// Arguments for the browser after the runner's own.
     pub browser_args: Vec<String>,
 }

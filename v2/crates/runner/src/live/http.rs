@@ -12,29 +12,34 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
+use tower_http::services::ServeDir;
 
 use super::{
     mcp,
     peer::{self, ConnectError},
+    record::{Recording, Recordings},
+    stream::Streams,
 };
 use crate::{automation::Automation, targets::Target};
 
+/// What the live endpoints serve.
 #[derive(Clone)]
-struct Live {
-    compositor: Handle,
-    targets: watch::Receiver<Vec<Target>>,
-    rtc_ports: Option<PortRange>,
+pub struct Live {
+    pub compositor: Handle,
+    pub streams: Arc<Streams>,
+    pub targets: watch::Receiver<Vec<Target>>,
+    pub recordings: Recordings,
+    pub rtc_ports: Option<PortRange>,
 }
 
-/// Serves until the listener fails.
+/// Serves until the listener fails. `files` are the session's files.
 pub async fn serve(
     socket: &Path,
-    compositor: Handle,
-    targets: watch::Receiver<Vec<Target>>,
+    live: Live,
     automation: Arc<Automation>,
-    rtc_ports: Option<PortRange>,
+    files: &Path,
 ) -> std::io::Result<()> {
     let _ = std::fs::remove_file(socket);
     let listener = tokio::net::UnixListener::bind(socket)?;
@@ -42,18 +47,24 @@ pub async fn serve(
         .route("/rtc", post(connect))
         .route("/targets", get(targets_list))
         .route("/targets/{id}/screenshot.png", get(screenshot))
+        .route("/recordings", get(recordings_list).post(recording_start))
+        .route("/recordings/{id}/stop", post(recording_stop))
+        .nest_service("/files", ServeDir::new(files))
         .nest_service("/mcp", mcp::service(automation))
-        .with_state(Live {
-            compositor,
-            targets,
-            rtc_ports,
-        });
+        .with_state(live);
     axum::serve(listener, app).await
 }
 
 /// Takes a WebRTC offer as SDP and answers with SDP.
 async fn connect(State(live): State<Live>, offer: String) -> Response {
-    match peer::connect(live.compositor, live.targets, live.rtc_ports, &offer).await {
+    let connected = peer::connect(
+        live.compositor,
+        live.streams,
+        live.targets,
+        live.rtc_ports,
+        &offer,
+    );
+    match connected.await {
         Ok(answer) => (
             StatusCode::CREATED,
             [(header::CONTENT_TYPE, "application/sdp")],
@@ -117,6 +128,31 @@ async fn screenshot(State(live): State<Live>, RoutePath(id): RoutePath<String>) 
         Ok(Err(err)) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
         Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
     }
+}
+
+#[derive(Deserialize, Default)]
+struct StartRecording {
+    /// The target to record; the newest one when left out.
+    target: Option<String>,
+}
+
+async fn recording_start(State(live): State<Live>, body: Option<Json<StartRecording>>) -> Response {
+    let request = body.map(|Json(request)| request).unwrap_or_default();
+    match live.recordings.start(request.target.as_deref()).await {
+        Ok(recording) => (StatusCode::CREATED, Json(recording)).into_response(),
+        Err(err) => (StatusCode::CONFLICT, format!("{err:#}")).into_response(),
+    }
+}
+
+async fn recording_stop(State(live): State<Live>, RoutePath(id): RoutePath<String>) -> Response {
+    match live.recordings.stop(&id).await {
+        Ok(recording) => Json(recording).into_response(),
+        Err(err) => (StatusCode::NOT_FOUND, format!("{err:#}")).into_response(),
+    }
+}
+
+async fn recordings_list(State(live): State<Live>) -> Json<Vec<Recording>> {
+    Json(live.recordings.list())
 }
 
 fn encode_png(mut frame: Frame) -> Result<Vec<u8>, png::EncodingError> {

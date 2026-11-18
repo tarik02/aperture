@@ -1278,6 +1278,7 @@
             gstPlugins = [
               pkgs.gst_all_1.gstreamer
               pkgs.gst_all_1.gst-plugins-base
+              pkgs.gst_all_1.gst-plugins-good # matroskamux
               pkgs.gst_all_1.gst-plugins-bad # h264parse, nvcodec, va, openh264
               pkgs.gst_all_1.gst-plugins-ugly # x264enc
             ];
@@ -1302,6 +1303,7 @@
             APERTURE_BWRAP = lib.getExe pkgs.bubblewrap;
             APERTURE_CHROMIUM = lib.getExe' runtimeChromium "chromium";
             APERTURE_TAB_WINDOW_EXTENSION = "${tabWindowEnforcer}/share/aperture/extensions/tab-window-enforcer";
+            APERTURE_CURSOR_THEME = "${browserCursorPath}/default";
             APERTURE_GST_PLUGIN_PATH = lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" gstPlugins;
           };
 

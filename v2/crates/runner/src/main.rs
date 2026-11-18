@@ -127,6 +127,7 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
             width: spec.viewport.width,
             height: spec.viewport.height,
         },
+        cursor_theme: spec.cursor_theme.clone(),
     })
     .context("failed to start the compositor")?;
     let mut windows = compositor.windows();
@@ -138,6 +139,7 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
     let mut ready = registry.targets();
 
     let mut live = None;
+    let mut recordings = None;
 
     let mut browser = start_browser(spec, &display, &extension_socket)?;
     let outcome = async {
@@ -152,21 +154,33 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
             .context("failed to connect to the browser")?;
         registry.attach(devtools.clone());
 
+        let streams = live::stream::Streams::new(compositor.clone());
+        let recorder = live::record::Recordings::new(
+            streams.clone(),
+            compositor.clone(),
+            registry.targets(),
+            spec.files_dir.clone(),
+        );
+        recordings = Some(recorder.clone());
         let automation = Arc::new(automation::Automation::new(
             devtools,
             compositor.clone(),
             registry.targets(),
+            recorder.clone(),
             spec.files_dir.clone(),
         ));
         let live_socket = spec.runtime_dir.join("live.sock");
         live = Some({
             let socket = live_socket.clone();
-            let compositor = compositor.clone();
-            let targets = registry.targets();
-            let rtc_ports = spec.rtc_ports;
-            tokio::spawn(async move {
-                live::serve(&socket, compositor, targets, automation, rtc_ports).await
-            })
+            let served = live::Live {
+                compositor: compositor.clone(),
+                streams,
+                targets: registry.targets(),
+                recordings: recorder,
+                rtc_ports: spec.rtc_ports,
+            };
+            let files = spec.files_dir.clone();
+            tokio::spawn(async move { live::serve(&socket, served, automation, &files).await })
         });
         status.live = Some(Live {
             socket: live_socket,
@@ -201,6 +215,10 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
         }
         status.phase = Phase::Stopping;
         write_status(&spec.runtime_dir, status)?;
+        // While the browser still shows what they record.
+        if let Some(recordings) = &recordings {
+            recordings.stop_all().await;
+        }
         close_browser(&cdp, &mut browser).await;
         Ok(())
     }

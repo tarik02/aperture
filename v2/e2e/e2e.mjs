@@ -154,7 +154,7 @@ const init = await mcp("initialize", { protocolVersion: "2025-06-18", capabiliti
 await mcp("notifications/initialized", {}, true);
 const toolNames = (await mcp("tools/list", {})).tools.map((t) => t.name);
 console.log("mcp:", init.serverInfo?.name, "tools:", toolNames.join(","));
-check("the session serves its tools over MCP", toolNames.includes("navigate") && toolNames.includes("click") && toolNames.includes("tabs") && toolNames.includes("execute") && !toolNames.includes("recording"));
+check("the session serves its tools over MCP", toolNames.includes("navigate") && toolNames.includes("click") && toolNames.includes("tabs") && toolNames.includes("execute") && toolNames.includes("recording"));
 const listedTabs = JSON.parse((await tool("tabs")).text);
 check("tabs lists the session's targets", listedTabs.length === 2 && listedTabs.some((t) => t.target === created.targetId));
 await c.send("Runtime.evaluate", { expression: "document.title = 'reset'; document.querySelector('button').style.cursor = 'pointer'; i.value = ''" }, bPage);
@@ -172,6 +172,22 @@ const pressed = await tool("press", { tab: created.targetId, key: "x" });
 check("press types through the keyboard", !pressed.isError && (await bTitle()) === "typed:by agentx");
 const pictured = await mcp("tools/call", { name: "screenshot", arguments: { tab: created.targetId } });
 check("screenshot returns an image", pictured.content.some((c) => c.type === "image" && c.data.length > 1000));
+// Recording: the target's own stream into a file, with the pointer in the picture.
+const recordingStarted = JSON.parse((await tool("recording", { action: "start", tab: created.targetId })).text);
+await sleep(300);
+check("the viewer's cursor is hidden while the pointer is recorded", (await evaluate("video.style.cursor")) === "none");
+for (const [x, y] of [[200, 200], [600, 300], [250, 350]]) { await tool("hover", { tab: created.targetId, x, y }); await sleep(250); }
+await tool("click", { tab: created.targetId, selector: "button" });
+await sleep(1200);
+const recordingStopped = JSON.parse((await tool("recording", { action: "stop", id: recordingStarted.id })).text);
+console.log("recording:", JSON.stringify(recordingStopped));
+check("the recording finished with a length", recordingStopped.state === "finished" && recordingStopped.duration_ms > 2000 && recordingStopped.bytes > 1000);
+const recordedFile = Buffer.from(await (await fetch(`${live}/files/${recordingStopped.file}`, { headers: auth })).arrayBuffer());
+writeFileSync(`${D}/recording.mkv`, recordedFile);
+check("the recording is served as a Matroska file", recordedFile.length === recordingStopped.bytes && recordedFile.subarray(0, 4).toString("hex") === "1a45dfa3");
+check("the viewer's cursor is back", (await evaluate("video.style.cursor")) !== "none");
+check("the viewer still plays after the recording", JSON.parse(await evaluate("JSON.stringify({ state: peer.connectionState })")).state === "connected");
+
 const opened = await tool("navigate", { url: "data:text/html,<title>agent tab</title><h1>opened by the agent</h1><input id=q autofocus>" });
 // Keys reach a tab nobody clicked in.
 await tool("press", { tab: opened.text.match(/"tab": (\d+)/u)?.[1] | 0, selector: "#q", key: "k" });

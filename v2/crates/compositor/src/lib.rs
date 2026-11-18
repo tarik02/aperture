@@ -5,6 +5,7 @@
 //!
 //! The Wayland state lives on a thread of its own, behind [`Handle`].
 
+mod cursor;
 mod handlers;
 mod input;
 mod keymap;
@@ -14,7 +15,7 @@ mod state;
 use std::{
     path::PathBuf,
     sync::{Arc, mpsc},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use smithay::reexports::calloop::{EventLoop, channel};
@@ -27,6 +28,9 @@ pub struct Config {
     /// Where the Wayland socket is made.
     pub socket: PathBuf,
     pub viewport: Viewport,
+    /// The cursor theme the pointer is drawn from, a directory with `cursors` in it. Without
+    /// one, only cursors that clients draw themselves can be drawn.
+    pub cursor_theme: Option<PathBuf>,
 }
 
 /// The size windows without a parent are given, in logical pixels.
@@ -69,6 +73,7 @@ pub type Frames = watch::Receiver<Option<Arc<Frame>>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Cursor {
+    /// Nothing to show: the pointer has no image, or it is drawn into the frames.
     Hidden,
     /// A CSS cursor name.
     Named(&'static str),
@@ -139,19 +144,21 @@ pub struct Handle {
     jobs: channel::Sender<Job>,
     windows: watch::Receiver<Vec<WindowInfo>>,
     cursor: watch::Receiver<Cursor>,
+    started: Instant,
 }
 
 /// Starts the compositor and returns once its socket accepts clients.
 pub fn start(config: Config) -> anyhow::Result<Handle> {
     let (jobs, jobs_source) = channel::channel::<Job>();
     let (started, starting) = mpsc::channel();
+    let clock = Instant::now();
     std::thread::Builder::new()
         .name("compositor".into())
         .spawn(move || {
             let built = EventLoop::<State>::try_new()
                 .map_err(anyhow::Error::from)
                 .and_then(|mut event_loop| {
-                    let state = State::new(&mut event_loop, &config, jobs_source)?;
+                    let state = State::new(&mut event_loop, &config, jobs_source, clock)?;
                     Ok((event_loop, state))
                 });
             let (mut event_loop, mut state) = match built {
@@ -178,6 +185,7 @@ pub fn start(config: Config) -> anyhow::Result<Handle> {
         jobs,
         windows,
         cursor,
+        started: clock,
     })
 }
 
@@ -227,6 +235,18 @@ impl Handle {
                 state.expected = None;
             }
         });
+    }
+
+    /// Now, on the clock frames are stamped with.
+    pub fn elapsed(&self) -> Duration {
+        self.started.elapsed()
+    }
+
+    /// Draws the pointer into the frames of the window it is over, for those who cannot
+    /// draw it themselves, such as a recording. Watchers are told the cursor is hidden
+    /// meanwhile, so that none shows it twice.
+    pub fn draw_pointer(&self, drawn: bool) {
+        self.submit(move |state| state.draw_pointer(drawn));
     }
 
     pub fn set_viewport(&self, viewport: Viewport) {
