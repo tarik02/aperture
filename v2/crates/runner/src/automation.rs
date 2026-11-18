@@ -207,9 +207,7 @@ struct Session {
 
 #[derive(Default)]
 struct Tabs {
-    by_target: HashMap<String, TabId>,
     by_id: HashMap<TabId, Tab>,
-    last: TabId,
 }
 
 struct Tab {
@@ -219,33 +217,24 @@ struct Tab {
 }
 
 impl Session {
-    /// The tab a target is, numbered the first time it is asked for.
-    fn tab_of(&self, target: &str) -> TabId {
+    /// The tab a target is, by the number the session gave it.
+    fn tab_of(&self, target: &Target) -> TabId {
+        let id = TabId::from(target.tab);
         let mut tabs = self.tabs.lock().expect("not poisoned");
-        if let Some(tab) = tabs.by_target.get(target) {
-            return *tab;
-        }
-        tabs.last += 1;
-        let id = tabs.last;
-        tabs.by_target.insert(target.to_owned(), id);
-        tabs.by_id.insert(
-            id,
-            Tab {
-                target: target.to_owned(),
-                cdp: None,
-                state: Arc::default(),
-            },
-        );
+        tabs.by_id.entry(id).or_insert_with(|| Tab {
+            target: target.id.clone(),
+            cdp: None,
+            state: Arc::default(),
+        });
         id
     }
 
     /// The target a tab is, while the target lasts.
     fn target_of(&self, tab: TabId) -> anyhow::Result<Target> {
-        // Targets are numbered as they are named, and one may be named by a number it
-        // would get before anything listed it.
+        // A tab may be named by its number before anything listed it.
         let targets = self.targets.borrow().clone();
         for target in &targets {
-            self.tab_of(&target.id);
+            self.tab_of(target);
         }
         let id = self
             .tabs
@@ -265,7 +254,7 @@ impl Session {
 
     fn info(&self, target: &Target) -> TabInfo {
         TabInfo {
-            tab: self.tab_of(&target.id),
+            tab: self.tab_of(target),
             url: target.url.clone(),
             title: target.title.clone(),
             lent: false,
@@ -313,7 +302,13 @@ impl Browser for Session {
         timeout(TAB_READY_WITHIN, ready)
             .await
             .context("the new tab did not get a window of its own")?;
-        let tab = self.tab_of(&id);
+        let opened = self
+            .targets
+            .borrow()
+            .iter()
+            .find(|target| target.id == id)
+            .cloned();
+        let tab = self.tab_of(&opened.context("the new tab closed")?);
 
         let cdp = self.cdp(tab).await?;
         let deadline = Instant::now() + LOAD_WITHIN;
@@ -413,15 +408,16 @@ impl Browser for Session {
         if let Ok(tab) = name.parse() {
             return Ok(tab);
         }
-        let known = self
+        let named = self
             .targets
             .borrow()
             .iter()
-            .any(|target| target.id.eq_ignore_ascii_case(name));
-        if !known {
+            .find(|target| target.id.eq_ignore_ascii_case(name))
+            .cloned();
+        let Some(named) = named else {
             bail!("no tab {name}; `tabs` lists the tabs there are");
-        }
-        Ok(self.tab_of(&name.to_ascii_uppercase()))
+        };
+        Ok(self.tab_of(&named))
     }
 }
 

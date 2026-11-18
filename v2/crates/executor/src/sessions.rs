@@ -269,6 +269,7 @@ impl Sessions {
             },
             cache_dir: paths.cache,
             files_dir: paths.files,
+            state_dir: paths.state,
             tools: self.config.tools.clone(),
             viewport: self.config.viewport,
             rtc_ports: self.config.rtc_ports,

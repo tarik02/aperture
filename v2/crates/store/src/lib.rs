@@ -9,7 +9,7 @@
 //! ```text
 //! <root>/layers/<id>/{layer.json,fs/}
 //! <root>/snapshots/<id>.json
-//! <root>/sessions/<id>/{session.json,upper/,work/,cache/,files/,logs/}
+//! <root>/sessions/<id>/{session.json,upper/,work/,cache/,files/,logs/,state/}
 //! ```
 
 use std::{
@@ -92,6 +92,8 @@ pub struct SessionPaths {
     pub cache: PathBuf,
     pub files: PathBuf,
     pub logs: PathBuf,
+    /// What whoever runs the browser keeps of the session between its runs.
+    pub state: PathBuf,
 }
 
 pub struct Store {
@@ -143,7 +145,7 @@ impl Store {
         };
         // Built aside and renamed into place, so the session appears with its record.
         let staged = self.root.join("sessions").join(format!(".{}", session.id));
-        for sub in ["upper", "work", "cache", "files", "logs"] {
+        for sub in ["upper", "work", "cache", "files", "logs", "state"] {
             create_dir_all(&staged.join(sub))?;
         }
         write_record(&staged.join("session.json"), &session)?;
@@ -191,6 +193,7 @@ impl Store {
             cache: dir.join("cache"),
             files: dir.join("files"),
             logs: dir.join("logs"),
+            state: dir.join("state"),
         })
     }
 

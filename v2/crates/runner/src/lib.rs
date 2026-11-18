@@ -24,6 +24,8 @@ pub struct Spec {
     pub cache_dir: PathBuf,
     /// What the browser sees as `/files`: downloads and uploads.
     pub files_dir: PathBuf,
+    /// What the runner keeps of the session from one run to the next.
+    pub state_dir: PathBuf,
     pub tools: Tools,
     pub viewport: Viewport,
     /// The UDP ports WebRTC media uses, so a firewall needs to open only these; any port

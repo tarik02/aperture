@@ -412,6 +412,10 @@ impl State {
         set_data_device_selection(&self.display_handle, &self.seat, offered, forms);
     }
 
+    pub fn stop(&self) {
+        self.stop.stop();
+    }
+
     pub fn time_msec(&self) -> u32 {
         self.start.elapsed().as_millis() as u32
     }

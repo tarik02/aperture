@@ -180,6 +180,7 @@ async fn upload_remove(State(live): State<Live>, RoutePath(name): RoutePath<Stri
 #[derive(Serialize)]
 struct TargetView {
     id: String,
+    tab: u32,
     title: String,
     url: String,
     width: u32,
@@ -194,6 +195,7 @@ async fn targets_list(State(live): State<Live>) -> Json<Vec<TargetView>> {
         .iter()
         .map(|target| TargetView {
             id: target.id.clone(),
+            tab: target.tab,
             title: target.title.clone(),
             url: target.url.clone(),
             width: target.width,

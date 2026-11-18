@@ -566,6 +566,7 @@ impl Client {
             .iter()
             .map(|target| pb::Target {
                 id: target.id.clone(),
+                tab: target.tab,
                 title: target.title.clone(),
                 url: target.url.clone(),
                 width: target.width,

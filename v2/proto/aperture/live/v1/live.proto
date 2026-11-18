@@ -324,7 +324,8 @@ message Viewport {
 
 // A browser target: a page of the session's browser, shown in a window of its own.
 message Target {
-  // The page's DevTools target id, which lasts as long as the page.
+  // The page's DevTools target id, which lasts as long as the page does in one run of the
+  // session.
   string id = 1;
   string title = 2;
   string url = 3;
@@ -333,6 +334,9 @@ message Target {
   uint32 height = 5;
   // Pixels to a logical pixel: the target's picture is `width` x `height` times this.
   double scale = 6;
+  // The tab's number. It stays the tab's when the session is suspended and resumed, which
+  // the target's id does not.
+  uint32 tab = 7;
 }
 
 // Every target of the session, oldest first. Sent after `hello` and whenever a target

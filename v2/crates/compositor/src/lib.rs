@@ -17,7 +17,8 @@ mod text;
 use std::{
     os::fd::BorrowedFd,
     path::{Path, PathBuf},
-    sync::{Arc, mpsc},
+    sync::{Arc, Mutex, mpsc},
+    thread::JoinHandle,
     time::{Duration, Instant},
 };
 
@@ -253,6 +254,7 @@ pub struct Handle {
     clipboard: watch::Receiver<Option<Forms>>,
     render_node: Option<PathBuf>,
     started: Instant,
+    thread: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 /// Starts the compositor and returns once its socket accepts clients.
@@ -260,7 +262,7 @@ pub fn start(config: Config) -> anyhow::Result<Handle> {
     let (jobs, jobs_source) = channel::channel::<Job>();
     let (started, starting) = mpsc::channel();
     let clock = Instant::now();
-    std::thread::Builder::new()
+    let thread = std::thread::Builder::new()
         .name("compositor".into())
         .spawn(move || {
             let built = EventLoop::<State>::try_new()
@@ -298,6 +300,7 @@ pub fn start(config: Config) -> anyhow::Result<Handle> {
         clipboard,
         render_node,
         started: clock,
+        thread: Arc::new(Mutex::new(Some(thread))),
     })
 }
 
@@ -330,6 +333,17 @@ impl Handle {
 
     pub async fn screenshot(&self, window: WindowId) -> Result<Frame, Error> {
         self.call(move |state| state.screenshot(window)).await?
+    }
+
+    /// Ends the compositor and waits until it has: its clients lose their display. A
+    /// process is to do this before it exits, as the GPU's driver is torn down with the
+    /// process and the compositor must not still be drawing with it then.
+    pub fn stop(&self) {
+        self.submit(|state| state.stop());
+        let thread = self.thread.lock().expect("not poisoned").take();
+        if let Some(thread) = thread {
+            let _ = thread.join();
+        }
     }
 
     /// What the session's clients last copied; none before they did.

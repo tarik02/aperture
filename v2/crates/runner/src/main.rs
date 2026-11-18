@@ -175,7 +175,8 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
 
     // Before the browser starts: its extension reports as soon as it runs.
     let extension_socket = sockets.join("extension.sock");
-    let registry = targets::Registry::bind(&extension_socket, compositor.clone())
+    let kept_tabs = spec.state_dir.join("tabs.json");
+    let registry = targets::Registry::bind(&extension_socket, compositor.clone(), kept_tabs)
         .context("failed to listen for the extension")?;
     let mut ready = registry.targets();
 
@@ -274,6 +275,8 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
         }
         status.phase = Phase::Stopping;
         write_status(&spec.runtime_dir, status)?;
+        // The tabs are kept as they are now, not as the browser takes them down.
+        registry.freeze();
         // While the browser still shows what they record.
         if let Some(recordings) = &recordings {
             recordings.stop_all().await;
@@ -290,6 +293,7 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
     for task in egress_tasks {
         task.abort();
     }
+    let _ = tokio::task::spawn_blocking(move || compositor.stop()).await;
     outcome
 }
 
@@ -473,6 +477,8 @@ fn start_browser(
             // No browser interface around the page, and none of the hints a fullscreen
             // window shows otherwise.
             "--kiosk",
+            // The pages there were when the session last ran, with their histories.
+            "--restore-last-session",
             // The browser would quit with its last window, and the extension closes the
             // window a page leaves for one of its own.
             "--keep-alive-for-test",

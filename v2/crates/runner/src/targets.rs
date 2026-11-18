@@ -16,14 +16,14 @@
 
 use std::{
     collections::HashMap,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
 };
 
 use anyhow::{Context, bail, ensure};
-use aperture_compositor::{Handle, WindowId};
-use serde::Deserialize;
+use aperture_compositor::{Handle, Viewport, WindowId};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -49,8 +49,10 @@ const RECONCILE_EVERY: Duration = Duration::from_millis(500);
 /// A page and the window that shows it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Target {
-    /// The page's DevTools target id.
+    /// The page's DevTools target id, which is another one each time the session runs.
     pub id: String,
+    /// The tab's number, which stays the tab's when the session is suspended and resumed.
+    pub tab: u32,
     pub window: WindowId,
     pub title: String,
     pub url: String,
@@ -102,6 +104,26 @@ struct Ready {
     url: String,
     /// Targets are listed in the order they came to be.
     order: u64,
+    tab: u32,
+}
+
+/// What is kept of a tab from one run of the session to the next: the browser brings the
+/// tab back, and it is told from the others by its page.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct KeptTab {
+    tab: u32,
+    url: String,
+    /// The tab's viewport.
+    width: u32,
+    height: u32,
+    scale: f64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+struct Kept {
+    /// The last number a tab was given: none is given twice.
+    last: u32,
+    tabs: Vec<KeptTab>,
 }
 
 #[derive(Default)]
@@ -109,7 +131,18 @@ struct State {
     bindings: HashMap<i64, Binding>,
     ready: HashMap<String, Ready>,
     next_order: u64,
+    last_tab: u32,
+    /// The tabs of the session's last run that the browser has yet to bring back.
+    returning: Vec<KeptTab>,
+    /// What the file of kept tabs holds.
+    kept: Kept,
+    /// The tabs are kept as they are, whatever becomes of them: the session is ending.
+    frozen: bool,
 }
+
+/// How long the browser has to bring back the tabs of the session's last run. A tab that
+/// opens later is a new one, whatever its page.
+const RETURN_WITHIN: Duration = Duration::from_secs(30);
 
 struct Inner {
     compositor: Handle,
@@ -118,6 +151,8 @@ struct Inner {
     /// One pass at a time: passes read the browser's targets and then change the state.
     reconciling: tokio::sync::Mutex<()>,
     targets: watch::Sender<Vec<Target>>,
+    /// Where the tabs are kept between runs.
+    kept: PathBuf,
 }
 
 pub struct Registry {
@@ -127,16 +162,28 @@ pub struct Registry {
 
 impl Registry {
     /// Listens for the extension on `socket`. Targets come once the browser is attached.
-    pub fn bind(socket: &Path, compositor: Handle) -> std::io::Result<Self> {
+    /// The tabs are kept in the file `kept` from one run of the session to the next.
+    pub fn bind(socket: &Path, compositor: Handle, kept: PathBuf) -> std::io::Result<Self> {
         let _ = std::fs::remove_file(socket);
         let listener = UnixListener::bind(socket)?;
         let (browser, attached) = watch::channel(None);
+        let before: Kept = std::fs::read(&kept)
+            .ok()
+            .and_then(|kept| serde_json::from_slice(&kept).ok())
+            .unwrap_or_default();
+        let state = State {
+            last_tab: before.last,
+            returning: before.tabs.clone(),
+            kept: before,
+            ..State::default()
+        };
         let inner = Arc::new(Inner {
             compositor,
             browser: attached,
-            state: Mutex::default(),
+            state: Mutex::new(state),
             reconciling: tokio::sync::Mutex::default(),
             targets: watch::Sender::new(Vec::new()),
+            kept,
         });
 
         tokio::spawn({
@@ -171,6 +218,20 @@ impl Registry {
 
     pub fn attach(&self, browser: cdp::Client) {
         self.browser.send_replace(Some(browser));
+        let inner = Arc::downgrade(&self.inner);
+        tokio::spawn(async move {
+            sleep(RETURN_WITHIN).await;
+            if let Some(inner) = inner.upgrade() {
+                inner.state.lock().expect("not poisoned").returning.clear();
+                inner.publish();
+            }
+        });
+    }
+
+    /// Keeps the tabs as they are now for the session's next run, whatever becomes of
+    /// them from here on: the browser takes them down one by one as it closes.
+    pub fn freeze(&self) {
+        self.inner.state.lock().expect("not poisoned").frozen = true;
     }
 
     pub fn targets(&self) -> watch::Receiver<Vec<Target>> {
@@ -338,6 +399,8 @@ impl Inner {
         }
 
         let mut fresh = Vec::new();
+        // The tabs that are back, each with the window it is in.
+        let mut returned = Vec::new();
         {
             let mut state = self.state.lock().expect("not poisoned");
             let state = &mut *state;
@@ -377,6 +440,21 @@ impl Inner {
                     info!(page = %page.id, window = binding.window.0, "target ready");
                     fresh.push(page.id.clone());
                     state.next_order += 1;
+                    let back = state
+                        .returning
+                        .iter()
+                        .position(|kept| kept.url == page.url)
+                        .map(|at| state.returning.remove(at));
+                    let tab = match back {
+                        Some(back) => {
+                            returned.push((binding.window, back.clone()));
+                            back.tab
+                        }
+                        None => {
+                            state.last_tab += 1;
+                            state.last_tab
+                        }
+                    };
                     state.ready.insert(
                         page.id.clone(),
                         Ready {
@@ -385,6 +463,7 @@ impl Inner {
                             title: String::new(),
                             url: String::new(),
                             order: state.next_order,
+                            tab,
                         },
                     );
                 }
@@ -399,6 +478,14 @@ impl Inner {
                 true
             });
         }
+        for (window, back) in returned {
+            let viewport = Viewport {
+                width: back.width,
+                height: back.height,
+                scale: back.scale,
+            };
+            self.compositor.set_viewport(window, viewport);
+        }
         for page in fresh {
             if let Err(err) = focus_page(&browser, &page).await {
                 debug!(page, "failed to focus a page: {err:#}");
@@ -408,11 +495,23 @@ impl Inner {
         Ok(())
     }
 
+    /// Writes the file of kept tabs, whole or not at all.
+    fn keep(&self, kept: &Kept) -> anyhow::Result<()> {
+        if let Some(directory) = self.kept.parent() {
+            std::fs::create_dir_all(directory)?;
+        }
+        let aside = self.kept.with_extension("json.new");
+        std::fs::write(&aside, serde_json::to_vec(kept)?)?;
+        std::fs::rename(&aside, &self.kept)?;
+        Ok(())
+    }
+
     /// Tells watchers the targets whose windows have content, in the order they came to be.
     fn publish(&self) {
         let windows = self.compositor.windows();
         let windows = windows.borrow();
-        let state = self.state.lock().expect("not poisoned");
+        let mut state = self.state.lock().expect("not poisoned");
+        let state = &mut *state;
         let mut ready: Vec<(&String, &Ready)> = state.ready.iter().collect();
         ready.sort_by_key(|(_, ready)| ready.order);
         let targets: Vec<Target> = ready
@@ -421,6 +520,7 @@ impl Inner {
                 let window = windows.iter().find(|window| window.id == ready.window)?;
                 Some(Target {
                     id: id.clone(),
+                    tab: ready.tab,
                     window: ready.window,
                     title: ready.title.clone(),
                     url: ready.url.clone(),
@@ -430,6 +530,26 @@ impl Inner {
                 })
             })
             .collect();
+        if !state.frozen {
+            // With the tabs that are yet to come back: the session may end before they do.
+            let here = targets.iter().map(|target| KeptTab {
+                tab: target.tab,
+                url: target.url.clone(),
+                width: target.width,
+                height: target.height,
+                scale: target.scale,
+            });
+            let kept = Kept {
+                last: state.last_tab,
+                tabs: here.chain(state.returning.iter().cloned()).collect(),
+            };
+            if kept != state.kept {
+                match self.keep(&kept) {
+                    Ok(()) => state.kept = kept,
+                    Err(err) => warn!("failed to keep the tabs: {err:#}"),
+                }
+            }
+        }
         self.targets.send_if_modified(|published| {
             let changed = *published != targets;
             if changed {
