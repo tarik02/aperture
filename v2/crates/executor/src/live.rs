@@ -40,6 +40,7 @@ pub fn router(sessions: Arc<Sessions>) -> Router {
     Router::new()
         .route("/sessions/{id}/live", get(viewer))
         .route("/sessions/{id}/live/", get(viewer))
+        .route("/sessions/{id}/live/ws", get(session_socket))
         .route("/sessions/{id}/live/{*rest}", any(forward))
         .route("/sessions/{id}/mcp", any(mcp))
         .route("/sessions/{id}/tunnel", get(tunnel))
@@ -94,6 +95,73 @@ async fn forward_to(sessions: &Sessions, id: &str, path: &str, mut request: Requ
         Ok(response) => response.map(Body::new),
         Err(err) => (StatusCode::BAD_GATEWAY, format!("{err:#}")).into_response(),
     }
+}
+
+/// A client's session socket: its messages go to the session's runner and back as they are.
+async fn session_socket(
+    State(sessions): State<Arc<Sessions>>,
+    Path(id): Path<String>,
+    upgrade: WebSocketUpgrade,
+) -> Response {
+    use tokio_tungstenite::tungstenite::Message as RunnerMessage;
+
+    let live = match sessions.live(&id) {
+        Ok(live) => live,
+        Err(err) => return refuse(err),
+    };
+    let runner = async {
+        let stream = UnixStream::connect(&live.socket).await?;
+        let (runner, _) = tokio_tungstenite::client_async("ws://runner/ws", stream).await?;
+        anyhow::Ok(runner)
+    };
+    let runner = match runner.await {
+        Ok(runner) => runner,
+        Err(err) => return (StatusCode::BAD_GATEWAY, format!("{err:#}")).into_response(),
+    };
+    upgrade.on_upgrade(move |client| async move {
+        let (mut to_runner, mut from_runner) = runner.split();
+        let (mut to_client, mut from_client) = client.split();
+        let up = async {
+            while let Some(Ok(message)) = from_client.next().await {
+                let message = match message {
+                    Message::Binary(data) => RunnerMessage::Binary(data),
+                    Message::Text(text) => RunnerMessage::Text(text.as_str().into()),
+                    Message::Close(_) => break,
+                    _ => continue,
+                };
+                if to_runner.send(message).await.is_err() {
+                    break;
+                }
+            }
+        };
+        let down = async {
+            while let Some(Ok(message)) = from_runner.next().await {
+                let message = match message {
+                    RunnerMessage::Binary(data) => Message::Binary(data),
+                    RunnerMessage::Text(text) => Message::Text(text.as_str().into()),
+                    // The runner's reason for closing is the client's to read.
+                    RunnerMessage::Close(Some(frame)) => {
+                        let frame = axum::extract::ws::CloseFrame {
+                            code: frame.code.into(),
+                            reason: frame.reason.as_str().into(),
+                        };
+                        let _ = to_client.send(Message::Close(Some(frame))).await;
+                        break;
+                    }
+                    RunnerMessage::Close(None) => break,
+                    _ => continue,
+                };
+                if to_client.send(message).await.is_err() {
+                    break;
+                }
+            }
+        };
+        // Either side ending ends the socket.
+        tokio::select! {
+            () = up => {}
+            () = down => {}
+        }
+    })
 }
 
 /// A client attaches the session's local tunnel: the WebSocket's binary messages are the

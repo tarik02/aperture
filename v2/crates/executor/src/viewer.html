@@ -9,10 +9,10 @@
   #bar button.selected { border-color: #7aa2f7; color: #fff; }
   #state { margin-left: auto; opacity: 0.7; }
   #stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
-  video { max-width: 100%; max-height: 100%; background: #000; outline: none; }
+  video, canvas { max-width: 100%; max-height: 100%; background: #000; outline: none; }
 </style>
 <div id="bar"><span id="targets"></span><span id="state">connecting</span></div>
-<div id="stage"><video id="video" autoplay muted playsinline tabindex="0"></video></div>
+<div id="stage"><video id="video" autoplay muted playsinline tabindex="0" hidden></video><canvas id="canvas" tabindex="0" hidden></canvas></div>
 <script>
   // KeyboardEvent.code to Linux evdev key codes.
   const KEYS = {
@@ -32,29 +32,104 @@
   const BUTTONS = ["MOUSE_BUTTON_LEFT", "MOUSE_BUTTON_MIDDLE", "MOUSE_BUTTON_RIGHT", "MOUSE_BUTTON_BACK", "MOUSE_BUTTON_FORWARD"];
 
   const base = location.pathname.replace(/\/$/, "");
-  const video = document.getElementById("video");
   const state = document.getElementById("state");
+  const video = document.getElementById("video");
+  const canvas = document.getElementById("canvas");
   let targets = [];
   let selected;
 
-  const peer = new RTCPeerConnection();
-  peer.addTransceiver("video", { direction: "recvonly" });
-  const control = peer.createDataChannel("control");
-  const pointer = peer.createDataChannel("pointer", { ordered: true, maxRetransmits: 0 });
-  peer.ontrack = (event) => { video.srcObject = new MediaStream([event.track]); };
-  peer.onconnectionstatechange = () => { state.textContent = peer.connectionState; };
+  // How the picture comes, best first: video over WebRTC, the same video as frames on the
+  // session socket, tiles. `?pixels=` names where to start; what fails falls to the next.
+  const WAYS = ["video", "frames", "tiles"].filter((way) => way !== "frames" || "VideoDecoder" in window);
+  let way = WAYS[Math.max(0, WAYS.indexOf(new URLSearchParams(location.search).get("pixels")))];
+  let view = video;
+  const size = () => (view === video ? [video.videoWidth, video.videoHeight] : [canvas.width, canvas.height]);
 
-  const send = (message, channel = control) => {
-    if (channel.readyState === "open") channel.send(JSON.stringify(message));
-    else if (channel !== control) send(message);
+  const socket = new WebSocket(`${location.origin.replace(/^http/, "ws")}${base}/ws${location.search}`);
+  let peer, pointer, decoder;
+  const send = (message) => {
+    const moved = message.pointerMotion && pointer?.readyState === "open";
+    (moved ? pointer : socket).send(JSON.stringify(message));
   };
 
-  control.onopen = () => send({ hello: {} });
-  control.onmessage = (event) => {
+  const start = async () => {
+    view = way === "video" ? video : canvas;
+    video.hidden = view !== video;
+    canvas.hidden = view !== canvas;
+    send({ hello: { pixels: `PIXELS_${way.toUpperCase()}` } });
+    state.textContent = way;
+    if (way !== "video") return;
+    peer = new RTCPeerConnection();
+    peer.addTransceiver("video", { direction: "recvonly" });
+    // A move that is lost is not worth waiting for: the next one says where the pointer is.
+    pointer = peer.createDataChannel("pointer", { ordered: true, maxRetransmits: 0 });
+    peer.ontrack = (event) => { video.srcObject = new MediaStream([event.track]); };
+    peer.onconnectionstatechange = () => {
+      state.textContent = `video: ${peer.connectionState}`;
+      if (peer.connectionState === "failed") fall(`WebRTC ${peer.connectionState}`);
+    };
+    await peer.setLocalDescription(await peer.createOffer());
+    send({ rtcOffer: { sdp: peer.localDescription.sdp } });
+    // A network that drops its packets says nothing.
+    const tried = peer;
+    setTimeout(() => { if (peer === tried && peer.connectionState !== "connected") fall("WebRTC did not connect"); }, 8000);
+  };
+  const fall = (reason) => {
+    const next = WAYS[WAYS.indexOf(way) + 1];
+    console.warn(`${way}: ${reason}`);
+    if (!next || socket.readyState !== WebSocket.OPEN) return;
+    peer?.close();
+    peer = pointer = undefined;
+    way = next;
+    start();
+  };
+  socket.onopen = start;
+  socket.onclose = (event) => { state.textContent = `closed${event.reason ? `: ${event.reason}` : ""}`; };
+
+  const bytes = async (base64) => (await fetch(`data:application/octet-stream;base64,${base64}`)).arrayBuffer();
+  const fit = (width, height) => {
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+  };
+
+  // What comes on the socket is drawn in the order it came.
+  let drawn = Promise.resolve();
+  const drawTile = async (tile) => {
+    const image = await createImageBitmap(new Blob([await bytes(tile.png)], { type: "image/png" }));
+    if (tile.target !== selected || way !== "tiles") return;
+    fit(tile.width, tile.height);
+    canvas.getContext("2d").drawImage(image, tile.x ?? 0, tile.y ?? 0);
+  };
+  const decodeFrame = async (frame) => {
+    const data = await bytes(frame.data);
+    if (frame.target !== selected || way !== "frames") return;
+    if (decoder?.state !== "configured") {
+      if (!frame.keyframe) return;
+      decoder = new VideoDecoder({
+        output: (picture) => {
+          fit(picture.displayWidth, picture.displayHeight);
+          canvas.getContext("2d").drawImage(picture, 0, 0);
+          picture.close();
+        },
+        error: (error) => fall(error.message),
+      });
+      // Without a description the frames are read as Annex B, which they are.
+      decoder.configure({ codec: "avc1.42e01f", optimizeForLatency: true });
+    }
+    decoder.decode(new EncodedVideoChunk({ type: frame.keyframe ? "key" : "delta", timestamp: Number(frame.timeUs ?? 0), data }));
+  };
+
+  socket.onmessage = (event) => {
     const message = JSON.parse(event.data);
+    if (message.rtcAnswer) return peer?.setRemoteDescription({ type: "answer", sdp: message.rtcAnswer.sdp });
+    if (message.rtcRefused) return fall(message.rtcRefused.reason);
+    if (message.tile) return void (drawn = drawn.then(() => drawTile(message.tile)));
+    if (message.videoFrame) return void (drawn = drawn.then(() => decodeFrame(message.videoFrame)));
     if (message.targets) targets = message.targets.targets ?? [];
     if (message.selected) selected = message.selected.target;
-    if (message.cursor) video.style.cursor = message.cursor.hidden ? "none" : message.cursor.named ?? "default";
+    if (message.cursor) video.style.cursor = canvas.style.cursor = message.cursor.hidden ? "none" : message.cursor.named ?? "default";
     const bar = document.getElementById("targets");
     bar.replaceChildren(...targets.map((item) => {
       const button = document.createElement("button");
@@ -65,45 +140,38 @@
     }));
   };
 
-  // Positions are in the target's own pixels, whatever size the video is shown at.
+  // Positions are in the target's own pixels, whatever size the picture is shown at.
   const position = (event) => {
-    const box = video.getBoundingClientRect();
+    const box = view.getBoundingClientRect();
+    const [width, height] = size();
     return {
-      x: (event.clientX - box.left) * (video.videoWidth / box.width),
-      y: (event.clientY - box.top) * (video.videoHeight / box.height),
+      x: (event.clientX - box.left) * (width / box.width),
+      y: (event.clientY - box.top) * (height / box.height),
     };
   };
-  video.addEventListener("pointermove", (event) => send({ pointerMotion: position(event) }, pointer));
-  video.addEventListener("pointerleave", () => send({ pointerLeave: {} }));
-  for (const [type, pressed] of [["pointerdown", true], ["pointerup", false]]) {
-    video.addEventListener(type, (event) => {
-      video.focus();
-      if (pressed) video.setPointerCapture(event.pointerId);
-      send({ pointerButton: { ...position(event), button: BUTTONS[event.button], pressed } });
-      event.preventDefault();
-    });
-  }
-  video.addEventListener("contextmenu", (event) => event.preventDefault());
-  video.addEventListener("wheel", (event) => {
-    const notch = event.deltaMode === WheelEvent.DOM_DELTA_PIXEL ? 100 : 3;
-    send({ pointerScroll: { ...position(event), dx: event.deltaX / notch, dy: event.deltaY / notch } });
-    event.preventDefault();
-  }, { passive: false });
-  for (const [type, pressed] of [["keydown", true], ["keyup", false]]) {
-    video.addEventListener(type, (event) => {
-      const code = KEYS[event.code];
-      if (code !== undefined) send({ key: { code, pressed } });
-      event.preventDefault();
-    });
-  }
-
-  (async () => {
-    await peer.setLocalDescription(await peer.createOffer());
-    const answer = await fetch(`${base}/rtc${location.search}`, { method: "POST", body: peer.localDescription.sdp });
-    if (!answer.ok) {
-      state.textContent = `failed: ${await answer.text()}`;
-      return;
+  for (const surface of [video, canvas]) {
+    surface.addEventListener("pointermove", (event) => send({ pointerMotion: position(event) }));
+    surface.addEventListener("pointerleave", () => send({ pointerLeave: {} }));
+    for (const [type, pressed] of [["pointerdown", true], ["pointerup", false]]) {
+      surface.addEventListener(type, (event) => {
+        surface.focus();
+        if (pressed) surface.setPointerCapture(event.pointerId);
+        send({ pointerButton: { ...position(event), button: BUTTONS[event.button], pressed } });
+        event.preventDefault();
+      });
     }
-    await peer.setRemoteDescription({ type: "answer", sdp: await answer.text() });
-  })();
+    surface.addEventListener("contextmenu", (event) => event.preventDefault());
+    surface.addEventListener("wheel", (event) => {
+      const notch = event.deltaMode === WheelEvent.DOM_DELTA_PIXEL ? 100 : 3;
+      send({ pointerScroll: { ...position(event), dx: event.deltaX / notch, dy: event.deltaY / notch } });
+      event.preventDefault();
+    }, { passive: false });
+    for (const [type, pressed] of [["keydown", true], ["keyup", false]]) {
+      surface.addEventListener(type, (event) => {
+        const code = KEYS[event.code];
+        if (code !== undefined) send({ key: { code, pressed } });
+        event.preventDefault();
+      });
+    }
+  }
 </script>

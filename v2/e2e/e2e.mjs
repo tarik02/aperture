@@ -178,12 +178,12 @@ const { targetId } = await viewer.send("Target.createTarget", { url: `${live}?to
 const { sessionId } = await viewer.send("Target.attachToTarget", { targetId, flatten: true });
 const evaluate = async (expression) => (await viewer.send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }, sessionId)).result.value;
 let seen = "";
-for (let i = 0; i < 60; i++) { await sleep(250); seen = await evaluate(`JSON.stringify({state: peer.connectionState, video: [video.videoWidth, video.videoHeight], time: video.currentTime, targets: targets.length, selected})`); if (JSON.parse(seen).video[0] > 0 && JSON.parse(seen).selected) break; }
+for (let i = 0; i < 60; i++) { await sleep(250); seen = await evaluate(`JSON.stringify({state: peer.connectionState, video: size(), time: view.currentTime, targets: targets.length, selected})`); if (JSON.parse(seen).video[0] > 0 && JSON.parse(seen).selected) break; }
 console.log("viewer:", seen);
 check("the viewer plays B's newest target over WebRTC", JSON.parse(seen).video[0] === 1280 && JSON.parse(seen).video[1] === 720 && JSON.parse(seen).selected === created.targetId);
 
 // Input goes the whole way: a click and keys in the viewer reach B's page.
-const box = JSON.parse(await evaluate(`JSON.stringify(video.getBoundingClientRect())`));
+const box = JSON.parse(await evaluate(`JSON.stringify(view.getBoundingClientRect())`));
 const inner = (await c.send("Runtime.evaluate", { expression: "innerWidth + 'x' + innerHeight", returnByValue: true }, bPage)).result.value;
 check(`the page fills the viewport (${inner})`, inner === "1280x720");
 const browserUi = 0;
@@ -314,6 +314,23 @@ const ran = await tool("execute", { code: "return await page.title()", tab: afte
 check("execute runs a script against a tab", !ran.isError && /agent tab/u.test(ran.text));
 await tool("tabs", { action: "close", tab: afterOpen.find((t) => t.title === "agent tab")?.id });
 check("tabs close closes the target", (await until((targets) => targets.length === 2)).length === 2);
+
+// Clients with no WebRTC: the same video as frames on the session socket, or tiles.
+for (const way of ["frames", "tiles"]) {
+  const other = await viewer.send("Target.createTarget", { url: `${live}?token=${token}&pixels=${way}` });
+  const otherSession = (await viewer.send("Target.attachToTarget", { targetId: other.targetId, flatten: true })).sessionId;
+  const otherEvaluate = async (expression) => (await viewer.send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }, otherSession)).result.value;
+  let got = "";
+  for (let i = 0; i < 60; i++) { await sleep(250); got = await otherEvaluate(`drawn.then(() => JSON.stringify({ way, size: size(), selected, peer: typeof peer, lit: [...canvas.getContext("2d").getImageData(0, 0, canvas.width || 1, canvas.height || 1).data].some((value, index) => index % 4 !== 3 && value > 0) }))`); if (JSON.parse(got).lit) break; }
+  console.log(`${way}:`, got);
+  check(`a viewer without WebRTC gets the target's picture as ${way}`, JSON.parse(got).lit && JSON.parse(got).way === way && JSON.parse(got).size.join("x") === "1280x720" && JSON.parse(got).peer === "undefined" && JSON.parse(got).selected === created.targetId);
+  await c.send("Runtime.evaluate", { expression: "document.title = 'waiting'" }, bPage);
+  const otherBox = JSON.parse(await otherEvaluate(`JSON.stringify(canvas.getBoundingClientRect())`));
+  for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) await viewer.send("Input.dispatchMouseEvent", { type, x: otherBox.x + 250 * (otherBox.width / 1280), y: otherBox.y + 350 * (otherBox.height / 720), button: type === "mouseMoved" ? "none" : "left", clickCount: 1 }, otherSession);
+  await sleep(500);
+  check(`a click in the ${way} viewer reaches B's page`, (await bTitle()) === "clicked");
+  await viewer.send("Target.closeTarget", { targetId: other.targetId });
+}
 
 await sleep(500);
 const shot = await viewer.send("Page.captureScreenshot", { format: "png" }, sessionId);

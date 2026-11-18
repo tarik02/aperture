@@ -3,14 +3,24 @@ syntax = "proto3";
 package aperture.live.v1;
 
 // What a client and a running session say to each other while the client watches and
-// controls it. Messages travel on the data channels of the client's WebRTC connection, one
-// message a frame: binary frames carry the message encoded as protobuf, text frames as
-// protobuf JSON. The session answers in the encoding of the client's last message, and says
-// nothing before the client's `hello`.
+// controls it. A client is one WebSocket, the session socket, with one message a frame:
+// binary frames carry the message encoded as protobuf, text frames as protobuf JSON. The
+// session answers in the encoding of the client's last message, and says nothing before the
+// client's `hello`.
 //
-// The client opens the channels: `control`, reliable and ordered, for everything, and
-// optionally `pointer`, unreliable, for pointer motion, where a lost move is superseded by
-// the next one and must not hold up clicks and keys behind it.
+// How the pixels of the target a client watches reach it is the client's choice, made in
+// `hello` and changed by another `hello`:
+//
+// - as video, over WebRTC: the client sends `rtc_offer`, with one video track to receive,
+//   and gets `rtc_answer`, or `rtc_refused`. The connection carries the video and nothing
+//   else has to; a client may also open data channels on it and send its messages there,
+//   where pointer motion on an unreliable channel does not hold up clicks and keys behind
+//   a lost move.
+// - as frames, on the session socket: the same video, for a client that decodes it itself.
+//   This works wherever a WebSocket does, and costs what video costs.
+// - as tiles, on the session socket: the parts of the picture that changed, as images,
+//   for a client that decodes no video. Exact pixels, at many times the bytes of video
+//   while much of the picture changes.
 
 message ClientMessage {
   oneof message {
@@ -25,19 +35,77 @@ message ClientMessage {
     Text text = 7;
     Viewport viewport = 8;
     Hello hello = 9;
+    RtcOffer rtc_offer = 10;
   }
 }
-
-// The client's first message. The session answers with its targets, the target the client's
-// video shows, and the cursor.
-message Hello {}
 
 message ServerMessage {
   oneof message {
     Targets targets = 1;
     Selected selected = 2;
     Cursor cursor = 3;
+    RtcAnswer rtc_answer = 4;
+    Tile tile = 5;
+    RtcRefused rtc_refused = 6;
+    VideoFrame video_frame = 7;
   }
+}
+
+// The client's first message. The session answers with its targets, the target the client
+// watches, and the cursor.
+message Hello {
+  Pixels pixels = 1;
+}
+
+// How the pixels of the watched target reach a client.
+enum Pixels {
+  // None: the client only controls, or has yet to say.
+  PIXELS_UNSPECIFIED = 0;
+  // Video over WebRTC, once the client has offered a connection.
+  PIXELS_VIDEO = 1;
+  // Tiles on the session socket.
+  PIXELS_TILES = 2;
+  // Video frames on the session socket.
+  PIXELS_FRAMES = 3;
+}
+
+// A WebRTC offer, as SDP, with a video track for the session to send on.
+message RtcOffer {
+  string sdp = 1;
+}
+
+message RtcAnswer {
+  string sdp = 1;
+}
+
+// The session could not make the WebRTC connection the client offered. The session socket
+// goes on; the client may take its pixels another way.
+message RtcRefused {
+  string reason = 1;
+}
+
+// A frame of the watched target's video: an H.264 access unit in Annex B form, constrained
+// baseline. The first one a client gets of a target is a keyframe, and so is the first
+// one after frames it was too slow to take.
+message VideoFrame {
+  string target = 1;
+  bool keyframe = 2;
+  // When the frame was drawn, in microseconds on the session's clock.
+  uint64 time_us = 3;
+  bytes data = 4;
+}
+
+// A part of the watched target's picture that changed, as a PNG image; the whole picture
+// when the client starts watching the target and when its size changes. Tiles of one
+// change follow each other.
+message Tile {
+  string target = 1;
+  uint32 x = 2;
+  uint32 y = 3;
+  // The whole picture's size in pixels.
+  uint32 width = 4;
+  uint32 height = 5;
+  bytes png = 6;
 }
 
 message Select {

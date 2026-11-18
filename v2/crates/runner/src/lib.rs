@@ -111,8 +111,8 @@ pub struct Cdp {
     pub browser_path: String,
 }
 
-/// Where the session is watched and controlled: window video over WebRTC, input, and
-/// screenshots, as HTTP on a socket. Whoever reaches the socket is trusted.
+/// Where the session is watched and controlled: the session socket, screenshots and the
+/// rest, as HTTP on a socket. Whoever reaches the socket is trusted.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Live {
     pub socket: PathBuf,

@@ -7,7 +7,7 @@ use aperture_compositor::{Frame, Handle};
 use aperture_runner::{PortRange, proxy};
 use axum::{
     Json, Router,
-    extract::{Path as RoutePath, State},
+    extract::{Path as RoutePath, State, WebSocketUpgrade},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post, put},
@@ -17,9 +17,9 @@ use tokio::sync::watch;
 use tower_http::services::ServeDir;
 
 use super::{
+    client,
     edit::plan::Options,
     mcp,
-    peer::{self, ConnectError},
     record::{Recording, Recordings},
     stream::Streams,
 };
@@ -46,7 +46,7 @@ pub async fn serve(
     let _ = std::fs::remove_file(socket);
     let listener = tokio::net::UnixListener::bind(socket)?;
     let app = Router::new()
-        .route("/rtc", post(connect))
+        .route("/ws", get(session_socket))
         .route("/targets", get(targets_list))
         .route("/targets/{id}/screenshot.png", get(screenshot))
         .route("/proxy", put(proxy_update))
@@ -59,27 +59,9 @@ pub async fn serve(
     axum::serve(listener, app).await
 }
 
-/// Takes a WebRTC offer as SDP and answers with SDP.
-async fn connect(State(live): State<Live>, offer: String) -> Response {
-    let connected = peer::connect(
-        live.compositor,
-        live.streams,
-        live.targets,
-        live.rtc_ports,
-        &offer,
-    );
-    match connected.await {
-        Ok(answer) => (
-            StatusCode::CREATED,
-            [(header::CONTENT_TYPE, "application/sdp")],
-            answer,
-        )
-            .into_response(),
-        Err(err @ ConnectError::Offer(_)) => {
-            (StatusCode::BAD_REQUEST, err.to_string()).into_response()
-        }
-        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
-    }
+/// A client's session socket.
+async fn session_socket(State(live): State<Live>, upgrade: WebSocketUpgrade) -> Response {
+    upgrade.on_upgrade(move |socket| client::serve(live, socket))
 }
 
 #[derive(Serialize)]

@@ -8,7 +8,7 @@ license.workspace = true
 anyhow.workspace = true
 aperture-compositor.workspace = true
 async-trait = "0.1"
-axum = "0.8"
+axum = { version = "0.8", features = ["ws"] }
 browse-capture = { git = "https://github.com/anomalyco/browse", rev = "be5528ff2194c8defab74d41e13abb7cb149548e" }
 browse-core = { git = "https://github.com/anomalyco/browse", rev = "be5528ff2194c8defab74d41e13abb7cb149548e" }
 browse-page = { git = "https://github.com/anomalyco/browse", rev = "be5528ff2194c8defab74d41e13abb7cb149548e" }
