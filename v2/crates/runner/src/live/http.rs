@@ -4,13 +4,13 @@
 use std::{io::Cursor, path::Path, sync::Arc};
 
 use aperture_compositor::{Frame, Handle};
-use aperture_runner::PortRange;
+use aperture_runner::{PortRange, proxy};
 use axum::{
     Json, Router,
     extract::{Path as RoutePath, State},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
@@ -23,7 +23,7 @@ use super::{
     record::{Recording, Recordings},
     stream::Streams,
 };
-use crate::{automation::Automation, targets::Target};
+use crate::{automation::Automation, egress::Egress, targets::Target};
 
 /// What the live endpoints serve.
 #[derive(Clone)]
@@ -32,6 +32,7 @@ pub struct Live {
     pub streams: Arc<Streams>,
     pub targets: watch::Receiver<Vec<Target>>,
     pub recordings: Recordings,
+    pub egress: Arc<Egress>,
     pub rtc_ports: Option<PortRange>,
 }
 
@@ -48,6 +49,7 @@ pub async fn serve(
         .route("/rtc", post(connect))
         .route("/targets", get(targets_list))
         .route("/targets/{id}/screenshot.png", get(screenshot))
+        .route("/proxy", put(proxy_update))
         .route("/recordings", get(recordings_list).post(recording_start))
         .route("/recordings/{id}", get(recording_get))
         .route("/recordings/{id}/stop", post(recording_stop))
@@ -129,6 +131,14 @@ async fn screenshot(State(live): State<Live>, RoutePath(id): RoutePath<String>) 
         Ok(Ok(png)) => ([(header::CONTENT_TYPE, "image/png")], png).into_response(),
         Ok(Err(err)) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
         Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+    }
+}
+
+/// Takes the session's proxy configuration, for the connections made from now on.
+async fn proxy_update(State(live): State<Live>, Json(config): Json<proxy::Config>) -> Response {
+    match live.egress.update(&config) {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(reason) => (StatusCode::BAD_REQUEST, reason).into_response(),
     }
 }
 

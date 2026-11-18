@@ -4,6 +4,8 @@
 //! The runner knows nothing of sessions beyond its own, nor of where the directories it is
 //! given come from.
 
+pub mod proxy;
+
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -33,6 +35,9 @@ pub struct Spec {
     /// Local addresses and networks the browser may reach; the rest of what is local to
     /// the node is refused it.
     pub egress_allow: Vec<String>,
+    /// How the browser's connections are routed.
+    #[serde(default)]
+    pub proxy: proxy::Config,
     /// Arguments for the browser after the runner's own.
     pub browser_args: Vec<String>,
 }
@@ -111,6 +116,9 @@ pub struct Cdp {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Live {
     pub socket: PathBuf,
+    /// Where a client's local tunnel is attached: a connection to this socket is the
+    /// tunnel's bytes.
+    pub tunnel_socket: PathBuf,
 }
 
 pub fn spec_path(runtime_dir: &Path) -> PathBuf {

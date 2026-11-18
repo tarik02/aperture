@@ -6,6 +6,7 @@
 //
 import { spawn, execSync } from "node:child_process";
 import { createServer } from "node:http";
+import { connect as netConnect, createServer as createTcpServer } from "node:net";
 import { readFileSync, existsSync, rmSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
 
 const [bin] = process.argv.slice(2);
@@ -17,7 +18,9 @@ mkdirSync(D, { recursive: true });
 const base = "http://127.0.0.1:7911";
 // Sessions' browsers may reach nothing local but this one address, where a page for them
 // to fetch is served.
-const reachable = createServer((_, res) => res.end("reachable")).listen(7921, "127.0.0.2");
+// It closes after every answer: a browser would keep the connection for its next request, and
+// rules decide for new connections only.
+const reachable = createServer((_, res) => res.setHeader("Connection", "close").end("reachable")).listen(7921, "127.0.0.2");
 const env = { ...process.env, APERTURE_DATA_DIR: `${D}/data`, APERTURE_RUNTIME_DIR: `${D}/run`, APERTURE_LISTEN: "127.0.0.1:7911", APERTURE_EGRESS_ALLOW: "127.0.0.2" };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let executor;
@@ -122,6 +125,49 @@ check("a page cannot reach the executor on loopback", (await reaches("http://127
 check("a page cannot reach its own DevTools endpoint", (await reaches("http://127.0.0.1:9222/json/version")) === false);
 check("a page cannot reach the node's own address by a name", (await reaches("http://localhost:7911/")) === false);
 check("a page reaches what the node allows", (await reaches("http://127.0.0.2:7921/")) === true);
+
+// Rules route a session's connections: refused, through proxies, through tunnels.
+const setProxy = async (proxy) => (await rpc("UpdateSessionProxy", { id: b.id, proxy })).code;
+check("a rule refuses what the node allows", (await setProxy({ rules: [{ match: "127.0.0.2:7921", via: "refuse" }] })) === undefined && (await reaches("http://127.0.0.2:7921/")) === false);
+check("without the rule it is reached again", (await setProxy(undefined)) === undefined && (await reaches("http://127.0.0.2:7921/")) === true);
+check("a rule that names no upstream is refused", (await setProxy({ rules: [{ match: "*", via: "nowhere" }] })) === "invalid_argument");
+
+// Two proxies that make every connection to the page served above, and note what they were asked for.
+const asked = [];
+const relayTo = (socket) => { const upstream = netConnect(7921, "127.0.0.2"); socket.pipe(upstream).pipe(socket); upstream.on("error", () => socket.destroy()); socket.on("error", () => upstream.destroy()); };
+const socksProxy = createTcpServer((socket) => {
+  socket.once("data", () => { socket.write(Buffer.from([5, 0])); socket.once("data", (request) => { asked.push(`socks ${request.subarray(5, 5 + request[4])}`); socket.write(Buffer.from([5, 0, 0, 1, 0, 0, 0, 0, 0, 0])); relayTo(socket); }); });
+}).listen(7922, "127.0.0.2");
+const httpProxy = createServer().on("connect", (request, socket) => { asked.push(`http ${request.url}`); socket.write("HTTP/1.1 200 OK\r\n\r\n"); relayTo(socket); }).listen(7923, "127.0.0.2");
+await setProxy({ upstreams: { corp: { url: "socks5://127.0.0.2:7922" } }, rules: [{ match: "*.via-socks.example", via: "corp" }, { match: "via-http.example", via: "http://127.0.0.2:7923" }, { match: "via-forbidden.example", via: "socks5://127.0.0.1:7922" }] });
+check("a rule routes through a SOCKS5 upstream, by name", (await reaches("http://www.via-socks.example/")) === true && asked.includes("socks www.via-socks.example"));
+check("a rule routes through an HTTP proxy", (await reaches("http://via-http.example/")) === true && asked.includes("http via-http.example:80"));
+check("an upstream on an address the node forbids is not reached", (await reaches("http://via-forbidden.example/")) === false);
+
+// A tunnel the session dials: yamux over a WebSocket, to an operator's end.
+const operator = spawn(`${bin}/aperture-tunnel`, ["listen", "127.0.0.2:7924", "--auth", "s3cret"], { stdio: "ignore" });
+process.on("exit", () => operator.kill("SIGKILL"));
+await sleep(500);
+await setProxy({ upstreams: { operator: { url: "ws+yamux+socks5://127.0.0.2:7924/x", auth: "wrong" } }, rules: [{ match: "localhost:7911", via: "operator" }] });
+check("a tunnel with the wrong secret carries nothing", (await reaches("http://localhost:7911/")) === false);
+await setProxy({ upstreams: { operator: { url: "ws+yamux+socks5://127.0.0.2:7924/x", auth: "s3cret" } }, rules: [{ match: "localhost:7911", via: "operator" }] });
+check("a rule routes through a tunnel, to what the far end reaches", (await reaches("http://localhost:7911/")) === true);
+check("what no rule names still goes by the node's own", (await reaches("http://127.0.0.1:7911/")) === false);
+
+// A tunnel a client attaches: connections are made on the client's machine.
+const devServer = createServer((_, res) => res.end("dev")).listen(7925, "127.0.0.1");
+await setProxy({ rules: [{ match: "localhost:7925", via: "local" }] });
+check("a local route fails while no client is attached", (await reaches("http://localhost:7925/")) === false);
+const tunnelClient = spawn(`${bin}/aperture-tunnel`, ["attach", `ws://127.0.0.1:7911${listed.find((s) => s.id === b.id).endpoints.tunnelPath}`, "--token", token], { stdio: "ignore" });
+process.on("exit", () => tunnelClient.kill("SIGKILL"));
+await sleep(700);
+check("a local route reaches the client's own localhost", (await reaches("http://localhost:7925/")) === true);
+tunnelClient.kill("SIGKILL");
+await sleep(500);
+check("the local route fails again once the client is gone", (await reaches("http://localhost:7925/")) === false);
+await setProxy(undefined);
+for (const server of [socksProxy, httpProxy, devServer]) server.close();
+operator.kill("SIGKILL");
 
 // The viewer is a person's browser: one outside any session, with a network of its own.
 const viewerBrowser = spawn(process.env.APERTURE_CHROMIUM, ["--headless=new", "--no-sandbox", `--user-data-dir=${D}/viewer`, "--remote-debugging-port=0", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });

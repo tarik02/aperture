@@ -12,7 +12,12 @@ axum = "0.8"
 browse-capture = { git = "https://github.com/anomalyco/browse", rev = "be5528ff2194c8defab74d41e13abb7cb149548e" }
 browse-core = { git = "https://github.com/anomalyco/browse", rev = "be5528ff2194c8defab74d41e13abb7cb149548e" }
 browse-page = { git = "https://github.com/anomalyco/browse", rev = "be5528ff2194c8defab74d41e13abb7cb149548e" }
+aperture-tunnel.workspace = true
+base64 = "0.22"
 fast-socks5 = "1"
+native-tls = "0.2"
+tokio-native-tls = "0.3"
+url = "2"
 ipnet = "2"
 browse-script = { git = "https://github.com/anomalyco/browse", rev = "be5528ff2194c8defab74d41e13abb7cb149548e" }
 buffa = { version = "0.9", features = ["json"] }
@@ -30,7 +35,7 @@ libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
-tokio-tungstenite.workspace = true
+tokio-tungstenite = { workspace = true, features = ["native-tls"] }
 tower-http = { version = "0.6", features = ["fs"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true

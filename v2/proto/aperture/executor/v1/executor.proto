@@ -15,6 +15,9 @@ service ExecutorService {
   rpc SuspendSession(SuspendSessionRequest) returns (SuspendSessionResponse);
   // Starts the browser of a suspended or failed session on the profile it left.
   rpc ResumeSession(ResumeSessionRequest) returns (ResumeSessionResponse);
+  // Sets how the session's browser connections are routed, for a running session at once:
+  // connections made from then on go by the new rules, and open ones stay as they are.
+  rpc UpdateSessionProxy(UpdateSessionProxyRequest) returns (UpdateSessionProxyResponse);
   // Stops the session and removes its profile and files. Snapshots taken of it stay.
   rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
 
@@ -61,6 +64,36 @@ message Endpoints {
   string live_path = 2;
   // The executor's path of the session's automation, an MCP server over Streamable HTTP.
   string mcp_path = 3;
+  // The executor's path a client attaches the session's local tunnel at: a WebSocket with
+  // the subprotocol `aperture-tunnel.v1`, whose binary messages carry yamux; the session
+  // opens a stream for every connection its rules route `via: local` and asks on it, as a
+  // SOCKS5 client, for the connection to be made on the client's machine.
+  string tunnel_path = 4;
+}
+
+// How a session's browser connections are routed. The first rule that matches a
+// connection decides; one no rule matches is made from the node.
+message ProxyConfig {
+  // The upstreams rules can route through, by name.
+  map<string, ProxyUpstream> upstreams = 1;
+  repeated ProxyRule rules = 2;
+}
+
+message ProxyUpstream {
+  // A proxy, with its credentials in the URL (`socks5://`, `http://`, `https://`), or a
+  // tunnel the session dials (`ws+yamux+socks5://`, `wss+yamux+socks5://`).
+  string url = 1;
+  // The secret a tunnel is dialed with. Required for a tunnel, and only for one.
+  optional string auth = 2;
+}
+
+message ProxyRule {
+  // `host` or `host:port`; the host is exact, `*.suffix` for subdomains, or `*` for any
+  // host but localhost.
+  string match = 1;
+  // `direct`, `refuse`, `local` (the tunnel a client attached), an upstream's name, or a
+  // proxy's URL.
+  string via = 2;
 }
 
 message Snapshot {
@@ -75,6 +108,7 @@ message CreateSessionRequest {
   optional string snapshot_id = 1;
   // Create the session without starting its browser.
   bool suspended = 2;
+  optional ProxyConfig proxy = 3;
 }
 
 message CreateSessionResponse {
@@ -110,6 +144,14 @@ message ResumeSessionRequest {
 message ResumeSessionResponse {
   Session session = 1;
 }
+
+message UpdateSessionProxyRequest {
+  string id = 1;
+  // Left out, everything goes direct again.
+  optional ProxyConfig proxy = 2;
+}
+
+message UpdateSessionProxyResponse {}
 
 message DeleteSessionRequest {
   string id = 1;

@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use aperture_runner::proxy;
 use aperture_store::{SnapshotRecord, StoreError};
 use buffa::{EnumValue, MessageField};
 use buffa_types::google::protobuf::Timestamp;
@@ -23,9 +24,11 @@ impl ExecutorService for Executor {
         _ctx: RequestContext,
         request: ServiceRequest<'_, pb::CreateSessionRequest>,
     ) -> ServiceResult<pb::CreateSessionResponse> {
+        let request = request.to_owned_message();
+        let proxy = request.proxy.as_option().map(proxy_config);
         let session = self
             .0
-            .create(request.snapshot_id, request.suspended)
+            .create(request.snapshot_id.as_deref(), request.suspended, proxy)
             .await?;
         Response::ok(pb::CreateSessionResponse {
             session: MessageField::some(session.into()),
@@ -75,6 +78,17 @@ impl ExecutorService for Executor {
             session: MessageField::some(self.0.resume(request.id).await?.into()),
             ..Default::default()
         })
+    }
+
+    async fn update_session_proxy(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, pb::UpdateSessionProxyRequest>,
+    ) -> ServiceResult<pb::UpdateSessionProxyResponse> {
+        let request = request.to_owned_message();
+        let proxy = request.proxy.as_option().map(proxy_config);
+        self.0.set_proxy(&request.id, proxy).await?;
+        Response::ok(pb::UpdateSessionProxyResponse::default())
     }
 
     async fn delete_session(
@@ -150,6 +164,7 @@ impl From<Session> for pb::Session {
                 cdp_path: cdp::path(&session.record.id),
                 live_path: live::path(&session.record.id),
                 mcp_path: live::mcp_path(&session.record.id),
+                tunnel_path: live::tunnel_path(&session.record.id),
                 ..Default::default()
             }),
             _ => MessageField::none(),
@@ -166,6 +181,30 @@ impl From<Session> for pb::Session {
             id: session.record.id,
             ..Default::default()
         }
+    }
+}
+
+fn proxy_config(proxy: &pb::ProxyConfig) -> proxy::Config {
+    proxy::Config {
+        upstreams: proxy
+            .upstreams
+            .iter()
+            .map(|(name, upstream)| {
+                let upstream = proxy::Upstream {
+                    url: upstream.url.clone(),
+                    auth: upstream.auth.clone(),
+                };
+                (name.clone(), upstream)
+            })
+            .collect(),
+        rules: proxy
+            .rules
+            .iter()
+            .map(|rule| proxy::Rule {
+                matches: rule.r#match.clone(),
+                via: rule.via.clone(),
+            })
+            .collect(),
     }
 }
 
@@ -193,7 +232,7 @@ impl From<Error> for ConnectError {
             Error::Store(StoreError::SessionNotFound(_) | StoreError::SnapshotNotFound(_)) => {
                 ErrorCode::NotFound
             }
-            Error::Store(StoreError::InvalidId(_)) => ErrorCode::InvalidArgument,
+            Error::Store(StoreError::InvalidId(_)) | Error::Proxy(_) => ErrorCode::InvalidArgument,
             Error::NotRunning(_) => ErrorCode::FailedPrecondition,
             Error::Store(_) | Error::Start { .. } | Error::Stop(_) | Error::Io(..) => {
                 ErrorCode::Internal

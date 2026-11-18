@@ -16,7 +16,8 @@ use std::{
 };
 
 use aperture_runner::{
-    Cdp, Live, Phase, PortRange, Profile, Spec, Status, Tools, Viewport, is_alive, read_status,
+    Cdp, Live, Phase, PortRange, Profile, Spec, Status, Tools, Viewport, is_alive, proxy,
+    read_status,
 };
 use aperture_store::{SessionRecord, SnapshotRecord, Store, StoreError};
 use tokio::time::{Instant, sleep};
@@ -37,6 +38,8 @@ pub enum Error {
     Start { id: String, reason: String },
     #[error("session {0} did not stop")]
     Stop(String),
+    #[error("invalid proxy configuration: {0}")]
+    Proxy(String),
     #[error("{0}: {1}")]
     Io(PathBuf, std::io::Error),
 }
@@ -87,8 +90,14 @@ impl Sessions {
         }
     }
 
-    pub async fn create(&self, snapshot_id: Option<&str>, suspended: bool) -> Result<Session> {
-        let record = self.store.create_session(snapshot_id)?;
+    pub async fn create(
+        &self,
+        snapshot_id: Option<&str>,
+        suspended: bool,
+        proxy: Option<proxy::Config>,
+    ) -> Result<Session> {
+        let proxy = proxy.map(checked).transpose()?;
+        let record = self.store.create_session(snapshot_id, proxy)?;
         info!(session = %record.id, ?snapshot_id, "session created");
         if !suspended {
             let _busy = self.busy(&record.id).await;
@@ -107,6 +116,23 @@ impl Sessions {
             .into_iter()
             .map(|record| self.observe(record))
             .collect()
+    }
+
+    /// Sets how the session's connections are routed, for its running browser at once.
+    pub async fn set_proxy(&self, id: &str, proxy: Option<proxy::Config>) -> Result<()> {
+        self.store.session(id)?;
+        let _busy = self.busy(id).await;
+        let config = proxy.clone().unwrap_or_default();
+        self.store
+            .set_session_proxy(id, proxy.map(checked).transpose()?)?;
+        if let Ok(live) = self.live(id) {
+            let body = serde_json::to_vec(&config).expect("a configuration is serializable");
+            crate::live::put(&live.socket, "/proxy", body)
+                .await
+                .map_err(|reason| Error::Proxy(format!("{reason:#}")))?;
+        }
+        info!(session = %id, rules = config.rules.len(), "session proxy set");
+        Ok(())
     }
 
     pub async fn resume(&self, id: &str) -> Result<Session> {
@@ -220,6 +246,12 @@ impl Sessions {
         }
 
         let paths = self.store.session_paths(id)?;
+        // Checked when it was set; one an older executor could read and this one cannot
+        // must not keep the session from starting.
+        let proxy = self.store.session(id)?.proxy;
+        let proxy = proxy
+            .and_then(|proxy| serde_json::from_value(proxy).ok())
+            .unwrap_or_default();
         fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
@@ -241,6 +273,7 @@ impl Sessions {
             rtc_ports: self.config.rtc_ports,
             cursor_theme: self.config.cursor_theme.clone(),
             egress_allow: self.config.egress_allow.clone(),
+            proxy,
             browser_args: self.config.browser_args.clone(),
         };
         fs::write(
@@ -366,6 +399,13 @@ impl Sessions {
     fn runtime_dir(&self, id: &str) -> PathBuf {
         self.config.runtime_root.join(id)
     }
+}
+
+/// A proxy configuration as the store keeps it, once it is known to be one the runner
+/// takes.
+fn checked(proxy: proxy::Config) -> Result<serde_json::Value> {
+    proxy.compile().map_err(Error::Proxy)?;
+    Ok(serde_json::to_value(proxy).expect("a configuration is serializable"))
 }
 
 fn remove_file(path: &Path) -> Result<()> {

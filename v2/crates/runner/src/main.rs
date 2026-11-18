@@ -144,10 +144,18 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
     // The browser has no network: this is its one way out.
     let egress_socket = sockets.join("proxy.sock");
     let policy = egress::Policy::new(&spec.egress_allow)?;
-    let egress = {
-        let socket = egress_socket.clone();
-        tokio::spawn(async move { egress::serve(&socket, policy).await })
-    };
+    let egress = egress::Egress::new(policy, &spec.proxy)?;
+    let tunnel_socket = spec.runtime_dir.join("tunnel.sock");
+    let egress_tasks = [
+        tokio::spawn({
+            let (egress, socket) = (egress.clone(), egress_socket.clone());
+            async move { egress.serve(&socket).await }
+        }),
+        tokio::spawn({
+            let (egress, socket) = (egress.clone(), tunnel_socket.clone());
+            async move { egress.serve_local(&socket).await }
+        }),
+    ];
     // What the sandbox shares with the outside to put its own sockets in.
     let shared = sockets.join("shared");
     fs::DirBuilder::new().mode(0o700).create(&shared)?;
@@ -201,6 +209,7 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
                 streams,
                 targets: registry.targets(),
                 recordings: recorder,
+                egress: egress.clone(),
                 rtc_ports: spec.rtc_ports,
             };
             let files = spec.files_dir.clone();
@@ -208,6 +217,7 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
         });
         status.live = Some(Live {
             socket: live_socket,
+            tunnel_socket: tunnel_socket.clone(),
         });
         // A session is running once there is a page to show.
         let first_target = async {
@@ -252,7 +262,9 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
     if let Some(live) = live {
         live.abort();
     }
-    egress.abort();
+    for task in egress_tasks {
+        task.abort();
+    }
     outcome
 }
 

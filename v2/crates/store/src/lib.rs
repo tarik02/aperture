@@ -62,6 +62,10 @@ pub struct SessionRecord {
     /// finishes or drops what a crash left here.
     #[serde(default)]
     pub freezing: Option<String>,
+    /// How the session's browser connections are routed, as whoever runs the session
+    /// reads it. It holds the secrets of the session's upstreams.
+    #[serde(default)]
+    pub proxy: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,7 +124,11 @@ impl Store {
         &self.root
     }
 
-    pub fn create_session(&self, snapshot_id: Option<&str>) -> Result<SessionRecord> {
+    pub fn create_session(
+        &self,
+        snapshot_id: Option<&str>,
+        proxy: Option<serde_json::Value>,
+    ) -> Result<SessionRecord> {
         let base_layer = match snapshot_id {
             Some(id) => self.snapshot(id)?.layer,
             None => None,
@@ -131,6 +139,7 @@ impl Store {
             snapshot_id: snapshot_id.map(str::to_owned),
             base_layer,
             freezing: None,
+            proxy,
         };
         // Built aside and renamed into place, so the session appears with its record.
         let staged = self.root.join("sessions").join(format!(".{}", session.id));
@@ -146,6 +155,12 @@ impl Store {
         check_id(id)?;
         read_record(&self.session_dir(id).join("session.json"))?
             .ok_or_else(|| StoreError::SessionNotFound(id.to_owned()))
+    }
+
+    pub fn set_session_proxy(&self, id: &str, proxy: Option<serde_json::Value>) -> Result<()> {
+        let mut session = self.session(id)?;
+        session.proxy = proxy;
+        write_record(&self.session_dir(id).join("session.json"), &session)
     }
 
     pub fn sessions(&self) -> Result<Vec<SessionRecord>> {

@@ -8,6 +8,7 @@ license.workspace = true
 anyhow.workspace = true
 aperture-runner.workspace = true
 aperture-store.workspace = true
+aperture-tunnel.workspace = true
 axum = { version = "0.8", features = ["ws"] }
 buffa = { version = "0.9", features = ["json"] }
 buffa-types = { version = "0.9", features = ["json"] }
