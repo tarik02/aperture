@@ -1,11 +1,15 @@
 //! Window frames as H.264, through GStreamer: on the GPU where one encodes, in software
 //! otherwise.
 //!
-//! Encoders run at a constant quality rather than a bitrate: frames only come when a window
-//! changes, and a rate-controlled encoder would leave a window at rest at whatever quality
-//! its last frame got.
+//! The best quality is a constant one, not a bitrate: frames only come when a window
+//! changes, and what the link carries is then not the limit. The qualities below it are
+//! bitrates, for links that carry no more; a window at rest is encoded a few times over
+//! there, so that it comes to look as it does.
 
-use std::sync::{Arc, OnceLock};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex, OnceLock},
+};
 
 use anyhow::{Context, bail, ensure};
 use aperture_compositor::Frame;
@@ -14,43 +18,148 @@ use gstreamer_app as gst_app;
 use gstreamer_video as gst_video;
 use tracing::{debug, info, warn};
 
+/// The form a window's video takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Format {
+    /// H.264 constrained baseline, 4:2:0. Everything decodes it, WebRTC included; colored
+    /// text loses detail.
+    H264,
+    /// H.264 High 4:4:4: color as sharp as light. Software decodes it, WebRTC does not.
+    FullChroma,
+}
+
+/// How much a window's video may cost a link, best last.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Quality {
+    Low,
+    Medium,
+    Full,
+}
+
+impl Quality {
+    /// What the video spends at most, in kbit/s; nothing bounds the best.
+    pub fn bitrate(self) -> Option<u32> {
+        match self {
+            Self::Low => Some(700),
+            Self::Medium => Some(2500),
+            Self::Full => None,
+        }
+    }
+
+    /// Frames a second at most: fewer frames leave each more of a bitrate.
+    pub fn fps(self) -> u32 {
+        match self {
+            Self::Low => 15,
+            Self::Medium => 30,
+            Self::Full => 60,
+        }
+    }
+
+    pub fn lower(self) -> Option<Self> {
+        match self {
+            Self::Low => None,
+            Self::Medium => Some(Self::Low),
+            Self::Full => Some(Self::Medium),
+        }
+    }
+
+    pub fn higher(self) -> Option<Self> {
+        match self {
+            Self::Low => Some(Self::Medium),
+            Self::Medium => Some(Self::Full),
+            Self::Full => None,
+        }
+    }
+}
+
 struct Candidate {
     /// The encoder's element.
     name: &'static str,
-    /// Elements from raw RGB to H.264, without B-frames or lookahead: every frame comes out
-    /// before the next goes in.
-    elements: &'static str,
+    format: Format,
+    /// Elements from raw RGB to H.264 at a constant quality, without B-frames or
+    /// lookahead: every frame comes out before the next goes in.
+    constant: &'static str,
+    /// The same at a bitrate, which stands for `{kbit}` or `{bit}`.
+    at_bitrate: &'static str,
 }
 
-/// In preference order: NVENC on NVIDIA, VA-API on Intel and AMD, then software. Browsers
-/// decode constrained baseline everywhere, which rules out B-frames.
+/// In preference order: NVENC on NVIDIA, VA-API on Intel and AMD, then software. No VA-API
+/// driver encodes 4:4:4.
 const ENCODERS: &[Candidate] = &[
     Candidate {
         name: "nvh264enc",
-        elements: "videoconvert ! nvh264enc preset=p1 tune=ultra-low-latency rc-mode=constqp \
+        format: Format::H264,
+        constant: "videoconvert ! nvh264enc preset=p1 tune=ultra-low-latency rc-mode=constqp \
             qp-const-i=21 qp-const-p=23 gop-size=-1 bframes=0 zerolatency=true rc-lookahead=0",
+        at_bitrate: "videoconvert ! nvh264enc preset=p1 tune=ultra-low-latency rc-mode=cbr \
+            bitrate={kbit} gop-size=-1 bframes=0 zerolatency=true rc-lookahead=0",
     },
     Candidate {
         name: "vah264lpenc",
-        elements: "vapostproc ! vah264lpenc rate-control=cqp qpi=22 qpp=24 b-frames=0 \
+        format: Format::H264,
+        constant: "vapostproc ! vah264lpenc rate-control=cqp qpi=22 qpp=24 b-frames=0 \
+            target-usage=7",
+        at_bitrate: "vapostproc ! vah264lpenc rate-control=cbr bitrate={kbit} b-frames=0 \
             target-usage=7",
     },
     Candidate {
         name: "vah264enc",
-        elements: "vapostproc ! vah264enc rate-control=cqp qpi=22 qpp=24 b-frames=0 \
+        format: Format::H264,
+        constant: "vapostproc ! vah264enc rate-control=cqp qpi=22 qpp=24 b-frames=0 \
+            target-usage=7",
+        at_bitrate: "vapostproc ! vah264enc rate-control=cbr bitrate={kbit} b-frames=0 \
             target-usage=7",
     },
     Candidate {
         name: "x264enc",
-        elements: "videoconvert ! x264enc tune=zerolatency speed-preset=ultrafast pass=qual \
+        format: Format::H264,
+        constant: "videoconvert ! x264enc tune=zerolatency speed-preset=ultrafast pass=qual \
             quantizer=23 bframes=0 key-int-max=600",
+        // A bitrate is spent better by a slower preset, and has fewer frames to spend on.
+        at_bitrate: "videoconvert ! x264enc tune=zerolatency speed-preset=veryfast pass=cbr \
+            bitrate={kbit} vbv-buf-capacity=400 bframes=0 key-int-max=600",
     },
     Candidate {
         name: "openh264enc",
-        elements: "videoconvert ! openh264enc usage-type=screen complexity=low \
+        format: Format::H264,
+        constant: "videoconvert ! openh264enc usage-type=screen complexity=low \
             rate-control=quality",
+        at_bitrate: "videoconvert ! openh264enc usage-type=screen complexity=low \
+            rate-control=bitrate bitrate={bit}",
+    },
+    Candidate {
+        name: "nvh264enc",
+        format: Format::FullChroma,
+        constant: "videoconvert ! video/x-raw,format=Y444,colorimetry=bt709 ! nvh264enc \
+            preset=p1 tune=ultra-low-latency rc-mode=constqp qp-const-i=21 qp-const-p=23 \
+            gop-size=-1 bframes=0 zerolatency=true rc-lookahead=0",
+        at_bitrate: "videoconvert ! video/x-raw,format=Y444,colorimetry=bt709 ! nvh264enc \
+            preset=p1 tune=ultra-low-latency rc-mode=cbr bitrate={kbit} gop-size=-1 bframes=0 \
+            zerolatency=true rc-lookahead=0",
+    },
+    Candidate {
+        name: "x264enc",
+        format: Format::FullChroma,
+        constant: "videoconvert ! video/x-raw,format=Y444,colorimetry=bt709 ! x264enc \
+            tune=zerolatency speed-preset=ultrafast pass=qual quantizer=23 bframes=0 \
+            key-int-max=600",
+        at_bitrate: "videoconvert ! video/x-raw,format=Y444,colorimetry=bt709 ! x264enc \
+            tune=zerolatency speed-preset=veryfast pass=cbr bitrate={kbit} \
+            vbv-buf-capacity=400 bframes=0 key-int-max=600",
     },
 ];
+
+impl Candidate {
+    fn elements(&self, quality: Quality) -> String {
+        match quality.bitrate() {
+            None => self.constant.to_owned(),
+            Some(kbit) => self
+                .at_bitrate
+                .replace("{kbit}", &kbit.to_string())
+                .replace("{bit}", &(kbit * 1000).to_string()),
+        }
+    }
+}
 
 const PROBE_SIZE: (u32, u32) = (640, 480);
 
@@ -77,35 +186,52 @@ pub fn init() -> anyhow::Result<()> {
         .map_err(anyhow::Error::msg)
 }
 
-/// The encoders that work on this machine, best first. Found once, by encoding a frame with
-/// each: an element being installed says nothing about its device or driver.
-fn working() -> &'static [&'static Candidate] {
-    static WORKING: OnceLock<Vec<&'static Candidate>> = OnceLock::new();
-    WORKING.get_or_init(|| {
-        if let Err(err) = init() {
-            warn!("gstreamer is unavailable: {err:#}");
-            return Vec::new();
-        }
-        let working: Vec<&Candidate> = ENCODERS
-            .iter()
-            .filter(|candidate| gst::ElementFactory::find(candidate.name).is_some())
-            .filter(|candidate| match probe(candidate) {
-                Ok(()) => true,
-                Err(err) => {
-                    debug!(encoder = candidate.name, "encoder does not work: {err:#}");
-                    false
-                }
-            })
-            .collect();
-        let names: Vec<&str> = working.iter().map(|candidate| candidate.name).collect();
-        info!(encoders = ?names, "video encoders");
-        working
-    })
+/// The encoders that work on this machine for a format, best first; a quality at a bitrate
+/// is another setup of an encoder than the constant one, which a driver may not have.
+/// Found once, by encoding a frame with each: an element being installed says nothing
+/// about its device or driver.
+fn working(format: Format, quality: Quality) -> Arc<[&'static Candidate]> {
+    type Found = HashMap<(Format, bool), Arc<[&'static Candidate]>>;
+    static WORKING: OnceLock<Mutex<Found>> = OnceLock::new();
+    let at_bitrate = quality.bitrate().is_some();
+    let mut found = WORKING
+        .get_or_init(Mutex::default)
+        .lock()
+        .expect("not poisoned");
+    found
+        .entry((format, at_bitrate))
+        .or_insert_with(|| {
+            if let Err(err) = init() {
+                warn!("gstreamer is unavailable: {err:#}");
+                return Arc::new([]);
+            }
+            let working: Arc<[&Candidate]> = ENCODERS
+                .iter()
+                .filter(|candidate| candidate.format == format)
+                .filter(|candidate| gst::ElementFactory::find(candidate.name).is_some())
+                .filter(|candidate| match probe(candidate, quality) {
+                    Ok(()) => true,
+                    Err(err) => {
+                        debug!(encoder = candidate.name, "encoder does not work: {err:#}");
+                        false
+                    }
+                })
+                .collect();
+            let names: Vec<&str> = working.iter().map(|candidate| candidate.name).collect();
+            info!(?format, at_bitrate, encoders = ?names, "video encoders");
+            working
+        })
+        .clone()
 }
 
-fn probe(candidate: &Candidate) -> anyhow::Result<()> {
+/// Whether this machine encodes the format at all.
+pub fn encodes(format: Format) -> bool {
+    !working(format, Quality::Full).is_empty()
+}
+
+fn probe(candidate: &Candidate, quality: Quality) -> anyhow::Result<()> {
     let (width, height) = PROBE_SIZE;
-    let pipeline = Pipeline::new(candidate, PROBE_SIZE)?;
+    let pipeline = Pipeline::new(candidate, quality, PROBE_SIZE)?;
     let blank = vec![0; width as usize * height as usize * 4];
     pipeline.encode(gst::Buffer::from_slice(blank), true)?;
     Ok(())
@@ -119,12 +245,16 @@ struct Pipeline {
 }
 
 impl Pipeline {
-    fn new(candidate: &Candidate, size: (u32, u32)) -> anyhow::Result<Self> {
-        let elements = candidate.elements;
+    fn new(candidate: &Candidate, quality: Quality, size: (u32, u32)) -> anyhow::Result<Self> {
+        let elements = candidate.elements(quality);
+        let profile = match candidate.format {
+            Format::H264 => "constrained-baseline",
+            Format::FullChroma => "high-4:4:4",
+        };
         let description = format!(
             "appsrc name=src is-live=true format=time \
             ! {elements} \
-            ! video/x-h264,profile=constrained-baseline,stream-format=byte-stream,alignment=au \
+            ! video/x-h264,profile={profile},stream-format=byte-stream,alignment=au \
             ! h264parse config-interval=-1 \
             ! appsink name=sink sync=false"
         );
@@ -147,8 +277,9 @@ impl Pipeline {
         };
         // Frames are opaque, so their alpha is not looked at.
         let info = gst_video::VideoInfo::builder(gst_video::VideoFormat::Rgbx, size.0, size.1)
-            // Nominal; frames only come when a window changes.
-            .fps(gst::Fraction::new(60, 1))
+            // The most there are, which a bitrate is spread over; frames only come when a
+            // window changes.
+            .fps(gst::Fraction::new(quality.fps() as i32, 1))
             .build()?;
         created.src.set_caps(Some(&info.to_caps()?));
         created
@@ -212,26 +343,30 @@ impl AsRef<[u8]> for Pixels {
 }
 
 pub struct VideoEncoder {
-    /// The encoders left to use, best first.
-    candidates: &'static [&'static Candidate],
+    quality: Quality,
+    /// The encoders that work, and how many of the best of them failed since.
+    candidates: Arc<[&'static Candidate]>,
+    failed: usize,
     pipeline: Option<Pipeline>,
 }
 
 impl VideoEncoder {
     /// Finds this machine's encoders on first use, which takes a moment.
-    pub fn new() -> anyhow::Result<Self> {
-        let candidates = working();
-        ensure!(!candidates.is_empty(), "no working H.264 encoder");
+    pub fn new(format: Format, quality: Quality) -> anyhow::Result<Self> {
+        let candidates = working(format, quality);
+        ensure!(!candidates.is_empty(), "no working encoder for {format:?}");
         Ok(Self {
+            quality,
             candidates,
+            failed: 0,
             pipeline: None,
         })
     }
 
     /// Encodes the frame as an Annex B access unit, and says whether it is a keyframe: it is
-    /// when asked, and when the frame's size differs from the last one's. A hardware encoder can fail while running,
-    /// with every session of the GPU taken or at a size it refuses: the frame then goes to
-    /// the next encoder, which serves from then on.
+    /// when asked, and when the frame's size differs from the last one's. A hardware
+    /// encoder can fail while running, with every session of the GPU taken or at a size it
+    /// refuses: the frame then goes to the next encoder, which serves from then on.
     pub fn encode(
         &mut self,
         frame: &Arc<Frame>,
@@ -243,10 +378,13 @@ impl VideoEncoder {
         let height = frame.height & !1;
         ensure!(width > 0 && height > 0, "an empty frame");
         loop {
-            let candidate = self.candidates.first().context("no working encoder left")?;
+            let candidate = *self
+                .candidates
+                .get(self.failed)
+                .context("no working encoder left")?;
             let pipeline = match self.pipeline.take() {
                 Some(pipeline) if pipeline.size == (width, height) => Ok(pipeline),
-                _ => Pipeline::new(candidate, (width, height)),
+                _ => Pipeline::new(candidate, self.quality, (width, height)),
             };
             let encoded = pipeline.and_then(|pipeline| {
                 let mut buffer = if width == frame.width {
@@ -274,12 +412,12 @@ impl VideoEncoder {
                     self.pipeline = Some(pipeline);
                     return Ok(data);
                 }
-                Err(err) if self.candidates.len() > 1 => {
+                Err(err) if self.failed + 1 < self.candidates.len() => {
                     warn!(
                         encoder = candidate.name,
                         "encoder failed, using the next: {err:#}"
                     );
-                    self.candidates = &self.candidates[1..];
+                    self.failed += 1;
                 }
                 Err(err) => return Err(err),
             }

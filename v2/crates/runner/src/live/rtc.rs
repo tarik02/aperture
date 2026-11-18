@@ -5,13 +5,17 @@
 //! with host candidates only (see [`net`](super::net)). The video is the target's one
 //! stream (see [`stream`](super::stream)), which every client of it shares.
 
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use aperture_compositor::WindowId;
 use aperture_runner::PortRange;
 use buffa::Message as _;
 use str0m::{
     Event, IceConnectionState, Input as RtcInput, Output, Rtc, RtcError,
+    bwe::{Bitrate, BweKind},
     change::SdpOffer,
     format::Codec,
     media::{Frequency, MediaKind, MediaTime, Mid},
@@ -21,8 +25,10 @@ use tokio::sync::{broadcast, mpsc};
 use tracing::{info, warn};
 
 use super::{
+    adapt::Estimated,
+    encode::{Format, Quality},
     net::{Datagram, Sockets},
-    stream::{Packet, Streams, Subscription},
+    stream::{Key, Packet, Streams, Subscription},
 };
 use crate::proto::aperture::live::v1::{self as pb, client_message};
 
@@ -31,6 +37,21 @@ use crate::proto::aperture::live::v1::{self as pb, client_message};
 const H264_PT: u8 = 108;
 const H264_RTX_PT: u8 = 109;
 const H264_PROFILE_LEVEL_ID: u32 = 0x42e01f;
+
+/// What the link is taken to carry before it is measured, and what the connection tries to
+/// find out whether it carries, which is more than the best quality mostly spends.
+const FIRST_ESTIMATE: Bitrate = Bitrate::kbps(4_000);
+const WANTED: Bitrate = Bitrate::mbps(20);
+/// How often the link is looked at.
+const SETTLE_EVERY: Duration = Duration::from_millis(250);
+
+/// What a client's connection tells its session.
+pub enum FromPeer {
+    /// A message the client sent on a data channel.
+    Message(client_message::Message),
+    /// The quality of the video from now on.
+    Quality(Quality),
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectError {
@@ -46,14 +67,17 @@ pub enum ConnectError {
 pub type Watch = mpsc::Sender<Option<WindowId>>;
 
 /// Answers a client's offer and runs its connection until it ends or `Watch` is dropped.
-/// Messages the client sends on data channels go to `messages`.
+/// What the connection has to tell goes to `events`.
 pub async fn connect(
     streams: Arc<Streams>,
     ports: Option<PortRange>,
     offer: &str,
-    messages: mpsc::Sender<client_message::Message>,
+    events: mpsc::Sender<FromPeer>,
 ) -> Result<(String, Watch), ConnectError> {
-    let mut config = Rtc::builder().set_ice_lite(true).clear_codecs();
+    let mut config = Rtc::builder()
+        .set_ice_lite(true)
+        .enable_bwe(Some(FIRST_ESTIMATE))
+        .clear_codecs();
     config.codec_config().add_h264(
         H264_PT.into(),
         Some(H264_RTX_PT.into()),
@@ -72,6 +96,7 @@ pub async fn connect(
     let offer =
         SdpOffer::from_sdp_string(offer).map_err(|err| ConnectError::Offer(err.to_string()))?;
     let answer = rtc.sdp_api().accept_offer(offer)?;
+    rtc.bwe().set_desired_bitrate(WANTED);
 
     let (watch, watched) = mpsc::channel(4);
     let mut peer = Peer {
@@ -80,9 +105,13 @@ pub async fn connect(
         streams,
         video: None,
         connected: false,
+        window: None,
+        link: Estimated::new(),
         feed: None,
+        next: None,
+        awaits_keyframe: false,
         watched,
-        messages,
+        events,
     };
     tokio::spawn(async move {
         match peer.run().await {
@@ -100,14 +129,24 @@ struct Peer {
     /// The client's video track, once it is known.
     video: Option<Mid>,
     connected: bool,
+    window: Option<WindowId>,
+    /// What the link carries, and so the quality of the video.
+    link: Estimated,
     /// The watched window's stream.
     feed: Option<Subscription>,
+    /// The stream of another quality that replaces `feed` once it has a keyframe, so that
+    /// the picture does not stop for the change.
+    next: Option<Subscription>,
+    /// The stream changed to one whose frames build on ones the client never got: none is
+    /// sent before the next keyframe.
+    awaits_keyframe: bool,
     watched: mpsc::Receiver<Option<WindowId>>,
-    messages: mpsc::Sender<client_message::Message>,
+    events: mpsc::Sender<FromPeer>,
 }
 
 impl Peer {
     async fn run(&mut self) -> Result<(), RtcError> {
+        let mut settle = tokio::time::interval(SETTLE_EVERY);
         loop {
             let deadline = self.drive().await?;
             if !self.rtc.is_alive() {
@@ -128,14 +167,67 @@ impl Peer {
                     // The window closed; the client is told what it watches next.
                     Err(broadcast::error::RecvError::Closed) => self.feed = None,
                 },
+                _ = settle.tick() => {
+                    if let Some(quality) = self.link.settle() {
+                        info!(?quality, "webrtc peer changes quality");
+                        // A better one takes over at its first keyframe; a lower one at
+                        // once, since what it replaces is what the link does not carry.
+                        if self.feed.as_ref().is_some_and(|feed| quality < feed.key.quality) {
+                            self.next = None;
+                            self.feed = self.subscribe().await;
+                            self.awaits_keyframe = true;
+                            self.report();
+                        } else {
+                            self.next = self.subscribe().await;
+                        }
+                    }
+                }
+                packet = next_packet(&mut self.next) => match packet {
+                    Ok(packet) if packet.keyframe => {
+                        self.feed = self.next.take();
+                        self.awaits_keyframe = false;
+                        self.report();
+                        self.write(&packet)?;
+                    }
+                    Ok(_) => {}
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        if let Some(next) = &self.next {
+                            next.keyframe();
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Closed) => self.next = None,
+                },
                 watched = self.watched.recv() => match watched {
-                    Some(Some(window)) => self.feed = self.streams.subscribe(window).await.ok(),
-                    Some(None) => self.feed = None,
+                    Some(window) => {
+                        self.window = window;
+                        self.next = None;
+                        self.feed = self.subscribe().await;
+                        self.report();
+                    }
                     // The client's session ended.
                     None => return Ok(()),
                 },
             }
         }
+    }
+
+    /// The watched window's stream at the quality the link carries.
+    async fn subscribe(&self) -> Option<Subscription> {
+        let key = Key {
+            window: self.window?,
+            format: Format::H264,
+            quality: self.link.quality(),
+        };
+        self.streams.subscribe(key).await.ok()
+    }
+
+    fn report(&self) {
+        // A session that takes no more is one that is ending.
+        let quality = self
+            .feed
+            .as_ref()
+            .map_or(self.link.quality(), |feed| feed.key.quality);
+        let _ = self.events.try_send(FromPeer::Quality(quality));
     }
 
     /// Handles everything str0m has to say until it wants to be woken at a deadline.
@@ -147,6 +239,9 @@ impl Peer {
                     self.sockets
                         .send(transmit.source, transmit.destination, &transmit.contents)
                         .await;
+                }
+                Output::Event(Event::EgressBitrateEstimate(BweKind::Twcc { estimate, .. })) => {
+                    self.link.estimate(estimate.as_u64());
                 }
                 Output::Event(event) => self.handle_event(event),
             }
@@ -175,8 +270,7 @@ impl Peer {
                         .map_err(|err| err.to_string())
                 };
                 match message.map(|envelope| envelope.message) {
-                    // A session that takes no more is one that is ending.
-                    Ok(Some(message)) => drop(self.messages.try_send(message)),
+                    Ok(Some(message)) => drop(self.events.try_send(FromPeer::Message(message))),
                     Ok(None) => {}
                     Err(reason) => warn!(%reason, "malformed client message"),
                 }
@@ -210,6 +304,11 @@ impl Peer {
         if !self.connected {
             return Ok(());
         }
+        if self.awaits_keyframe && !packet.keyframe {
+            return Ok(());
+        }
+        self.awaits_keyframe = false;
+        self.link.sent(packet.data.len());
         let Some(writer) = self.video.and_then(|mid| self.rtc.writer(mid)) else {
             return Ok(());
         };

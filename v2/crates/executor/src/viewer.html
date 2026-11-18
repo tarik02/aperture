@@ -46,7 +46,20 @@
   const size = () => (view === video ? [video.videoWidth, video.videoHeight] : [canvas.width, canvas.height]);
 
   const socket = new WebSocket(`${location.origin.replace(/^http/, "ws")}${base}/ws${location.search}`);
-  let peer, pointer, decoder;
+  let peer, pointer, decoder, decodes;
+  // The video's quality, as the session last said.
+  let status;
+  // What a decoder is asked for, by the form of the frames. Without a description the
+  // frames are read as Annex B, which they are.
+  const CODECS = { VIDEO_FORMAT_H264: "avc1.42e01f", VIDEO_FORMAT_FULL_CHROMA: "avc1.f4001f" };
+  const decodable = async () => {
+    const formats = [];
+    for (const format of ["VIDEO_FORMAT_FULL_CHROMA", "VIDEO_FORMAT_H264"]) {
+      const { supported } = await VideoDecoder.isConfigSupported({ codec: CODECS[format] }).catch(() => ({}));
+      if (supported) formats.push(format);
+    }
+    return formats;
+  };
   const send = (message) => {
     const moved = message.pointerMotion && pointer?.readyState === "open";
     (moved ? pointer : socket).send(JSON.stringify(message));
@@ -56,7 +69,8 @@
     view = way === "video" ? video : canvas;
     video.hidden = view !== video;
     canvas.hidden = view !== canvas;
-    send({ hello: { pixels: `PIXELS_${way.toUpperCase()}` } });
+    const formats = way === "frames" ? await decodable() : [];
+    send({ hello: { pixels: `PIXELS_${way.toUpperCase()}`, formats } });
     state.textContent = way;
     if (way !== "video") return;
     peer = new RTCPeerConnection();
@@ -65,7 +79,7 @@
     pointer = peer.createDataChannel("pointer", { ordered: true, maxRetransmits: 0 });
     peer.ontrack = (event) => { video.srcObject = new MediaStream([event.track]); };
     peer.onconnectionstatechange = () => {
-      state.textContent = `video: ${peer.connectionState}`;
+      if (peer.connectionState !== "connected") state.textContent = `video: ${peer.connectionState}`;
       if (peer.connectionState === "failed") fall(`WebRTC ${peer.connectionState}`);
     };
     await peer.setLocalDescription(await peer.createOffer());
@@ -104,19 +118,23 @@
   };
   const decodeFrame = async (frame) => {
     const data = await bytes(frame.data);
-    if (frame.target !== selected || way !== "frames") return;
-    if (decoder?.state !== "configured") {
-      if (!frame.keyframe) return;
+    // A frame let go is told too: the session counts on hearing of every frame.
+    if (frame.target !== selected || way !== "frames") return send({ videoShown: { timeUs: String(frame.timeUs ?? 0) } });
+    const shown = (time) => send({ videoShown: { timeUs: String(time) } });
+    if (decoder?.state !== "configured" || decodes !== frame.format) {
+      if (!frame.keyframe) return shown(frame.timeUs ?? 0);
+      if (decoder?.state === "configured") decoder.close();
       decoder = new VideoDecoder({
         output: (picture) => {
           fit(picture.displayWidth, picture.displayHeight);
           canvas.getContext("2d").drawImage(picture, 0, 0);
+          shown(picture.timestamp);
           picture.close();
         },
         error: (error) => fall(error.message),
       });
-      // Without a description the frames are read as Annex B, which they are.
-      decoder.configure({ codec: "avc1.42e01f", optimizeForLatency: true });
+      decodes = frame.format;
+      decoder.configure({ codec: CODECS[frame.format], optimizeForLatency: true });
     }
     decoder.decode(new EncodedVideoChunk({ type: frame.keyframe ? "key" : "delta", timestamp: Number(frame.timeUs ?? 0), data }));
   };
@@ -125,6 +143,12 @@
     const message = JSON.parse(event.data);
     if (message.rtcAnswer) return peer?.setRemoteDescription({ type: "answer", sdp: message.rtcAnswer.sdp });
     if (message.rtcRefused) return fall(message.rtcRefused.reason);
+    if (message.videoStatus) {
+      status = message.videoStatus;
+      const name = (value) => value.split("_").at(-1).toLowerCase();
+      state.textContent = `${way}: ${name(status.quality)}${status.format === "VIDEO_FORMAT_FULL_CHROMA" ? ", 4:4:4" : ""}`;
+      return;
+    }
     if (message.tile) return void (drawn = drawn.then(() => drawTile(message.tile)));
     if (message.videoFrame) return void (drawn = drawn.then(() => decodeFrame(message.videoFrame)));
     if (message.targets) targets = message.targets.targets ?? [];

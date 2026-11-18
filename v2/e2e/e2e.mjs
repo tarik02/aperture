@@ -178,9 +178,12 @@ const { targetId } = await viewer.send("Target.createTarget", { url: `${live}?to
 const { sessionId } = await viewer.send("Target.attachToTarget", { targetId, flatten: true });
 const evaluate = async (expression) => (await viewer.send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }, sessionId)).result.value;
 let seen = "";
-for (let i = 0; i < 60; i++) { await sleep(250); seen = await evaluate(`JSON.stringify({state: peer.connectionState, video: size(), time: view.currentTime, targets: targets.length, selected})`); if (JSON.parse(seen).video[0] > 0 && JSON.parse(seen).selected) break; }
+for (let i = 0; i < 60; i++) { await sleep(250); seen = await evaluate(`JSON.stringify({state: peer.connectionState, status, video: size(), time: view.currentTime, targets: targets.length, selected})`); if (JSON.parse(seen).video[0] > 0 && JSON.parse(seen).selected) break; }
 console.log("viewer:", seen);
 check("the viewer plays B's newest target over WebRTC", JSON.parse(seen).video[0] === 1280 && JSON.parse(seen).video[1] === 720 && JSON.parse(seen).selected === created.targetId);
+
+const gpu = await c.send("SystemInfo.getInfo");
+console.log("gpu:", JSON.stringify({ devices: gpu.gpu.devices.map((device) => `${device.vendorString} ${device.deviceString} ${device.driverVersion}`), features: gpu.gpu.featureStatus }));
 
 // Input goes the whole way: a click and keys in the viewer reach B's page.
 const box = JSON.parse(await evaluate(`JSON.stringify(view.getBoundingClientRect())`));
@@ -303,6 +306,7 @@ console.log("blinking:", JSON.stringify({ duration_ms: blinkingTimeline.duration
 check("a blinking caret does not keep a page from being idle", blinkingTimeline.edited_duration_ms < blinkingTimeline.duration_ms - 1500);
 check("the viewer's cursor is back", (await evaluate("video.style.cursor")) !== "none");
 check("the viewer still plays after the recording", JSON.parse(await evaluate("JSON.stringify({ state: peer.connectionState })")).state === "connected");
+check("a link that keeps up gets WebRTC video at the best quality", (await evaluate("status.quality")) === "VIDEO_QUALITY_FULL");
 
 const opened = await tool("navigate", { url: "data:text/html,<title>agent tab</title><h1>opened by the agent</h1><input id=q autofocus>" });
 // Keys reach a tab nobody clicked in.
@@ -321,7 +325,7 @@ for (const way of ["frames", "tiles"]) {
   const otherSession = (await viewer.send("Target.attachToTarget", { targetId: other.targetId, flatten: true })).sessionId;
   const otherEvaluate = async (expression) => (await viewer.send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }, otherSession)).result.value;
   let got = "";
-  for (let i = 0; i < 60; i++) { await sleep(250); got = await otherEvaluate(`drawn.then(() => JSON.stringify({ way, size: size(), selected, peer: typeof peer, lit: [...canvas.getContext("2d").getImageData(0, 0, canvas.width || 1, canvas.height || 1).data].some((value, index) => index % 4 !== 3 && value > 0) }))`); if (JSON.parse(got).lit) break; }
+  for (let i = 0; i < 60; i++) { await sleep(250); got = await otherEvaluate(`drawn.then(() => JSON.stringify({ way, status, size: size(), selected, peer: typeof peer, lit: [...canvas.getContext("2d").getImageData(0, 0, canvas.width || 1, canvas.height || 1).data].some((value, index) => index % 4 !== 3 && value > 0) }))`); if (JSON.parse(got).lit) break; }
   console.log(`${way}:`, got);
   check(`a viewer without WebRTC gets the target's picture as ${way}`, JSON.parse(got).lit && JSON.parse(got).way === way && JSON.parse(got).size.join("x") === "1280x720" && JSON.parse(got).peer === "undefined" && JSON.parse(got).selected === created.targetId);
   await c.send("Runtime.evaluate", { expression: "document.title = 'waiting'" }, bPage);
@@ -332,11 +336,44 @@ for (const way of ["frames", "tiles"]) {
   await viewer.send("Target.closeTarget", { targetId: other.targetId });
 }
 
+// A link that does not keep up: a client that shows frames late gets a lower quality, and
+// one that shows them in time a better one.
+{
+  await c.send("Runtime.evaluate", { expression: "(() => { const box = document.body.appendChild(document.createElement('div')); box.style.cssText = 'position:fixed;right:0;bottom:0;width:400px;height:300px'; window.moving = setInterval(() => { box.style.background = `hsl(${Date.now() / 5 % 360} 80% 50%)`; }, 16); })()" }, bPage);
+  const socket = new WebSocket(`${live.replace(/^http/u, "ws")}/ws?token=${token}`);
+  const qualities = [];
+  let lateBy = 0;
+  let afterChange = null;
+  let held = 0;
+  socket.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    if (message.videoStatus) { qualities.push(message.videoStatus.quality.split("_").at(-1)); afterChange = null; }
+    if (message.videoFrame) {
+      afterChange ??= message.videoFrame.keyframe === true;
+      held += 1;
+      setTimeout(() => { held -= 1; socket.send(JSON.stringify({ videoShown: { timeUs: message.videoFrame.timeUs } })); }, lateBy);
+    }
+  };
+  await new Promise((opened) => { socket.onopen = opened; });
+  socket.send(JSON.stringify({ hello: { pixels: "PIXELS_FRAMES" } }));
+  const reaches = async (quality, seconds) => { for (let i = 0; i < seconds * 10 && (qualities.at(-1) !== quality || afterChange === null); i++) await sleep(100); return qualities.at(-1) === quality; };
+  check("frames start at the middle quality", await reaches("MEDIUM", 5));
+  check("a client that shows frames in time gets the best quality", await reaches("FULL", 12) && afterChange === true);
+  lateBy = 700;
+  check("a client that shows frames late gets a lower quality", await reaches("MEDIUM", 8));
+  check("and a lower one still while it stays late", await reaches("LOW", 8) && afterChange === true);
+  lateBy = 0;
+  check("it gets a better quality again once it keeps up", await reaches("MEDIUM", 25));
+  console.log("qualities:", qualities.join(" > "));
+  socket.close();
+  await c.send("Runtime.evaluate", { expression: "clearInterval(window.moving)" }, bPage);
+}
+
 await sleep(500);
 const shot = await viewer.send("Page.captureScreenshot", { format: "png" }, sessionId);
 writeFileSync(`${D}/viewer.png`, Buffer.from(shot.data, "base64"));
 viewer.close(); c.close(); viewerBrowser.kill("SIGKILL");
-execSync(`grep -h "target ready\\|target closed\\|refused the extension\\|video encoders\\|encoder failed\\|no video\\|failed to encode" ${D}/data/sessions/${b.id}/logs/runner.log | sed 's/\\x1b\\[[0-9;]*m//g' > ${D}/encoders.log || true`);
+execSync(`grep -h "drawing on\\|no usable GPU\\|changes quality\\|target ready\\|target closed\\|refused the extension\\|video encoders\\|encoder failed\\|no video\\|failed to encode" ${D}/data/sessions/${b.id}/logs/runner.log | sed 's/\\x1b\\[[0-9;]*m//g' > ${D}/encoders.log || true`);
 console.log("encoders:", readFileSync(`${D}/encoders.log`, "utf8").trim());
 
 await rpc("SuspendSession", { id: a.id });

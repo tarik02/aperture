@@ -3,6 +3,7 @@
 //! as WebRTC video or as tiles; screenshots; and, for agents, the session's automation as
 //! an MCP server.
 
+mod adapt;
 mod client;
 pub mod edit;
 mod encode;

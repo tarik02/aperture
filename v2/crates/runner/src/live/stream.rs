@@ -1,5 +1,9 @@
-//! A window's video, encoded once for everyone who takes it: the clients that watch the
-//! window and the recordings of it get the same stream.
+//! A window's video, encoded once for everyone who takes it alike: the clients that watch
+//! the window in one format at one quality get the same stream, and so does a recording
+//! of it.
+//!
+//! A taker that cannot keep up with a stream does not hold it back: it takes one of a
+//! lower quality instead (see [`adapt`](super::adapt)), which is encoded beside it.
 
 use std::{
     collections::HashMap,
@@ -8,16 +12,28 @@ use std::{
 };
 
 use aperture_compositor::{Frames, Handle, WindowId};
-use tokio::sync::{Notify, broadcast};
+use tokio::{
+    sync::{Notify, broadcast},
+    time::Instant,
+};
 use tracing::{debug, warn};
 
-use super::encode::VideoEncoder;
+use super::encode::{Format, Quality, VideoEncoder};
 
 /// Access units kept for a taker that falls behind; one that falls further misses some and
 /// asks for a keyframe.
 const BACKLOG: usize = 32;
 /// How often a stream at rest looks whether anyone still takes it.
 const IDLE_CHECK: Duration = Duration::from_secs(2);
+/// The least time between two keyframes that takers ask for. They are large, and a taker
+/// that keeps losing frames must not make everyone else pay for one each time.
+const KEYFRAME_APART: Duration = Duration::from_millis(300);
+/// A window at rest is encoded this many times more, this far apart, at a quality that is a
+/// bitrate: each time the encoder has the bitrate to spend on the same picture.
+const REFINES: u32 = 4;
+const REFINE_AFTER: Duration = Duration::from_millis(250);
+/// Frames count as due this early: they come when the window draws, a little off the beat.
+const FRAME_SLACK: Duration = Duration::from_millis(3);
 
 /// One encoded frame.
 pub struct Packet {
@@ -33,20 +49,30 @@ pub struct Packet {
     pub size: (u32, u32),
 }
 
+/// Which video of a window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Key {
+    pub window: WindowId,
+    pub format: Format,
+    pub quality: Quality,
+}
+
 struct Shared {
     packets: broadcast::Sender<Arc<Packet>>,
     keyframe: Notify,
 }
 
-/// A window's stream, for one taker. The channel closes when the window does.
+/// A stream, for one taker. The channel closes when the window does.
 pub struct Subscription {
+    pub key: Key,
     pub packets: broadcast::Receiver<Arc<Packet>>,
     shared: Arc<Shared>,
 }
 
 impl Subscription {
     /// Asks for a frame decoding can start at. It comes even while the window is at rest,
-    /// stamped with the time it is encoded at.
+    /// stamped with the time it is encoded at, and no sooner than [`KEYFRAME_APART`] after
+    /// the one before it.
     pub fn keyframe(&self) {
         self.shared.keyframe.notify_one();
     }
@@ -54,7 +80,7 @@ impl Subscription {
 
 pub struct Streams {
     compositor: Handle,
-    streams: Mutex<HashMap<WindowId, Arc<Shared>>>,
+    streams: Mutex<HashMap<Key, Arc<Shared>>>,
 }
 
 impl Streams {
@@ -65,75 +91,98 @@ impl Streams {
         })
     }
 
-    /// Takes the window's stream, which starts with a keyframe for the new taker. The window
-    /// is encoded for as long as anyone takes it.
+    /// Takes a stream, which starts with a keyframe for the new taker. It is encoded for as
+    /// long as anyone takes it.
     pub async fn subscribe(
         self: &Arc<Self>,
-        window: WindowId,
+        key: Key,
     ) -> Result<Subscription, aperture_compositor::Error> {
-        if let Some(subscription) = self.join(window) {
+        if let Some(subscription) = self.join(key) {
             return Ok(subscription);
         }
-        let frames = self.compositor.frames(window).await?;
+        let frames = self.compositor.frames(key.window).await?;
         let mut streams = self.streams.lock().expect("not poisoned");
         // Someone else may have started it meanwhile.
-        if let Some(shared) = streams.get(&window) {
-            return Ok(take(shared));
+        if let Some(shared) = streams.get(&key) {
+            return Ok(take(key, shared));
         }
         let shared = Arc::new(Shared {
             packets: broadcast::Sender::new(BACKLOG),
             keyframe: Notify::new(),
         });
-        streams.insert(window, shared.clone());
+        streams.insert(key, shared.clone());
         let subscription = Subscription {
+            key,
             packets: shared.packets.subscribe(),
             shared: shared.clone(),
         };
-        tokio::spawn(self.clone().encode(window, frames, shared));
+        tokio::spawn(self.clone().encode(key, frames, shared));
         Ok(subscription)
     }
 
-    fn join(&self, window: WindowId) -> Option<Subscription> {
+    fn join(&self, key: Key) -> Option<Subscription> {
         self.streams
             .lock()
             .expect("not poisoned")
-            .get(&window)
-            .map(take)
+            .get(&key)
+            .map(|shared| take(key, shared))
     }
 
     /// Forgets the stream when nobody takes it. Takers join under the same lock, so none
     /// joins a stream that is about to end.
-    fn retire(&self, window: WindowId, shared: &Arc<Shared>) -> bool {
+    fn retire(&self, key: Key, shared: &Arc<Shared>) -> bool {
         let mut streams = self.streams.lock().expect("not poisoned");
         if shared.packets.receiver_count() > 0 {
             return false;
         }
-        streams.remove(&window);
+        streams.remove(&key);
         true
     }
 
-    /// Encodes the window's frames, each as it replaces the last. Frames that come while
-    /// one is encoded are skipped, down to the latest.
-    async fn encode(self: Arc<Self>, window: WindowId, mut frames: Frames, shared: Arc<Shared>) {
-        let mut encoder = match tokio::task::spawn_blocking(VideoEncoder::new).await {
+    /// Encodes the window's frames, each as it replaces the last and no more of them than
+    /// the quality has a second. Frames that come meanwhile are skipped, down to the
+    /// latest.
+    async fn encode(self: Arc<Self>, key: Key, mut frames: Frames, shared: Arc<Shared>) {
+        let made = tokio::task::spawn_blocking(move || VideoEncoder::new(key.format, key.quality));
+        let mut encoder = match made.await {
             Ok(Ok(encoder)) => encoder,
             failed => {
                 if let Ok(Err(err)) = failed {
                     warn!("no video: {err:#}");
                 }
-                self.streams.lock().expect("not poisoned").remove(&window);
+                self.streams.lock().expect("not poisoned").remove(&key);
                 return;
             }
         };
+        let apart = (Duration::from_secs(1) / key.quality.fps()).saturating_sub(FRAME_SLACK);
+        // When the next frame is due.
+        let mut due = Instant::now();
         let mut keyframe = true;
+        let mut last_keyframe: Option<Instant> = None;
+        // When the keyframe that was asked for is due.
+        let mut keyframe_due: Option<Instant> = None;
         // The frame is encoded again, at a rest of the window, rather than drawn anew.
         let mut again = false;
+        // How many more times the window is encoded at this rest.
+        let mut refines = 0;
         // What the last frame encoded had counted, see `Frame::changed`.
         let mut counted = 0;
         loop {
             tokio::select! {
                 () = shared.keyframe.notified() => {
+                    let earliest = last_keyframe.map_or_else(Instant::now, |last| last + KEYFRAME_APART);
+                    keyframe_due.get_or_insert(earliest.max(Instant::now()));
+                }
+                () = async { tokio::time::sleep_until(keyframe_due.expect("checked by the guard")).await },
+                    if keyframe_due.is_some() =>
+                {
+                    keyframe_due = None;
                     keyframe = true;
+                    again = true;
+                    frames.mark_changed();
+                }
+                () = tokio::time::sleep(REFINE_AFTER), if refines > 0 => {
+                    refines -= 1;
                     again = true;
                     frames.mark_changed();
                 }
@@ -142,18 +191,23 @@ impl Streams {
                     if changed.is_err() {
                         break;
                     }
+                    tokio::time::sleep_until(due).await;
                     let Some(frame) = frames.borrow_and_update().clone() else {
                         continue;
                     };
-                    if self.retire(window, &shared) {
+                    if self.retire(key, &shared) {
                         return;
                     }
+                    due = Instant::now() + apart;
                     let force = std::mem::take(&mut keyframe);
-                    let fresh = !std::mem::take(&mut again);
-                    let time = if fresh { frame.time } else { self.compositor.elapsed() };
                     // The count starts over when the window is watched anew.
                     let changed = frame.changed.checked_sub(counted).unwrap_or(frame.changed);
                     counted = frame.changed;
+                    let fresh = !std::mem::take(&mut again) || changed > 0;
+                    let time = if fresh { frame.time } else { self.compositor.elapsed() };
+                    if fresh && key.quality.bitrate().is_some() {
+                        refines = REFINES;
+                    }
                     // As the encoder takes it: without a last odd row or column.
                     let size = (frame.width & !1, frame.height & !1);
                     let task = tokio::task::spawn_blocking(move || {
@@ -167,6 +221,9 @@ impl Streams {
                     match encoded {
                         Ok((data, _)) if data.is_empty() => {}
                         Ok((data, keyframe)) => {
+                            if keyframe {
+                                last_keyframe = Some(Instant::now());
+                            }
                             // Nobody taking it right now is fine.
                             let packet = Packet { data, time, keyframe, changed, size };
                             let _ = shared.packets.send(Arc::new(packet));
@@ -178,18 +235,19 @@ impl Streams {
                     }
                 }
                 () = tokio::time::sleep(IDLE_CHECK) => {
-                    if self.retire(window, &shared) {
+                    if self.retire(key, &shared) {
                         return;
                     }
                 }
             }
         }
-        self.streams.lock().expect("not poisoned").remove(&window);
+        self.streams.lock().expect("not poisoned").remove(&key);
     }
 }
 
-fn take(shared: &Arc<Shared>) -> Subscription {
+fn take(key: Key, shared: &Arc<Shared>) -> Subscription {
     let subscription = Subscription {
+        key,
         packets: shared.packets.subscribe(),
         shared: shared.clone(),
     };

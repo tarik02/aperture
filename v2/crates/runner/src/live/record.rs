@@ -57,7 +57,8 @@ use super::{
         self,
         plan::{Options, Pace, Video},
     },
-    stream::{Packet, Streams, Subscription},
+    encode::{Format, Quality},
+    stream::{Key, Packet, Streams, Subscription},
 };
 use crate::{cdp, targets::Target};
 
@@ -279,7 +280,15 @@ impl Recordings {
             dropped: AtomicUsize::new(0),
         });
 
-        let subscription = inner.streams.subscribe(target.window).await?;
+        let subscription = inner
+            .streams
+            .subscribe(Key {
+                window: target.window,
+                format: Format::H264,
+                // A file is not a link: it takes the best there is.
+                quality: Quality::Full,
+            })
+            .await?;
         let writer = Writer::new(&path)?;
         let recording = Recording {
             id: id.clone(),

@@ -17,7 +17,8 @@ package aperture.live.v1;
 //   where pointer motion on an unreliable channel does not hold up clicks and keys behind
 //   a lost move.
 // - as frames, on the session socket: the same video, for a client that decodes it itself.
-//   This works wherever a WebSocket does, and costs what video costs.
+//   This works wherever a WebSocket does, and costs what video costs. The client tells
+//   which frames it has shown (`video_shown`).
 // - as tiles, on the session socket: the parts of the picture that changed, as images,
 //   for a client that decodes no video. Exact pixels, at many times the bytes of video
 //   while much of the picture changes.
@@ -36,6 +37,7 @@ message ClientMessage {
     Viewport viewport = 8;
     Hello hello = 9;
     RtcOffer rtc_offer = 10;
+    VideoShown video_shown = 11;
   }
 }
 
@@ -48,6 +50,7 @@ message ServerMessage {
     Tile tile = 5;
     RtcRefused rtc_refused = 6;
     VideoFrame video_frame = 7;
+    VideoStatus video_status = 8;
   }
 }
 
@@ -55,6 +58,47 @@ message ServerMessage {
 // watches, and the cursor.
 message Hello {
   Pixels pixels = 1;
+  // The forms of video frames the client decodes, the one it would rather have first;
+  // the session sends the first one it makes. `VIDEO_FORMAT_H264` when left out.
+  repeated VideoFormat formats = 2;
+}
+
+// The form a target's video takes.
+enum VideoFormat {
+  VIDEO_FORMAT_UNSPECIFIED = 0;
+  // H.264 constrained baseline, 4:2:0. Video over WebRTC is always this. Everything
+  // decodes it; colored text loses detail.
+  VIDEO_FORMAT_H264 = 1;
+  // H.264 High 4:4:4, in BT.709: color as sharp as light. For frames on the session
+  // socket, where the client's decoder takes it.
+  VIDEO_FORMAT_FULL_CHROMA = 2;
+}
+
+// How much a target's video costs the client's link. The session picks it, by what the
+// link carries, and changes it as that changes: over WebRTC by the connection's own
+// estimate, on the session socket by how late the client shows frames (`video_shown`).
+enum VideoQuality {
+  VIDEO_QUALITY_UNSPECIFIED = 0;
+  // Up to 0.7 Mbit/s, 15 frames a second.
+  VIDEO_QUALITY_LOW = 1;
+  // Up to 2.5 Mbit/s, 30 frames a second.
+  VIDEO_QUALITY_MEDIUM = 2;
+  // A constant quality whatever it takes, 60 frames a second.
+  VIDEO_QUALITY_FULL = 3;
+}
+
+// The video the client gets from now on, over WebRTC or as frames. Sent when it starts
+// and whenever the quality changes.
+message VideoStatus {
+  VideoFormat format = 1;
+  VideoQuality quality = 2;
+}
+
+// The client showed the video frame stamped `time_us`, or let it go undecoded. A client
+// that takes frames sends this for each: frames it does not report as shown count as
+// waiting in front of its link, and with too much waiting the session holds frames back.
+message VideoShown {
+  uint64 time_us = 1;
 }
 
 // How the pixels of the watched target reach a client.
@@ -84,15 +128,19 @@ message RtcRefused {
   string reason = 1;
 }
 
-// A frame of the watched target's video: an H.264 access unit in Annex B form, constrained
-// baseline. The first one a client gets of a target is a keyframe, and so is the first
-// one after frames it was too slow to take.
+// A frame of the watched target's video: an H.264 access unit in Annex B form. The first
+// one a client gets of a target is a keyframe, and so is the first one after frames were
+// held back and the first one of another quality.
 message VideoFrame {
   string target = 1;
   bool keyframe = 2;
   // When the frame was drawn, in microseconds on the session's clock.
   uint64 time_us = 3;
   bytes data = 4;
+  VideoFormat format = 5;
+  // The picture's size in pixels.
+  uint32 width = 6;
+  uint32 height = 7;
 }
 
 // A part of the watched target's picture that changed, as a PNG image; the whole picture
