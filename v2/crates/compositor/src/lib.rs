@@ -11,6 +11,7 @@ mod input;
 mod keymap;
 mod render;
 mod state;
+mod text;
 
 use std::{
     os::fd::BorrowedFd,
@@ -210,10 +211,15 @@ pub enum Input {
         code: u32,
         pressed: bool,
     },
-    /// Types the text through the keymap. Characters no key produces are left out.
+    /// Text as it is. A field that takes text input gets it whole; anything else gets it
+    /// typed through the keymap, without the characters no key produces.
     Text {
         window: WindowId,
         text: String,
+        /// The text is still being composed, as an input method's is: it shows in the
+        /// field as such, in place of what was being composed before, and text that is
+        /// not ends the composing.
+        composing: bool,
     },
 }
 
@@ -235,6 +241,7 @@ pub struct Handle {
     jobs: channel::Sender<Job>,
     windows: watch::Receiver<Vec<WindowInfo>>,
     cursor: watch::Receiver<Cursor>,
+    clipboard: watch::Receiver<Option<Arc<str>>>,
     render_node: Option<PathBuf>,
     started: Instant,
 }
@@ -258,6 +265,7 @@ pub fn start(config: Config) -> anyhow::Result<Handle> {
                     let _ = started.send(Ok((
                         state.windows_tx.subscribe(),
                         state.cursor_tx.subscribe(),
+                        state.clipboard_tx.subscribe(),
                         state.render_node.clone(),
                     )));
                     (event_loop, state)
@@ -271,13 +279,14 @@ pub fn start(config: Config) -> anyhow::Result<Handle> {
                 tracing::error!(%err, "the compositor stopped");
             }
         })?;
-    let (windows, cursor, render_node) = starting
+    let (windows, cursor, clipboard, render_node) = starting
         .recv()
         .map_err(|_| anyhow::anyhow!("the compositor thread ended while starting"))??;
     Ok(Handle {
         jobs,
         windows,
         cursor,
+        clipboard,
         render_node,
         started: clock,
     })
@@ -312,6 +321,16 @@ impl Handle {
 
     pub async fn screenshot(&self, window: WindowId) -> Result<Frame, Error> {
         self.call(move |state| state.screenshot(window)).await?
+    }
+
+    /// The text the session's clients last copied; none before they did.
+    pub fn clipboard(&self) -> watch::Receiver<Option<Arc<str>>> {
+        self.clipboard.clone()
+    }
+
+    /// Puts text on the session's clipboard, for its clients to paste.
+    pub fn set_clipboard(&self, text: String) {
+        self.submit(move |state| state.set_clipboard(text.into()));
     }
 
     pub fn input(&self, input: Input) {

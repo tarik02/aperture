@@ -127,17 +127,36 @@ impl State {
                 };
                 self.send_key(Keycode::new(code + EVDEV_XKB_OFFSET), state);
             }
-            Input::Text { window, text } => {
+            Input::Text {
+                window,
+                text,
+                composing,
+            } => {
                 let Ok(window) = self.window(window) else {
                     return;
                 };
                 self.focus_window(&window);
-                let positions: Vec<KeyPosition> = text
-                    .chars()
-                    .filter_map(|c| self.key_table.find(char_keysym(c)))
-                    .collect();
-                for position in positions {
-                    self.tap(position);
+                if composing {
+                    self.text_input.enter(&text, true);
+                    return;
+                }
+                // A line break or a tab is a key to a field, not text.
+                for part in text.split_inclusive(['\n', '\t']) {
+                    let key = part
+                        .chars()
+                        .next_back()
+                        .filter(|c| matches!(c, '\n' | '\t'));
+                    let written = part.strip_suffix(['\n', '\t']).unwrap_or(part);
+                    if !written.is_empty() && !self.text_input.enter(written, false) {
+                        self.type_text(written);
+                    }
+                    if let Some(key) = key {
+                        self.type_text(key.encode_utf8(&mut [0; 4]));
+                    }
+                }
+                // Nothing to write ends what was being composed.
+                if text.is_empty() {
+                    self.text_input.enter("", false);
                 }
             }
         }
@@ -186,6 +205,17 @@ impl State {
             },
         );
         pointer.frame(self);
+    }
+
+    /// Types text key by key. Characters no key of the keymap produces are left out.
+    fn type_text(&mut self, text: &str) {
+        let positions: Vec<KeyPosition> = text
+            .chars()
+            .filter_map(|c| self.key_table.find(char_keysym(c)))
+            .collect();
+        for position in positions {
+            self.tap(position);
+        }
     }
 
     fn tap(&mut self, key: KeyPosition) {

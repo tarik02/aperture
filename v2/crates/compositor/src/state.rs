@@ -1,7 +1,11 @@
 use std::{
     collections::HashMap,
+    io::Read,
     path::PathBuf,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -15,7 +19,7 @@ use smithay::{
     output::{Mode, Output, PhysicalProperties, Subpixel},
     reexports::{
         calloop::{
-            EventLoop, Interest, LoopSignal, PostAction,
+            EventLoop, Interest, LoopHandle, LoopSignal, PostAction,
             channel::{self, Event},
             generic::Generic,
             timer::{TimeoutAction, Timer},
@@ -41,7 +45,12 @@ use smithay::{
         fractional_scale::{FractionalScaleManagerState, with_fractional_scale},
         output::OutputManagerState,
         presentation::{PresentationState, Refresh},
-        selection::{data_device::DataDeviceState, primary_selection::PrimarySelectionState},
+        selection::{
+            data_device::{
+                DataDeviceState, request_data_device_client_selection, set_data_device_selection,
+            },
+            primary_selection::PrimarySelectionState,
+        },
         shell::xdg::{
             ToplevelSurface, XdgShellState, XdgToplevelSurfaceData, decoration::XdgDecorationState,
         },
@@ -57,6 +66,7 @@ use crate::{
     cursor::Theme,
     keymap::KeyTable,
     render::{Change, Renderer, WindowFrame},
+    text::TextInput,
 };
 
 /// Windows are told to draw, and drawn, this often.
@@ -154,6 +164,12 @@ pub struct State {
     watched: HashMap<WindowId, Watched>,
     pub windows_tx: watch::Sender<Vec<WindowInfo>>,
     pub cursor_tx: watch::Sender<Cursor>,
+    /// The text a client last copied.
+    pub clipboard_tx: watch::Sender<Option<Arc<str>>>,
+    /// How many times the clipboard changed hands: text read from a client that is no
+    /// longer the one that holds it is out of date.
+    clipboard_changes: Arc<AtomicU64>,
+    pub idle: LoopHandle<'static, Self>,
     next_window_id: u32,
     /// Frames presented, which clients compare against the refresh rate.
     presented: u64,
@@ -173,11 +189,18 @@ pub struct State {
     _fractional_scale_state: FractionalScaleManagerState,
     _presentation_state: PresentationState,
     _decoration_state: XdgDecorationState,
+    pub text_input: TextInput,
 }
+
+/// The forms text is on the clipboard in, the one clients prefer first.
+pub const TEXT_FORMS: [&str; 3] = ["text/plain;charset=utf-8", "UTF8_STRING", "text/plain"];
+
+/// The longest text the clipboard carries, in bytes.
+pub const CLIPBOARD_MOST: usize = 1024 * 1024;
 
 impl State {
     pub fn new(
-        event_loop: &mut EventLoop<Self>,
+        event_loop: &mut EventLoop<'static, Self>,
         config: &Config,
         jobs: channel::Channel<Job>,
         start: Instant,
@@ -196,6 +219,7 @@ impl State {
         let clock = Clock::<Monotonic>::new();
         let presentation_state = PresentationState::new::<Self>(&dh, clock.id() as u32);
         let decoration_state = XdgDecorationState::new::<Self>(&dh);
+        TextInput::start(&dh);
 
         let mut seat_state = SeatState::new();
         let mut seat = seat_state.new_wl_seat(&dh, "aperture");
@@ -312,6 +336,9 @@ impl State {
             watched: HashMap::new(),
             windows_tx: watch::Sender::new(Vec::new()),
             cursor_tx: watch::Sender::new(Cursor::Named("default")),
+            clipboard_tx: watch::Sender::new(None),
+            clipboard_changes: Arc::default(),
+            idle: handle.clone(),
             next_window_id: 1,
             presented: 0,
             clock,
@@ -328,6 +355,7 @@ impl State {
             _fractional_scale_state: fractional_scale_state,
             _presentation_state: presentation_state,
             _decoration_state: decoration_state,
+            text_input: TextInput::default(),
         };
         state.apply_output_mode();
         let keyboard = state.seat.get_keyboard().expect("seat has a keyboard");
@@ -336,6 +364,41 @@ impl State {
         });
         info!(socket = %config.socket.display(), "compositor running");
         Ok(state)
+    }
+
+    /// Reads the text a client put on the clipboard, in the form `form`, and tells it to
+    /// whoever follows the clipboard.
+    pub fn read_clipboard(&mut self, form: String) {
+        let Ok((read, write)) = std::io::pipe() else {
+            return;
+        };
+        if request_data_device_client_selection(&self.seat, form, write.into()).is_err() {
+            return;
+        }
+        let change = self.clipboard_changes.fetch_add(1, Ordering::Relaxed) + 1;
+        let changes = self.clipboard_changes.clone();
+        let told = self.clipboard_tx.clone();
+        // The client writes when it gets to it.
+        std::thread::spawn(move || {
+            let mut text = Vec::new();
+            let read = read.take(CLIPBOARD_MOST as u64 + 1).read_to_end(&mut text);
+            if read.is_err() || text.len() > CLIPBOARD_MOST {
+                return;
+            }
+            let Ok(text) = String::from_utf8(text) else {
+                return;
+            };
+            if changes.load(Ordering::Relaxed) == change {
+                told.send_replace(Some(text.into()));
+            }
+        });
+    }
+
+    /// Puts text on the clipboard, for clients to paste.
+    pub fn set_clipboard(&mut self, text: Arc<str>) {
+        self.clipboard_changes.fetch_add(1, Ordering::Relaxed);
+        let forms = TEXT_FORMS.map(str::to_owned).to_vec();
+        set_data_device_selection(&self.display_handle, &self.seat, forms, text);
     }
 
     pub fn time_msec(&self) -> u32 {

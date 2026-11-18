@@ -38,6 +38,9 @@ message ClientMessage {
     Hello hello = 9;
     RtcOffer rtc_offer = 10;
     VideoShown video_shown = 11;
+    // Puts text on the session's clipboard, for a paste there to take: a client that
+    // pastes sends what it has, then the keys that paste.
+    Clipboard clipboard = 12;
   }
 }
 
@@ -51,6 +54,8 @@ message ServerMessage {
     RtcRefused rtc_refused = 6;
     VideoFrame video_frame = 7;
     VideoStatus video_status = 8;
+    // Text was copied in the session.
+    Clipboard clipboard = 9;
   }
 }
 
@@ -215,8 +220,20 @@ message Key {
   bool pressed = 2;
 }
 
-// Text to type as it is, e.g. what a phone's keyboard entered.
+// Text as it is, whatever keyboard it takes to write: what a phone's keyboard or an input
+// method entered, or a key of a layout the session's keyboard does not have. A field that
+// takes text gets it whole; elsewhere it is typed key by key, without the characters the
+// session's keyboard has no key for. A line break is the Enter key and a tab the Tab key.
 message Text {
+  string text = 1;
+  // The text is still being composed, as with an input method: the field shows it as
+  // such, in place of what was being composed before. Text that is not composing ends the
+  // composing and stays; empty, it only ends it.
+  bool composing = 2;
+}
+
+// The clipboard's text, at most 1 MiB of it.
+message Clipboard {
   string text = 1;
 }
 

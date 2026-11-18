@@ -457,6 +457,9 @@ fn start_browser(
             // Datagrams have no way out.
             "--disable-quic",
             "--ozone-platform=wayland",
+            // Fields take text as text, whatever keyboard it takes to write it.
+            "--enable-wayland-ime",
+            "--wayland-text-input-version=3",
             // No browser interface around the page, and none of the hints a fullscreen
             // window shows otherwise.
             "--kiosk",

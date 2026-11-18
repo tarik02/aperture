@@ -12,6 +12,8 @@
   #bar select { background: #262a33; color: inherit; border: 1px solid #3a3f4b; border-radius: 4px; padding: 2px 4px; }
   #controls { margin-left: auto; display: flex; gap: 6px; align-items: center; white-space: nowrap; }
   #state { opacity: 0.7; }
+  /* Takes the keyboard without showing: what is typed goes to the session. */
+  #keys { position: fixed; left: 0; bottom: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; resize: none; }
   #stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
   video, canvas { max-width: 100%; max-height: 100%; background: #000; outline: none; }
 </style>
@@ -24,10 +26,12 @@
     <select id="fps" title="Frames a second at most"><option value="">FPS: auto</option><option>15</option><option>30</option><option>60</option></select>
     <select id="viewport" title="The page's size"><option value="">Viewport</option><option>1280x720</option><option>1920x1080</option><option>1024x768</option><option>390x844</option><option value="fit">Fit this window</option></select>
     <select id="scale" title="Pixels per CSS pixel"><option value="1">1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option><option value="3">3x</option></select>
+    <button id="copied" title="The session copied text. This copies it here." hidden>Copy</button>
+    <button id="keyboard" title="Type into the session">⌨</button>
     <span id="state">connecting</span>
   </span>
 </div>
-<div id="stage"><video id="video" autoplay muted playsinline tabindex="0" hidden></video><canvas id="canvas" tabindex="0" hidden></canvas></div>
+<div id="stage"><video id="video" autoplay muted playsinline tabindex="0" hidden></video><canvas id="canvas" tabindex="0" hidden></canvas><textarea id="keys" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Keyboard of the session"></textarea></div>
 <script>
   // KeyboardEvent.code to Linux evdev key codes.
   const KEYS = {
@@ -228,6 +232,7 @@
       state.textContent = `${way}: ${name(status.quality)}, ${controls.codec.querySelector(`[value=${status.format}]`)?.textContent ?? status.format}, ${status.fps} fps`;
       return;
     }
+    if (message.clipboard) return void copy(message.clipboard.text ?? "");
     if (message.tile) return void (drawn = drawn.then(() => drawTile(message.tile)));
     if (message.videoFrame) return void (drawn = drawn.then(() => decodeFrame(message.videoFrame)));
     if (message.targets) targets = message.targets.targets ?? [];
@@ -266,7 +271,8 @@
     surface.addEventListener("pointerleave", () => send({ pointerLeave: {} }));
     for (const [type, pressed] of [["pointerdown", true], ["pointerup", false]]) {
       surface.addEventListener(type, (event) => {
-        surface.focus();
+        // A touch does not bring up the phone's keyboard; the keyboard button does.
+        if (event.pointerType !== "touch") keys.focus({ preventScroll: true });
         if (pressed) surface.setPointerCapture(event.pointerId);
         send({ pointerButton: { ...position(event), button: BUTTONS[event.button], pressed } });
         event.preventDefault();
@@ -278,12 +284,95 @@
       send({ pointerScroll: { ...position(event), dx: event.deltaX / notch, dy: event.deltaY / notch } });
       event.preventDefault();
     }, { passive: false });
-    for (const [type, pressed] of [["keydown", true], ["keyup", false]]) {
-      surface.addEventListener(type, (event) => {
-        const code = KEYS[event.code];
-        if (code !== undefined) send({ key: { code, pressed } });
-        event.preventDefault();
-      });
-    }
   }
+
+  // The keyboard. A key goes as the physical key it is where the session's keyboard, a US
+  // one, writes the same with it, so that it is held and released as here; a key that
+  // writes something else here goes as the text it writes, and so does all that a phone's
+  // keyboard or an input method enters.
+  const keys = document.getElementById("keys");
+  const US = { Space: "  ", Minus: "-_", Equal: "=+", BracketLeft: "[{", BracketRight: "]}", Backslash: "\\|", Semicolon: ";:", Quote: "'\"", Backquote: "`~", Comma: ",<", Period: ".>", Slash: "/?" };
+  [..."1!2@3#4$5%6^7&8*9(0)"].forEach((written, at, all) => { if (at % 2 === 0) US[`Digit${written}`] = written + all[at + 1]; });
+  for (const letter of "abcdefghijklmnopqrstuvwxyz") US[`Key${letter.toUpperCase()}`] = letter + letter.toUpperCase();
+  const [CONTROLS, METAS, PASTES] = [[29, 97], [125, 126], 47];
+  // The keys down in the session.
+  const held = new Set();
+  const press = (code, pressed) => {
+    if (pressed) held.add(code);
+    else if (!held.delete(code)) return;
+    send({ key: { code, pressed } });
+  };
+  const tap = (code) => { press(code, true); press(code, false); };
+  // A phone's keyboard deletes only what there is to delete.
+  const rest = () => { keys.value = " "; };
+  rest();
+  document.getElementById("keyboard").onclick = () => keys.focus({ preventScroll: true });
+  keys.addEventListener("keydown", (event) => {
+    // Composing, or a key of a phone's keyboard: the text comes of it.
+    if (event.isComposing || event.keyCode === 229) return;
+    const code = KEYS[event.code];
+    if (code === undefined) return;
+    const shortcut = event.ctrlKey || event.metaKey;
+    // Pasting comes with what there is to paste.
+    if (shortcut && event.code === "KeyV") return;
+    const written = [...event.key].length === 1 && !shortcut ? event.key : undefined;
+    const same = US[event.code]?.[event.shiftKey ? 1 : 0] === written;
+    if (written === undefined || same) press(code, true);
+    else send({ text: { text: written } });
+    event.preventDefault();
+  });
+  keys.addEventListener("keyup", (event) => {
+    const code = KEYS[event.code];
+    if (code !== undefined) press(code, false);
+    event.preventDefault();
+  });
+  keys.addEventListener("blur", () => [...held].forEach((code) => press(code, false)));
+  keys.addEventListener("compositionupdate", (event) => send({ text: { text: event.data, composing: true } }));
+  keys.addEventListener("compositionend", (event) => {
+    send({ text: { text: event.data } });
+    rest();
+  });
+  keys.addEventListener("beforeinput", (event) => {
+    if (event.isComposing || /Composition/u.test(event.inputType)) return;
+    event.preventDefault();
+    if (/^insert(Text|ReplacementText)$/u.test(event.inputType) && event.data) send({ text: { text: event.data } });
+    if (/^insert(LineBreak|Paragraph)$/u.test(event.inputType)) tap(KEYS.Enter);
+    if (event.inputType === "deleteContentBackward") tap(KEYS.Backspace);
+    if (event.inputType === "deleteContentForward") tap(KEYS.Delete);
+  });
+  keys.addEventListener("input", rest);
+  keys.addEventListener("paste", (event) => {
+    event.preventDefault();
+    const text = event.clipboardData.getData("text/plain");
+    if (!text) return;
+    send({ clipboard: { text } });
+    // Pasting is Control and V there, whatever it is here.
+    METAS.forEach((code) => press(code, false));
+    const controlled = CONTROLS.some((code) => held.has(code));
+    if (!controlled) press(CONTROLS[0], true);
+    tap(PASTES);
+    if (!controlled) press(CONTROLS[0], false);
+  });
+
+  // What the session copied goes to the clipboard here where the browser lets a page
+  // write to it at any time; elsewhere a button does it at a click.
+  const copied = document.getElementById("copied");
+  const copy = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      copied.hidden = true;
+    } catch {
+      copied.hidden = false;
+      copied.onclick = () => {
+        const from = document.createElement("textarea");
+        from.value = text;
+        document.body.append(from);
+        from.select();
+        document.execCommand("copy");
+        from.remove();
+        copied.hidden = true;
+        keys.focus({ preventScroll: true });
+      };
+    }
+  };
 </script>

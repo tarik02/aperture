@@ -7,6 +7,7 @@ mod adapt;
 mod client;
 pub mod edit;
 mod encode;
+mod encoders;
 mod http;
 mod mcp;
 mod net;
@@ -15,5 +16,5 @@ mod rtc;
 pub mod stream;
 mod tiles;
 
-pub use encode::frame_layouts;
+pub use encoders::frame_layouts;
 pub use http::{Live, serve};

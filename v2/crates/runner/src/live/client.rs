@@ -1,6 +1,8 @@
 //! One client of the session: the session socket it speaks the live protocol on, the
 //! target it watches, and the way that target's pixels reach it.
 
+use std::sync::Arc;
+
 use aperture_compositor::{Button, Cursor, Input, Viewport, WindowId};
 use axum::extract::ws::{Message as Frame, WebSocket};
 use buffa::Message as _;
@@ -9,7 +11,8 @@ use tracing::{debug, warn};
 
 use super::{
     adapt::Delivery,
-    encode::{self, Format, Quality},
+    encode::{Format, Quality},
+    encoders,
     http::Live,
     rtc::{self, FromPeer},
     stream::{Key, Packet, Subscription},
@@ -20,12 +23,16 @@ use crate::proto::aperture::live::v1::{self as pb, client_message, server_messag
 /// What a client's WebRTC connection has to tell that waits for its session socket's turn.
 const CHANNEL_MESSAGES: usize = 256;
 
+/// The longest text a client puts on the clipboard, in bytes.
+const CLIPBOARD_MOST: usize = 1024 * 1024;
+
 /// Serves the client until its socket closes or the session ends.
 pub async fn serve(live: Live, socket: WebSocket) {
     let (tiles_watch, tiles) = tiles::start(live.compositor.clone());
     let (from_peer, peer_events) = mpsc::channel(CHANNEL_MESSAGES);
     let mut client = Client {
         cursor: live.compositor.cursor(),
+        clipboard: live.compositor.clipboard(),
         live,
         socket,
         greeted: false,
@@ -53,6 +60,8 @@ pub async fn serve(live: Live, socket: WebSocket) {
 struct Client {
     live: Live,
     cursor: watch::Receiver<Cursor>,
+    /// What the session copied; the client is told what is copied from now on.
+    clipboard: watch::Receiver<Option<Arc<str>>>,
     socket: WebSocket,
     /// The client said hello.
     greeted: bool,
@@ -165,6 +174,20 @@ impl Client {
                     }
                     self.send_cursor().await?;
                 }
+                changed = self.clipboard.changed() => {
+                    if changed.is_err() {
+                        return Ok(());
+                    }
+                    let text = self.clipboard.borrow_and_update().clone();
+                    if let Some(text) = text {
+                        let clipboard = pb::Clipboard {
+                            text: text.to_string(),
+                            ..Default::default()
+                        };
+                        self.send(server_message::Message::Clipboard(Box::new(clipboard)))
+                            .await?;
+                    }
+                }
             }
         }
     }
@@ -194,7 +217,7 @@ impl Client {
                 let made = tokio::task::spawn_blocking(move || {
                     wanted
                         .into_iter()
-                        .filter(|format| encode::encodes(*format))
+                        .filter(|format| encoders::encodes(*format))
                         .collect()
                 });
                 self.formats = made.await.unwrap_or_default();
@@ -284,7 +307,14 @@ impl Client {
             Message::Text(m) => Input::Text {
                 window,
                 text: m.text,
+                composing: m.composing,
             },
+            Message::Clipboard(m) => {
+                if m.text.len() <= CLIPBOARD_MOST {
+                    self.live.compositor.set_clipboard(m.text);
+                }
+                return Ok(());
+            }
             Message::Hello(_)
             | Message::Select(_)
             | Message::Viewport(_)

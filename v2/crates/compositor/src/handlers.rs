@@ -29,7 +29,7 @@ use smithay::{
         fractional_scale::FractionalScaleHandler,
         output::OutputHandler,
         selection::{
-            SelectionHandler,
+            SelectionHandler, SelectionSource, SelectionTarget,
             data_device::{
                 ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
                 set_data_device_focus,
@@ -44,9 +44,12 @@ use smithay::{
         tablet_manager::TabletSeatHandler,
     },
 };
+use std::{fs::File, io::Write, os::fd::OwnedFd, sync::Arc};
 use tracing::info;
 
-use crate::state::{ClientState, Shown, State, Tag, configure_when_ready, tell_scale, window_id};
+use crate::state::{
+    ClientState, Shown, State, TEXT_FORMS, Tag, configure_when_ready, tell_scale, window_id,
+};
 
 impl CompositorHandler for State {
     fn compositor_state(&mut self) -> &mut CompositorState {
@@ -304,6 +307,9 @@ impl SeatHandler for State {
     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
         let client = focused.and_then(|surface| self.display_handle.get_client(surface.id()).ok());
         set_data_device_focus(&self.display_handle, seat, client);
+        if let Some(focused) = focused {
+            self.text_input.focus(focused);
+        }
     }
 
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
@@ -314,7 +320,47 @@ impl SeatHandler for State {
 impl TabletSeatHandler for State {}
 
 impl SelectionHandler for State {
-    type SelectionUserData = ();
+    /// The text the compositor put on the clipboard.
+    type SelectionUserData = Arc<str>;
+
+    fn new_selection(
+        &mut self,
+        target: SelectionTarget,
+        source: Option<SelectionSource>,
+        _seat: Seat<Self>,
+    ) {
+        if target != SelectionTarget::Clipboard {
+            return;
+        }
+        let Some(source) = source else {
+            return;
+        };
+        let offered = source.mime_types();
+        let form = TEXT_FORMS
+            .iter()
+            .find(|form| offered.iter().any(|offered| offered == *form));
+        if let Some(form) = form {
+            let form = (*form).to_owned();
+            // The selection is the client's only once this returns.
+            self.idle
+                .insert_idle(move |state| state.read_clipboard(form));
+        }
+    }
+
+    fn send_selection(
+        &mut self,
+        _target: SelectionTarget,
+        _form: String,
+        fd: OwnedFd,
+        _seat: Seat<Self>,
+        text: &Arc<str>,
+    ) {
+        let text = text.clone();
+        // The client reads when it gets to it.
+        std::thread::spawn(move || {
+            let _ = File::from(fd).write_all(text.as_bytes());
+        });
+    }
 }
 
 impl DataDeviceHandler for State {
