@@ -158,8 +158,11 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
         let recorder = live::record::Recordings::new(
             streams.clone(),
             compositor.clone(),
+            devtools.clone(),
             registry.targets(),
             spec.files_dir.clone(),
+            spec.tools.ffmpeg.clone(),
+            spec.cache_dir.join("ffmpeg"),
         );
         recordings = Some(recorder.clone());
         let automation = Arc::new(automation::Automation::new(

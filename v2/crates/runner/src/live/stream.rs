@@ -26,6 +26,10 @@ pub struct Packet {
     /// When the frame was drawn, or encoded again, on the compositor's clock.
     pub time: Duration,
     pub keyframe: bool,
+    /// Whether the frame shows something new, rather than the last one encoded again.
+    pub fresh: bool,
+    /// The picture's size in pixels.
+    pub size: (u32, u32),
 }
 
 struct Shared {
@@ -142,11 +146,10 @@ impl Streams {
                         return;
                     }
                     let force = std::mem::take(&mut keyframe);
-                    let time = if std::mem::take(&mut again) {
-                        self.compositor.elapsed()
-                    } else {
-                        frame.time
-                    };
+                    let fresh = !std::mem::take(&mut again);
+                    let time = if fresh { frame.time } else { self.compositor.elapsed() };
+                    // As the encoder takes it: without a last odd row or column.
+                    let size = (frame.width & !1, frame.height & !1);
                     let task = tokio::task::spawn_blocking(move || {
                         let encoded = encoder.encode(&frame, force);
                         (encoder, encoded)
@@ -159,7 +162,8 @@ impl Streams {
                         Ok((data, _)) if data.is_empty() => {}
                         Ok((data, keyframe)) => {
                             // Nobody taking it right now is fine.
-                            let _ = shared.packets.send(Arc::new(Packet { data, time, keyframe }));
+                            let packet = Packet { data, time, keyframe, fresh, size };
+                            let _ = shared.packets.send(Arc::new(packet));
                         }
                         Err(err) => {
                             debug!("failed to encode a frame: {err:#}");

@@ -71,6 +71,9 @@ struct Arguments {
     /// The unpacked extension that keeps every page in a browser window of its own.
     #[arg(long, env = "APERTURE_TAB_WINDOW_EXTENSION")]
     tab_window_extension: PathBuf,
+    /// ffmpeg, which makes the edits of recordings. Without it they are left raw.
+    #[arg(long, env = "APERTURE_FFMPEG")]
+    ffmpeg: Option<PathBuf>,
     /// `aperture-native-host`. Next to this program by default.
     #[arg(long, env = "APERTURE_NATIVE_HOST")]
     native_host: Option<PathBuf>,
@@ -132,6 +135,7 @@ async fn main() -> anyhow::Result<()> {
                     .canonicalize()
                     .context("the tab window extension was not found")?,
                 native_host: executable(&native_host)?,
+                ffmpeg: arguments.ffmpeg.as_deref().map(executable).transpose()?,
             },
             viewport: VIEWPORT,
             rtc_ports: arguments.rtc_ports,

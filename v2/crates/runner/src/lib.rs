@@ -65,6 +65,8 @@ pub struct Tools {
     pub extension: PathBuf,
     /// The extension's native messaging host, `aperture-native-host`.
     pub native_host: PathBuf,
+    /// ffmpeg, which makes the edits of recordings; without it they are left raw.
+    pub ffmpeg: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

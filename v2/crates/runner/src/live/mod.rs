@@ -2,6 +2,7 @@
 //! back (see `proto/aperture/live/v1/live.proto`), screenshots, and, for agents, the
 //! session's automation as an MCP server.
 
+pub mod edit;
 mod encode;
 mod http;
 mod mcp;

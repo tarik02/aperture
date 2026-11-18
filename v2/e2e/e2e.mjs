@@ -173,24 +173,44 @@ check("press types through the keyboard", !pressed.isError && (await bTitle()) =
 const pictured = await mcp("tools/call", { name: "screenshot", arguments: { tab: created.targetId } });
 check("screenshot returns an image", pictured.content.some((c) => c.type === "image" && c.data.length > 1000));
 // Recording: the target's own stream into a file, with the pointer in the picture.
-const recordingStarted = JSON.parse((await tool("recording", { action: "start", tab: created.targetId })).text);
+const recordingStarted = JSON.parse((await tool("recording", { action: "start", tab: created.targetId, idle: "cut", ripple: true })).text);
 await sleep(300);
 check("the viewer's cursor is hidden while the pointer is recorded", (await evaluate("video.style.cursor")) === "none");
 for (const [x, y] of [[200, 200], [600, 300], [250, 350]]) { await tool("hover", { tab: created.targetId, x, y }); await sleep(250); }
-await tool("recording", { action: "caption", text: "clicking the button" });
+await tool("recording", { action: "caption", text: "clicking the button", duration_ms: 2500 });
+await tool("recording", { action: "focus", selector: "button", zoom: 2 });
+await sleep(700);
 await tool("click", { tab: created.targetId, selector: "button" });
-await sleep(1200);
+await sleep(700);
+await tool("recording", { action: "reset_focus" });
+await tool("recording", { action: "attention", selector: "#i", duration_ms: 600 });
+// Nothing happens for a while, which the edit cuts.
+await sleep(2500);
 const recordingStopped = JSON.parse((await tool("recording", { action: "stop", id: recordingStarted.id })).text);
 console.log("recording:", JSON.stringify(recordingStopped));
-check("the recording finished with a length", recordingStopped.state === "finished" && recordingStopped.duration_ms > 2000 && recordingStopped.bytes > 1000);
+check("the recording finished with a length", recordingStopped.state === "finished" && recordingStopped.duration_ms > 5000 && recordingStopped.bytes > 1000);
+check("stop returns while the edit is made", recordingStopped.edit?.state === "editing");
 const recordedFile = Buffer.from(await (await fetch(`${live}/files/${recordingStopped.file}`, { headers: auth })).arrayBuffer());
 writeFileSync(`${D}/recording.mkv`, recordedFile);
 check("the recording is served as a Matroska file", recordedFile.length === recordingStopped.bytes && recordedFile.subarray(0, 4).toString("hex") === "1a45dfa3");
 const journal = (await (await fetch(`${live}/files/${recordingStopped.journal}`, { headers: auth })).text()).trim().split("\n").map((line) => JSON.parse(line));
 console.log("journal:", journal.map((e) => `${e.kind}@${e.at_ms}`).join(" "));
 const kinds = new Set(journal.map((e) => e.kind));
-check("the journal has what the automation did", ["move", "press", "call", "caption"].every((kind) => kinds.has(kind)) && journal.find((e) => e.kind === "caption").text === "clicking the button");
-check("journal times are in the video's time", journal.every((e) => e.at_ms >= 0 && e.at_ms <= e.end_ms && e.end_ms <= recordingStopped.duration_ms + 100) && journal.at(-1).at_ms > 500);
+check("the journal has what the automation did", ["move", "press", "call", "caption", "focus", "attention"].every((kind) => kinds.has(kind)) && journal.find((e) => e.kind === "caption").text === "clicking the button");
+const focusEntry = journal.find((e) => e.kind === "focus");
+check("the focus is on the button, until it was reset", focusEntry.follow === "element" && focusEntry.ended === "reset" && Math.abs(focusEntry.rect.x - 100) < 2 && focusEntry.end_ms - focusEntry.at_ms > 1000);
+let edited;
+for (let i = 0; i < 120; i++) { edited = JSON.parse((await tool("recording", { action: "status", id: recordingStarted.id })).text).edit; if (edited.state !== "editing") break; await sleep(500); }
+console.log("edit:", JSON.stringify(edited));
+check("the edit finished", edited.state === "finished");
+const editedFile = Buffer.from(await (await fetch(`${live}/files/${edited.file}`, { headers: auth })).arrayBuffer());
+writeFileSync(`${D}/edited.mp4`, editedFile);
+check("the edited video is an MP4", editedFile.subarray(4, 8).toString() === "ftyp" && editedFile.length > 1000);
+const timeline = await (await fetch(`${live}/files/${edited.timeline}`, { headers: auth })).json();
+console.log("timeline:", JSON.stringify({ duration_ms: timeline.duration_ms, edited_duration_ms: timeline.edited_duration_ms, map: timeline.map }));
+check("the edit cut the idle stretch", timeline.edited_duration_ms < timeline.duration_ms - 1000 && timeline.map.length >= 1 && timeline.events.every((e) => e.edited_at_ms <= e.at_ms));
+check("journal times are in the video's time", journal.every((e) => e.at_ms >= 0 && e.at_ms <= e.end_ms && e.end_ms <= recordingStopped.duration_ms + 100) && journal.some((e) => e.at_ms > 500));
+check("the pointer travels to where it acts while recorded", journal.filter((e) => e.kind === "move").length > 30);
 check("the journal's press is where the click went", journal.some((e) => e.kind === "press" && e.button === "left" && Math.abs(e.x - 250) < 150 && Math.abs(e.y - 350) < 50));
 check("the viewer's cursor is back", (await evaluate("video.style.cursor")) !== "none");
 check("the viewer still plays after the recording", JSON.parse(await evaluate("JSON.stringify({ state: peer.connectionState })")).state === "connected");

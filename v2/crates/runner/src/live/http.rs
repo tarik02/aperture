@@ -17,6 +17,7 @@ use tokio::sync::watch;
 use tower_http::services::ServeDir;
 
 use super::{
+    edit::plan::Options,
     mcp,
     peer::{self, ConnectError},
     record::{Recording, Recordings},
@@ -48,6 +49,7 @@ pub async fn serve(
         .route("/targets", get(targets_list))
         .route("/targets/{id}/screenshot.png", get(screenshot))
         .route("/recordings", get(recordings_list).post(recording_start))
+        .route("/recordings/{id}", get(recording_get))
         .route("/recordings/{id}/stop", post(recording_stop))
         .nest_service("/files", ServeDir::new(files))
         .nest_service("/mcp", mcp::service(automation))
@@ -134,13 +136,26 @@ async fn screenshot(State(live): State<Live>, RoutePath(id): RoutePath<String>) 
 struct StartRecording {
     /// The target to record; the newest one when left out.
     target: Option<String>,
+    /// What the edit does once the recording stops.
+    #[serde(flatten)]
+    options: Options,
 }
 
 async fn recording_start(State(live): State<Live>, body: Option<Json<StartRecording>>) -> Response {
     let request = body.map(|Json(request)| request).unwrap_or_default();
-    match live.recordings.start(request.target.as_deref()).await {
+    let started = live
+        .recordings
+        .start(request.target.as_deref(), request.options);
+    match started.await {
         Ok(recording) => (StatusCode::CREATED, Json(recording)).into_response(),
         Err(err) => (StatusCode::CONFLICT, format!("{err:#}")).into_response(),
+    }
+}
+
+async fn recording_get(State(live): State<Live>, RoutePath(id): RoutePath<String>) -> Response {
+    match live.recordings.get(&id) {
+        Ok(recording) => Json(recording).into_response(),
+        Err(err) => (StatusCode::NOT_FOUND, format!("{err:#}")).into_response(),
     }
 }
 

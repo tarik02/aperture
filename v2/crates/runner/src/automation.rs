@@ -29,13 +29,22 @@ use tokio::{
     time::{Instant, sleep, timeout},
 };
 
-use crate::{cdp, live::record::Recordings, targets::Target};
+use crate::{
+    cdp,
+    live::{
+        edit::plan::Pace,
+        record::{Place, Recordings, Subject},
+    },
+    targets::Target,
+};
 
 const TAB_READY_WITHIN: Duration = Duration::from_secs(15);
 const LOAD_WITHIN: Duration = Duration::from_secs(30);
 /// How long the page gets to take in input the compositor delivered, before the command
 /// that caused it counts as done.
 const INPUT_SETTLES_WITHIN: Duration = Duration::from_millis(500);
+/// What a slow pace adds to each step of the pointer's travel.
+const SLOW_STEP: Duration = Duration::from_millis(14);
 
 /// `browse`'s recorder films the page through DevTools; the session records its targets
 /// itself, under the same name.
@@ -323,9 +332,13 @@ impl Browser for Session {
         bail!("this session cannot hand a tab to a person yet")
     }
 
-    /// Input goes at once: nobody asked for it to be paced.
-    async fn human_input(&self, _tab: TabId) -> bool {
-        false
+    /// Input goes at once, unless the tab is being recorded at a pace: the pointer then
+    /// travels to where it acts, along a path the eye can follow.
+    async fn human_input(&self, tab: TabId) -> bool {
+        self.target_of(tab)
+            .ok()
+            .and_then(|target| self.recordings.pace(&target.id))
+            .is_some_and(|pace| pace != Pace::Instant)
     }
 
     async fn read_only(&self, _tab: TabId) -> bool {
@@ -520,7 +533,12 @@ impl TabSession {
             }
             _ => {}
         }
+        let travelled = matches!(input, Input::PointerMotion { .. });
         self.compositor.input(input);
+        // A slow pace takes each step of the pointer's way about twice as long.
+        if travelled && self.recordings.pace(&self.target) == Some(Pace::Slow) {
+            sleep(SLOW_STEP).await;
+        }
         if settles {
             // The command is done once the page has seen the input, which reaches it by
             // another way than the commands do: a frame later, it has.
@@ -747,7 +765,7 @@ impl Tool for TabsTool {
     }
 }
 
-/// Recordings of a tab, as files of the session.
+/// Recordings of a tab, as files of the session, and what their edits show.
 struct RecordingTool(Recordings);
 
 #[async_trait]
@@ -755,23 +773,71 @@ impl Tool for RecordingTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "recording".into(),
-            description: "Record a tab to a video file of the session. `start` records `tab` \
-                (the newest tab when left out) from now on, with the pointer in the picture, \
-                and returns the recording's `id`; `caption` notes `text`, what you are doing \
-                now, in the journal of the recordings that run; `stop` ends recording `id` and \
-                returns its file, journal, duration and size; `list` gives every recording of \
-                the session."
+            description: "Record a tab to a video file of the session, and say what the edited \
+                video shows. `start` records `tab` (the newest tab when left out) from now on, \
+                with the pointer in the picture, and returns the recording's `id`; `capture`, \
+                `idle`, `ripple` and `burst` say how the edit is cut. While it runs: `caption` \
+                shows `text`; `focus` zooms on a `rect`, a `selector`'s element or the \
+                `pointer` until `reset_focus`; `attention` circles the pointer around `x`,`y` \
+                or a `selector`. `stop` ends recording `id` and returns its raw video and \
+                journal at once; the edit is made after, and `status` tells when its `edit` is \
+                `finished` and where the edited video is. `list` gives every recording. \
+                Annotations name the recording by `id` when several run."
                 .into(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "action": { "type": "string", "enum": ["start", "caption", "stop", "list"] },
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "start", "caption", "focus", "reset_focus", "attention", "stop",
+                            "status", "list",
+                        ],
+                    },
                     "tab": {
                         "type": ["integer", "string"],
                         "description": "start: the tab's number or target id.",
                     },
-                    "id": { "type": "string", "description": "stop: the recording's id." },
-                    "text": { "type": "string", "description": "caption: what to note." },
+                    "id": { "type": "string", "description": "The recording's id." },
+                    "capture": {
+                        "type": "string",
+                        "enum": ["continuous", "bursts"],
+                        "description": "start: continuous (default), or bursts, which keeps only the stretches around what you do.",
+                    },
+                    "idle": {
+                        "type": "string",
+                        "enum": ["cut", "speed"],
+                        "description": "start: remove, or fast-forward, the stretches in which nothing happens. Continuous capture only.",
+                    },
+                    "ripple": { "type": "boolean", "description": "start: mark clicks with a ripple." },
+                    "pace": {
+                        "type": "string",
+                        "enum": ["instant", "fast", "slow"],
+                        "description": "start: how your pointer moves while recording: instant (it jumps to each action), fast (default; quick travel the eye can follow) or slow (unhurried, for demos).",
+                    },
+                    "burst": {
+                        "type": "object",
+                        "description": "start: burst sizes in ms: lead_ms, tail_ms, settle_ms, max_tail_ms.",
+                    },
+                    "text": { "type": "string", "description": "caption: the text, up to 200 characters." },
+                    "duration_ms": {
+                        "type": "integer",
+                        "description": "caption: how long it shows (default 3000). focus: zoom out after this long, and wait for it. attention: how long the pointer circles (default 1200).",
+                    },
+                    "rect": {
+                        "type": "object",
+                        "description": "focus: a fixed area of the viewport, {x, y, width, height} in CSS px.",
+                    },
+                    "selector": {
+                        "type": "string",
+                        "description": "focus, attention: a CSS selector of an element in the top document.",
+                    },
+                    "pointer": { "type": "boolean", "description": "focus: follow the pointer." },
+                    "zoom": { "type": "number", "description": "focus: the zoom factor, above 1 and at most 4." },
+                    "x": { "type": "number", "description": "attention: where, in CSS px." },
+                    "y": { "type": "number", "description": "attention: where, in CSS px." },
+                    "radius": { "type": "number", "description": "attention: the circle's radius in px (default 40)." },
+                    "loops": { "type": "integer", "description": "attention: how many times the pointer circles (default 2)." },
                 },
                 "required": ["action"],
             }),
@@ -779,6 +845,9 @@ impl Tool for RecordingTool {
     }
 
     async fn call(&self, ctx: ToolContext, args: Value) -> anyhow::Result<ToolOutput> {
+        let id = args["id"].as_str();
+        let duration_ms = args["duration_ms"].as_u64();
+        let selector = args["selector"].as_str().map(str::to_owned);
         match args["action"].as_str().unwrap_or_default() {
             "start" => {
                 let target = match args.get("tab").filter(|tab| !tab.is_null()) {
@@ -790,20 +859,63 @@ impl Tool for RecordingTool {
                     }
                     None => None,
                 };
-                Ok(shown(&self.0.start(target.as_deref()).await?))
-            }
-            "stop" => {
-                let id = args["id"].as_str().context("pass the recording's `id`")?;
-                Ok(shown(&self.0.stop(id).await?))
+                let mut options = serde_json::Map::new();
+                for key in ["capture", "idle", "ripple", "burst", "pace"] {
+                    if let Some(value) = args.get(key).filter(|value| !value.is_null()) {
+                        options.insert(key.to_owned(), value.clone());
+                    }
+                }
+                let options = serde_json::from_value(options.into())
+                    .context("invalid capture, idle, ripple, burst or pace")?;
+                Ok(shown(&self.0.start(target.as_deref(), options).await?))
             }
             "caption" => {
                 let text = args["text"].as_str().context("pass the caption's `text`")?;
-                let now = self.0.now();
-                self.0.note(None, "caption", now, json!({ "text": text }));
-                Ok(ToolOutput::text("noted"))
+                self.0.caption(id, text, duration_ms)?;
+                Ok(ToolOutput::text("captioned"))
+            }
+            "focus" => {
+                let rect = args.get("rect").filter(|rect| !rect.is_null());
+                let pointer = args["pointer"].as_bool().unwrap_or(false);
+                let subject = match (rect, selector, pointer) {
+                    (Some(rect), None, false) => Subject::Rect(
+                        serde_json::from_value(rect.clone()).context("rect needs x and y")?,
+                    ),
+                    (None, Some(selector), false) => Subject::Selector(selector),
+                    (None, None, true) => Subject::Pointer,
+                    _ => bail!("pass exactly one of `rect`, `selector` and `pointer`"),
+                };
+                let zoom = args["zoom"].as_f64().context("pass the `zoom` factor")?;
+                self.0.focus(id, subject, zoom, duration_ms).await?;
+                Ok(ToolOutput::text("focused"))
+            }
+            "reset_focus" => {
+                self.0.reset_focus(id)?;
+                Ok(ToolOutput::text("zoomed out"))
+            }
+            "attention" => {
+                let point = args["x"].as_f64().zip(args["y"].as_f64());
+                let place = match (point, selector) {
+                    (Some((x, y)), None) => Place::Point { x, y },
+                    (None, Some(selector)) => Place::Selector(selector),
+                    _ => bail!("pass `x` and `y`, or a `selector`, not both"),
+                };
+                let (radius, loops) = (args["radius"].as_f64(), args["loops"].as_u64());
+                self.0
+                    .attention(id, place, radius, loops, duration_ms)
+                    .await?;
+                Ok(ToolOutput::text("done"))
+            }
+            "stop" => {
+                let id = id.context("pass the recording's `id`")?;
+                Ok(shown(&self.0.stop(id).await?))
+            }
+            "status" => {
+                let id = id.context("pass the recording's `id`")?;
+                Ok(shown(&self.0.get(id)?))
             }
             "list" => Ok(shown(&self.0.list())),
-            other => bail!("unknown action {other:?}; use start, caption, stop or list"),
+            other => bail!("unknown action {other:?}"),
         }
     }
 }
