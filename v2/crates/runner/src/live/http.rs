@@ -13,11 +13,12 @@ use axum::{
     Json, Router,
     body::Body,
     extract::{Path as RoutePath, State, WebSocketUpgrade},
-    http::{StatusCode, header},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post, put},
 };
 use futures_util::StreamExt;
+use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncWriteExt, sync::watch};
 use tower_http::services::ServeDir;
@@ -33,6 +34,8 @@ use crate::{
     automation::Automation,
     egress::Egress,
     files::{self, Download, UPLOADS},
+    pages::Pages,
+    presence::{Identity, Presence, Role},
     targets::Target,
 };
 
@@ -46,7 +49,8 @@ pub struct Live {
     pub egress: Arc<Egress>,
     pub rtc_ports: Option<PortRange>,
     pub downloads: watch::Receiver<Vec<Download>>,
-    pub file_requests: files::Requests,
+    pub pages: Pages,
+    pub presence: Arc<Presence>,
     /// The session's files.
     pub files: PathBuf,
 }
@@ -76,9 +80,32 @@ pub async fn serve(socket: &Path, live: Live, automation: Arc<Automation>) -> st
     axum::serve(listener, app).await
 }
 
-/// A client's session socket.
-async fn session_socket(State(live): State<Live>, upgrade: WebSocketUpgrade) -> Response {
-    upgrade.on_upgrade(move |socket| client::serve(live, socket))
+/// A client's session socket. Who the client is comes with the request, from whoever let
+/// it in; one that comes without is the operator's.
+async fn session_socket(
+    State(live): State<Live>,
+    headers: HeaderMap,
+    upgrade: WebSocketUpgrade,
+) -> Response {
+    let said = |name: &str| {
+        let value = headers.get(name)?.to_str().ok()?;
+        Some(percent_decode_str(value).decode_utf8_lossy().into_owned())
+    };
+    let identity = match said(aperture_runner::SUBJECT_HEADER) {
+        Some(subject) => Identity {
+            name: said(aperture_runner::NAME_HEADER)
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| subject.clone()),
+            subject,
+            role: match said(aperture_runner::ROLE_HEADER).as_deref() {
+                Some("admin") => Role::Admin,
+                Some("control") => Role::Control,
+                _ => Role::View,
+            },
+        },
+        None => Identity::operator(),
+    };
+    upgrade.on_upgrade(move |socket| client::serve(live, socket, identity))
 }
 
 async fn downloads_list(State(live): State<Live>) -> Json<Vec<Download>> {

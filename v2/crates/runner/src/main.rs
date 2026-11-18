@@ -7,6 +7,8 @@ mod cdp;
 mod egress;
 mod files;
 mod live;
+mod pages;
+mod presence;
 mod targets;
 
 mod proto {
@@ -205,7 +207,7 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
         let downloads = files::follow_downloads(devtools.clone(), &spec.files_dir)
             .await
             .context("failed to follow the browser's downloads")?;
-        let file_requests = files::Requests::follow(devtools.clone(), registry.targets());
+        let pages = pages::Pages::follow(devtools.clone(), registry.targets());
 
         let streams = live::stream::Streams::new(compositor.clone());
         let recorder = live::record::Recordings::new(
@@ -218,12 +220,13 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
             spec.cache_dir.join("ffmpeg"),
         );
         recordings = Some(recorder.clone());
+        let presence = presence::Presence::new(compositor.clone());
         let automation = Arc::new(automation::Automation::new(
             devtools,
-            compositor.clone(),
             registry.targets(),
             recorder.clone(),
             spec.files_dir.clone(),
+            &presence,
         ));
         let live_socket = spec.runtime_dir.join("live.sock");
         live = Some({
@@ -236,7 +239,8 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
                 egress: egress.clone(),
                 rtc_ports: spec.rtc_ports,
                 downloads,
-                file_requests,
+                pages,
+                presence,
                 files: spec.files_dir.clone(),
             };
             tokio::spawn(async move { live::serve(&socket, served, automation).await })

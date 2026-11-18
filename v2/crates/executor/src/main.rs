@@ -1,6 +1,7 @@
 // Service impls return concrete message types where the generated traits declare `impl Encodable`.
 #![allow(refining_impl_trait_internal, refining_impl_trait_reachable)]
 
+mod auth;
 mod cdp;
 mod live;
 mod rpc;
@@ -21,14 +22,9 @@ use std::{
 use anyhow::Context;
 use aperture_runner::{PortRange, Tools, Viewport};
 use aperture_store::Store;
-use axum::{
-    extract::{Request, State},
-    http::{StatusCode, header},
-    middleware::{self, Next},
-    response::{IntoResponse, Response},
-};
+use axum::middleware;
 use clap::Parser;
-use subtle::ConstantTimeEq;
+use jsonwebtoken::DecodingKey;
 use tracing::info;
 
 use crate::sessions::{Config, Sessions};
@@ -54,6 +50,10 @@ struct Arguments {
     /// The token requests carry. Generated into the data directory by default.
     #[arg(long, env = "APERTURE_TOKEN_FILE")]
     token_file: Option<PathBuf>,
+    /// The public key tickets are signed with: Ed25519, as PEM. A ticket lets one person
+    /// into one session; none are taken without a key.
+    #[arg(long, env = "APERTURE_TICKET_KEY")]
+    ticket_key: Option<PathBuf>,
     /// The UDP ports WebRTC media uses, such as `60000-60999`, for a firewall that opens only
     /// some. Any port by default.
     #[arg(long, env = "APERTURE_RTC_PORTS", value_parser = port_range)]
@@ -144,6 +144,18 @@ async fn main() -> anyhow::Result<()> {
             .token_file
             .unwrap_or_else(|| data_dir.join("token")),
     )?;
+    let tickets = match &arguments.ticket_key {
+        Some(key) => {
+            let pem = std::fs::read(key)
+                .with_context(|| format!("failed to read the ticket key {}", key.display()))?;
+            Some(DecodingKey::from_ed_pem(&pem).context("the ticket key is no Ed25519 key")?)
+        }
+        None => None,
+    };
+    let keys = auth::Keys {
+        token: Arc::from(token),
+        tickets,
+    };
     let sessions = Arc::new(Sessions::new(
         store,
         Config {
@@ -173,10 +185,7 @@ async fn main() -> anyhow::Result<()> {
     let app = cdp::router(sessions.clone())
         .merge(live::router(sessions))
         .fallback_service(connect.into_axum_service())
-        .layer(middleware::from_fn_with_state(
-            Arc::<str>::from(token),
-            require_token,
-        ));
+        .layer(middleware::from_fn_with_state(Arc::new(keys), auth::check));
     let listener = tokio::net::TcpListener::bind(arguments.listen)
         .await
         .with_context(|| format!("failed to listen on {}", arguments.listen))?;
@@ -187,27 +196,6 @@ async fn main() -> anyhow::Result<()> {
         })
         .await?;
     Ok(())
-}
-
-/// The token comes in `Authorization: Bearer`, or in the query as `token` for what cannot
-/// set headers: a page a person opens, and what that page loads.
-async fn require_token(State(token): State<Arc<str>>, request: Request, next: Next) -> Response {
-    let header = request
-        .headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "));
-    let query = request.uri().query().and_then(|query| {
-        query
-            .split('&')
-            .find_map(|pair| pair.strip_prefix("token="))
-    });
-    match header.or(query) {
-        Some(given) if bool::from(given.as_bytes().ct_eq(token.as_bytes())) => {
-            next.run(request).await
-        }
-        _ => StatusCode::UNAUTHORIZED.into_response(),
-    }
 }
 
 fn port_range(ports: &str) -> Result<PortRange, String> {

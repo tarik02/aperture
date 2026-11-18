@@ -13,6 +13,13 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+/// Who a request to a session's runner comes from, as whoever passed it on says: the
+/// subject and the name to show, both percent-encoded, and the role, `view`, `control` or
+/// `admin`.
+pub const SUBJECT_HEADER: &str = "x-aperture-subject";
+pub const NAME_HEADER: &str = "x-aperture-name";
+pub const ROLE_HEADER: &str = "x-aperture-role";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Spec {
     pub session_id: String,

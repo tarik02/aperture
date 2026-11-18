@@ -43,6 +43,9 @@ message ClientMessage {
     Clipboard clipboard = 12;
     Drop drop = 13;
     FilesChosen files_chosen = 14;
+    Lease lease = 15;
+    Go go = 16;
+    CopyPicture copy_picture = 17;
   }
 }
 
@@ -60,6 +63,8 @@ message ServerMessage {
     Clipboard clipboard = 9;
     Downloads downloads = 10;
     FileRequests file_requests = 11;
+    Presence presence = 12;
+    Menu menu = 13;
   }
 }
 
@@ -260,6 +265,106 @@ enum DownloadState {
   DOWNLOAD_STATE_RUNNING = 1;
   DOWNLOAD_STATE_DONE = 2;
   DOWNLOAD_STATE_FAILED = 3;
+}
+
+// Who is in the session and who drives which tab. Sent in answer to `hello` and whenever
+// it changes.
+//
+// Input is a tab's. Who gives a tab input holds it, and others' input to it is left out
+// until the holder gave it none for five seconds. A person's input takes a tab from the
+// session's automation at once. A client that may only watch gives
+// none at all. The session has one keyboard and one pointer: those who hold different
+// tabs take turns at them, key by key.
+message Presence {
+  // The member this client is.
+  uint64 you = 1;
+  repeated Member members = 2;
+  repeated HeldTab held = 3;
+}
+
+message Member {
+  uint64 id = 1;
+  string name = 2;
+  Role role = 3;
+  // The tab the member watches.
+  optional uint32 tab = 4;
+  // The session's automation rather than a person.
+  bool agent = 5;
+}
+
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  // Watches.
+  ROLE_VIEW = 1;
+  // Gives input.
+  ROLE_CONTROL = 2;
+  // Takes a tab from whoever holds it.
+  ROLE_ADMIN = 3;
+}
+
+message HeldTab {
+  uint32 tab = 1;
+  // The member who holds it.
+  uint64 holder = 2;
+  // The member who asks the holder for it.
+  optional uint64 asked_by = 3;
+}
+
+// About the tab the client watches.
+message Lease {
+  LeaseAction action = 1;
+}
+
+enum LeaseAction {
+  LEASE_ACTION_UNSPECIFIED = 0;
+  // Asks for the tab. One nobody holds is the client's at once, and so is any an admin
+  // asks for. Another holder is asked, and the tab is the client's when the holder allows
+  // it or does not answer for ten seconds.
+  LEASE_ACTION_TAKE = 1;
+  // Lets go of the tab the client holds.
+  LEASE_ACTION_RELEASE = 2;
+  // Answers the member who asks for the tab the client holds.
+  LEASE_ACTION_ALLOW = 3;
+  LEASE_ACTION_KEEP = 4;
+}
+
+// The watched target's page was asked for its menu, as by a right click, and showed none
+// of its own: the browser shows none either. What the menu would be of is told, for the
+// client to show one. Sent to the client that drives the target's tab.
+message Menu {
+  // The link under the pointer.
+  optional string link = 1;
+  // The picture under the pointer.
+  optional string image = 2;
+  // The text that is selected.
+  optional string text = 3;
+  // There is a field to write into under the pointer.
+  bool editable = 4;
+}
+
+// Takes the watched target's page elsewhere.
+message Go {
+  oneof to {
+    // A page on the web.
+    string url = 1;
+    Along along = 2;
+  }
+  // The page opens in a new tab rather than in the target's.
+  bool new_tab = 3;
+}
+
+// Where along a page's history.
+enum Along {
+  ALONG_UNSPECIFIED = 0;
+  ALONG_BACK = 1;
+  ALONG_FORWARD = 2;
+  ALONG_RELOAD = 3;
+}
+
+// Asks for a picture the watched target's page shows. The session answers with
+// `clipboard`, the picture in the form the page has it, such as `image/jpeg`.
+message CopyPicture {
+  string url = 1;
 }
 
 // The pages that ask for files and have no answer yet, as a page does when a file input

@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use axum::{
-    Router,
+    Extension, Router,
     body::{Body, Bytes},
     extract::{Path, Request, State, WebSocketUpgrade, ws::Message},
     http::{StatusCode, Uri, header},
@@ -22,7 +22,10 @@ use tokio::{
 };
 use tracing::debug;
 
-use crate::sessions::{Error, Sessions};
+use crate::{
+    auth::Caller,
+    sessions::{Error, Sessions},
+};
 
 pub fn path(session_id: &str) -> String {
     format!("/sessions/{session_id}/live")
@@ -83,6 +86,9 @@ async fn forward_to(sessions: &Sessions, id: &str, path: &str, mut request: Requ
         Err(err) => return (StatusCode::BAD_REQUEST, err.to_string()).into_response(),
     };
     request.headers_mut().remove(header::AUTHORIZATION);
+    if let Some(caller) = request.extensions().get::<Caller>().cloned() {
+        caller.name_in(request.headers_mut());
+    }
 
     let answered = async {
         let stream = UnixStream::connect(&live.socket).await?;
@@ -105,9 +111,10 @@ async fn forward_to(sessions: &Sessions, id: &str, path: &str, mut request: Requ
 async fn session_socket(
     State(sessions): State<Arc<Sessions>>,
     Path(id): Path<String>,
+    Extension(caller): Extension<Caller>,
     upgrade: WebSocketUpgrade,
 ) -> Response {
-    use tokio_tungstenite::tungstenite::Message as RunnerMessage;
+    use tokio_tungstenite::tungstenite::{Message as RunnerMessage, client::IntoClientRequest};
 
     let live = match sessions.live(&id) {
         Ok(live) => live,
@@ -115,7 +122,9 @@ async fn session_socket(
     };
     let runner = async {
         let stream = UnixStream::connect(&live.socket).await?;
-        let (runner, _) = tokio_tungstenite::client_async("ws://runner/ws", stream).await?;
+        let mut request = "ws://runner/ws".into_client_request()?;
+        caller.name_in(request.headers_mut());
+        let (runner, _) = tokio_tungstenite::client_async(request, stream).await?;
         anyhow::Ok(runner)
     };
     let runner = match runner.await {

@@ -18,6 +18,8 @@ use super::{
 };
 use crate::{
     files::{self, Download, Progress},
+    pages::{self, Along},
+    presence::{Identity, Membership, Present, Role},
     proto::aperture::live::v1::{self as pb, client_message, server_message},
 };
 
@@ -25,14 +27,17 @@ use crate::{
 const CHANNEL_MESSAGES: usize = 256;
 
 /// Serves the client until its socket closes or the session ends.
-pub async fn serve(live: Live, socket: WebSocket) {
+pub async fn serve(live: Live, socket: WebSocket, identity: Identity) {
     let (tiles_watch, tiles) = tiles::start(live.compositor.clone());
     let (from_peer, peer_events) = mpsc::channel(CHANNEL_MESSAGES);
     let mut client = Client {
         cursor: live.compositor.cursor(),
         clipboard: live.compositor.clipboard(),
         downloads: live.downloads.clone(),
-        file_requests: live.file_requests.open(),
+        file_requests: live.pages.requests(),
+        menus: live.pages.menus(),
+        present: live.presence.present(),
+        member: live.presence.join(identity, false),
         live,
         socket,
         greeted: false,
@@ -63,7 +68,11 @@ struct Client {
     /// What the session copied; the client is told what is copied from now on.
     clipboard: watch::Receiver<Option<Forms>>,
     downloads: watch::Receiver<Vec<Download>>,
-    file_requests: watch::Receiver<Vec<files::Request>>,
+    file_requests: watch::Receiver<Vec<pages::Request>>,
+    menus: broadcast::Receiver<pages::Menu>,
+    present: watch::Receiver<Present>,
+    /// The client as one of those in the session.
+    member: Membership,
     socket: WebSocket,
     /// The client said hello.
     greeted: bool,
@@ -176,6 +185,29 @@ impl Client {
                     }
                     self.send_cursor().await?;
                 }
+                changed = self.present.changed() => {
+                    if changed.is_err() {
+                        return Ok(());
+                    }
+                    self.send_presence().await?;
+                }
+                menu = self.menus.recv() => {
+                    // The menu is for whoever asked for it: who drives the page's tab.
+                    let own = matches!(&menu, Ok(menu) if self.watches(&menu.target))
+                        && self.tab().is_some_and(|tab| {
+                            self.live.presence.hold(self.member.id, tab, false)
+                        });
+                    if let (Ok(menu), true) = (menu, own) {
+                        let menu = pb::Menu {
+                            link: menu.link,
+                            image: menu.image,
+                            text: menu.text,
+                            editable: menu.editable,
+                            ..Default::default()
+                        };
+                        self.send(server_message::Message::Menu(Box::new(menu))).await?;
+                    }
+                }
                 changed = self.file_requests.changed() => {
                     if changed.is_err() {
                         return Ok(());
@@ -193,7 +225,9 @@ impl Client {
                         return Ok(());
                     }
                     let copied = self.clipboard.borrow_and_update().clone();
-                    if let Some(copied) = copied {
+                    // What is copied is whoever's copied it: who gave input last.
+                    let own = self.live.presence.turn() == Some(self.member.id);
+                    if let Some(copied) = copied.filter(|_| own) {
                         let forms = copied.iter().map(|form| pb::clipboard::Form {
                             r#type: form.kind.clone(),
                             data: form.data.clone(),
@@ -245,6 +279,7 @@ impl Client {
                 self.send_cursor().await?;
                 self.send_downloads().await?;
                 self.send_file_requests().await?;
+                self.send_presence().await?;
                 self.select(None).await;
                 self.show().await;
                 return self.send_selected().await;
@@ -254,8 +289,19 @@ impl Client {
                 if self.select(Some(&select.target)).await {
                     self.send_selected().await?;
                 }
-                if let Some((_, window)) = self.selected {
-                    self.live.compositor.focus(window);
+                return Ok(());
+            }
+            Message::Lease(lease) => {
+                let Some(tab) = self.tab() else {
+                    return Ok(());
+                };
+                let (presence, id) = (&self.live.presence, self.member.id);
+                match lease.action.as_known() {
+                    Some(pb::LeaseAction::LEASE_ACTION_TAKE) => presence.ask(id, tab),
+                    Some(pb::LeaseAction::LEASE_ACTION_RELEASE) => presence.release(id, tab),
+                    Some(pb::LeaseAction::LEASE_ACTION_ALLOW) => presence.answer(id, tab, true),
+                    Some(pb::LeaseAction::LEASE_ACTION_KEEP) => presence.answer(id, tab, false),
+                    Some(pb::LeaseAction::LEASE_ACTION_UNSPECIFIED) | None => {}
                 }
                 return Ok(());
             }
@@ -265,7 +311,9 @@ impl Client {
                     let target = targets.iter().find(|target| target.id == *id)?;
                     Some((*window, target.scale))
                 });
-                if let Some((window, scale)) = watched {
+                if let Some((window, scale)) = watched
+                    && self.holds()
+                {
                     self.live.compositor.set_viewport(
                         window,
                         Viewport {
@@ -331,12 +379,62 @@ impl Client {
                 composing: m.composing,
             },
             Message::Clipboard(m) => {
-                if let Some(content) = self.content(*m) {
+                if let Some(content) = self.content(*m)
+                    && self.holds()
+                {
                     self.live.compositor.set_clipboard(content);
                 }
                 return Ok(());
             }
+            Message::Go(go) => {
+                let Some((target, _)) = self.selected.clone().filter(|_| self.holds()) else {
+                    return Ok(());
+                };
+                let pages = &self.live.pages;
+                let gone = match go.to {
+                    Some(pb::go::To::Url(url)) => pages.open(&target, &url, go.new_tab).await,
+                    Some(pb::go::To::Along(along)) => {
+                        let along = match along.as_known() {
+                            Some(pb::Along::ALONG_BACK) => Along::Back,
+                            Some(pb::Along::ALONG_FORWARD) => Along::Forward,
+                            Some(pb::Along::ALONG_RELOAD) => Along::Reload,
+                            Some(pb::Along::ALONG_UNSPECIFIED) | None => return Ok(()),
+                        };
+                        pages.go(&target, along).await
+                    }
+                    None => Ok(()),
+                };
+                if let Err(err) = gone {
+                    debug!("a page went nowhere: {err:#}");
+                }
+                return Ok(());
+            }
+            Message::CopyPicture(picture) => {
+                let Some((target, _)) = self.selected.clone().filter(|_| self.holds()) else {
+                    return Ok(());
+                };
+                match self.live.pages.picture(&target, &picture.url).await {
+                    Ok((kind, data)) => {
+                        let form = pb::clipboard::Form {
+                            r#type: kind.to_owned(),
+                            data,
+                            ..Default::default()
+                        };
+                        let clipboard = pb::Clipboard {
+                            forms: vec![form],
+                            ..Default::default()
+                        };
+                        self.send(server_message::Message::Clipboard(Box::new(clipboard)))
+                            .await?;
+                    }
+                    Err(err) => debug!("a picture was not had: {err:#}"),
+                }
+                return Ok(());
+            }
             Message::FilesChosen(m) => {
+                if !self.holds() {
+                    return Ok(());
+                }
                 let uploads = self.live.files.join(files::UPLOADS);
                 // Files that are not there are left out, as names that are no names.
                 let chosen = m
@@ -345,7 +443,7 @@ impl Client {
                     .filter_map(|name| files::named(&uploads, name))
                     .filter(|path| path.is_file())
                     .collect();
-                if let Err(err) = self.live.file_requests.answer(m.id, chosen).await {
+                if let Err(err) = self.live.pages.answer(m.id, chosen).await {
                     debug!(%err, "a page did not take the files it asked for");
                 }
                 return Ok(());
@@ -364,11 +462,34 @@ impl Client {
             Message::Hello(_)
             | Message::Select(_)
             | Message::Viewport(_)
+            | Message::Lease(_)
             | Message::RtcOffer(_)
             | Message::VideoShown(_) => return Ok(()),
         };
-        self.live.compositor.input(input);
+        if let Some(tab) = self.tab() {
+            self.live.presence.input(self.member.id, tab, input);
+        }
         Ok(())
+    }
+
+    fn watches(&self, target: &str) -> bool {
+        self.selected.as_ref().is_some_and(|(id, _)| id == target)
+    }
+
+    /// The number of the tab the client watches.
+    fn tab(&self) -> Option<u32> {
+        let (id, _) = self.selected.as_ref()?;
+        let targets = self.live.targets.borrow();
+        targets
+            .iter()
+            .find(|target| target.id == *id)
+            .map(|target| target.tab)
+    }
+
+    /// Whether the client holds the tab it watches, which it takes when nobody does.
+    fn holds(&self) -> bool {
+        self.tab()
+            .is_some_and(|tab| self.live.presence.hold(self.member.id, tab, true))
     }
 
     /// Answers the client's offer; the connection it makes replaces the one before it.
@@ -425,6 +546,7 @@ impl Client {
             return false;
         }
         self.selected = selected;
+        self.live.presence.watch(self.member.id, self.tab());
         self.show().await;
         true
     }
@@ -617,6 +739,37 @@ impl Client {
                 plain && path.starts_with(&self.live.files)
             })
         })
+    }
+
+    async fn send_presence(&mut self) -> Result<(), axum::Error> {
+        let present = self.present.borrow_and_update().clone();
+        let members = present.members.iter().map(|member| pb::Member {
+            id: member.id,
+            name: member.identity.name.clone(),
+            role: match member.identity.role {
+                Role::View => pb::Role::ROLE_VIEW,
+                Role::Control => pb::Role::ROLE_CONTROL,
+                Role::Admin => pb::Role::ROLE_ADMIN,
+            }
+            .into(),
+            tab: member.tab,
+            agent: member.agent,
+            ..Default::default()
+        });
+        let held = present.leases.iter().map(|lease| pb::HeldTab {
+            tab: lease.tab,
+            holder: lease.holder,
+            asked_by: lease.asked_by,
+            ..Default::default()
+        });
+        let presence = pb::Presence {
+            you: self.member.id,
+            members: members.collect(),
+            held: held.collect(),
+            ..Default::default()
+        };
+        self.send(server_message::Message::Presence(Box::new(presence)))
+            .await
     }
 
     async fn send_file_requests(&mut self) -> Result<(), axum::Error> {

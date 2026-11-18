@@ -12,6 +12,7 @@
   #bar select { background: #262a33; color: inherit; border: 1px solid #3a3f4b; border-radius: 4px; padding: 2px 4px; }
   #controls { margin-left: auto; display: flex; gap: 6px; align-items: center; white-space: nowrap; }
   #state { opacity: 0.7; }
+  #people { display: flex; gap: 6px; align-items: center; }
   /* Takes the keyboard without showing: what is typed goes to the session. */
   #keys { position: fixed; left: 0; bottom: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; resize: none; }
   #files { position: fixed; right: 6px; top: 40px; z-index: 1; display: grid; gap: 6px; max-height: 50vh; max-width: 420px; overflow: auto; padding: 8px; background: #262a33; border: 1px solid #3a3f4b; border-radius: 6px; }
@@ -19,6 +20,10 @@
   #files a { color: #7aa2f7; }
   #files button { background: #1a1d23; color: inherit; border: 1px solid #3a3f4b; border-radius: 4px; padding: 2px 8px; }
   #downloads { display: grid; gap: 4px; }
+  #menu { position: fixed; z-index: 2; display: grid; min-width: 180px; padding: 4px; background: #262a33; border: 1px solid #3a3f4b; border-radius: 6px; box-shadow: 0 6px 24px #0008; }
+  #menu[hidden] { display: none; }
+  #menu button { background: none; color: inherit; border: 0; border-radius: 4px; padding: 5px 10px; text-align: left; font: inherit; }
+  #menu button:hover { background: #3a3f4b; }
   #stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
   video, canvas { max-width: 100%; max-height: 100%; background: #000; outline: none; }
 </style>
@@ -31,6 +36,7 @@
     <select id="fps" title="Frames a second at most"><option value="">FPS: auto</option><option>15</option><option>30</option><option>60</option></select>
     <select id="viewport" title="The page's size"><option value="">Viewport</option><option>1280x720</option><option>1920x1080</option><option>1024x768</option><option>390x844</option><option value="fit">Fit this window</option></select>
     <select id="scale" title="Pixels per CSS pixel"><option value="1">1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option><option value="3">3x</option></select>
+    <span id="people"></span>
     <button id="copied" title="The session copied text. This copies it here." hidden>Copy</button>
     <button id="filed" title="The session's downloads, and the files a page asks for" hidden></button>
     <button id="keyboard" title="Type into the session">⌨</button>
@@ -38,6 +44,7 @@
   </span>
 </div>
 <div id="files" hidden><div id="asked" hidden><span></span> <button id="choose">Choose…</button> <button id="refuse">Cancel</button><input id="chosen" type="file" hidden></div><div id="downloads"></div></div>
+<div id="menu" hidden></div>
 <div id="stage"><video id="video" autoplay muted playsinline tabindex="0" hidden></video><canvas id="canvas" tabindex="0" hidden></canvas><textarea id="keys" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Keyboard of the session"></textarea></div>
 <script>
   // KeyboardEvent.code to Linux evdev key codes.
@@ -239,6 +246,10 @@
       state.textContent = `${way}: ${name(status.quality)}, ${controls.codec.querySelector(`[value=${status.format}]`)?.textContent ?? status.format}, ${status.fps} fps`;
       return;
     }
+    if (message.presence) present = message.presence;
+    if (message.presence || message.targets || message.selected) showPresence();
+    if (message.presence) return;
+    if (message.menu) return showMenu(message.menu);
     if (message.clipboard) return void copy(message.clipboard.forms ?? []);
     if (message.downloads) return showDownloads(message.downloads.downloads ?? []);
     if (message.fileRequests) requests = message.fileRequests.requests ?? [];
@@ -283,6 +294,7 @@
       surface.addEventListener(type, (event) => {
         // A touch does not bring up the phone's keyboard; the keyboard button does.
         if (event.pointerType !== "touch") keys.focus({ preventScroll: true });
+        if (event.button === 2) menuAt = { x: event.clientX, y: event.clientY };
         if (pressed) surface.setPointerCapture(event.pointerId);
         send({ pointerButton: { ...position(event), button: BUTTONS[event.button], pressed } });
         event.preventDefault();
@@ -385,6 +397,86 @@
     });
   }
 
+  // Who is here, and who drives the tab that is watched: input is the tab's holder's, and
+  // the others ask for it.
+  let present = {};
+  const showPresence = () => {
+    const members = present.members ?? [];
+    const named = (id) => members.find((member) => member.id === id)?.name ?? "Someone";
+    const me = members.find((member) => member.id === present.you);
+    const tab = watched()?.tab;
+    const held = (present.held ?? []).find((one) => one.tab === tab);
+    const others = members.filter((member) => member.id !== present.you && member.tab === tab && !member.agent).length;
+    let said = "";
+    let asks = [];
+    if (me?.role === "ROLE_VIEW") said = "Watching only";
+    else if (!held) said = "";
+    else if (held.holder === present.you && held.askedBy) [said, asks] = [`${named(held.askedBy)} asks to drive`, [["Allow", "LEASE_ACTION_ALLOW"], ["Keep", "LEASE_ACTION_KEEP"]]];
+    else if (held.holder === present.you) said = "You drive";
+    else if (held.askedBy === present.you) said = `${named(held.holder)} drives, asked`;
+    else [said, asks] = [`${named(held.holder)} drives`, [["Take over", "LEASE_ACTION_TAKE"]]];
+    if (others) said = `${said}${said ? ", " : ""}${others} more here`;
+    document.getElementById("people").replaceChildren(said, ...asks.map(([label, action]) => {
+      const button = document.createElement("button");
+      button.textContent = label;
+      button.onclick = () => send({ lease: { action } });
+      return button;
+    }));
+  };
+
+  // A page's menu. The session's browser shows none: the session tells what a right click
+  // was on when the page made nothing of it, and the menu is shown here.
+  const menu = document.getElementById("menu");
+  let menuAt = { x: 0, y: 0 };
+  const chord = (code) => {
+    press(CONTROLS[0], true);
+    tap(code);
+    press(CONTROLS[0], false);
+  };
+  const showMenu = (on) => {
+    const text = async (value) => copy([{ type: "text/plain", data: await base64(new Blob([value])) }]);
+    const pasted = async () => {
+      const items = await navigator.clipboard.read();
+      const forms = [];
+      for (const type of ["text/plain", "text/html", "image/png"]) {
+        const item = items.find((one) => one.types.includes(type));
+        if (item) forms.push({ type, data: await base64(await item.getType(type)) });
+      }
+      if (!forms.length) return;
+      send({ clipboard: { forms } });
+      chord(PASTES);
+    };
+    const items = [
+      on.link && ["Open link in new tab", () => send({ go: { url: on.link, newTab: true } })],
+      on.link && ["Copy link address", () => text(on.link)],
+      on.image && ["Open picture in new tab", () => send({ go: { url: on.image, newTab: true } })],
+      on.image && ["Copy picture", () => send({ copyPicture: { url: on.image } })],
+      on.image && ["Copy picture address", () => text(on.image)],
+      on.text && ["Copy", () => chord(KEYS.KeyC)],
+      // Where the browser lets a page read the clipboard; the keys paste anywhere.
+      on.editable && navigator.clipboard?.read && ["Paste", pasted],
+      on.editable && ["Select all", () => chord(KEYS.KeyA)],
+      ["Back", () => send({ go: { along: "ALONG_BACK" } })],
+      ["Forward", () => send({ go: { along: "ALONG_FORWARD" } })],
+      ["Reload", () => send({ go: { along: "ALONG_RELOAD" } })],
+    ].filter(Boolean);
+    menu.replaceChildren(...items.map(([label, act]) => {
+      const button = document.createElement("button");
+      button.textContent = label;
+      button.onclick = () => {
+        menu.hidden = true;
+        keys.focus({ preventScroll: true });
+        act();
+      };
+      return button;
+    }));
+    menu.hidden = false;
+    menu.style.left = `${Math.max(0, Math.min(menuAt.x, innerWidth - menu.offsetWidth - 4))}px`;
+    menu.style.top = `${Math.max(0, Math.min(menuAt.y, innerHeight - menu.offsetHeight - 4))}px`;
+  };
+  addEventListener("pointerdown", (event) => { if (!menu.contains(event.target)) menu.hidden = true; }, true);
+  addEventListener("keydown", (event) => { if (event.key === "Escape") menu.hidden = true; }, true);
+
   // The session's downloads, and the files its pages ask for.
   const panel = document.getElementById("files");
   const filed = document.getElementById("filed");
@@ -468,7 +560,11 @@
   // picture opens to be copied by hand.
   const copied = document.getElementById("copied");
   const copy = async (forms) => {
-    const had = await Promise.all(forms.filter((form) => ["text/plain", "text/html", "image/png"].includes(form.type)).map(async (form) => [form.type, new Blob([await bytes(form.data)], { type: form.type })]));
+    const had = await Promise.all(forms.filter((form) => /^(text\/(plain|html)|image\/.+)$/u.test(form.type)).map(async (form) => {
+      const blob = new Blob([await bytes(form.data)], { type: form.type });
+      // A picture is copied as the PNG clipboards take.
+      return form.type.startsWith("image/") ? ["image/png", await png(blob)] : [form.type, blob];
+    }));
     if (!had.length) return;
     const blobs = Object.fromEntries(had);
     try {

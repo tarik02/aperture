@@ -17,7 +17,7 @@ use std::{
 };
 
 use anyhow::{Context, bail};
-use aperture_compositor::{Button, Handle, Input, WindowId};
+use aperture_compositor::{Button, Input, WindowId};
 use async_trait::async_trait;
 use browse_core::{
     Browser, Cdp, CdpError, CdpEvent, HandoffResult, TabId, TabInfo, TabOptions, TabState, Tool,
@@ -29,6 +29,7 @@ use tokio::{
     time::{Instant, sleep, timeout},
 };
 
+use crate::presence::{Identity, Membership, Presence, Role};
 use crate::{
     cdp,
     live::{
@@ -40,6 +41,8 @@ use crate::{
 
 const TAB_READY_WITHIN: Duration = Duration::from_secs(15);
 const LOAD_WITHIN: Duration = Duration::from_secs(30);
+/// How long the automation waits for a tab a person drives before it gives up on it.
+const TAB_FREE_WITHIN: Duration = Duration::from_secs(15);
 /// How long the page gets to take in input the compositor delivered, before the command
 /// that caused it counts as done.
 const INPUT_SETTLES_WITHIN: Duration = Duration::from_millis(500);
@@ -82,17 +85,23 @@ pub struct Automation {
 impl Automation {
     pub fn new(
         browser: cdp::Client,
-        compositor: Handle,
         targets: watch::Receiver<Vec<Target>>,
         recordings: Recordings,
         files: PathBuf,
+        presence: &Arc<Presence>,
     ) -> Self {
+        let agent = Identity {
+            subject: "agent".to_owned(),
+            name: "Agent".to_owned(),
+            role: Role::Control,
+        };
         let session = Arc::new(Session {
             browser,
-            compositor,
             targets,
             recordings: recordings.clone(),
             tabs: Mutex::default(),
+            presence: presence.clone(),
+            agent: Arc::new(presence.join(agent, true)),
         });
         let mut tools: Vec<Arc<dyn Tool>> = vec![
             Arc::new(TabsTool),
@@ -199,10 +208,12 @@ impl Automation {
 
 struct Session {
     browser: cdp::Client,
-    compositor: Handle,
     targets: watch::Receiver<Vec<Target>>,
     recordings: Recordings,
     tabs: Mutex<Tabs>,
+    presence: Arc<Presence>,
+    /// The automation as one of those in the session: its input takes turns with theirs.
+    agent: Arc<Membership>,
 }
 
 #[derive(Default)]
@@ -359,10 +370,11 @@ impl Browser for Session {
         }
         let session = TabSession::attach(
             self.browser.clone(),
-            self.compositor.clone(),
             self.targets.clone(),
             self.recordings.clone(),
             target.id,
+            self.presence.clone(),
+            self.agent.clone(),
         )
         .await?;
         if let Some(tab) = self.tabs.lock().expect("not poisoned").by_id.get_mut(&tab) {
@@ -424,11 +436,12 @@ impl Browser for Session {
 /// A tab's DevTools session, attached through the browser's connection.
 struct TabSession {
     browser: cdp::Client,
-    compositor: Handle,
     targets: watch::Receiver<Vec<Target>>,
     recordings: Recordings,
     target: String,
     session: String,
+    presence: Arc<Presence>,
+    agent: Arc<Membership>,
     /// Where the tab's events go; none once the session ended, which closes the streams of
     /// those who listen.
     events: Mutex<Option<broadcast::Sender<CdpEvent>>>,
@@ -437,10 +450,11 @@ struct TabSession {
 impl TabSession {
     async fn attach(
         browser: cdp::Client,
-        compositor: Handle,
         targets: watch::Receiver<Vec<Target>>,
         recordings: Recordings,
         target: String,
+        presence: Arc<Presence>,
+        agent: Arc<Membership>,
     ) -> anyhow::Result<Arc<Self>> {
         // Before attaching, so no event of the session is missed.
         let mut browser_events = browser.events();
@@ -457,11 +471,12 @@ impl TabSession {
         let (events, _) = broadcast::channel(1024);
         let attached = Arc::new(Self {
             browser,
-            compositor,
             targets,
             recordings,
             target,
             session,
+            presence,
+            agent,
             events: Mutex::new(Some(events.clone())),
         });
 
@@ -514,6 +529,15 @@ impl TabSession {
     }
 
     /// The window that shows the tab now.
+    /// The tab's number.
+    fn tab(&self) -> Option<u32> {
+        self.targets
+            .borrow()
+            .iter()
+            .find(|target| target.id == self.target)
+            .map(|target| target.tab)
+    }
+
     fn window(&self) -> Option<WindowId> {
         self.targets
             .borrow()
@@ -622,7 +646,7 @@ impl TabSession {
             _ => {}
         }
         let travelled = matches!(input, Input::PointerMotion { .. });
-        self.compositor.input(input);
+        self.presence.input(self.agent.id, self.tab()?, input);
         // A slow pace takes each step of the pointer's way about twice as long.
         if travelled && self.recordings.pace(&self.target) == Some(Pace::Slow) {
             sleep(SLOW_STEP).await;
@@ -652,6 +676,24 @@ impl Cdp for TabSession {
         params: Value,
         session_id: Option<&str>,
     ) -> Result<Value, CdpError> {
+        // Input is the tab's holder's: the automation takes a tab nobody holds, and waits
+        // for one a person drives until they are done with it.
+        if method.starts_with("Input.")
+            && session_id.is_none()
+            && let Some(tab) = self.tab()
+        {
+            let waited = Instant::now();
+            while !self.presence.hold(self.agent.id, tab, true) {
+                if waited.elapsed() >= TAB_FREE_WITHIN {
+                    let holder = self.presence.held_by_another(self.agent.id, tab);
+                    let holder = holder.unwrap_or_else(|| "someone".to_owned());
+                    return Err(CdpError::Protocol(format!(
+                        "tab {tab} is driven by {holder} right now; try again when they are done"
+                    )));
+                }
+                sleep(Duration::from_millis(200)).await;
+            }
+        }
         let input = matches!(
             method,
             "Input.dispatchMouseEvent" | "Input.dispatchKeyEvent"
