@@ -3,11 +3,17 @@
 
 use std::collections::HashMap;
 
-use aperture_runner::Cdp;
+use aperture_runner::{Cdp, DEVTOOLS_AUTHORITY};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
-use tokio::sync::{broadcast, mpsc, oneshot};
-use tokio_tungstenite::tungstenite::{Message, protocol::WebSocketConfig};
+use tokio::{
+    net::UnixStream,
+    sync::{broadcast, mpsc, oneshot},
+};
+use tokio_tungstenite::{
+    WebSocketStream,
+    tungstenite::{Message, protocol::WebSocketConfig},
+};
 
 /// Events buffered for a subscriber that falls behind; it then misses the oldest.
 const EVENT_BUFFER: usize = 1024;
@@ -45,13 +51,21 @@ pub struct Client {
     events: broadcast::Sender<Event>,
 }
 
-pub async fn connect(cdp: &Cdp) -> anyhow::Result<Client> {
-    let url = format!("ws://127.0.0.1:{}{}", cdp.port, cdp.browser_path);
+/// A WebSocket of the browser's DevTools endpoint, which is on a Unix socket.
+pub async fn open(cdp: &Cdp, path: &str) -> anyhow::Result<WebSocketStream<UnixStream>> {
+    let stream = UnixStream::connect(&cdp.socket).await?;
     // Messages carry screenshots and whole documents.
     let config = WebSocketConfig::default()
         .max_message_size(None)
         .max_frame_size(None);
-    let (socket, _) = tokio_tungstenite::connect_async_with_config(url, Some(config), true).await?;
+    let url = format!("ws://{DEVTOOLS_AUTHORITY}{path}");
+    let (socket, _) =
+        tokio_tungstenite::client_async_with_config(url, stream, Some(config)).await?;
+    Ok(socket)
+}
+
+pub async fn connect(cdp: &Cdp) -> anyhow::Result<Client> {
+    let socket = open(cdp, &cdp.browser_path).await?;
     let (mut sink, mut stream) = socket.split();
     let (calls, mut called) = mpsc::channel::<Call>(64);
     let (events, _) = broadcast::channel(EVENT_BUFFER);

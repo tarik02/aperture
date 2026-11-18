@@ -4,6 +4,7 @@
 
 mod automation;
 mod cdp;
+mod egress;
 mod live;
 mod targets;
 
@@ -21,9 +22,12 @@ use std::{
 };
 
 use anyhow::{Context, bail};
-use aperture_runner::{Cdp, Live, Phase, Spec, Status, lock_path, spec_path, write_status};
+use aperture_runner::{
+    Cdp, DEVTOOLS_AUTHORITY, Live, Phase, Spec, Status, lock_path, spec_path, write_status,
+};
 use futures_util::SinkExt;
 use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
     process::{Child, Command},
     signal::unix::{SignalKind, signal},
     time::{Instant, sleep, timeout},
@@ -49,6 +53,11 @@ const SYSTEM_ROOTS: &[&str] = &[
     "/nix/store",
     "/var/cache/fontconfig",
 ];
+
+/// Ports on the loopback of the browser's sandbox, which is its own: the browser's proxy,
+/// and where it serves DevTools.
+const PROXY_PORT: u16 = 1080;
+const DEVTOOLS_PORT: u16 = 9222;
 
 /// The profile, as the browser sees it.
 const PROFILE: &str = "/profile";
@@ -132,6 +141,18 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
     .context("failed to start the compositor")?;
     let mut windows = compositor.windows();
 
+    // The browser has no network: this is its one way out.
+    let egress_socket = sockets.join("proxy.sock");
+    let policy = egress::Policy::new(&spec.egress_allow)?;
+    let egress = {
+        let socket = egress_socket.clone();
+        tokio::spawn(async move { egress::serve(&socket, policy).await })
+    };
+    // What the sandbox shares with the outside to put its own sockets in.
+    let shared = sockets.join("shared");
+    fs::DirBuilder::new().mode(0o700).create(&shared)?;
+    let devtools_socket = shared.join("devtools.sock");
+
     // Before the browser starts: its extension reports as soon as it runs.
     let extension_socket = sockets.join("extension.sock");
     let registry = targets::Registry::bind(&extension_socket, compositor.clone())
@@ -141,10 +162,10 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
     let mut live = None;
     let mut recordings = None;
 
-    let mut browser = start_browser(spec, &display, &extension_socket)?;
+    let mut browser = start_browser(spec, &display, &extension_socket, &egress_socket, &shared)?;
     let outcome = async {
         let cdp = tokio::select! {
-            cdp = browser_endpoint(&spec.profile.upper) => cdp?,
+            cdp = browser_endpoint(&devtools_socket) => cdp?,
             exit = browser.wait() => bail!("the browser exited while starting: {}", exit?),
             _ = terminate.recv() => return Ok(()),
             _ = interrupt.recv() => return Ok(()),
@@ -204,7 +225,7 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
             _ = terminate.recv() => return Ok(()),
             _ = interrupt.recv() => return Ok(()),
         }
-        info!(session = %spec.session_id, cdp = cdp.port, "session running");
+        info!(session = %spec.session_id, "session running");
         status.cdp = Some(cdp.clone());
         status.phase = Phase::Running;
         write_status(&spec.runtime_dir, status)?;
@@ -231,14 +252,24 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
     if let Some(live) = live {
         live.abort();
     }
+    egress.abort();
     outcome
 }
 
 /// Starts the browser in its sandbox. The browser runs with `--no-sandbox`, so this one is
 /// what stands between a compromised renderer and the other sessions: it sees its own
-/// profile, cache and files, the sockets of the display and of the extension's host, and the
-/// host's system trees read only. Of `/run` it gets no more than those sockets.
-fn start_browser(spec: &Spec, display: &Path, extension_socket: &Path) -> anyhow::Result<Child> {
+/// profile, cache and files, the sockets of the display, of the extension's host and of its
+/// egress, and the host's system trees read only. Of `/run` it gets no more than those
+/// sockets. It has no network but a loopback of its own: what it sends goes to the egress
+/// socket, and its DevTools endpoint is reached through a socket in `shared` (see the
+/// browser shim).
+fn start_browser(
+    spec: &Spec,
+    display: &Path,
+    extension_socket: &Path,
+    egress_socket: &Path,
+    shared: &Path,
+) -> anyhow::Result<Child> {
     let profile = &spec.profile;
     for name in [
         "SingletonLock",
@@ -270,6 +301,7 @@ fn start_browser(spec: &Spec, display: &Path, extension_socket: &Path) -> anyhow
         "--unshare-uts",
         "--unshare-pid",
         "--unshare-ipc",
+        "--unshare-net",
         "--clearenv",
         "--proc",
         "/proc",
@@ -302,7 +334,16 @@ fn start_browser(spec: &Spec, display: &Path, extension_socket: &Path) -> anyhow
         .arg(&spec.tools.extension)
         .arg("--ro-bind")
         .arg(&spec.tools.native_host)
-        .arg(&spec.tools.native_host);
+        .arg(&spec.tools.native_host)
+        .arg("--bind")
+        .arg(egress_socket)
+        .arg(egress_socket)
+        .arg("--bind")
+        .arg(shared)
+        .arg(shared)
+        .arg("--ro-bind")
+        .arg(&spec.tools.browser_shim)
+        .arg(&spec.tools.browser_shim);
     if profile.lowers.is_empty() {
         command.arg("--bind").arg(&profile.upper).arg(PROFILE);
     } else {
@@ -349,6 +390,12 @@ fn start_browser(spec: &Spec, display: &Path, extension_socket: &Path) -> anyhow
         .arg("APERTURE_EXTENSION_SOCKET")
         .arg(extension_socket)
         .arg("--")
+        .arg(&spec.tools.browser_shim)
+        .arg(PROXY_PORT.to_string())
+        .arg(egress_socket)
+        .arg(shared.join("devtools.sock"))
+        .arg(DEVTOOLS_PORT.to_string())
+        .arg("--")
         .arg(&spec.tools.chromium)
         .arg(format!("--user-data-dir={PROFILE}"))
         .arg(format!("--disk-cache-dir={}", spec.cache_dir.display()))
@@ -363,10 +410,12 @@ fn start_browser(spec: &Spec, display: &Path, extension_socket: &Path) -> anyhow
         ))
         .args([
             "--remote-debugging-address=127.0.0.1",
-            // The browser picks the port and writes it into its profile, see
-            // `browser_endpoint`.
-            "--remote-debugging-port=0",
             "--remote-allow-origins=*",
+            // Everything goes to the proxy, also what names the sandbox's own loopback,
+            // where the browser's DevTools endpoint is: a page has no business there.
+            "--proxy-bypass-list=<-loopback>",
+            // Datagrams have no way out.
+            "--disable-quic",
             "--ozone-platform=wayland",
             // No browser interface around the page, and none of the hints a fullscreen
             // window shows otherwise.
@@ -383,6 +432,8 @@ fn start_browser(spec: &Spec, display: &Path, extension_socket: &Path) -> anyhow
             "--no-default-browser-check",
             "--disable-breakpad",
         ])
+        .arg(format!("--remote-debugging-port={DEVTOOLS_PORT}"))
+        .arg(format!("--proxy-server=socks5://127.0.0.1:{PROXY_PORT}"))
         .args(&spec.browser_args)
         .env_clear()
         .stdin(Stdio::null());
@@ -390,23 +441,20 @@ fn start_browser(spec: &Spec, display: &Path, extension_socket: &Path) -> anyhow
     command.spawn().context("failed to start bwrap")
 }
 
-/// Waits for the browser to say where its DevTools endpoint is: the port and the browser
-/// target's path, on two lines of `DevToolsActivePort` in its profile. A file the browser
-/// creates lands in the upper directory.
-async fn browser_endpoint(upper: &Path) -> anyhow::Result<Cdp> {
-    let path = upper.join("DevToolsActivePort");
+/// Waits for the browser to serve DevTools, and asks it for the path of the browser
+/// target's WebSocket.
+async fn browser_endpoint(socket: &Path) -> anyhow::Result<Cdp> {
     let deadline = Instant::now() + BROWSER_READY_WITHIN;
     loop {
-        if let Ok(text) = fs::read_to_string(&path) {
-            let mut lines = text.lines();
-            if let (Some(port), Some(browser_path)) = (lines.next(), lines.next())
-                && let Ok(port) = port.trim().parse()
-            {
-                return Ok(Cdp {
-                    port,
-                    browser_path: browser_path.trim().to_owned(),
-                });
-            }
+        // Refused until the browser listens.
+        if let Ok(version) = devtools_version(socket).await
+            && let Some(url) = version["webSocketDebuggerUrl"].as_str()
+            && let Some(at) = url.find("/devtools/")
+        {
+            return Ok(Cdp {
+                socket: socket.to_owned(),
+                browser_path: url[at..].to_owned(),
+            });
         }
         if Instant::now() >= deadline {
             bail!("the browser did not open its DevTools endpoint in time");
@@ -415,11 +463,43 @@ async fn browser_endpoint(upper: &Path) -> anyhow::Result<Cdp> {
     }
 }
 
+/// What the browser says of itself at `/json/version`.
+async fn devtools_version(socket: &Path) -> anyhow::Result<serde_json::Value> {
+    let mut stream = tokio::net::UnixStream::connect(socket).await?;
+    let request = format!(
+        "GET /json/version HTTP/1.1\r\nHost: {DEVTOOLS_AUTHORITY}\r\nConnection: close\r\n\r\n"
+    );
+    stream.write_all(request.as_bytes()).await?;
+    // The browser keeps the connection open, so the answer is read by its length.
+    let mut response = Vec::new();
+    let mut chunk = [0; 4096];
+    loop {
+        let read = stream.read(&mut chunk).await?;
+        anyhow::ensure!(read > 0, "the browser's answer was cut short");
+        response.extend_from_slice(&chunk[..read]);
+        let Some(end) = response.windows(4).position(|window| window == b"\r\n\r\n") else {
+            continue;
+        };
+        let head = std::str::from_utf8(&response[..end])?;
+        anyhow::ensure!(head.starts_with("HTTP/1.1 200"), "the browser refused");
+        let length: usize = head
+            .lines()
+            .filter_map(|line| line.split_once(':'))
+            .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+            .context("the browser's answer has no length")?
+            .1
+            .trim()
+            .parse()?;
+        if let Some(body) = response.get(end + 4..end + 4 + length) {
+            return Ok(serde_json::from_slice(body)?);
+        }
+    }
+}
+
 /// Asks the browser to close, which lets it write its profile out, and waits for it.
 async fn close_browser(cdp: &Cdp, browser: &mut Child) {
-    let url = format!("ws://127.0.0.1:{}{}", cdp.port, cdp.browser_path);
     let asked = async {
-        let (mut socket, _) = tokio_tungstenite::connect_async(url).await?;
+        let mut socket = cdp::open(cdp, &cdp.browser_path).await?;
         socket
             .send(Message::text(r#"{"id":1,"method":"Browser.close"}"#))
             .await?;

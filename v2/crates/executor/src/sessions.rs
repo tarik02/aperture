@@ -51,6 +51,7 @@ pub struct Config {
     pub viewport: Viewport,
     pub rtc_ports: Option<PortRange>,
     pub cursor_theme: Option<PathBuf>,
+    pub egress_allow: Vec<String>,
     pub browser_args: Vec<String>,
 }
 
@@ -239,6 +240,7 @@ impl Sessions {
             viewport: self.config.viewport,
             rtc_ports: self.config.rtc_ports,
             cursor_theme: self.config.cursor_theme.clone(),
+            egress_allow: self.config.egress_allow.clone(),
             browser_args: self.config.browser_args.clone(),
         };
         fs::write(

@@ -3,20 +3,24 @@
 //! `json/list`, ...) and target WebSockets (`devtools/page/<id>`), so that a client given
 //! the one URL finds the rest as it would on the browser's port.
 
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
+use aperture_runner::DEVTOOLS_AUTHORITY;
 use axum::{
     Router,
-    body::Bytes,
+    body::{Body, Bytes},
     extract::{
         OriginalUri, Path, State, WebSocketUpgrade,
         ws::{Message as ClientMessage, WebSocket},
     },
-    http::{HeaderMap, Method, StatusCode, header},
+    http::{HeaderMap, Method, Request, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{any, get},
 };
 use futures_util::{SinkExt, StreamExt};
+use http_body_util::BodyExt;
+use hyper_util::rt::TokioIo;
+use tokio::net::UnixStream;
 use tokio_tungstenite::tungstenite::{Message as BrowserMessage, protocol::WebSocketConfig};
 use tracing::debug;
 
@@ -41,7 +45,7 @@ async fn browser(
     upgrade: WebSocketUpgrade,
 ) -> Response {
     match sessions.cdp(&id) {
-        Ok(cdp) => connect(upgrade, cdp.port, cdp.browser_path),
+        Ok(cdp) => connect(upgrade, cdp.socket, cdp.browser_path),
         Err(err) => refuse(err),
     }
 }
@@ -52,13 +56,13 @@ async fn target(
     upgrade: WebSocketUpgrade,
 ) -> Response {
     match sessions.cdp(&id) {
-        Ok(cdp) => connect(upgrade, cdp.port, format!("/devtools/{target}")),
+        Ok(cdp) => connect(upgrade, cdp.socket, format!("/devtools/{target}")),
         Err(err) => refuse(err),
     }
 }
 
 /// CDP messages carry screenshots and whole documents, so neither side limits their size.
-fn connect(upgrade: WebSocketUpgrade, port: u16, path: String) -> Response {
+fn connect(upgrade: WebSocketUpgrade, socket: PathBuf, path: String) -> Response {
     upgrade
         .max_message_size(usize::MAX)
         .max_frame_size(usize::MAX)
@@ -66,10 +70,16 @@ fn connect(upgrade: WebSocketUpgrade, port: u16, path: String) -> Response {
             let config = WebSocketConfig::default()
                 .max_message_size(None)
                 .max_frame_size(None);
-            let url = format!("ws://127.0.0.1:{port}{path}");
-            match tokio_tungstenite::connect_async_with_config(url, Some(config), true).await {
-                Ok((browser, _)) => relay(client, browser).await,
-                Err(err) => debug!("failed to reach the browser: {err}"),
+            let url = format!("ws://{DEVTOOLS_AUTHORITY}{path}");
+            let connected = async {
+                let stream = UnixStream::connect(&socket).await?;
+                let connected =
+                    tokio_tungstenite::client_async_with_config(url, stream, Some(config)).await?;
+                anyhow::Ok(connected.0)
+            };
+            match connected.await {
+                Ok(browser) => relay(client, browser).await,
+                Err(err) => debug!("failed to reach the browser: {err:#}"),
             }
         })
 }
@@ -138,29 +148,35 @@ async fn discovery(
         .map_or("", |rest| rest.as_str())
         .strip_prefix(&prefix)
         .unwrap_or("/json");
-    let browser = format!("127.0.0.1:{}", cdp.port);
-    let response = reqwest::Client::new()
-        .request(method, format!("http://{browser}{rest}"))
-        .send()
-        .await;
-    let (status, body) = match response {
-        Ok(response) => (response.status(), response.bytes().await),
-        Err(err) => return (StatusCode::BAD_GATEWAY, err.to_string()).into_response(),
+    let asked = async {
+        let stream = UnixStream::connect(&cdp.socket).await?;
+        let (mut sender, connection) =
+            hyper::client::conn::http1::handshake(TokioIo::new(stream)).await?;
+        tokio::spawn(connection);
+        // The browser answers only those who call it by its own address.
+        let request = Request::builder()
+            .method(method)
+            .uri(rest)
+            .header(header::HOST, DEVTOOLS_AUTHORITY)
+            .body(Body::empty())?;
+        let response = sender.send_request(request).await?;
+        let status = response.status();
+        anyhow::Ok((status, response.into_body().collect().await?.to_bytes()))
     };
-    let body = match body {
-        Ok(body) => body,
-        Err(err) => return (StatusCode::BAD_GATEWAY, err.to_string()).into_response(),
+    let (status, body) = match asked.await {
+        Ok(answered) => answered,
+        Err(err) => return (StatusCode::BAD_GATEWAY, format!("{err:#}")).into_response(),
     };
     let host = headers
         .get(header::HOST)
         .and_then(|host| host.to_str().ok())
         .unwrap_or("localhost");
     let body = match std::str::from_utf8(&body) {
-        Ok(text) => Bytes::from(text.replace(&browser, &format!("{host}{prefix}"))),
+        Ok(text) => Bytes::from(text.replace(DEVTOOLS_AUTHORITY, &format!("{host}{prefix}"))),
         Err(_) => body,
     };
     (
-        StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY),
+        status,
         [(header::CONTENT_TYPE, "application/json; charset=UTF-8")],
         body,
     )

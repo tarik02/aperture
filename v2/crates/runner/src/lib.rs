@@ -30,6 +30,9 @@ pub struct Spec {
     /// The cursor theme the pointer is drawn from in recordings, a directory with `cursors`
     /// in it.
     pub cursor_theme: Option<PathBuf>,
+    /// Local addresses and networks the browser may reach; the rest of what is local to
+    /// the node is refused it.
+    pub egress_allow: Vec<String>,
     /// Arguments for the browser after the runner's own.
     pub browser_args: Vec<String>,
 }
@@ -67,6 +70,8 @@ pub struct Tools {
     pub native_host: PathBuf,
     /// ffmpeg, which makes the edits of recordings; without it they are left raw.
     pub ffmpeg: Option<PathBuf>,
+    /// `aperture-browser-shim`, which runs the browser inside its sandbox.
+    pub browser_shim: PathBuf,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,10 +93,15 @@ pub struct Status {
     pub failure: Option<String>,
 }
 
-/// The browser's DevTools endpoint, on loopback.
+/// What the browser calls its DevTools endpoint: where it listens inside its sandbox. The
+/// URLs it lists name it.
+pub const DEVTOOLS_AUTHORITY: &str = "127.0.0.1:9222";
+
+/// The browser's DevTools endpoint: HTTP and WebSockets on a Unix socket, as the browser
+/// serves them on a port of its sandbox.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Cdp {
-    pub port: u16,
+    pub socket: PathBuf,
     /// The path of the browser target's WebSocket, `/devtools/browser/<id>`.
     pub browser_path: String,
 }

@@ -241,6 +241,12 @@ impl Session {
 
     /// The target a tab is, while the target lasts.
     fn target_of(&self, tab: TabId) -> anyhow::Result<Target> {
+        // Targets are numbered as they are named, and one may be named by a number it
+        // would get before anything listed it.
+        let targets = self.targets.borrow().clone();
+        for target in &targets {
+            self.tab_of(&target.id);
+        }
         let id = self
             .tabs
             .lock()

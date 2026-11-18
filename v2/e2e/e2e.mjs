@@ -5,6 +5,7 @@
 //   cd v2 && cargo build && node e2e/e2e.mjs "$PWD/target/debug"
 //
 import { spawn, execSync } from "node:child_process";
+import { createServer } from "node:http";
 import { readFileSync, existsSync, rmSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
 
 const [bin] = process.argv.slice(2);
@@ -14,7 +15,10 @@ execSync(`pkill -KILL -f "[a]perture-runner ${D}/" || true`);
 rmSync(D, { recursive: true, force: true });
 mkdirSync(D, { recursive: true });
 const base = "http://127.0.0.1:7911";
-const env = { ...process.env, APERTURE_DATA_DIR: `${D}/data`, APERTURE_RUNTIME_DIR: `${D}/run`, APERTURE_LISTEN: "127.0.0.1:7911" };
+// Sessions' browsers may reach nothing local but this one address, where a page for them
+// to fetch is served.
+const reachable = createServer((_, res) => res.end("reachable")).listen(7921, "127.0.0.2");
+const env = { ...process.env, APERTURE_DATA_DIR: `${D}/data`, APERTURE_RUNTIME_DIR: `${D}/run`, APERTURE_LISTEN: "127.0.0.1:7911", APERTURE_EGRESS_ALLOW: "127.0.0.2" };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let executor;
 process.on("exit", () => executor?.kill("SIGINT"));
@@ -36,8 +40,9 @@ async function rpc(method, body = {}) {
   console.log(`${method} ${res.status} ${Date.now() - started}ms`, JSON.stringify(json).slice(0, 260));
   return json;
 }
-function cdp(sessionId) {
-  const ws = new WebSocket(`ws://127.0.0.1:7911/sessions/${sessionId}/cdp`, { headers: auth });
+const cdp = (sessionId) => cdpAt(`ws://127.0.0.1:7911/sessions/${sessionId}/cdp`, { headers: auth });
+function cdpAt(url, options) {
+  const ws = new WebSocket(url, options);
   let next = 1; const pending = new Map();
   ws.addEventListener("message", (e) => { const m = JSON.parse(e.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } });
   const open = new Promise((ok, fail) => { ws.addEventListener("open", ok); ws.addEventListener("error", (e) => fail(new Error("ws error " + (e.message ?? "")))); });
@@ -110,7 +115,19 @@ listed2 = await until((targets) => targets.length === 2);
 check("a closed page is no target", listed2.length === 2 && listed2.every((t) => before.has(t.id)));
 await c.send("Target.activateTarget", { targetId: created.targetId });
 
-const viewer = cdp(a.id);
+// What a session's browser can reach: nothing local, not even the executor that runs it or
+// its own DevTools endpoint, but what the node allows.
+const reaches = async (url) => (await c.send("Runtime.evaluate", { expression: `fetch(${JSON.stringify(url)}, { mode: "no-cors" }).then(() => true, () => false)`, awaitPromise: true, returnByValue: true }, bPage)).result.value;
+check("a page cannot reach the executor on loopback", (await reaches("http://127.0.0.1:7911/")) === false);
+check("a page cannot reach its own DevTools endpoint", (await reaches("http://127.0.0.1:9222/json/version")) === false);
+check("a page cannot reach the node's own address by a name", (await reaches("http://localhost:7911/")) === false);
+check("a page reaches what the node allows", (await reaches("http://127.0.0.2:7921/")) === true);
+
+// The viewer is a person's browser: one outside any session, with a network of its own.
+const viewerBrowser = spawn(process.env.APERTURE_CHROMIUM, ["--headless=new", "--no-sandbox", `--user-data-dir=${D}/viewer`, "--remote-debugging-port=0", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
+process.on("exit", () => viewerBrowser.kill("SIGKILL"));
+const viewerUrl = await new Promise((found) => { let log = ""; viewerBrowser.stderr.on("data", (chunk) => { log += chunk; const url = /DevTools listening on (ws:\/\/\S+)/u.exec(log)?.[1]; if (url) found(url); }); });
+const viewer = cdpAt(viewerUrl);
 const { targetId } = await viewer.send("Target.createTarget", { url: `${live}?token=${token}` });
 const { sessionId } = await viewer.send("Target.attachToTarget", { targetId, flatten: true });
 const evaluate = async (expression) => (await viewer.send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }, sessionId)).result.value;
@@ -255,7 +272,7 @@ check("tabs close closes the target", (await until((targets) => targets.length =
 await sleep(500);
 const shot = await viewer.send("Page.captureScreenshot", { format: "png" }, sessionId);
 writeFileSync(`${D}/viewer.png`, Buffer.from(shot.data, "base64"));
-viewer.close(); c.close();
+viewer.close(); c.close(); viewerBrowser.kill("SIGKILL");
 execSync(`grep -h "target ready\\|target closed\\|refused the extension\\|video encoders\\|encoder failed\\|no video\\|failed to encode" ${D}/data/sessions/${b.id}/logs/runner.log | sed 's/\\x1b\\[[0-9;]*m//g' > ${D}/encoders.log || true`);
 console.log("encoders:", readFileSync(`${D}/encoders.log`, "utf8").trim());
 
@@ -297,3 +314,4 @@ check("sessions gone", readdirSync(`${D}/data/sessions`).length === 0);
 check("no session processes left", procs() === "");
 console.log(procs());
 executor.kill("SIGINT");
+reachable.close();

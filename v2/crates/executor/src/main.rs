@@ -71,6 +71,18 @@ struct Arguments {
     /// The unpacked extension that keeps every page in a browser window of its own.
     #[arg(long, env = "APERTURE_TAB_WINDOW_EXTENSION")]
     tab_window_extension: PathBuf,
+    /// A local address or network, such as `10.1.2.3` or `192.168.0.0/16`, that sessions'
+    /// browsers may reach. What is local to this machine and its network is otherwise
+    /// refused them. May be repeated.
+    #[arg(
+        long = "egress-allow",
+        env = "APERTURE_EGRESS_ALLOW",
+        value_delimiter = ','
+    )]
+    egress_allow: Vec<String>,
+    /// `aperture-browser-shim`. Next to this program by default.
+    #[arg(long, env = "APERTURE_BROWSER_SHIM")]
+    browser_shim: Option<PathBuf>,
     /// ffmpeg, which makes the edits of recordings. Without it they are left raw.
     #[arg(long, env = "APERTURE_FFMPEG")]
     ffmpeg: Option<PathBuf>,
@@ -115,6 +127,12 @@ async fn main() -> anyhow::Result<()> {
             .context("failed to find the executor's own executable")?
             .with_file_name("aperture-native-host"),
     };
+    let browser_shim = match arguments.browser_shim {
+        Some(shim) => shim,
+        None => std::env::current_exe()
+            .context("failed to find the executor's own executable")?
+            .with_file_name("aperture-browser-shim"),
+    };
     let store = Store::open(&data_dir)
         .with_context(|| format!("failed to open the store {}", data_dir.display()))?;
     let token = load_token(
@@ -135,11 +153,13 @@ async fn main() -> anyhow::Result<()> {
                     .canonicalize()
                     .context("the tab window extension was not found")?,
                 native_host: executable(&native_host)?,
+                browser_shim: executable(&browser_shim)?,
                 ffmpeg: arguments.ffmpeg.as_deref().map(executable).transpose()?,
             },
             viewport: VIEWPORT,
             rtc_ports: arguments.rtc_ports,
             cursor_theme: arguments.cursor_theme,
+            egress_allow: arguments.egress_allow,
             browser_args: arguments.browser_args,
         },
     ));
