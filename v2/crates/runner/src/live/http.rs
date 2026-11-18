@@ -3,7 +3,7 @@
 
 use std::{io::Cursor, path::Path, sync::Arc};
 
-use aperture_compositor::{Frame, Handle};
+use aperture_compositor::{Frame, Handle, Viewport};
 use aperture_runner::{PortRange, proxy};
 use axum::{
     Json, Router,
@@ -49,6 +49,7 @@ pub async fn serve(
         .route("/ws", get(session_socket))
         .route("/targets", get(targets_list))
         .route("/targets/{id}/screenshot.png", get(screenshot))
+        .route("/targets/{id}/viewport", put(viewport_set))
         .route("/proxy", put(proxy_update))
         .route("/recordings", get(recordings_list).post(recording_start))
         .route("/recordings/{id}", get(recording_get))
@@ -71,6 +72,7 @@ struct TargetView {
     url: String,
     width: u32,
     height: u32,
+    scale: f64,
 }
 
 async fn targets_list(State(live): State<Live>) -> Json<Vec<TargetView>> {
@@ -84,6 +86,7 @@ async fn targets_list(State(live): State<Live>) -> Json<Vec<TargetView>> {
             url: target.url.clone(),
             width: target.width,
             height: target.height,
+            scale: target.scale,
         })
         .collect();
     Json(targets)
@@ -114,6 +117,40 @@ async fn screenshot(State(live): State<Live>, RoutePath(id): RoutePath<String>) 
         Ok(Err(err)) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
         Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
     }
+}
+
+#[derive(Deserialize)]
+struct ViewportView {
+    width: u32,
+    height: u32,
+    /// The target keeps its scale when left out.
+    scale: Option<f64>,
+}
+
+/// Gives a target its own viewport, as near to the one asked for as it can be given.
+async fn viewport_set(
+    State(live): State<Live>,
+    RoutePath(id): RoutePath<String>,
+    Json(asked): Json<ViewportView>,
+) -> Response {
+    let target = live
+        .targets
+        .borrow()
+        .iter()
+        .find(|target| target.id == id)
+        .cloned();
+    let Some(target) = target else {
+        return (StatusCode::NOT_FOUND, format!("target {id} not found")).into_response();
+    };
+    live.compositor.set_viewport(
+        target.window,
+        Viewport {
+            width: asked.width,
+            height: asked.height,
+            scale: asked.scale.unwrap_or(target.scale),
+        },
+    );
+    StatusCode::NO_CONTENT.into_response()
 }
 
 /// Takes the session's proxy configuration, for the connections made from now on.

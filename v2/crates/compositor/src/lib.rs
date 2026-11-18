@@ -1,7 +1,7 @@
 //! The compositor of one session: a headless Wayland server for the session's browser. It
 //! owns no screen. Every window is drawn on its own, at the session's viewport size, and
-//! whoever watches a window gets its frames as pixels; input goes to a window by its own
-//! coordinates.
+//! whoever watches a window gets its frames, as pixels or where the GPU drew them; input
+//! goes to a window by its own coordinates.
 //!
 //! The Wayland state lives on a thread of its own, behind [`Handle`].
 
@@ -13,12 +13,16 @@ mod render;
 mod state;
 
 use std::{
+    os::fd::BorrowedFd,
     path::{Path, PathBuf},
     sync::{Arc, mpsc},
     time::{Duration, Instant},
 };
 
-use smithay::reexports::calloop::{EventLoop, channel};
+use smithay::{
+    backend::allocator::{Buffer as _, dmabuf::Dmabuf},
+    reexports::calloop::{EventLoop, channel},
+};
 use tokio::sync::{oneshot, watch};
 
 use crate::state::{Job, State};
@@ -34,19 +38,50 @@ pub struct Config {
     /// Whether windows are drawn on a GPU, where one works, and clients may share their
     /// GPU buffers. Without, everything is drawn on the CPU.
     pub gpu: bool,
+    /// The layouts (DRM format modifiers) of RGBA buffers that whoever takes frames takes
+    /// on the GPU: frames are drawn into such, where the GPU does, and stay there.
+    pub frame_layouts: Vec<u64>,
 }
 
-/// The size windows without a parent are given, in logical pixels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The size a window without a parent is given, in logical pixels, and how many pixels it
+/// draws to each of them. Every such window has its own; one is given the session's until
+/// it is given another.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Viewport {
     pub width: u32,
     pub height: u32,
+    pub scale: f64,
+}
+
+impl Viewport {
+    /// The longest side of a picture, in pixels: what video encoders take.
+    pub const LONGEST: u32 = 4096;
+    pub const SMALLEST: u32 = 64;
+
+    /// The viewport as near to this one as windows can be given.
+    pub fn bounded(self) -> Self {
+        let width = self.width.clamp(Self::SMALLEST, Self::LONGEST);
+        let height = self.height.clamp(Self::SMALLEST, Self::LONGEST);
+        let most = f64::from(Self::LONGEST) / f64::from(width.max(height));
+        let scale = if self.scale.is_finite() {
+            self.scale
+        } else {
+            1.0
+        };
+        // In the steps clients are told a scale in.
+        let scale = (scale.clamp(0.5, most.clamp(0.5, 4.0)) * 120.0).floor() / 120.0;
+        Self {
+            width,
+            height,
+            scale,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WindowId(pub u32);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WindowInfo {
     pub id: WindowId,
     /// The window this one is a dialog of.
@@ -55,25 +90,73 @@ pub struct WindowInfo {
     pub tag: Option<String>,
     pub title: String,
     pub app_id: String,
+    /// In logical pixels.
     pub width: u32,
     pub height: u32,
+    /// How many pixels the window draws to each logical one.
+    pub scale: f64,
 }
 
 /// A window as drawn: the window's own area, grown right and down by the popups that stick
 /// out of it. Its origin is the origin of input coordinates.
 pub struct Frame {
+    /// In pixels.
     pub width: u32,
     pub height: u32,
-    /// Tightly packed premultiplied RGBA.
+    /// How many pixels there are to each logical one.
+    pub scale: f64,
+    /// Tightly packed premultiplied RGBA. Empty for a frame that stayed on the GPU, which
+    /// one does unless someone asked for the window's [`Pixels`].
     pub rgba: Vec<u8>,
+    /// The frame where it was drawn, when that is on the GPU and in a layout its takers
+    /// take.
+    pub buffer: Option<GpuBuffer>,
     /// On the compositor's clock, which starts with it.
     pub time: Duration,
     /// How many pixels changed since the window was first watched, counted up from frame
     /// to frame: by how much it grew between two frames says how much of the picture
     /// changed between them, also when frames in between were skipped. Flicker is not
     /// counted: a small area that changes at a steady beat, as a blinking caret does.
+    ///
+    /// Counted from the pixels where the frames come with them. A frame that stayed on
+    /// the GPU counts for all the window says it drew anew, which is more.
     pub changed: u64,
 }
+
+/// A frame on the GPU that drew it, as a dmabuf of RGBA. It is not drawn over while
+/// someone holds it.
+#[derive(Clone)]
+pub struct GpuBuffer {
+    dmabuf: Dmabuf,
+    #[allow(dead_code)]
+    lease: Arc<()>,
+}
+
+/// One plane of a [`GpuBuffer`].
+pub struct Plane<'a> {
+    pub fd: BorrowedFd<'a>,
+    pub offset: u32,
+    pub stride: u32,
+}
+
+impl GpuBuffer {
+    /// The DRM format modifier.
+    pub fn layout(&self) -> u64 {
+        self.dmabuf.format().modifier.into()
+    }
+
+    pub fn planes(&self) -> impl Iterator<Item = Plane<'_>> {
+        let places = self.dmabuf.offsets().zip(self.dmabuf.strides());
+        self.dmabuf
+            .handles()
+            .zip(places)
+            .map(|(fd, (offset, stride))| Plane { fd, offset, stride })
+    }
+}
+
+/// Held by one who needs a window's frames as pixels in memory; they come so while it is
+/// held.
+pub struct Pixels(#[allow(dead_code)] Arc<()>);
 
 /// A window's frames: the latest one, replaced as the window changes, `None` until the window
 /// has content. Closed when the window is.
@@ -222,6 +305,11 @@ impl Handle {
         self.call(move |state| state.watch(window)).await?
     }
 
+    /// See [`Pixels`]. The window's next frame comes at once, with them.
+    pub async fn pixels(&self, window: WindowId) -> Result<Pixels, Error> {
+        self.call(move |state| state.read_back(window)).await?
+    }
+
     pub async fn screenshot(&self, window: WindowId) -> Result<Frame, Error> {
         self.call(move |state| state.screenshot(window)).await?
     }
@@ -266,8 +354,9 @@ impl Handle {
         self.submit(move |state| state.draw_pointer(drawn));
     }
 
-    pub fn set_viewport(&self, viewport: Viewport) {
-        self.submit(move |state| state.set_viewport(viewport));
+    /// Gives a window its own viewport, as near to this one as it can be given.
+    pub fn set_viewport(&self, window: WindowId, viewport: Viewport) {
+        self.submit(move |state| state.set_viewport(window, viewport.bounded()));
     }
 
     fn submit(&self, job: impl FnOnce(&mut State) + Send + 'static) {

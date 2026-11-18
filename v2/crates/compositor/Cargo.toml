@@ -21,4 +21,5 @@ features = [
     "renderer_gl",
     "backend_egl",
     "backend_drm",
+    "backend_gbm",
 ]

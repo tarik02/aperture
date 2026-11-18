@@ -15,4 +15,5 @@ mod rtc;
 pub mod stream;
 mod tiles;
 
+pub use encode::frame_layouts;
 pub use http::{Live, serve};

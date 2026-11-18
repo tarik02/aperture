@@ -1,8 +1,8 @@
 use smithay::{
     backend::{allocator::dmabuf::Dmabuf, renderer::utils::on_commit_buffer_handler},
     delegate_compositor, delegate_cursor_shape, delegate_data_device, delegate_dmabuf,
-    delegate_output, delegate_presentation, delegate_primary_selection, delegate_seat,
-    delegate_shm, delegate_viewporter, delegate_xdg_decoration, delegate_xdg_shell,
+    delegate_fractional_scale, delegate_output, delegate_presentation, delegate_primary_selection,
+    delegate_seat, delegate_shm, delegate_viewporter, delegate_xdg_decoration, delegate_xdg_shell,
     desktop::{
         PopupKeyboardGrab, PopupKind, PopupPointerGrab, PopupUngrabStrategy, Window,
         find_popup_root_surface, get_popup_toplevel_coords,
@@ -26,6 +26,7 @@ use smithay::{
             is_sync_subsurface, with_states,
         },
         dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier},
+        fractional_scale::FractionalScaleHandler,
         output::OutputHandler,
         selection::{
             SelectionHandler,
@@ -45,7 +46,7 @@ use smithay::{
 };
 use tracing::info;
 
-use crate::state::{ClientState, Shown, State, Tag, configure_when_ready, window_id};
+use crate::state::{ClientState, Shown, State, Tag, configure_when_ready, tell_scale, window_id};
 
 impl CompositorHandler for State {
     fn compositor_state(&mut self) -> &mut CompositorState {
@@ -59,8 +60,17 @@ impl CompositorHandler for State {
             .compositor_state
     }
 
+    fn new_surface(&mut self, surface: &WlSurface) {
+        // What it belongs to is not known yet; `commit` tells it again once it is.
+        with_states(surface, |states| {
+            tell_scale(surface, states, self.viewport.scale)
+        });
+    }
+
     fn commit(&mut self, surface: &WlSurface) {
         on_commit_buffer_handler::<Self>(surface);
+        let scale = self.scale_for_surface(surface);
+        with_states(surface, |states| tell_scale(surface, states, scale));
 
         if !is_sync_subsurface(surface) {
             let mut root = surface.clone();
@@ -144,6 +154,9 @@ impl XdgShellHandler for State {
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
         if let Some(window) = self.window_for_surface(surface.wl_surface()) {
             info!(id = ?window_id(&window).map(|id| id.0), "window closed");
+            if let Some(id) = window_id(&window) {
+                self.forget_viewport(id);
+            }
             self.space.unmap_elem(&window);
             // The keyboard goes to the window below.
             let below = self.space.elements().next_back().cloned();
@@ -243,14 +256,12 @@ impl State {
         let Ok(root) = find_popup_root_surface(&kind) else {
             return;
         };
-        if self.window_for_surface(&root).is_none() {
+        let Some(window) = self.window_for_surface(&root) else {
             return;
-        }
-        let mut target = Rectangle::from_size(
-            self.output
-                .current_mode()
-                .map_or((0, 0).into(), |mode| mode.size.to_logical(1)),
-        );
+        };
+        let viewport = self.viewport_of(&window);
+        let mut target =
+            Rectangle::from_size((viewport.width as i32, viewport.height as i32).into());
         target.loc -= get_popup_toplevel_coords(&kind);
         popup.with_pending_state(|state| {
             state.geometry = state.positioner.get_unconstrained_geometry(target);
@@ -334,6 +345,15 @@ delegate_output!(State);
 delegate_cursor_shape!(State);
 delegate_viewporter!(State);
 delegate_presentation!(State);
+
+impl FractionalScaleHandler for State {
+    fn new_fractional_scale(&mut self, surface: WlSurface) {
+        let scale = self.scale_for_surface(&surface);
+        with_states(&surface, |states| tell_scale(&surface, states, scale));
+    }
+}
+
+delegate_fractional_scale!(State);
 
 impl DmabufHandler for State {
     fn dmabuf_state(&mut self) -> &mut DmabufState {

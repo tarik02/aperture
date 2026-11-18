@@ -47,15 +47,18 @@ const SETTLE_WITHIN: Duration = Duration::from_secs(5);
 const RECONCILE_EVERY: Duration = Duration::from_millis(500);
 
 /// A page and the window that shows it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Target {
     /// The page's DevTools target id.
     pub id: String,
     pub window: WindowId,
     pub title: String,
     pub url: String,
+    /// In logical pixels.
     pub width: u32,
     pub height: u32,
+    /// Pixels to a logical pixel.
+    pub scale: f64,
 }
 
 #[derive(Deserialize)]
@@ -423,6 +426,7 @@ impl Inner {
                     url: ready.url.clone(),
                     width: window.width,
                     height: window.height,
+                    scale: window.scale,
                 })
             })
             .collect();

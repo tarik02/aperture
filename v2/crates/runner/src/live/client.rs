@@ -34,6 +34,9 @@ pub async fn serve(live: Live, socket: WebSocket) {
         selected: None,
         chosen: false,
         video: None,
+        pinned: None,
+        fps: None,
+        formats: Vec::new(),
         format: Format::H264,
         frames: None,
         next_frames: None,
@@ -62,6 +65,13 @@ struct Client {
     chosen: bool,
     /// The client's WebRTC connection, which lives as long as this does.
     video: Option<rtc::Watch>,
+    /// The quality the client asked for, whatever its link carries.
+    pinned: Option<Quality>,
+    /// The most frames a second the client asked for.
+    fps: Option<u32>,
+    /// The forms of video the client would have that are made here, the one it would
+    /// rather have first.
+    formats: Vec<Format>,
     /// The form of the frames the client takes.
     format: Format,
     /// The watched target's video, for a client that takes it as frames.
@@ -111,7 +121,7 @@ impl Client {
                 }
                 Some(event) = peer_events.recv() => match event {
                     FromPeer::Message(message) => self.handle(message).await?,
-                    FromPeer::Quality(quality) => self.send_status(Format::H264, quality).await?,
+                    FromPeer::Stream(key) => self.send_status(key).await?,
                 },
                 Some(tile) = tiles.recv() => {
                     self.send(server_message::Message::Tile(Box::new(tile))).await?;
@@ -126,7 +136,9 @@ impl Client {
                     Ok(packet) if packet.keyframe => {
                         self.frames = self.next_frames.take();
                         self.awaits_keyframe = false;
-                        self.send_status(self.format, self.delivery.quality()).await?;
+                        if let Some(frames) = &self.frames {
+                            self.send_status(frames.key).await?;
+                        }
                         self.send_frame(&packet).await?;
                     }
                     Ok(_) => {}
@@ -163,20 +175,30 @@ impl Client {
             Message::Hello(hello) => {
                 self.greeted = true;
                 self.pixels = hello.pixels.as_known().unwrap_or_default();
-                let wanted = hello
+                self.pinned = match hello.quality.as_known() {
+                    Some(pb::VideoQuality::VIDEO_QUALITY_LOW) => Some(Quality::Low),
+                    Some(pb::VideoQuality::VIDEO_QUALITY_MEDIUM) => Some(Quality::Medium),
+                    Some(pb::VideoQuality::VIDEO_QUALITY_FULL) => Some(Quality::Full),
+                    Some(pb::VideoQuality::VIDEO_QUALITY_UNSPECIFIED) | None => None,
+                };
+                self.delivery.pin(self.pinned);
+                self.fps = hello
+                    .fps
+                    .map(|fps| fps.clamp(*Key::FPS.start(), *Key::FPS.end()));
+                let wanted: Vec<Format> = hello
                     .formats
                     .iter()
-                    .filter_map(|format| match format.as_known()? {
-                        pb::VideoFormat::VIDEO_FORMAT_H264 => Some(Format::H264),
-                        pb::VideoFormat::VIDEO_FORMAT_FULL_CHROMA => Some(Format::FullChroma),
-                        pb::VideoFormat::VIDEO_FORMAT_UNSPECIFIED => None,
-                    });
-                let wanted: Vec<Format> = wanted.collect();
+                    .filter_map(|format| format_from(format.as_known()?))
+                    .collect();
                 // Finding out what encodes here takes a moment the first time.
                 let made = tokio::task::spawn_blocking(move || {
-                    wanted.into_iter().find(|format| encode::encodes(*format))
+                    wanted
+                        .into_iter()
+                        .filter(|format| encode::encodes(*format))
+                        .collect()
                 });
-                self.format = made.await.ok().flatten().unwrap_or(Format::H264);
+                self.formats = made.await.unwrap_or_default();
+                self.format = self.formats.first().copied().unwrap_or(Format::H264);
                 self.send_targets().await?;
                 self.send_cursor().await?;
                 self.select(None).await;
@@ -194,10 +216,21 @@ impl Client {
                 return Ok(());
             }
             Message::Viewport(viewport) => {
-                self.live.compositor.set_viewport(Viewport {
-                    width: viewport.width,
-                    height: viewport.height,
+                let watched = self.selected.as_ref().and_then(|(id, window)| {
+                    let targets = self.live.targets.borrow();
+                    let target = targets.iter().find(|target| target.id == *id)?;
+                    Some((*window, target.scale))
                 });
+                if let Some((window, scale)) = watched {
+                    self.live.compositor.set_viewport(
+                        window,
+                        Viewport {
+                            width: viewport.width,
+                            height: viewport.height,
+                            scale: viewport.scale.unwrap_or(scale),
+                        },
+                    );
+                }
                 return Ok(());
             }
             Message::RtcOffer(offer) => return self.connect_video(&offer.sdp).await,
@@ -323,17 +356,22 @@ impl Client {
     /// Points the client's pixels at the target it watches.
     async fn show(&mut self) {
         if let Some(video) = &self.video {
-            let window = self.selected.as_ref().map(|(_, window)| *window);
+            let watched = rtc::Watched {
+                window: self.selected.as_ref().map(|(_, window)| *window),
+                quality: self.pinned,
+                fps: self.fps,
+                formats: self.formats.clone(),
+            };
             // A connection that ended takes nothing; the client offers another.
-            let _ = video.send(window).await;
+            let _ = video.send(watched).await;
         }
         self.next_frames = None;
         self.delivery.restart();
         self.frames = self.subscribe().await;
         self.request_keyframe();
-        if self.frames.is_some() {
+        if let Some(frames) = &self.frames {
             // A socket that fails says so at the client's next message.
-            let _ = self.send_status(self.format, self.delivery.quality()).await;
+            let _ = self.send_status(frames.key).await;
         }
         let tiles = self
             .selected
@@ -357,6 +395,7 @@ impl Client {
             window: *window,
             format: self.format,
             quality: self.delivery.quality(),
+            fps: self.fps,
         };
         self.live.streams.subscribe(key).await.ok()
     }
@@ -373,7 +412,10 @@ impl Client {
             self.frames = stream;
             self.next_frames = None;
             self.awaits_keyframe = true;
-            self.send_status(self.format, quality).await
+            match &self.frames {
+                Some(frames) => self.send_status(frames.key).await,
+                None => Ok(()),
+            }
         } else {
             self.next_frames = stream;
             Ok(())
@@ -424,15 +466,16 @@ impl Client {
             .await
     }
 
-    async fn send_status(&mut self, format: Format, quality: Quality) -> Result<(), axum::Error> {
-        let quality = match quality {
+    async fn send_status(&mut self, key: Key) -> Result<(), axum::Error> {
+        let quality = match key.quality {
             Quality::Low => pb::VideoQuality::VIDEO_QUALITY_LOW,
             Quality::Medium => pb::VideoQuality::VIDEO_QUALITY_MEDIUM,
             Quality::Full => pb::VideoQuality::VIDEO_QUALITY_FULL,
         };
         let status = pb::VideoStatus {
-            format: format_of(format).into(),
+            format: format_of(key.format).into(),
             quality: quality.into(),
+            fps: key.fps(),
             ..Default::default()
         };
         self.send(server_message::Message::VideoStatus(Box::new(status)))
@@ -451,6 +494,7 @@ impl Client {
                 url: target.url.clone(),
                 width: target.width,
                 height: target.height,
+                scale: target.scale,
                 ..Default::default()
             })
             .collect();
@@ -511,5 +555,21 @@ fn format_of(format: Format) -> pb::VideoFormat {
     match format {
         Format::H264 => pb::VideoFormat::VIDEO_FORMAT_H264,
         Format::FullChroma => pb::VideoFormat::VIDEO_FORMAT_FULL_CHROMA,
+        Format::H265 => pb::VideoFormat::VIDEO_FORMAT_H265,
+        Format::Vp9 => pb::VideoFormat::VIDEO_FORMAT_VP9,
+        Format::Vp9FullChroma => pb::VideoFormat::VIDEO_FORMAT_VP9_FULL_CHROMA,
+        Format::Av1 => pb::VideoFormat::VIDEO_FORMAT_AV1,
+    }
+}
+
+fn format_from(format: pb::VideoFormat) -> Option<Format> {
+    match format {
+        pb::VideoFormat::VIDEO_FORMAT_UNSPECIFIED => None,
+        pb::VideoFormat::VIDEO_FORMAT_H264 => Some(Format::H264),
+        pb::VideoFormat::VIDEO_FORMAT_FULL_CHROMA => Some(Format::FullChroma),
+        pb::VideoFormat::VIDEO_FORMAT_H265 => Some(Format::H265),
+        pb::VideoFormat::VIDEO_FORMAT_VP9 => Some(Format::Vp9),
+        pb::VideoFormat::VIDEO_FORMAT_VP9_FULL_CHROMA => Some(Format::Vp9FullChroma),
+        pb::VideoFormat::VIDEO_FORMAT_AV1 => Some(Format::Av1),
     }
 }

@@ -37,6 +37,7 @@ use crate::sessions::{Config, Sessions};
 const VIEWPORT: Viewport = Viewport {
     width: 1280,
     height: 720,
+    scale: 1.0,
 };
 
 /// Runs browser sessions on this machine, for whoever holds its token.

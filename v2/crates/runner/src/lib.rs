@@ -46,11 +46,18 @@ pub struct Spec {
     pub browser_args: Vec<String>,
 }
 
-/// The size browser windows fill, in logical pixels.
+/// The size browser windows fill, in logical pixels, until one is given another.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Viewport {
     pub width: u32,
     pub height: u32,
+    /// Pixels to a logical pixel.
+    #[serde(default = "one")]
+    pub scale: f64,
+}
+
+fn one() -> f64 {
+    1.0
 }
 
 /// Ports from `first` to `last`, both included.

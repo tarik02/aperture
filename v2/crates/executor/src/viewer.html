@@ -4,14 +4,29 @@
 <style>
   html, body { margin: 0; height: 100%; background: #16181d; color: #c9ced6; font: 13px system-ui, sans-serif; }
   body { display: flex; flex-direction: column; }
-  #bar { display: flex; gap: 6px; padding: 6px; align-items: center; overflow-x: auto; }
+  #bar { display: flex; gap: 6px; padding: 6px; align-items: center; }
+  #targets { display: flex; gap: 6px; min-width: 0; overflow-x: auto; }
+  #bar button { flex: none; }
   #bar button { background: #262a33; color: inherit; border: 1px solid #3a3f4b; border-radius: 4px; padding: 3px 8px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #bar button.selected { border-color: #7aa2f7; color: #fff; }
-  #state { margin-left: auto; opacity: 0.7; }
+  #bar select { background: #262a33; color: inherit; border: 1px solid #3a3f4b; border-radius: 4px; padding: 2px 4px; }
+  #controls { margin-left: auto; display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+  #state { opacity: 0.7; }
   #stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
   video, canvas { max-width: 100%; max-height: 100%; background: #000; outline: none; }
 </style>
-<div id="bar"><span id="targets"></span><span id="state">connecting</span></div>
+<div id="bar">
+  <span id="targets"></span>
+  <span id="controls">
+    <select id="pixels" title="How the picture comes"><option value="video">WebRTC</option><option value="frames">Frames</option><option value="tiles">Tiles</option></select>
+    <select id="codec" title="Form of the frames"><option value="">Codec: auto</option><option value="VIDEO_FORMAT_H264">H.264</option><option value="VIDEO_FORMAT_FULL_CHROMA">H.264 4:4:4</option><option value="VIDEO_FORMAT_H265">H.265</option><option value="VIDEO_FORMAT_VP9">VP9</option><option value="VIDEO_FORMAT_VP9_FULL_CHROMA">VP9 4:4:4</option><option value="VIDEO_FORMAT_AV1">AV1</option></select>
+    <select id="quality" title="Video quality"><option value="">Quality: auto</option><option value="VIDEO_QUALITY_LOW">Low</option><option value="VIDEO_QUALITY_MEDIUM">Medium</option><option value="VIDEO_QUALITY_FULL">Full</option></select>
+    <select id="fps" title="Frames a second at most"><option value="">FPS: auto</option><option>15</option><option>30</option><option>60</option></select>
+    <select id="viewport" title="The page's size"><option value="">Viewport</option><option>1280x720</option><option>1920x1080</option><option>1024x768</option><option>390x844</option><option value="fit">Fit this window</option></select>
+    <select id="scale" title="Pixels per CSS pixel"><option value="1">1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option><option value="3">3x</option></select>
+    <span id="state">connecting</span>
+  </span>
+</div>
 <div id="stage"><video id="video" autoplay muted playsinline tabindex="0" hidden></video><canvas id="canvas" tabindex="0" hidden></canvas></div>
 <script>
   // KeyboardEvent.code to Linux evdev key codes.
@@ -42,6 +57,8 @@
   // session socket, tiles. `?pixels=` names where to start; what fails falls to the next.
   const WAYS = ["video", "frames", "tiles"].filter((way) => way !== "frames" || "VideoDecoder" in window);
   let way = WAYS[Math.max(0, WAYS.indexOf(new URLSearchParams(location.search).get("pixels")))];
+  const controls = Object.fromEntries(["pixels", "codec", "quality", "fps", "viewport", "scale"].map((id) => [id, document.getElementById(id)]));
+  for (const option of controls.pixels.options) option.disabled = !WAYS.includes(option.value);
   let view = video;
   const size = () => (view === video ? [video.videoWidth, video.videoHeight] : [canvas.width, canvas.height]);
 
@@ -51,12 +68,29 @@
   let status;
   // What a decoder is asked for, by the form of the frames. Without a description the
   // frames are read as Annex B, which they are.
-  const CODECS = { VIDEO_FORMAT_H264: "avc1.42e01f", VIDEO_FORMAT_FULL_CHROMA: "avc1.f4001f" };
+  const CODECS = {
+    VIDEO_FORMAT_H264: "avc1.42e01f", VIDEO_FORMAT_FULL_CHROMA: "avc1.f4001f", VIDEO_FORMAT_H265: "hev1.1.6.L153.B0",
+    VIDEO_FORMAT_VP9: "vp09.00.51.08", VIDEO_FORMAT_VP9_FULL_CHROMA: "vp09.01.51.08.03", VIDEO_FORMAT_AV1: "av01.0.13M.08",
+  };
+  // What a WebRTC connection calls the formats it carries.
+  const RTC_CODECS = {
+    VIDEO_FORMAT_H264: (codec) => codec.mimeType === "video/H264",
+    VIDEO_FORMAT_H265: (codec) => codec.mimeType === "video/H265",
+    VIDEO_FORMAT_VP9: (codec) => codec.mimeType === "video/VP9" && /profile-id=0/.test(codec.sdpFmtpLine ?? "profile-id=0"),
+    VIDEO_FORMAT_VP9_FULL_CHROMA: (codec) => codec.mimeType === "video/VP9" && /profile-id=1/.test(codec.sdpFmtpLine ?? ""),
+    VIDEO_FORMAT_AV1: (codec) => codec.mimeType === "video/AV1",
+  };
+  // The formats this browser takes the way the picture comes now.
   const decodable = async () => {
     const formats = [];
-    for (const format of ["VIDEO_FORMAT_FULL_CHROMA", "VIDEO_FORMAT_H264"]) {
-      const { supported } = await VideoDecoder.isConfigSupported({ codec: CODECS[format] }).catch(() => ({}));
-      if (supported) formats.push(format);
+    for (const format of Object.keys(CODECS)) {
+      if (way === "video") {
+        const takes = RTC_CODECS[format];
+        if (takes && RTCRtpReceiver.getCapabilities("video").codecs.some(takes)) formats.push(format);
+      } else if (way === "frames") {
+        const { supported } = await VideoDecoder.isConfigSupported({ codec: CODECS[format] }).catch(() => ({}));
+        if (supported) formats.push(format);
+      }
     }
     return formats;
   };
@@ -65,19 +99,64 @@
     (moved ? pointer : socket).send(JSON.stringify(message));
   };
 
+  // Says how the picture is to come: again whenever a control changes that.
+  const hello = async () => {
+    const decoded = await decodable();
+    for (const option of controls.codec.options) option.disabled = option.value !== "" && !decoded.includes(option.value);
+    if (!decoded.includes(controls.codec.value)) controls.codec.value = "";
+    // Left to itself: sharp color where frames are decoded here, what every browser takes over WebRTC.
+    const best = ["VIDEO_FORMAT_FULL_CHROMA", "VIDEO_FORMAT_H264"].filter((format) => way === "frames" && decoded.includes(format));
+    const formats = controls.codec.value ? [controls.codec.value] : best;
+    send({ hello: { pixels: `PIXELS_${way.toUpperCase()}`, formats, quality: controls.quality.value || undefined, fps: Number(controls.fps.value) || undefined } });
+  };
+  controls.codec.onchange = controls.quality.onchange = controls.fps.onchange = hello;
+  controls.pixels.onchange = () => {
+    peer?.close();
+    peer = pointer = undefined;
+    way = controls.pixels.value;
+    start();
+  };
+
+  // The viewport is the watched target's own: its page gets the size and the scale.
+  const watched = () => targets.find((item) => item.id === selected);
+  const stage = document.getElementById("stage");
+  const resize = () => {
+    const chosen = controls.viewport.value;
+    if (!chosen || !watched()) return;
+    const [width, height] = chosen === "fit" ? [stage.clientWidth, stage.clientHeight] : chosen.split("x").map(Number);
+    send({ viewport: { width, height, scale: Number(controls.scale.value) } });
+  };
+  controls.viewport.onchange = resize;
+  controls.scale.onchange = () => {
+    const target = watched();
+    if (target) send({ viewport: { width: target.width, height: target.height, scale: Number(controls.scale.value) } });
+  };
+  let fitting;
+  addEventListener("resize", () => {
+    clearTimeout(fitting);
+    if (controls.viewport.value === "fit") fitting = setTimeout(resize, 200);
+  });
+
   const start = async () => {
     view = way === "video" ? video : canvas;
     video.hidden = view !== video;
     canvas.hidden = view !== canvas;
-    const formats = way === "frames" ? await decodable() : [];
-    send({ hello: { pixels: `PIXELS_${way.toUpperCase()}`, formats } });
+    controls.pixels.value = way;
+    controls.codec.disabled = way === "tiles";
+    controls.quality.disabled = controls.fps.disabled = way === "tiles";
+    await hello();
     state.textContent = way;
     if (way !== "video") return;
     peer = new RTCPeerConnection();
     peer.addTransceiver("video", { direction: "recvonly" });
     // A move that is lost is not worth waiting for: the next one says where the pointer is.
     pointer = peer.createDataChannel("pointer", { ordered: true, maxRetransmits: 0 });
-    peer.ontrack = (event) => { video.srcObject = new MediaStream([event.track]); };
+    peer.ontrack = (event) => {
+      // Frames are shown as they come: one that waits to be smoothed is one seen late.
+      event.receiver.jitterBufferTarget = 0;
+      event.receiver.playoutDelayHint = 0;
+      video.srcObject = new MediaStream([event.track]);
+    };
     peer.onconnectionstatechange = () => {
       if (peer.connectionState !== "connected") state.textContent = `video: ${peer.connectionState}`;
       if (peer.connectionState === "failed") fall(`WebRTC ${peer.connectionState}`);
@@ -146,13 +225,21 @@
     if (message.videoStatus) {
       status = message.videoStatus;
       const name = (value) => value.split("_").at(-1).toLowerCase();
-      state.textContent = `${way}: ${name(status.quality)}${status.format === "VIDEO_FORMAT_FULL_CHROMA" ? ", 4:4:4" : ""}`;
+      state.textContent = `${way}: ${name(status.quality)}, ${controls.codec.querySelector(`[value=${status.format}]`)?.textContent ?? status.format}, ${status.fps} fps`;
       return;
     }
     if (message.tile) return void (drawn = drawn.then(() => drawTile(message.tile)));
     if (message.videoFrame) return void (drawn = drawn.then(() => decodeFrame(message.videoFrame)));
     if (message.targets) targets = message.targets.targets ?? [];
     if (message.selected) selected = message.selected.target;
+    if (message.targets || message.selected) {
+      const target = watched();
+      if (target) {
+        controls.scale.value = String(target.scale ?? 1);
+        const sized = `${target.width}x${target.height}`;
+        if (controls.viewport.value !== "fit") controls.viewport.value = [...controls.viewport.options].some((option) => option.value === sized) ? sized : "";
+      }
+    }
     if (message.cursor) video.style.cursor = canvas.style.cursor = message.cursor.hidden ? "none" : message.cursor.named ?? "default";
     const bar = document.getElementById("targets");
     bar.replaceChildren(...targets.map((item) => {
@@ -167,7 +254,8 @@
   // Positions are in the target's own pixels, whatever size the picture is shown at.
   const position = (event) => {
     const box = view.getBoundingClientRect();
-    const [width, height] = size();
+    // The picture may have more pixels than the target has logical ones.
+    const { width, height } = watched() ?? { width: size()[0], height: size()[1] };
     return {
       x: (event.clientX - box.left) * (width / box.width),
       y: (event.clientY - box.top) * (height / box.height),

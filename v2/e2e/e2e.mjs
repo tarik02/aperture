@@ -107,6 +107,24 @@ check("screenshot is a PNG", png.subarray(1, 4).toString() === "PNG");
 const first = Buffer.from(await (await fetch(`${live}/targets/${listed2[0].id}/screenshot.png`, { headers: auth })).arrayBuffer());
 check("each target has a window of its own", first.subarray(1, 4).toString() === "PNG" && !first.equals(png));
 
+// A target has a viewport of its own: its page's size and how many pixels it draws to one.
+{
+  const setViewport = (id, viewport) => fetch(`${live}/targets/${id}/viewport`, { method: "PUT", headers: { ...auth, "Content-Type": "application/json" }, body: JSON.stringify(viewport) });
+  const page = async (expression) => (await c.send("Runtime.evaluate", { expression, returnByValue: true }, bPage)).result.value;
+  await setViewport(created.targetId, { width: 800, height: 600, scale: 2 });
+  const sized = await until((targets) => { const t = targets.find((t) => t.id === created.targetId); return t.width === 800 && t.height === 600 && t.scale === 2; });
+  console.log("viewport:", JSON.stringify(sized.map((t) => [t.width, t.height, t.scale])), await page("[innerWidth, innerHeight, devicePixelRatio].join()"));
+  check("a target takes a viewport and scale of its own", sized.at(-1).width === 800 && sized.at(-1).scale === 2 && sized[0].width === 1280 && sized[0].scale === 1);
+  check("its page has the size and the pixel ratio", (await page("[innerWidth, innerHeight, devicePixelRatio].join()")) === "800,600,2");
+  const large = Buffer.from(await (await fetch(`${live}/targets/${created.targetId}/screenshot.png`, { headers: auth })).arrayBuffer());
+  check("its picture has the pixels", large.readUInt32BE(16) === 1600 && large.readUInt32BE(20) === 1200);
+  await setViewport(created.targetId, { width: 9000, height: 100, scale: 9 });
+  const bounded = (await until((targets) => targets.find((t) => t.id === created.targetId).width === 4096)).at(-1);
+  check("a viewport is bounded to what can be drawn", bounded.width === 4096 && bounded.height === 100 && bounded.scale === 1);
+  await setViewport(created.targetId, { width: 1280, height: 720, scale: 1 });
+  check("and goes back", (await until((targets) => { const t = targets.find((t) => t.id === created.targetId); return t.width === 1280 && t.height === 720 && t.scale === 1; })).at(-1).scale === 1);
+}
+
 // A page a page opens becomes a target too, and a closed page stops being one.
 const before = new Set(listed2.map((t) => t.id));
 await c.send("Runtime.evaluate", { expression: "window.open('about:blank')", userGesture: true }, bPage);
@@ -191,7 +209,7 @@ const inner = (await c.send("Runtime.evaluate", { expression: "innerWidth + 'x' 
 check(`the page fills the viewport (${inner})`, inner === "1280x720");
 const browserUi = 0;
 const at = (x, y) => ({ x: box.x + x * (box.width / 1280), y: box.y + (y + browserUi) * (box.height / 720) });
-const click = async (x, y) => { for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) await viewer.send("Input.dispatchMouseEvent", { type, ...at(x, y), button: type === "mouseMoved" ? "none" : "left", clickCount: 1 }, sessionId); };
+const click = async (x, y) => { Object.assign(box, JSON.parse(await evaluate(`JSON.stringify(view.getBoundingClientRect())`))); for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) await viewer.send("Input.dispatchMouseEvent", { type, ...at(x, y), button: type === "mouseMoved" ? "none" : "left", clickCount: 1 }, sessionId); };
 await click(250, 350);
 await sleep(500);
 check("a click in the viewer reaches B's page", (await bTitle()) === "clicked");
@@ -364,8 +382,65 @@ for (const way of ["frames", "tiles"]) {
   check("and a lower one still while it stays late", await reaches("LOW", 8) && afterChange === true);
   lateBy = 0;
   check("it gets a better quality again once it keeps up", await reaches("MEDIUM", 25));
+  socket.send(JSON.stringify({ hello: { pixels: "PIXELS_FRAMES", quality: "VIDEO_QUALITY_LOW" } }));
+  check("a client gets the quality it asks for", await reaches("LOW", 5));
+  await sleep(4000);
+  check("and keeps it whatever its link carries", qualities.at(-1) === "LOW");
+  let fps = 0;
+  socket.addEventListener("message", (event) => { fps = JSON.parse(event.data).videoStatus?.fps ?? fps; });
+  socket.send(JSON.stringify({ hello: { pixels: "PIXELS_FRAMES", quality: "VIDEO_QUALITY_FULL", fps: 5 } }));
+  await reaches("FULL", 5);
+  await sleep(500);
+  const before = held; let frames = 0;
+  socket.addEventListener("message", (event) => { if (JSON.parse(event.data).videoFrame) frames += 1; });
+  await sleep(3000);
+  console.log("fps:", fps, "frames in 3 s:", frames, before);
+  check("a client gets no more frames a second than it asks for", fps === 5 && frames >= 10 && frames <= 17);
   console.log("qualities:", qualities.join(" > "));
   socket.close();
+  await c.send("Runtime.evaluate", { expression: "clearInterval(window.moving)" }, bPage);
+}
+
+// Other codecs: as frames to whoever asks, and over WebRTC where the browser takes them.
+{
+  await c.send("Runtime.evaluate", { expression: "window.moving = setInterval(() => { document.body.lastChild.style.background = `hsl(${Date.now() / 5 % 360} 80% 50%)`; }, 16)" }, bPage);
+  const made = {};
+  for (const format of ["VIDEO_FORMAT_H265", "VIDEO_FORMAT_VP9", "VIDEO_FORMAT_VP9_FULL_CHROMA", "VIDEO_FORMAT_AV1"]) {
+    const socket = new WebSocket(`${live.replace(/^http/u, "ws")}/ws?token=${token}`);
+    let status; let first;
+    socket.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      status = message.videoStatus?.format ?? status;
+      if (message.videoFrame) { first ??= message.videoFrame; socket.send(JSON.stringify({ videoShown: { timeUs: message.videoFrame.timeUs } })); }
+    };
+    await new Promise((opened) => { socket.onopen = opened; });
+    socket.send(JSON.stringify({ hello: { pixels: "PIXELS_FRAMES", formats: [format] } }));
+    for (let i = 0; i < 100 && !first; i++) await sleep(100);
+    made[format] = status === format && first?.format === format && first.keyframe === true && first.data.length > 100;
+    socket.close();
+  }
+  console.log("formats as frames:", JSON.stringify(made));
+  check("frames come in H.265, VP9, VP9 4:4:4 and AV1", Object.values(made).every(Boolean));
+
+  const over = {};
+  const takes = JSON.parse(await evaluate(`decodable().then(JSON.stringify)`));
+  for (const format of ["VIDEO_FORMAT_VP9", "VIDEO_FORMAT_VP9_FULL_CHROMA", "VIDEO_FORMAT_AV1", "VIDEO_FORMAT_H265", "VIDEO_FORMAT_H264"]) {
+    if (!takes.includes(format)) continue;
+    await evaluate(`controls.codec.value = "${format}"; hello()`);
+    let plays = false;
+    for (let i = 0; i < 60 && !plays; i++) {
+      await sleep(250);
+      const [said, decoded] = JSON.parse(await evaluate(`peer.getStats().then((stats) => JSON.stringify([status.format, [...stats.values()].filter((s) => s.type === "inbound-rtp").map((s) => [stats.get(s.codecId)?.mimeType, s.framesDecoded])[0]]))`));
+      const before = decoded?.[1] ?? 0;
+      await sleep(500);
+      const after = JSON.parse(await evaluate(`peer.getStats().then((stats) => JSON.stringify([...stats.values()].filter((s) => s.type === "inbound-rtp").map((s) => [stats.get(s.codecId)?.mimeType, s.framesDecoded])[0]))`));
+      plays = said === format && after[1] > before && RegExp(format.split("_")[2], "iu").test(after[0]);
+      over[format] = [said, after[0], after[1] - before];
+    }
+  }
+  console.log("formats over WebRTC:", JSON.stringify(takes), JSON.stringify(over));
+  check("WebRTC video changes codec while it plays", takes.length >= 3 && Object.entries(over).every(([format, [said, mime, decoded]]) => said === format && decoded > 0));
+  await evaluate(`controls.codec.value = ""; hello()`);
   await c.send("Runtime.evaluate", { expression: "clearInterval(window.moving)" }, bPage);
 }
 

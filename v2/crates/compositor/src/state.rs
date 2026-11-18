@@ -7,7 +7,10 @@ use std::{
 
 use anyhow::Context;
 use smithay::{
-    desktop::{PopupManager, Space, Window, utils::OutputPresentationFeedback},
+    desktop::{
+        PopupKind, PopupManager, Space, Window, find_popup_root_surface,
+        utils::OutputPresentationFeedback,
+    },
     input::{Seat, SeatState, keyboard::XkbConfig, pointer::CursorImageStatus},
     output::{Mode, Output, PhysicalProperties, Subpixel},
     reexports::{
@@ -29,9 +32,13 @@ use smithay::{
     },
     utils::{Clock, Monotonic, Transform},
     wayland::{
-        compositor::{CompositorClientState, CompositorState, with_states},
+        compositor::{
+            CompositorClientState, CompositorState, SurfaceData, TraversalAction, get_parent,
+            send_surface_state, with_states, with_surface_tree_downward,
+        },
         cursor_shape::CursorShapeManagerState,
         dmabuf::{DmabufFeedbackBuilder, DmabufState},
+        fractional_scale::{FractionalScaleManagerState, with_fractional_scale},
         output::OutputManagerState,
         presentation::{PresentationState, Refresh},
         selection::{data_device::DataDeviceState, primary_selection::PrimarySelectionState},
@@ -46,7 +53,7 @@ use tokio::sync::watch;
 use tracing::{info, warn};
 
 use crate::{
-    Config, Cursor, Error, Frame, Frames, Viewport, WindowId, WindowInfo,
+    Config, Cursor, Error, Frame, Frames, Pixels, Viewport, WindowId, WindowInfo,
     cursor::Theme,
     keymap::KeyTable,
     render::{Change, Renderer, WindowFrame},
@@ -101,6 +108,20 @@ struct Watched {
     changed: u64,
     flicker: Flicker,
     frames: watch::Sender<Option<Arc<Frame>>>,
+    /// Held by those who need the frames in memory, see [`Pixels`].
+    pixels: Arc<()>,
+}
+
+impl Watched {
+    fn new() -> Self {
+        Self {
+            frame: None,
+            changed: 0,
+            flicker: Flicker::default(),
+            frames: watch::Sender::new(None),
+            pixels: Arc::new(()),
+        }
+    }
 }
 
 pub struct State {
@@ -118,7 +139,9 @@ pub struct State {
     pub render_node: Option<PathBuf>,
     pub dmabuf_state: DmabufState,
     pub key_table: KeyTable,
+    /// The viewport of windows that were given none of their own.
     pub viewport: Viewport,
+    viewports: HashMap<WindowId, Viewport>,
     /// The tag of the next window to open, see `Handle::expect`.
     pub expected: Option<String>,
     /// The pointer's image, as the client under it last set it.
@@ -147,6 +170,7 @@ pub struct State {
     _output_manager_state: OutputManagerState,
     _cursor_shape_state: CursorShapeManagerState,
     _viewporter_state: ViewporterState,
+    _fractional_scale_state: FractionalScaleManagerState,
     _presentation_state: PresentationState,
     _decoration_state: XdgDecorationState,
 }
@@ -252,7 +276,8 @@ impl State {
             })
             .map_err(|err| anyhow::anyhow!("failed to insert the frame timer: {err}"))?;
 
-        let (renderer, gpu) = Renderer::new(config.gpu)?;
+        let fractional_scale_state = FractionalScaleManagerState::new::<Self>(&dh);
+        let (renderer, gpu) = Renderer::new(config.gpu, &config.frame_layouts)?;
         let mut dmabuf_state = DmabufState::new();
         let mut render_node = None;
         if let Some(gpu) = gpu {
@@ -277,7 +302,8 @@ impl State {
             render_node,
             dmabuf_state,
             key_table: KeyTable::default(),
-            viewport: config.viewport,
+            viewport: config.viewport.bounded(),
+            viewports: HashMap::new(),
             expected: None,
             cursor_status: CursorImageStatus::default_named(),
             cursor_theme: Theme::new(config.cursor_theme.clone()),
@@ -299,6 +325,7 @@ impl State {
             _output_manager_state: output_manager_state,
             _cursor_shape_state: cursor_shape_state,
             _viewporter_state: viewporter_state,
+            _fractional_scale_state: fractional_scale_state,
             _presentation_state: presentation_state,
             _decoration_state: decoration_state,
         };
@@ -336,8 +363,8 @@ impl State {
             .cloned()
     }
 
-    /// The output is as large as the viewport: clients look at it for popup constraints and
-    /// size hints only.
+    /// The output is as large as the session's viewport: clients look at it for size hints
+    /// only.
     fn apply_output_mode(&mut self) {
         let mode = Mode {
             size: (self.viewport.width as i32, self.viewport.height as i32).into(),
@@ -358,18 +385,77 @@ impl State {
         }
     }
 
-    pub fn set_viewport(&mut self, viewport: Viewport) {
-        if viewport == self.viewport || viewport.width == 0 || viewport.height == 0 {
+    /// The viewport of a window, or of the one it is a dialog of.
+    pub fn viewport_of(&self, window: &Window) -> Viewport {
+        let mut window = window.clone();
+        while let Some(parent) = window
+            .toplevel()
+            .and_then(|toplevel| toplevel.parent())
+            .and_then(|parent| self.window_for_surface(&parent))
+        {
+            window = parent;
+        }
+        window_id(&window)
+            .and_then(|id| self.viewports.get(&id).copied())
+            .unwrap_or(self.viewport)
+    }
+
+    pub fn set_viewport(&mut self, id: WindowId, viewport: Viewport) {
+        let Ok(window) = self.window(id) else {
+            return;
+        };
+        if self.viewport_of(&window) == viewport {
             return;
         }
-        self.viewport = viewport;
-        self.apply_output_mode();
-        for window in self.space.elements() {
-            if let Some(toplevel) = window.toplevel() {
-                self.fill_viewport(toplevel);
-                configure_when_ready(toplevel);
+        self.viewports.insert(id, viewport);
+        if let Some(toplevel) = window.toplevel() {
+            self.fill_viewport(toplevel);
+            configure_when_ready(toplevel);
+        }
+        // Its dialogs draw at its scale.
+        let windows: Vec<Window> = self.space.elements().cloned().collect();
+        for window in windows {
+            self.tell_scale(&window);
+        }
+    }
+
+    pub fn forget_viewport(&mut self, id: WindowId) {
+        self.viewports.remove(&id);
+    }
+
+    /// Tells every surface of the window, its popups included, the scale to draw at.
+    pub fn tell_scale(&self, window: &Window) {
+        let scale = self.viewport_of(window).scale;
+        let tell = |surface: &WlSurface, states: &SurfaceData| tell_scale(surface, states, scale);
+        window.with_surfaces(tell);
+        if let Some(toplevel) = window.toplevel() {
+            for (popup, _) in PopupManager::popups_for_surface(toplevel.wl_surface()) {
+                with_surface_tree_downward(
+                    popup.wl_surface(),
+                    (),
+                    |_, _, ()| TraversalAction::DoChildren(()),
+                    |surface, states, ()| tell(surface, states),
+                    |_, _, ()| true,
+                );
             }
         }
+    }
+
+    /// The scale a surface is to draw at: that of the window it belongs to.
+    pub fn scale_for_surface(&self, surface: &WlSurface) -> f64 {
+        let mut root = surface.clone();
+        while let Some(parent) = get_parent(&root) {
+            root = parent;
+        }
+        if let Some(PopupKind::Xdg(popup)) = self.popups.find_popup(&root)
+            && let Ok(toplevel) = find_popup_root_surface(&PopupKind::Xdg(popup))
+        {
+            root = toplevel;
+        }
+        self.window_for_surface(&root)
+            .map_or(self.viewport.scale, |window| {
+                self.viewport_of(&window).scale
+            })
     }
 
     /// Gives a window without a parent the whole viewport, as a fullscreen window: the
@@ -379,7 +465,10 @@ impl State {
         if toplevel.parent().is_some() {
             return;
         }
-        let size = (self.viewport.width as i32, self.viewport.height as i32);
+        let viewport = self
+            .window_for_surface(toplevel.wl_surface())
+            .map_or(self.viewport, |window| self.viewport_of(&window));
+        let size = (viewport.width as i32, viewport.height as i32);
         toplevel.with_pending_state(|state| {
             state.size = Some(size.into());
             state.states.set(xdg_toplevel::State::Fullscreen);
@@ -388,12 +477,7 @@ impl State {
 
     pub fn watch(&mut self, id: WindowId) -> Result<Frames, Error> {
         self.window(id)?;
-        let watched = self.watched.entry(id).or_insert_with(|| Watched {
-            frame: None,
-            changed: 0,
-            flicker: Flicker::default(),
-            frames: watch::Sender::new(None),
-        });
+        let watched = self.watched.entry(id).or_insert_with(Watched::new);
         // Nobody watched for a while: what the channel holds is out of date.
         if watched.frames.receiver_count() == 0 {
             watched.frame = None;
@@ -402,16 +486,35 @@ impl State {
         Ok(watched.frames.subscribe())
     }
 
+    pub fn read_back(&mut self, id: WindowId) -> Result<Pixels, Error> {
+        self.window(id)?;
+        let watched = self.watched.entry(id).or_insert_with(Watched::new);
+        // Drawn anew, so the next frame is whole and comes without the window changing.
+        watched.frame = None;
+        Ok(Pixels(watched.pixels.clone()))
+    }
+
     pub fn screenshot(&mut self, id: WindowId) -> Result<Frame, Error> {
         let window = self.window(id)?;
         let mut frame = None;
-        WindowFrame::render(&mut frame, &mut self.renderer, &window, None)?;
+        let scale = self.viewport_of(&window).scale;
+        WindowFrame::render(
+            &mut frame,
+            &mut self.renderer,
+            &window,
+            scale,
+            None,
+            false,
+            true,
+        )?;
         let frame = frame.ok_or(Error::NoContent(id))?;
         let (width, height) = frame.size();
         Ok(Frame {
             width,
             height,
+            scale,
             rgba: frame.pixels().to_vec(),
+            buffer: None,
             time: self.start.elapsed(),
             changed: 0,
         })
@@ -461,6 +564,10 @@ impl State {
                 let pointer = self.seat.get_pointer().expect("seat has a pointer");
                 (window, pointer.current_location(), image)
             });
+        let scales: HashMap<WindowId, f64> = windows
+            .iter()
+            .map(|(window, id)| (*id, self.viewport_of(window).scale))
+            .collect();
         for (window, id) in &windows {
             let Some(watched) = self.watched.get_mut(id) else {
                 continue;
@@ -472,7 +579,17 @@ impl State {
                 .as_ref()
                 .filter(|(over, ..)| over == id)
                 .map(|(_, position, image)| (*position, image));
-            match WindowFrame::render(&mut watched.frame, &mut self.renderer, window, pointer) {
+            let scale = scales[id];
+            let rendered = WindowFrame::render(
+                &mut watched.frame,
+                &mut self.renderer,
+                window,
+                scale,
+                pointer,
+                true,
+                Arc::strong_count(&watched.pixels) > 1,
+            );
+            match rendered {
                 Ok(None) => {}
                 Ok(Some(change)) => {
                     if let Some(frame) = &watched.frame {
@@ -485,7 +602,9 @@ impl State {
                         watched.frames.send_replace(Some(Arc::new(Frame {
                             width,
                             height,
+                            scale,
                             rgba: frame.pixels().to_vec(),
+                            buffer: frame.shared(),
                             time,
                             changed: watched.changed,
                         })));
@@ -541,6 +660,7 @@ impl State {
             app_id: app_id.unwrap_or_default(),
             width: geometry.size.w.max(0).unsigned_abs(),
             height: geometry.size.h.max(0).unsigned_abs(),
+            scale: self.viewport_of(window).scale,
         })
     }
 
@@ -590,6 +710,13 @@ pub struct ClientState {
 impl ClientData for ClientState {
     fn initialized(&self, _client_id: backend::ClientId) {}
     fn disconnected(&self, _client_id: backend::ClientId, _reason: DisconnectReason) {}
+}
+
+/// Tells a surface the scale to draw at: as a fraction where the client takes one, and as
+/// the next whole number, which it then draws down from.
+pub fn tell_scale(surface: &WlSurface, states: &SurfaceData, scale: f64) {
+    send_surface_state(surface, states, scale.ceil() as i32, Transform::Normal);
+    with_fractional_scale(states, |fractional| fractional.set_preferred_scale(scale));
 }
 
 /// Sends a toplevel its pending state, unless it has yet to acknowledge the last configure;

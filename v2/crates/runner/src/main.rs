@@ -139,9 +139,15 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
         viewport: aperture_compositor::Viewport {
             width: spec.viewport.width,
             height: spec.viewport.height,
+            scale: spec.viewport.scale,
         },
         cursor_theme: spec.cursor_theme.clone(),
         gpu: spec.gpu,
+        frame_layouts: if spec.gpu {
+            live::frame_layouts()
+        } else {
+            Vec::new()
+        },
     })
     .context("failed to start the compositor")?;
     let mut windows = compositor.windows();

@@ -55,6 +55,17 @@ pub struct Key {
     pub window: WindowId,
     pub format: Format,
     pub quality: Quality,
+    /// Frames a second at most; as many as the quality has with none.
+    pub fps: Option<u32>,
+}
+
+impl Key {
+    /// The fewest and the most frames a second a taker may ask for.
+    pub const FPS: std::ops::RangeInclusive<u32> = 1..=60;
+
+    pub fn fps(&self) -> u32 {
+        self.fps.unwrap_or(self.quality.fps())
+    }
 }
 
 struct Shared {
@@ -143,7 +154,9 @@ impl Streams {
     /// the quality has a second. Frames that come meanwhile are skipped, down to the
     /// latest.
     async fn encode(self: Arc<Self>, key: Key, mut frames: Frames, shared: Arc<Shared>) {
-        let made = tokio::task::spawn_blocking(move || VideoEncoder::new(key.format, key.quality));
+        let made = tokio::task::spawn_blocking(move || {
+            VideoEncoder::new(key.format, key.quality, key.fps())
+        });
         let mut encoder = match made.await {
             Ok(Ok(encoder)) => encoder,
             failed => {
@@ -154,7 +167,12 @@ impl Streams {
                 return;
             }
         };
-        let apart = (Duration::from_secs(1) / key.quality.fps()).saturating_sub(FRAME_SLACK);
+        // Held while the encoder takes pixels rather than frames on the GPU.
+        let mut pixels = None;
+        if encoder.wants_pixels() {
+            pixels = self.compositor.pixels(key.window).await.ok();
+        }
+        let apart = (Duration::from_secs(1) / key.fps()).saturating_sub(FRAME_SLACK);
         // When the next frame is due.
         let mut due = Instant::now();
         let mut keyframe = true;
@@ -218,9 +236,15 @@ impl Streams {
                         break;
                     };
                     encoder = returned;
+                    // The encoder may have turned to pixels, or to another encoder that
+                    // takes them: the next frame comes with them.
+                    if pixels.is_none() && encoder.wants_pixels() {
+                        pixels = self.compositor.pixels(key.window).await.ok();
+                    }
                     match encoded {
-                        Ok((data, _)) if data.is_empty() => {}
-                        Ok((data, keyframe)) => {
+                        Ok(None) => keyframe = force,
+                        Ok(Some((data, _))) if data.is_empty() => {}
+                        Ok(Some((data, keyframe))) => {
                             if keyframe {
                                 last_keyframe = Some(Instant::now());
                             }

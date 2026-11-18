@@ -58,20 +58,33 @@ message ServerMessage {
 // watches, and the cursor.
 message Hello {
   Pixels pixels = 1;
-  // The forms of video frames the client decodes, the one it would rather have first;
-  // the session sends the first one it makes. `VIDEO_FORMAT_H264` when left out.
+  // The forms of video the client would have, the one it would rather have first. The
+  // session sends the first one it makes: as frames whichever that is, over WebRTC the
+  // first one the connection also takes. `VIDEO_FORMAT_H264` when left out, and when none
+  // of them can be had.
   repeated VideoFormat formats = 2;
+  // The quality of the video, whatever the link carries; the session picks when left out.
+  VideoQuality quality = 3;
+  // Frames a second at most, 1 to 60; as many as the quality has when left out.
+  optional uint32 fps = 4;
 }
 
 // The form a target's video takes.
 enum VideoFormat {
   VIDEO_FORMAT_UNSPECIFIED = 0;
-  // H.264 constrained baseline, 4:2:0. Video over WebRTC is always this. Everything
-  // decodes it; colored text loses detail.
+  // H.264 constrained baseline, 4:2:0. Everything decodes it; colored text loses detail.
   VIDEO_FORMAT_H264 = 1;
   // H.264 High 4:4:4, in BT.709: color as sharp as light. For frames on the session
-  // socket, where the client's decoder takes it.
+  // socket, where the client's decoder takes it; WebRTC does not carry it.
   VIDEO_FORMAT_FULL_CHROMA = 2;
+  // H.265 Main, 4:2:0: fewer bits than H.264 for the same picture.
+  VIDEO_FORMAT_H265 = 3;
+  // VP9 profile 0, 4:2:0.
+  VIDEO_FORMAT_VP9 = 4;
+  // VP9 profile 1, 4:4:4: color as sharp as light, also over WebRTC.
+  VIDEO_FORMAT_VP9_FULL_CHROMA = 5;
+  // AV1 main, 4:2:0.
+  VIDEO_FORMAT_AV1 = 6;
 }
 
 // How much a target's video costs the client's link. The session picks it, by what the
@@ -79,7 +92,8 @@ enum VideoFormat {
 // estimate, on the session socket by how late the client shows frames (`video_shown`).
 enum VideoQuality {
   VIDEO_QUALITY_UNSPECIFIED = 0;
-  // Up to 0.7 Mbit/s, 15 frames a second.
+  // Up to 0.7 Mbit/s, 15 frames a second. Bitrates are for a picture of 1280x720 pixels;
+  // larger ones get more.
   VIDEO_QUALITY_LOW = 1;
   // Up to 2.5 Mbit/s, 30 frames a second.
   VIDEO_QUALITY_MEDIUM = 2;
@@ -88,10 +102,12 @@ enum VideoQuality {
 }
 
 // The video the client gets from now on, over WebRTC or as frames. Sent when it starts
-// and whenever the quality changes.
+// and whenever it changes.
 message VideoStatus {
   VideoFormat format = 1;
   VideoQuality quality = 2;
+  // Frames a second at most.
+  uint32 fps = 3;
 }
 
 // The client showed the video frame stamped `time_us`, or let it go undecoded. A client
@@ -128,7 +144,8 @@ message RtcRefused {
   string reason = 1;
 }
 
-// A frame of the watched target's video: an H.264 access unit in Annex B form. The first
+// A frame of the watched target's video, as its format has frames: an access unit in
+// Annex B form of H.264 and H.265, a frame of VP9, a temporal unit of AV1. The first
 // one a client gets of a target is a keyframe, and so is the first one after frames were
 // held back and the first one of another quality.
 message VideoFrame {
@@ -203,10 +220,16 @@ message Text {
   string text = 1;
 }
 
-// The size pages get, in logical pixels. It is the session's: every client sees it.
+// The viewport of the target the client watches: the size its page gets, in logical (CSS)
+// pixels, and how many pixels the page draws to each of them (its `devicePixelRatio`).
+// It is the target's: every client that watches it sees it. A target starts with the
+// session's. The session gives the nearest it can: a side of 64 to 4096, a scale of 0.5
+// to 4, and no more than 4096 pixels a side; `targets` tells what it gave.
 message Viewport {
   uint32 width = 1;
   uint32 height = 2;
+  // The target keeps its scale when left out.
+  optional double scale = 3;
 }
 
 // A browser target: a page of the session's browser, shown in a window of its own.
@@ -215,8 +238,11 @@ message Target {
   string id = 1;
   string title = 2;
   string url = 3;
+  // In logical pixels, which pointer positions are in.
   uint32 width = 4;
   uint32 height = 5;
+  // Pixels to a logical pixel: the target's picture is `width` x `height` times this.
+  double scale = 6;
 }
 
 // Every target of the session, oldest first. Sent after `hello` and whenever a target

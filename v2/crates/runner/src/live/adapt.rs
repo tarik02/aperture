@@ -5,8 +5,8 @@
 //! down when it does not ([`Steps`]), and a step up that had to be taken back is tried
 //! again ever more rarely. What tells that a link does not keep up differs:
 //!
-//! - WebRTC estimates what the link carries from how its packets arrive; a link that is
-//!   sent more than the estimate does not keep up ([`Estimated`]).
+//! - Over WebRTC the client reports how much it lost of what it was sent and how long its
+//!   answers take; losing packets and answering slower is not keeping up ([`Reported`]).
 //! - On the session socket nothing gets lost: what the link does not carry queues up in
 //!   front of it, as latency. The client says which frames it has shown, and showing them
 //!   late is not keeping up ([`Delivery`]).
@@ -34,7 +34,10 @@ pub const START: Quality = Quality::Medium;
 
 /// The quality a client takes, stepped by whether its link keeps up.
 struct Steps {
-    quality: Quality,
+    /// The quality by the link.
+    stepped: Quality,
+    /// The quality whatever the link carries, when the client asked for one.
+    pinned: Option<Quality>,
     behind_since: Option<Instant>,
     keeps_up_since: Option<Instant>,
     keeps_up_for: Duration,
@@ -45,12 +48,17 @@ struct Steps {
 impl Steps {
     fn new() -> Self {
         Self {
-            quality: START,
+            stepped: START,
+            pinned: None,
             behind_since: None,
             keeps_up_since: None,
             keeps_up_for: KEEPS_UP_FOR_FIRST,
             raised: None,
         }
+    }
+
+    fn quality(&self) -> Quality {
+        self.pinned.unwrap_or(self.stepped)
     }
 
     /// The link does not keep up right now. Tells the quality to take when that changes.
@@ -61,7 +69,7 @@ impl Steps {
             return None;
         }
         self.behind_since = None;
-        let lower = self.quality.lower()?;
+        let lower = self.stepped.lower()?;
         let trial = self
             .raised
             .take()
@@ -71,8 +79,8 @@ impl Steps {
         } else {
             KEEPS_UP_FOR
         };
-        self.quality = lower;
-        Some(lower)
+        self.stepped = lower;
+        self.pinned.is_none().then_some(lower)
     }
 
     /// The link keeps up right now.
@@ -83,10 +91,10 @@ impl Steps {
             return None;
         }
         self.keeps_up_since = None;
-        let higher = self.quality.higher()?;
+        let higher = self.stepped.higher()?;
         self.raised = Some(now);
-        self.quality = higher;
-        Some(higher)
+        self.stepped = higher;
+        self.pinned.is_none().then_some(higher)
     }
 
     /// Neither can be told right now.
@@ -96,59 +104,74 @@ impl Steps {
     }
 }
 
-/// A link is sent more than it carries when the estimate is this much of what was sent.
-const OVER_AT: f64 = 0.9;
+/// A link that loses this much of what it is sent does not keep up, and neither does one
+/// whose answers take this much longer than they did at best.
+const LOSS: f32 = 0.04;
+const SLOWER_BY: Duration = Duration::from_millis(150);
+/// A report says something about the link for this long.
+const REPORT_HOLDS: Duration = Duration::from_secs(3);
 
-/// A client's WebRTC connection.
-pub struct Estimated {
+/// A client's WebRTC connection, judged by what the client reports of what it received.
+///
+/// Not by the connection's own estimate of the link: that grows only as fast as what is
+/// sent, so it lags a quality that suddenly sends more, and sending is paced by it, which
+/// holds frames back on links that carry them.
+pub struct Reported {
     steps: Steps,
-    /// What went out in the last second: when, and how many bytes.
-    sent: VecDeque<(Instant, usize)>,
-    /// In bit/s.
-    estimate: Option<u64>,
+    /// The last report: when, and whether the link kept up.
+    report: Option<(Instant, bool)>,
+    /// The shortest the client's answers took.
+    quickest: Option<Duration>,
 }
 
-impl Estimated {
+impl Reported {
     pub fn new() -> Self {
         Self {
             steps: Steps::new(),
-            sent: VecDeque::new(),
-            estimate: None,
+            report: None,
+            quickest: None,
         }
     }
 
     pub fn quality(&self) -> Quality {
-        self.steps.quality
+        self.steps.quality()
     }
 
-    pub fn sent(&mut self, bytes: usize) {
-        self.sent.push_back((Instant::now(), bytes));
+    /// See [`Delivery::pin`].
+    pub fn pin(&mut self, quality: Option<Quality>) {
+        self.steps.pinned = quality;
     }
 
-    /// The connection estimates the link to carry this many bit/s.
-    pub fn estimate(&mut self, estimate: u64) {
-        self.estimate = Some(estimate);
+    /// The client reports the fraction of packets it lost and how long its answers take.
+    pub fn report(&mut self, loss: Option<f32>, round_trip: Option<Duration>) {
+        let quickest = match (self.quickest, round_trip) {
+            (Some(quickest), Some(round_trip)) => Some(quickest.min(round_trip)),
+            (quickest, round_trip) => quickest.or(round_trip),
+        };
+        self.quickest = quickest;
+        let slow = round_trip
+            .zip(quickest)
+            .is_some_and(|(round_trip, quickest)| round_trip > quickest * 2 + SLOWER_BY);
+        let lossy = loss.is_some_and(|loss| loss >= LOSS);
+        self.report = Some((Instant::now(), !slow && !lossy));
     }
 
     /// Looks at the link, which is to happen a few times a second. Tells the quality to
     /// take from now on when that changes.
     pub fn settle(&mut self) -> Option<Quality> {
         let now = Instant::now();
-        while self
-            .sent
-            .pop_front_if(|(at, _)| now - *at > Duration::from_secs(1))
-            .is_some()
-        {}
-        let spent: usize = self.sent.iter().map(|(_, bytes)| bytes * 8).sum();
-        // A link that nothing is sent over keeps up with it.
-        let over = self
-            .estimate
-            .is_some_and(|estimate| (estimate as f64) < spent as f64 * OVER_AT);
-        if over {
-            self.steps.behind(now)
+        let before = self.steps.quality();
+        // A link nothing is known of keeps up: nothing is known of one nothing is sent on.
+        let keeps_up = self
+            .report
+            .is_none_or(|(at, keeps_up)| keeps_up || now - at > REPORT_HOLDS);
+        if keeps_up {
+            self.steps.keeps_up(now);
         } else {
-            self.steps.keeps_up(now)
+            self.steps.behind(now);
         }
+        let quality = self.steps.quality();
+        (quality != before).then_some(quality)
     }
 }
 
@@ -178,7 +201,13 @@ impl Delivery {
     }
 
     pub fn quality(&self) -> Quality {
-        self.steps.quality
+        self.steps.quality()
+    }
+
+    /// Keeps the quality at the one the client asked for, whatever its link carries;
+    /// follows the link again with none.
+    pub fn pin(&mut self, quality: Option<Quality>) {
+        self.steps.pinned = quality;
     }
 
     /// A frame stamped `time` went to the client.

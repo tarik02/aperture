@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use aperture_compositor::{Frame, Frames, Handle, WindowId};
+use aperture_compositor::{Frame, Frames, Handle, Pixels, WindowId};
 use tokio::sync::{mpsc, watch};
 use tracing::debug;
 
@@ -33,7 +33,8 @@ async fn make(
     tiles: mpsc::Sender<pb::Tile>,
 ) {
     let mut target = String::new();
-    let mut frames: Option<Frames> = None;
+    // With what holds them as pixels in memory, which tiles are made of.
+    let mut frames: Option<(Frames, Pixels)> = None;
     // What the client has, to tell what changed.
     let mut sent: Option<Arc<Frame>> = None;
     loop {
@@ -47,15 +48,18 @@ async fn make(
                 frames = match now {
                     Some((id, window)) => {
                         target = id;
-                        compositor.frames(window).await.ok().map(|mut frames| {
-                            frames.mark_changed();
-                            frames
-                        })
+                        match (compositor.frames(window).await, compositor.pixels(window).await) {
+                            (Ok(mut frames), Ok(pixels)) => {
+                                frames.mark_changed();
+                                Some((frames, pixels))
+                            }
+                            _ => None,
+                        }
                     }
                     None => None,
                 };
             }
-            changed = async { frames.as_mut().expect("checked by the guard").changed().await },
+            changed = async { frames.as_mut().expect("checked by the guard").0.changed().await },
                 if frames.is_some() =>
             {
                 // The window closed.
@@ -63,7 +67,9 @@ async fn make(
                     frames = None;
                     continue;
                 }
-                let frame = frames.as_mut().and_then(|frames| frames.borrow_and_update().clone());
+                let frame = frames
+                    .as_mut()
+                    .and_then(|(frames, _)| frames.borrow_and_update().clone());
                 let Some(frame) = frame else {
                     continue;
                 };

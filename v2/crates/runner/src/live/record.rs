@@ -280,6 +280,9 @@ impl Recordings {
             dropped: AtomicUsize::new(0),
         });
 
+        // What moves in the picture is told by how much of it changed, which is counted
+        // from its pixels.
+        let pixels = inner.compositor.pixels(target.window).await?;
         let subscription = inner
             .streams
             .subscribe(Key {
@@ -287,6 +290,7 @@ impl Recordings {
                 format: Format::H264,
                 // A file is not a link: it takes the best there is.
                 quality: Quality::Full,
+                fps: None,
             })
             .await?;
         let writer = Writer::new(&path)?;
@@ -315,6 +319,7 @@ impl Recordings {
             async move {
                 let outcome =
                     record(subscription, writer, stopped, &journal.start, threshold).await;
+                drop(pixels);
                 recordings.ended(&id, outcome);
             }
         });
