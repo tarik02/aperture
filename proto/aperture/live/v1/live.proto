@@ -25,8 +25,8 @@ package aperture.live.v1;
 
 message ClientMessage {
   oneof message {
-    // The browser target the client's video shows and its input goes to. Until the first
-    // one, the session picks the newest target.
+    // The tab the client's video shows and its input goes to. Until the first one, the
+    // session picks the newest.
     Select select = 1;
     PointerMotion pointer_motion = 2;
     PointerButton pointer_button = 3;
@@ -213,7 +213,8 @@ message RtcRefused {
 // one a client gets of a target is a keyframe, and so is the first one after frames were
 // held back and the first one of another quality.
 message VideoFrame {
-  string target = 1;
+  // The tab it is a frame of.
+  uint32 tab = 1;
   bool keyframe = 2;
   // When the frame was drawn, in microseconds on the session's clock.
   uint64 time_us = 3;
@@ -228,7 +229,8 @@ message VideoFrame {
 // when the client starts watching the target and when its size changes. Tiles of one
 // change follow each other.
 message Tile {
-  string target = 1;
+  // The tab it is a part of the picture of.
+  uint32 tab = 1;
   uint32 x = 2;
   uint32 y = 3;
   // The whole picture's size in pixels.
@@ -238,7 +240,7 @@ message Tile {
 }
 
 message Select {
-  string target = 1;
+  uint32 tab = 1;
 }
 
 // Positions are in the selected target's logical pixels, from its top-left corner.
@@ -413,7 +415,7 @@ enum Along {
 
 // Closes a target's tab, for a client that may give it input: one nobody else holds.
 message Close {
-  string target = 1;
+  uint32 tab = 1;
 }
 
 // Something a client asked for was not done. What is done is not answered: it shows in
@@ -447,8 +449,8 @@ message FileRequests {
 
 message FileRequest {
   uint64 id = 1;
-  // The target whose page asks.
-  string target = 2;
+  // The tab whose page asks.
+  uint32 tab = 2;
   // The page takes more than one file.
   bool multiple = 3;
 }
@@ -498,10 +500,11 @@ message Viewport {
   optional double scale = 3;
 }
 
-// A browser target: a page of the session's browser, shown in a window of its own.
+// A browser target: a page of the session's browser, shown in a window of its own. It is
+// named by its tab's number, here and wherever else a client or the session names one.
 message Target {
-  // The page's DevTools target id, which lasts as long as the page does in one run of the
-  // session.
+  // The page's DevTools target id, for whoever speaks DevTools to the browser. It lasts
+  // as long as the page does in one run of the session.
   string id = 1;
   string title = 2;
   string url = 3;
@@ -510,8 +513,8 @@ message Target {
   uint32 height = 5;
   // Pixels to a logical pixel: the target's picture is `width` x `height` times this.
   double scale = 6;
-  // The tab's number. It stays the tab's when the session is suspended and resumed, which
-  // the target's id does not.
+  // The tab's number, which no other tab of the session gets. It stays the tab's when
+  // the session is suspended and resumed, which the target's id does not.
   uint32 tab = 7;
   // The tab plays sound now. Never where the session's sound is off.
   bool sounds = 8;
@@ -523,9 +526,9 @@ message Targets {
   repeated Target targets = 1;
 }
 
-// The target the client's video shows from now on; none when the session has no target.
+// The tab the client's video shows from now on; none when the session has no target.
 message Selected {
-  optional string target = 1;
+  optional uint32 tab = 1;
 }
 
 message Cursor {

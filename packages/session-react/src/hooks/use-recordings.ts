@@ -19,7 +19,7 @@ export interface RecordingsControl {
   readonly start: (options?: StartRecording) => Promise<Recording>;
   readonly stop: (id: string) => Promise<Recording>;
   /** Takes a screenshot of a target and keeps it in the session's files. */
-  readonly takeScreenshot: (target: string) => Promise<Screenshot>;
+  readonly takeScreenshot: (tab: number) => Promise<Screenshot>;
 }
 
 export const recordingRuns = (recording: Recording) => recording.state === "recording";
@@ -105,9 +105,9 @@ export function useRecordings(enabled = true): RecordingsControl {
   );
 
   const takeScreenshot = useCallback(
-    async (target: string) => {
+    async (tab: number) => {
       try {
-        return await session.screenshots.take(target);
+        return await session.screenshots.take(tab);
       } finally {
         refresh();
       }

@@ -8,7 +8,7 @@ import { useWorkbench } from "../workbench/context.tsx";
 export function TabReloadItem({ target }: WorkbenchSlotProps) {
   const session = useSession();
   const { changes } = useInputState();
-  const watched = useSessionSnapshot().selected === target?.id;
+  const watched = useSessionSnapshot().selected === target?.tab;
   return (
     <ContextMenuItem
       disabled={!changes || !watched}
@@ -65,7 +65,7 @@ export function TabCloseItem({ target }: WorkbenchSlotProps) {
       disabled={!changes || target === undefined}
       onClick={() => {
         if (target !== undefined) {
-          session.closeTab(target.id);
+          session.closeTab(target.tab);
         }
       }}
     >
@@ -77,13 +77,13 @@ export function TabCloseItem({ target }: WorkbenchSlotProps) {
 export function TabCloseOthersItem({ target }: WorkbenchSlotProps) {
   const session = useSession();
   const { changes } = useInputState();
-  const others = useSessionSnapshot().targets.filter((other) => other.id !== target?.id);
+  const others = useSessionSnapshot().targets.filter((other) => other.tab !== target?.tab);
   return (
     <ContextMenuItem
       disabled={!changes || others.length === 0}
       onClick={() => {
         for (const other of others) {
-          session.closeTab(other.id);
+          session.closeTab(other.tab);
         }
       }}
     >
@@ -96,14 +96,14 @@ export function TabCloseRightItem({ target }: WorkbenchSlotProps) {
   const session = useSession();
   const { changes } = useInputState();
   const { targets } = useSessionSnapshot();
-  const at = targets.findIndex((other) => other.id === target?.id);
+  const at = targets.findIndex((other) => other.tab === target?.tab);
   const toTheRight = at < 0 ? [] : targets.slice(at + 1);
   return (
     <ContextMenuItem
       disabled={!changes || toTheRight.length === 0}
       onClick={() => {
         for (const other of toTheRight) {
-          session.closeTab(other.id);
+          session.closeTab(other.tab);
         }
       }}
     >

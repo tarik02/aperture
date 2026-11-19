@@ -102,6 +102,9 @@ pub enum State {
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct Recording {
     pub id: String,
+    /// The tab it is of.
+    #[serde(default)]
+    pub tab: u32,
     /// The target it is of, which is no target of a later run of the session.
     pub target: String,
     /// The page's title and address as the recording began.
@@ -288,9 +291,7 @@ impl Recordings {
         let target = {
             let targets = self.0.targets.borrow();
             match target {
-                Some(id) => targets
-                    .iter()
-                    .find(|target| target.id.eq_ignore_ascii_case(id)),
+                Some(named) => crate::targets::named(&targets, named),
                 None => targets.last(),
             }
             .cloned()
@@ -338,6 +339,7 @@ impl Recordings {
         };
         let recording = Recording {
             id: id.clone(),
+            tab: target.tab,
             target: target.id,
             title: target.title,
             url: target.url,

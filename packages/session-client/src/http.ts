@@ -54,8 +54,8 @@ export interface RecordingOptions {
 }
 
 export interface StartRecording extends Partial<Omit<RecordingOptions, "burst">> {
-  /** The target to record; the newest one when left out. */
-  readonly target?: string;
+  /** The tab to record; the newest one when left out. */
+  readonly tab?: number;
   readonly burst?: Partial<RecordingBurst>;
 }
 
@@ -70,6 +70,8 @@ export interface RecordingEdit {
 
 export interface Recording {
   readonly id: string;
+  /** The tab it is of. */
+  readonly tab: number;
   /** The target it is of, which is no target of a later run of the session. */
   readonly target: string;
   /** The page's title and address as the recording began. */
@@ -194,8 +196,8 @@ export const targets = Effect.fn("SessionHttp.targets")((address: Address) =>
 
 /** Gives a target its own viewport, as near to the one asked for as it can be given. */
 export const setViewport = Effect.fn("SessionHttp.setViewport")(
-  (address: Address, target: string, viewport: ViewportSize) =>
-    request(address, `/targets/${encodeURIComponent(target)}/viewport`, {
+  (address: Address, tab: number, viewport: ViewportSize) =>
+    request(address, `/targets/${tab}/viewport`, {
       method: "PUT",
       json: viewport,
     }).pipe(Effect.asVoid),
@@ -268,8 +270,8 @@ export const listScreenshots = Effect.fn("SessionHttp.listScreenshots")((address
   json<Screenshot[]>(address, "/screenshots"),
 );
 
-/** Takes a screenshot of a target, the newest one when none is named, and keeps it. */
+/** Takes a screenshot of a tab, the newest one when none is named, and keeps it. */
 export const takeScreenshot = Effect.fn("SessionHttp.takeScreenshot")(
-  (address: Address, target?: string) =>
-    json<Screenshot>(address, "/screenshots", { method: "POST", json: { target } }),
+  (address: Address, tab?: number) =>
+    json<Screenshot>(address, "/screenshots", { method: "POST", json: { tab } }),
 );

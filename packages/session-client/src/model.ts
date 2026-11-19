@@ -143,8 +143,8 @@ export interface Download {
 /** A page that asks for files and has no answer yet. */
 export interface FileRequest {
   readonly id: number;
-  /** The target whose page asks. */
-  readonly target: string;
+  /** The tab whose page asks. */
+  readonly tab: number;
   readonly multiple: boolean;
 }
 
@@ -212,8 +212,8 @@ export interface Connection {
 export interface Snapshot {
   readonly connection: Connection;
   readonly targets: readonly Target[];
-  /** The id of the target that is watched. */
-  readonly selected: string | undefined;
+  /** The tab that is watched, by its number. */
+  readonly selected: number | undefined;
   readonly presence: Presence | undefined;
   readonly downloads: readonly Download[];
   readonly fileRequests: readonly FileRequest[];
@@ -338,7 +338,7 @@ export const downloadOf = (download: pb.Download): Download => ({
 
 export const fileRequestOf = (request: pb.FileRequest): FileRequest => ({
   id: Number(request.id),
-  target: request.target,
+  tab: request.tab,
   multiple: request.multiple,
 });
 

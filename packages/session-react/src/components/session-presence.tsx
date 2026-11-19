@@ -44,7 +44,7 @@ export function SessionPresence() {
   });
   const visible = members.slice(0, VISIBLE_MEMBERS);
   const overflow = members.length - visible.length;
-  const watchedTab = targets.find((target) => target.id === snapshot.selected)?.tab;
+  const watchedTab = targets.find((target) => target.tab === snapshot.selected)?.tab;
 
   const button = (member: Member) => (
     <MemberButton
@@ -118,7 +118,7 @@ function MemberButton({
   presence: Presence;
   targets: readonly Target[];
   watchedTab: number | undefined;
-  onWatch: (target: string) => void;
+  onWatch: (tab: number) => void;
 }) {
   const you = member.id === presence.you;
   const theirs = targets.find((target) => target.tab === member.tab);
@@ -141,7 +141,7 @@ function MemberButton({
       size="icon-sm"
       className="aperture:shrink-0 aperture:rounded-full aperture:p-0"
       aria-label={label}
-      onClick={() => onWatch(theirs.id)}
+      onClick={() => onWatch(theirs.tab)}
     />
   ) : (
     <span

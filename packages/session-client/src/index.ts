@@ -76,10 +76,11 @@ export interface Session {
   readonly getSnapshot: () => Snapshot;
   readonly subscribe: (listener: () => void) => () => void;
 
-  readonly select: (target: string) => void;
+  /** Watches a tab, named by its number. */
+  readonly select: (tab: number) => void;
   readonly go: (to: Destination, options?: GoOptions) => void;
   readonly newTab: () => void;
-  readonly closeTab: (target: string) => void;
+  readonly closeTab: (tab: number) => void;
   /**
    * `fit` has the watched target's viewport follow the attached stage's size. With
    * `whenFree` the fitting waits until the tab is this member's to size: until it holds the
@@ -147,8 +148,8 @@ export interface Session {
   readonly chooseFiles: (request: number, names: readonly string[]) => void;
   /** An authenticated URL of one of the session's files, such as `downloads/<name>`. */
   readonly fileUrl: (path: string) => string;
-  /** The target as it looks now; `width` asks for a smaller picture, that many pixels wide. */
-  readonly screenshotUrl: (target: string, width?: number) => string;
+  /** The tab as it looks now; `width` asks for a smaller picture, that many pixels wide. */
+  readonly screenshotUrl: (tab: number, width?: number) => string;
   readonly recordings: {
     readonly list: () => Promise<Recording[]>;
     readonly get: (id: string) => Promise<Recording>;
@@ -157,8 +158,8 @@ export interface Session {
   };
   readonly screenshots: {
     readonly list: () => Promise<Screenshot[]>;
-    /** Takes one of a target, the newest when none is named, and keeps it in the files. */
-    readonly take: (target?: string) => Promise<Screenshot>;
+    /** Takes one of a tab, the newest when none is named, and keeps it in the files. */
+    readonly take: (tab?: number) => Promise<Screenshot>;
   };
   /** Ends the session's client: what is attached, the picture, the sound, the socket. */
   readonly close: () => void;
@@ -174,10 +175,10 @@ export const connect = (options: ConnectOptions): Session => {
   return {
     getSnapshot: session.store.get,
     subscribe: session.store.subscribe,
-    select: (target) => Effect.runSync(session.select(target)),
+    select: (tab) => Effect.runSync(session.select(tab)),
     go: (to, given) => Effect.runSync(session.go(to, given)),
     newTab: () => Effect.runSync(session.newTab),
-    closeTab: (target) => Effect.runSync(session.closeTab(target)),
+    closeTab: (tab) => Effect.runSync(session.closeTab(tab)),
     setViewport: (viewport, options) => Effect.runSync(session.setViewport(viewport, options)),
     setScale: (scale) => Effect.runSync(session.setScale(scale)),
     setPicture: (change) => Effect.runSync(session.setPicture(change)),
@@ -212,7 +213,7 @@ export const connect = (options: ConnectOptions): Session => {
     },
     screenshots: {
       list: () => promised(session.screenshots.list),
-      take: (target) => promised(session.screenshots.take(target)),
+      take: (tab) => promised(session.screenshots.take(tab)),
     },
     close: () => {
       Effect.runFork(Scope.close(scope, Exit.void));

@@ -32,7 +32,7 @@ export function BrowserViewport({ className }: BrowserViewportProps) {
   const reconnect = useReconnect();
   const lease = useLease();
   const { connection } = snapshot;
-  const watched = snapshot.targets.find((target) => target.id === snapshot.selected);
+  const watched = snapshot.targets.find((target) => target.tab === snapshot.selected);
   const open = connection.state === "open";
 
   return (

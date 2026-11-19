@@ -72,8 +72,9 @@ impl Client {
         }
         let tiles = self
             .selected
-            .clone()
-            .filter(|_| self.pixels == pb::Pixels::PIXELS_TILES);
+            .as_ref()
+            .filter(|_| self.pixels == pb::Pixels::PIXELS_TILES)
+            .and_then(|(_, window)| Some((self.tab()?, *window)));
         self.tiles_watch.send_if_modified(|watched| {
             let changed = *watched != tiles;
             *watched = tiles;
@@ -151,12 +152,12 @@ impl Client {
             return Ok(());
         }
         self.awaits_keyframe = false;
-        let Some((target, _)) = &self.selected else {
+        let Some(tab) = self.tab() else {
             return Ok(());
         };
         let time_us = packet.time.as_micros() as u64;
         let frame = pb::VideoFrame {
-            target: target.clone(),
+            tab,
             keyframe: packet.keyframe,
             time_us,
             data: packet.data.clone(),

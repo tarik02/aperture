@@ -96,10 +96,10 @@ export interface SessionService {
   readonly failures: Stream.Stream<Failure>;
   readonly onFailure: (listener: (failure: Failure) => void) => () => void;
 
-  readonly select: (target: string) => Effect.Effect<void>;
+  readonly select: (tab: number) => Effect.Effect<void>;
   readonly go: (to: Destination, options?: GoOptions) => Effect.Effect<void>;
   readonly newTab: Effect.Effect<void>;
-  readonly closeTab: (target: string) => Effect.Effect<void>;
+  readonly closeTab: (tab: number) => Effect.Effect<void>;
   /**
    * `fit` has the watched target's viewport follow the attached stage's size. With
    * `whenFree` the fitting waits its turn, see [`FitOptions`].
@@ -155,7 +155,7 @@ export interface SessionService {
   /** An authenticated URL of one of the session's files, such as `downloads/<name>`. */
   readonly fileUrl: (path: string) => string;
   /** The target as it looks now; `width` asks for a smaller picture, that many pixels wide. */
-  readonly screenshotUrl: (target: string, width?: number) => string;
+  readonly screenshotUrl: (tab: number, width?: number) => string;
   readonly recordings: {
     readonly list: Effect.Effect<Http.Recording[], SessionError>;
     readonly get: (id: string) => Effect.Effect<Http.Recording, SessionError>;
@@ -165,7 +165,7 @@ export interface SessionService {
   readonly screenshots: {
     readonly list: Effect.Effect<Http.Screenshot[], SessionError>;
     /** Takes one of a target, the newest when none is named, and keeps it in the files. */
-    readonly take: (target?: string) => Effect.Effect<Http.Screenshot, SessionError>;
+    readonly take: (tab?: number) => Effect.Effect<Http.Screenshot, SessionError>;
   };
 }
 
@@ -251,7 +251,7 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
       failureListeners.delete(listener);
     };
   };
-  const watched = () => snapshot.targets.find((target) => target.id === snapshot.selected);
+  const watched = () => snapshot.targets.find((target) => target.tab === snapshot.selected);
 
   const socket = yield* Socket.open(socketUrl(address), {
     opened: () => {
@@ -464,7 +464,7 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
 
   const decodeFrame = (frame: VideoFrame) => {
     const format = formatOf(frame.format);
-    const takes = frame.target === snapshot.selected && way === "frames";
+    const takes = frame.tab === snapshot.selected && way === "frames";
     // A frame let go is told too: the session counts on hearing of every frame.
     if (!takes || format === undefined || typeof VideoDecoder === "undefined") {
       shown(frame.timeUs);
@@ -520,7 +520,7 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
     if (image === undefined) {
       return;
     }
-    if (tile.target === snapshot.selected && way === "tiles") {
+    if (tile.tab === snapshot.selected && way === "tiles") {
       surface.draw(image, tile.x, tile.y, tile.width, tile.height);
     }
     image.close();
@@ -641,7 +641,7 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
         break;
       }
       case "selected": {
-        update({ selected: message.value.target });
+        update({ selected: message.value.tab });
         break;
       }
       case "cursor": {
@@ -676,7 +676,7 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
   };
 
   /** The target that was last fitted because it was this member's to size. */
-  let followed: string | undefined;
+  let followed: number | undefined;
 
   /** Fits the watched target once it becomes this member's to size, and each one that does. */
   const follow = () => {
@@ -831,7 +831,7 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
     ),
     onFailure,
 
-    select: (target) => Effect.sync(() => send({ case: "select", value: { target } })),
+    select: (tab) => Effect.sync(() => send({ case: "select", value: { tab } })),
     go: (to, { newTab = false } = {}) =>
       Effect.sync(() => {
         const destination =
@@ -843,7 +843,7 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
     newTab: Effect.sync(() =>
       send({ case: "go", value: { to: { case: "url", value: "" }, newTab: true } }),
     ),
-    closeTab: (target) => Effect.sync(() => send({ case: "close", value: { target } })),
+    closeTab: (tab) => Effect.sync(() => send({ case: "close", value: { tab } })),
     setViewport: (viewport, options) =>
       Effect.sync(() => {
         fitting = viewport === "fit";
@@ -896,7 +896,7 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
         send({ case: "filesChosen", value: { id: BigInt(request), files: [...names] } }),
       ),
     fileUrl: (path) => fileUrl(address, path),
-    screenshotUrl: (target, width) => screenshotUrl(address, target, width),
+    screenshotUrl: (tab, width) => screenshotUrl(address, tab, width),
     recordings: {
       list: Http.listRecordings(address),
       get: (id) => Http.getRecording(address, id),
@@ -905,7 +905,7 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
     },
     screenshots: {
       list: Http.listScreenshots(address),
-      take: (target) => Http.takeScreenshot(address, target),
+      take: (tab) => Http.takeScreenshot(address, tab),
     },
   } satisfies SessionService;
 });

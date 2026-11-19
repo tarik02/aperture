@@ -47,8 +47,8 @@ export const socketUrl = (address: Address) => {
 export const fileUrl = (address: Address, path: string) =>
   authenticated(address, `/files/${encoded(path)}`).toString();
 
-export const screenshotUrl = (address: Address, target: string, width?: number) => {
-  const url = authenticated(address, `/targets/${encodeURIComponent(target)}/screenshot.png`);
+export const screenshotUrl = (address: Address, tab: number, width?: number) => {
+  const url = authenticated(address, `/targets/${tab}/screenshot.png`);
   if (width !== undefined) {
     url.searchParams.set("width", String(Math.round(width)));
   }

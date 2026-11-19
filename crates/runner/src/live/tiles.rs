@@ -5,12 +5,12 @@ use std::sync::Arc;
 
 use aperture_compositor::{Frame, Frames, Handle, Pixels, WindowId};
 use tokio::sync::{mpsc, watch};
-use tracing::debug;
+use tracing::warn;
 
 use crate::proto::aperture::live::v1 as pb;
 
-/// The target to make tiles of, and its window.
-pub type Watched = Option<(String, WindowId)>;
+/// The tab to make tiles of, and its window.
+pub type Watched = Option<(u32, WindowId)>;
 
 /// The picture is compared in cells this many pixels a side; a tile covers whole cells.
 const CELL: usize = 64;
@@ -32,7 +32,7 @@ async fn make(
     mut watched: watch::Receiver<Watched>,
     tiles: mpsc::Sender<pb::Tile>,
 ) {
-    let mut target = String::new();
+    let mut tab = 0;
     // With what holds them as pixels in memory, which tiles are made of.
     let mut frames: Option<(Frames, Pixels)> = None;
     // What the client has, to tell what changed.
@@ -43,11 +43,11 @@ async fn make(
                 if changed.is_err() {
                     return;
                 }
-                let now = watched.borrow_and_update().clone();
+                let now = *watched.borrow_and_update();
                 sent = None;
                 frames = match now {
-                    Some((id, window)) => {
-                        target = id;
+                    Some((watched, window)) => {
+                        tab = watched;
                         match (compositor.frames(window).await, compositor.pixels(window).await) {
                             (Ok(mut frames), Ok(pixels)) => {
                                 frames.mark_changed();
@@ -79,9 +79,8 @@ async fn make(
                     continue;
                 }
                 let before = sent.replace(frame.clone());
-                let target = target.clone();
                 let made =
-                    tokio::task::spawn_blocking(move || update(&target, &frame, before.as_deref()));
+                    tokio::task::spawn_blocking(move || update(tab, &frame, before.as_deref()));
                 match made.await {
                     Ok(Ok(update)) => {
                         for tile in update {
@@ -90,8 +89,12 @@ async fn make(
                             }
                         }
                     }
-                    Ok(Err(err)) => debug!(%err, "failed to make a tile"),
-                    Err(_) => return,
+                    // The part of the picture stays as it was until a tile covers it again.
+                    Ok(Err(err)) => warn!(%err, "failed to make a tile"),
+                    Err(err) => {
+                        warn!(%err, "the tiles end: what made them did");
+                        return;
+                    }
                 }
             }
         }
@@ -104,7 +107,7 @@ type Part = (usize, usize, usize, usize);
 /// The tiles that bring a client that has `before` up to `frame`: the parts the two differ
 /// in, or the whole picture where there is nothing to go from.
 fn update(
-    target: &str,
+    tab: u32,
     frame: &Frame,
     before: Option<&Frame>,
 ) -> Result<Vec<pb::Tile>, png::EncodingError> {
@@ -117,7 +120,7 @@ fn update(
     };
     parts
         .into_iter()
-        .map(|part| tile(target, frame, part))
+        .map(|part| tile(tab, frame, part))
         .collect()
 }
 
@@ -182,7 +185,7 @@ fn changed(frame: &Frame, before: &Frame) -> Vec<Part> {
 }
 
 fn tile(
-    target: &str,
+    tab: u32,
     frame: &Frame,
     (left, top, right, bottom): Part,
 ) -> Result<pb::Tile, png::EncodingError> {
@@ -202,7 +205,7 @@ fn tile(
     encoder.set_compression(png::Compression::Fast);
     encoder.write_header()?.write_image_data(&rgb)?;
     Ok(pb::Tile {
-        target: target.to_owned(),
+        tab,
         x: left as u32,
         y: top as u32,
         width: frame.width,

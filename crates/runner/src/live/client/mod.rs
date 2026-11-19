@@ -275,7 +275,7 @@ impl Client {
             Message::Hello(hello) => self.greet(&hello).await,
             Message::Select(select) => {
                 self.chosen = true;
-                if self.select(Some(&select.target)).await? {
+                if self.select(Some(select.tab)).await? {
                     self.send_selected().await?;
                 }
                 Ok(())
@@ -307,7 +307,7 @@ impl Client {
                 self.answer(pb::Asked::ASKED_GO, gone).await
             }
             Message::Close(close) => {
-                let closed = self.close(&close.target).await;
+                let closed = self.close(close.tab).await;
                 self.answer(pb::Asked::ASKED_CLOSE, closed).await
             }
             Message::CopyPicture(picture) => match self.picture(&picture.url).await {
@@ -438,22 +438,22 @@ impl Client {
         }
     }
 
-    async fn close(&mut self, target: &str) -> anyhow::Result<()> {
+    async fn close(&mut self, tab: u32) -> anyhow::Result<()> {
         ensure!(self.grant(Area::Tabs).write, NOT_ALLOWED);
-        let tab = {
+        let target = {
             let targets = self.live.targets.borrow();
-            let closed = targets.iter().find(|closed| closed.id == target);
-            closed.map(|closed| closed.tab)
+            let closed = targets.iter().find(|closed| closed.tab == tab);
+            closed.map(|closed| closed.id.clone())
         };
         // A tab that is gone already is closed as asked.
-        let Some(tab) = tab else {
+        let Some(target) = target else {
             return Ok(());
         };
         ensure!(
             self.live.presence.hold(self.member.id, tab, true),
             "someone else holds the tab"
         );
-        self.live.pages.close(target).await
+        self.live.pages.close(&target).await
     }
 
     /// A picture the watched page shows, as what the session copied.
@@ -611,20 +611,19 @@ impl Client {
             .is_some_and(|tab| self.live.presence.hold(self.member.id, tab, true))
     }
 
-    /// Settles which target the client watches: the one it asks for, else the one it has,
-    /// else, and always until the client chose one, the newest. A target that moved to
-    /// another window is followed there. Tells whether it changed.
-    async fn select(&mut self, wanted: Option<&str>) -> Result<bool, axum::Error> {
+    /// Settles which target the client watches: the one of the tab it asks for, else the
+    /// one it has, else, and always until the client chose one, the newest. A target that
+    /// moved to another window is followed there. Tells whether it changed.
+    async fn select(&mut self, wanted: Option<u32>) -> Result<bool, axum::Error> {
         let selected = {
             let targets = self.live.targets.borrow();
-            let find = |id: &str| targets.iter().find(|target| target.id == id);
             let kept = self
                 .selected
                 .as_ref()
                 .filter(|_| self.chosen)
-                .and_then(|(id, _)| find(id));
+                .and_then(|(id, _)| targets.iter().find(|target| target.id == *id));
             wanted
-                .and_then(find)
+                .and_then(|tab| targets.iter().find(|target| target.tab == tab))
                 .or(kept)
                 .or(targets.last())
                 .map(|target| (target.id.clone(), target.window))

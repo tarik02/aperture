@@ -151,16 +151,21 @@ impl Client {
     pub(super) async fn send_file_requests(&mut self) -> Result<(), axum::Error> {
         // Told to those who may answer.
         let answers = self.grant(Area::Uploads).write;
+        let targets = self.live.targets.borrow().clone();
         let requests = self
             .file_requests
             .borrow_and_update()
             .iter()
             .filter(|_| answers)
-            .map(|request| pb::FileRequest {
-                id: request.id,
-                target: request.target.clone(),
-                multiple: request.multiple,
-                ..Default::default()
+            .filter_map(|request| {
+                // A page that is no target any more asks for nothing.
+                let target = targets.iter().find(|target| target.id == request.target)?;
+                Some(pb::FileRequest {
+                    id: request.id,
+                    tab: target.tab,
+                    multiple: request.multiple,
+                    ..Default::default()
+                })
             })
             .collect();
         let requests = pb::FileRequests {
@@ -203,9 +208,9 @@ impl Client {
     }
 
     pub(super) async fn send_selected(&mut self) -> Result<(), axum::Error> {
-        let target = self.selected.as_ref().map(|(id, _)| id.clone());
+        let tab = self.tab();
         self.send(server_message::Message::Selected(Box::new(pb::Selected {
-            target,
+            tab,
             ..Default::default()
         })))
         .await

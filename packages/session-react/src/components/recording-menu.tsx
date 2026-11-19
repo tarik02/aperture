@@ -78,10 +78,10 @@ export function useRecordingSettings() {
   return useStored(SETTINGS_KEY, DEFAULT_SETTINGS, isSettings);
 }
 
-function startOptions(target: string, settings: RecordingSettings): StartRecording {
+function startOptions(tab: number, settings: RecordingSettings): StartRecording {
   const bursts = settings.capture === "bursts";
   return {
-    target,
+    tab,
     capture: settings.capture,
     // Bursts keep only what happens, so there are no quiet stretches to shorten.
     idle: bursts || settings.idle === "keep" ? null : settings.idle,
@@ -98,7 +98,7 @@ export function RecordItem() {
   const watched = useWatchedTarget();
   const allowed = snapshot.features.recordings.write;
   const recordsWatched = recordings.recordings.some(
-    (one) => recordingRuns(one) && one.target === watched?.id,
+    (one) => recordingRuns(one) && one.tab === watched?.tab,
   );
   const canStart =
     snapshot.connection.state === "open" &&
@@ -111,7 +111,7 @@ export function RecordItem() {
     if (watched === undefined) {
       return;
     }
-    recordings.start(startOptions(watched.id, settings)).catch((cause: unknown) => {
+    recordings.start(startOptions(watched.tab, settings)).catch((cause: unknown) => {
       showNotice({
         level: "error",
         message: "The recording did not start",
@@ -162,9 +162,7 @@ export function RunningRecordingItems() {
         <span className="aperture:flex aperture:min-w-0 aperture:items-center aperture:justify-between aperture:gap-2">
           <span className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-1.5">
             <span className="aperture:size-2 aperture:shrink-0 aperture:animate-pulse aperture:rounded-full aperture:bg-destructive" />
-            <span className="aperture:truncate">
-              {targetName(snapshot.targets, recording.target)}
-            </span>
+            <span className="aperture:truncate">{targetName(snapshot.targets, recording.tab)}</span>
           </span>
           <span className="aperture:shrink-0 aperture:tabular-nums">
             {formatDuration(now - recording.started_at_ms)}
@@ -279,7 +277,7 @@ export function ScreenshotItem() {
     if (watched === undefined) {
       return;
     }
-    recordings.takeScreenshot(watched.id).then(
+    recordings.takeScreenshot(watched.tab).then(
       () =>
         showNotice({
           level: "info",
@@ -410,8 +408,8 @@ export function RecordingSettingsItems() {
   );
 }
 
-function targetName(targets: readonly Target[], id: string): string {
-  const target = targets.find((one) => one.id === id);
+function targetName(targets: readonly Target[], tab: number): string {
+  const target = targets.find((one) => one.tab === tab);
   if (target === undefined) {
     return "A closed tab";
   }

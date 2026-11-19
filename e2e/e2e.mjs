@@ -98,6 +98,7 @@ const bTitle = async () => (await c.send("Runtime.evaluate", { expression: "docu
 const liveTargets = async () => (await fetch(`${live}/targets`, { headers: auth })).json();
 const until = async (done) => { let value; for (let i = 0; i < 100; i++) { value = await liveTargets(); if (done(value)) break; await sleep(100); } return value; };
 let listed2 = await until((targets) => targets.some((t) => t.id === created.targetId));
+const createdTab = listed2.find((t) => t.id === created.targetId).tab;
 console.log("targets:", JSON.stringify(listed2).slice(0, 400));
 check("B's pages are targets, the first tab and the new one", listed2.length === 2 && listed2.at(-1).id === created.targetId);
 check("the new target is at the viewport size", listed2.at(-1).width === 1280 && listed2.at(-1).height === 720);
@@ -232,7 +233,7 @@ const evaluate = async (expression) => (await viewer.send("Runtime.evaluate", { 
 let seen = "";
 for (let i = 0; i < 60; i++) { await sleep(250); seen = await evaluate(`JSON.stringify({state: peer?.connectionState, status, video: size(), time: view.currentTime, targets: targets.length, selected})`); if (typeof seen !== "string") { seen = "{}"; continue; } if (JSON.parse(seen).video[0] > 0 && JSON.parse(seen).selected) break; }
 console.log("viewer:", seen);
-check("the viewer plays B's newest target over WebRTC", JSON.parse(seen).video[0] === 1280 && JSON.parse(seen).video[1] === 720 && JSON.parse(seen).selected === created.targetId);
+check("the viewer plays B's newest target over WebRTC", JSON.parse(seen).video[0] === 1280 && JSON.parse(seen).video[1] === 720 && JSON.parse(seen).selected === createdTab);
 
 const gpu = await c.send("SystemInfo.getInfo");
 console.log("gpu:", JSON.stringify({ devices: gpu.gpu.devices.map((device) => `${device.vendorString} ${device.deviceString} ${device.driverVersion}`), features: gpu.gpu.featureStatus }));
@@ -379,7 +380,7 @@ for (const way of ["frames", "tiles"]) {
   let got = "";
   for (let i = 0; i < 60; i++) { await sleep(250); got = await otherEvaluate(`drawn.then(() => JSON.stringify({ way, status, size: size(), selected, peer: typeof peer, lit: [...canvas.getContext("2d").getImageData(0, 0, canvas.width || 1, canvas.height || 1).data].some((value, index) => index % 4 !== 3 && value > 0) }))`); if (typeof got !== "string") { got = "{}"; continue; } if (JSON.parse(got).lit) break; }
   console.log(`${way}:`, got);
-  check(`a viewer without WebRTC gets the target's picture as ${way}`, JSON.parse(got).lit && JSON.parse(got).way === way && JSON.parse(got).size.join("x") === "1280x720" && JSON.parse(got).peer === "undefined" && JSON.parse(got).selected === created.targetId);
+  check(`a viewer without WebRTC gets the target's picture as ${way}`, JSON.parse(got).lit && JSON.parse(got).way === way && JSON.parse(got).size.join("x") === "1280x720" && JSON.parse(got).peer === "undefined" && JSON.parse(got).selected === createdTab);
   await c.send("Runtime.evaluate", { expression: "document.title = 'waiting'" }, bPage);
   const otherBox = JSON.parse(await otherEvaluate(`JSON.stringify(canvas.getBoundingClientRect())`));
   for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) await viewer.send("Input.dispatchMouseEvent", { type, x: otherBox.x + 250 * (otherBox.width / 1280), y: otherBox.y + 350 * (otherBox.height / 720), button: type === "mouseMoved" ? "none" : "left", clickCount: 1 }, otherSession);

@@ -204,11 +204,13 @@ impl From<record::Error> for Refusal {
 }
 
 impl Live {
-    /// The target of an id; the newest one when none is named.
-    fn target(&self, id: Option<&str>) -> Result<Target, Refusal> {
+    /// The target that is named, by its tab's number or by its id; the newest one when
+    /// none is.
+    fn target(&self, named: Option<&str>) -> Result<Target, Refusal> {
+        let id = named;
         let targets = self.targets.borrow();
-        let target = match id {
-            Some(id) => targets.iter().find(|target| target.id == id),
+        let target = match named {
+            Some(named) => crate::targets::named(&targets, named),
             None => targets.last(),
         };
         target.cloned().ok_or_else(|| match id {
@@ -435,10 +437,27 @@ async fn proxy_update(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// A tab as a request names it: by its number, or by its target's id.
+fn named<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Named {
+        Tab(u32),
+        Target(String),
+    }
+    Ok(
+        Option::<Named>::deserialize(deserializer)?.map(|named| match named {
+            Named::Tab(tab) => tab.to_string(),
+            Named::Target(id) => id,
+        }),
+    )
+}
+
 #[derive(Deserialize, Default)]
 struct StartRecording {
-    /// The target to record; the newest one when left out.
-    target: Option<String>,
+    /// The tab to record; the newest one when left out.
+    #[serde(default, deserialize_with = "named")]
+    tab: Option<String>,
     /// What the edit does once the recording stops.
     #[serde(flatten)]
     options: Options,
@@ -451,14 +470,15 @@ async fn recording_start(
     let request = body.map(|Json(request)| request).unwrap_or_default();
     let started = live
         .recordings
-        .start(request.target.as_deref(), request.options);
+        .start(request.tab.as_deref(), request.options);
     Ok((StatusCode::CREATED, Json(started.await?)))
 }
 
 #[derive(Deserialize, Default)]
 struct TakeScreenshot {
-    /// The target to take a screenshot of; the newest one when left out.
-    target: Option<String>,
+    /// The tab to take a screenshot of; the newest one when left out.
+    #[serde(default, deserialize_with = "named")]
+    tab: Option<String>,
 }
 
 /// Takes a screenshot of a target and keeps it in the session's files.
@@ -467,7 +487,7 @@ async fn screenshot_take(
     body: Option<Json<TakeScreenshot>>,
 ) -> Result<(StatusCode, Json<Screenshot>), Refusal> {
     let request = body.map(|Json(request)| request).unwrap_or_default();
-    let target = live.target(request.target.as_deref())?;
+    let target = live.target(request.tab.as_deref())?;
     let frame = live.compositor.screenshot(target.window).await?;
     let files = live.files.clone();
     let kept =

@@ -95,7 +95,7 @@ export function SessionViewport({ className, style, children }: SessionViewportP
     };
   }, [way]);
 
-  const watched = snapshot.targets.find((target) => target.id === snapshot.selected);
+  const watched = snapshot.targets.find((target) => target.tab === snapshot.selected);
   const shown = watched === undefined ? undefined : way;
   // The picture of another tab, or of this one at another size, comes a moment after the
   // session says which tab is watched and how large it is. Until what is drawn has the

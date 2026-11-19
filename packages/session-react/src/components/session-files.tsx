@@ -35,7 +35,7 @@ export function SessionFilesButton() {
   const { features } = useWorkbench();
   const uploads = useUploads(features.uploads);
   const [open, setOpen] = useState(false);
-  const request = snapshot.fileRequests.find((one) => one.target === snapshot.selected);
+  const request = snapshot.fileRequests.find((one) => one.tab === snapshot.selected);
   const running = snapshot.downloads.filter((download) => download.state === "running").length;
   const done = snapshot.downloads.filter((download) => download.state === "done").length;
   const busy = running + uploads.inProgress.length;

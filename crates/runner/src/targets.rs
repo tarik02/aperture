@@ -60,6 +60,15 @@ pub struct Target {
     pub scale: f64,
 }
 
+/// The target a tab's number or a target's id names, as whoever names one may give
+/// either.
+pub fn named<'a>(targets: &'a [Target], named: &str) -> Option<&'a Target> {
+    let tab = named.parse::<u32>().ok();
+    targets
+        .iter()
+        .find(|target| Some(target.tab) == tab || target.id.eq_ignore_ascii_case(named))
+}
+
 #[derive(Deserialize)]
 struct Request {
     id: String,
@@ -594,7 +603,7 @@ async fn pages(browser: &cdp::Client) -> Result<Vec<Page>, cdp::Error> {
         let window = match window.await {
             Ok(window) => window["windowId"].as_i64(),
             // A page that has no window yet, or is gone since it was listed.
-            Err(cdp::Error::Refused(_)) => None,
+            Err(cdp::Error::Refused(_) | cdp::Error::Detached) => None,
             Err(err @ cdp::Error::Gone) => return Err(err),
         };
         pages.push(Page {

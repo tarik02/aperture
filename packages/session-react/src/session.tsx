@@ -99,7 +99,7 @@ export function useSessionSnapshot(): Snapshot {
 /** The target that is watched. */
 export function useWatchedTarget(): Target | undefined {
   const snapshot = useSessionSnapshot();
-  return snapshot.targets.find((target) => target.id === snapshot.selected);
+  return snapshot.targets.find((target) => target.tab === snapshot.selected);
 }
 
 export type LeaseState =
@@ -132,7 +132,7 @@ export interface Lease {
 export function useLease(): Lease {
   const snapshot = useSessionSnapshot();
   const { presence } = snapshot;
-  const watched = snapshot.targets.find((target) => target.id === snapshot.selected);
+  const watched = snapshot.targets.find((target) => target.tab === snapshot.selected);
   const you = presence?.members.find((member) => member.id === presence.you);
   const held = presence?.held.find((one) => one.tab === watched?.tab);
   const holder = presence?.members.find((member) => member.id === held?.holder);

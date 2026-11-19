@@ -17,16 +17,16 @@ export interface AddressControl {
 export function useAddress(): AddressControl {
   const session = useSession();
   const snapshot = useSessionSnapshot();
-  const watched = snapshot.targets.find((target) => target.id === snapshot.selected);
-  const [draft, setDraft] = useState<{ target: string | undefined; url: string } | null>(null);
+  const watched = snapshot.targets.find((target) => target.tab === snapshot.selected);
+  const [draft, setDraft] = useState<{ tab: number | undefined; url: string } | null>(null);
   // What was typed and not sent belongs to the tab it was typed for.
-  const typed = draft !== null && draft.target === watched?.id ? draft.url : null;
+  const typed = draft !== null && draft.tab === watched?.tab ? draft.url : null;
 
   return {
     value: typed ?? watched?.url ?? "",
     navigates:
       snapshot.connection.state === "open" && snapshot.features.tabs.write && watched !== undefined,
-    type: (url) => setDraft({ target: watched?.id, url }),
+    type: (url) => setDraft({ tab: watched?.tab, url }),
     reset: () => setDraft(null),
     submit: (value) => {
       const url = value.trim();

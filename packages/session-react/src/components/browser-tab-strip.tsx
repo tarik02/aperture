@@ -33,10 +33,10 @@ export function BrowserTabStrip() {
   const { features, recordings, targetFaviconUrl } = useWorkbench();
   const { open, changes } = useInputState();
   const showPresence = features.presence;
-  const recordingTargets = new Set(
-    recordings.recordings.filter(recordingRuns).map((recording) => recording.target),
+  const recordingTabs = new Set(
+    recordings.recordings.filter(recordingRuns).map((recording) => recording.tab),
   );
-  const [previewHandle] = useState(() => createHoverCardHandle<string>());
+  const [previewHandle] = useState(() => createHoverCardHandle<number>());
   const { targets, presence } = snapshot;
 
   const closePreview = () => {
@@ -70,11 +70,11 @@ export function BrowserTabStrip() {
         >
           {targets.map((target) => (
             <BrowserTab
-              key={target.id}
+              key={target.tab}
               target={target}
-              active={target.id === snapshot.selected}
-              recording={recordingTargets.has(target.id)}
-              asksForFiles={snapshot.fileRequests.some((request) => request.target === target.id)}
+              active={target.tab === snapshot.selected}
+              recording={recordingTabs.has(target.tab)}
+              asksForFiles={snapshot.fileRequests.some((request) => request.tab === target.tab)}
               presence={showPresence ? presence : undefined}
               faviconSrc={targetFaviconUrl?.(target)}
               disabled={!open}
@@ -88,9 +88,9 @@ export function BrowserTabStrip() {
       </ScrollArea>
       <HoverCard handle={previewHandle}>
         {({ payload }) => {
-          const target = targets.find((current) => current.id === payload);
+          const target = targets.find((current) => current.tab === payload);
           // The watched tab is in full view already.
-          if (target === undefined || target.id === snapshot.selected) {
+          if (target === undefined || target.tab === snapshot.selected) {
             return null;
           }
           return <TabPreview target={target} />;
@@ -121,7 +121,7 @@ function BrowserTab({
   disabled: boolean;
   /** This member may open and close tabs. */
   changes: boolean;
-  previewHandle: HoverCardHandle<string>;
+  previewHandle: HoverCardHandle<number>;
   onPreviewClose: () => void;
 }) {
   const session = useSession();
@@ -146,7 +146,7 @@ function BrowserTab({
     <div
       ref={tabRef}
       data-browser-tab=""
-      data-target={target.id}
+      data-tab={target.tab}
       data-active={active ? "" : undefined}
       className={cn(
         "aperture:group aperture:relative aperture:flex aperture:h-7 aperture:w-52 aperture:max-w-[38vw] aperture:min-w-28 aperture:items-center aperture:gap-1.5 aperture:rounded-t-lg aperture:border aperture:border-b-0 aperture:px-2 aperture:text-left aperture:text-xs aperture:transition-[background-color,border-color,color] aperture:select-none",
@@ -163,7 +163,7 @@ function BrowserTab({
       onAuxClick={(event) => {
         if (event.button === 1 && changes) {
           event.preventDefault();
-          session.closeTab(target.id);
+          session.closeTab(target.tab);
         }
       }}
     />
@@ -175,7 +175,7 @@ function BrowserTab({
         render={
           <HoverCardTrigger
             handle={previewHandle}
-            payload={target.id}
+            payload={target.tab}
             delay={0}
             // Long enough to reach the next tab, which then takes the preview over.
             closeDelay={80}
@@ -190,7 +190,7 @@ function BrowserTab({
           className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:gap-1.5 aperture:self-stretch aperture:text-left aperture:outline-none"
           onClick={() => {
             onPreviewClose();
-            session.select(target.id);
+            session.select(target.tab);
           }}
         >
           <TabFavicon src={faviconSrc} />
@@ -231,7 +231,7 @@ function BrowserTab({
           className="aperture:-mr-1 aperture:size-5 aperture:shrink-0 aperture:opacity-55 aperture:group-hover:opacity-100 aperture:hover:opacity-100"
           aria-label="Close tab"
           disabled={!changes}
-          onClick={() => session.closeTab(target.id)}
+          onClick={() => session.closeTab(target.tab)}
         >
           <X />
         </Button>
@@ -360,7 +360,7 @@ function TabSoundButton({ target }: { target: Target }) {
 const PREVIEW_WIDTH = 640;
 
 /** The preview each tab was last shown with, which is there at once the next time. */
-const lastPreviews = new Map<string, string>();
+const lastPreviews = new Map<number, string>();
 
 /**
  * A tab's preview. One popup serves every tab: it fades in for the first one the pointer
@@ -390,7 +390,7 @@ function TabPreview({ target }: { target: Target }) {
       )}
       className="aperture:pointer-events-none aperture:flex aperture:w-80 aperture:max-w-[calc(100vw-2rem)] aperture:flex-col aperture:gap-2 aperture:p-2 aperture:transition-opacity aperture:duration-150 aperture:data-ending-style:opacity-0 aperture:data-starting-style:opacity-0"
     >
-      <TabPreviewPicture key={target.id} target={target} />
+      <TabPreviewPicture key={target.tab} target={target} />
       <span className="aperture:truncate aperture:text-xs aperture:font-medium">
         {tabLabel(target)}
       </span>
@@ -406,11 +406,11 @@ function TabPreviewPicture({ target }: { target: Target }) {
   // Made when the tab's preview shows, so it is the page as it is then and not a picture
   // the browser kept.
   const [src] = useState(() => {
-    const url = new URL(session.screenshotUrl(target.id, PREVIEW_WIDTH));
+    const url = new URL(session.screenshotUrl(target.tab, PREVIEW_WIDTH));
     url.searchParams.set("at", String(Date.now()));
     return url.toString();
   });
-  const [before] = useState(() => lastPreviews.get(target.id));
+  const [before] = useState(() => lastPreviews.get(target.tab));
   const [loaded, setLoaded] = useState(false);
   return (
     <div
@@ -422,7 +422,7 @@ function TabPreviewPicture({ target }: { target: Target }) {
         src={src}
         alt=""
         onLoad={() => {
-          lastPreviews.set(target.id, src);
+          lastPreviews.set(target.tab, src);
           setLoaded(true);
         }}
         className={cn(

@@ -259,7 +259,7 @@ export function PictureItems() {
 export function ViewportItems() {
   const session = useSession();
   const snapshot = useSessionSnapshot();
-  const watched = snapshot.targets.find((target) => target.id === snapshot.selected);
+  const watched = snapshot.targets.find((target) => target.tab === snapshot.selected);
   const open = snapshot.connection.state === "open";
   const resizes = open && snapshot.features.tabs.write && watched !== undefined;
 

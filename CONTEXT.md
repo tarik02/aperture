@@ -24,11 +24,11 @@ _Avoid_: Proxy, router, API layer
 What stands above executors: tenants, access, and which node a session runs on. It signs tickets. Not built yet.
 
 **Target**:
-A page of the session and the window that shows it. Each page has a window of its own, so a target is what a client watches, records and gives input to. Its id lasts for one run of the session.
+A page of the session and the window that shows it. Each page has a window of its own, so a target is what a client watches, records and gives input to. Its id is the page's DevTools target id, which lasts for one run of the session.
 _Avoid_: Window, surface, view
 
 **Tab**:
-A target's number, which stays the same when the session is suspended and resumed. Leases, automation and recordings name a tab; the target id is for one run only.
+A target's number, which no other tab of the session gets and which stays the same when the session is suspended and resumed. It is how a target is named: in the live protocol, in leases, automation and recordings. The session's HTTP routes and automation take a target id in its place, for whoever speaks DevTools.
 
 **Live protocol**:
 The messages a client and a session exchange on the session socket (`aperture.live.v1`): targets, input, clipboard, files, presence, and the target's pixels as WebRTC video, encoded frames or tiles.
