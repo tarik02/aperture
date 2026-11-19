@@ -7,6 +7,7 @@ use std::{
 
 use aperture_compositor::Frame;
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 use super::http::{encode_png, shrunk};
 
@@ -77,18 +78,31 @@ pub fn keep(files: &Path, frame: Frame, title: String, url: String) -> anyhow::R
     Ok(screenshot)
 }
 
-/// The screenshots there are, newest first, as their files tell.
-pub fn list(files: &Path) -> Vec<Screenshot> {
-    let Ok(entries) = std::fs::read_dir(files.join(DIRECTORY)) else {
-        return Vec::new();
+/// The screenshots there are, newest first, as their files tell. One that cannot be read
+/// is said and left out.
+pub fn list(files: &Path) -> std::io::Result<Vec<Screenshot>> {
+    let entries = match std::fs::read_dir(files.join(DIRECTORY)) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => return Err(err),
     };
-    let mut screenshots: Vec<Screenshot> = entries
-        .flatten()
-        .filter(|entry| entry.file_name().to_string_lossy().ends_with(KEPT))
-        .filter_map(|entry| serde_json::from_slice(&std::fs::read(entry.path()).ok()?).ok())
-        .collect();
+    let mut screenshots = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name();
+        if !name.to_string_lossy().ends_with(KEPT) {
+            continue;
+        }
+        let read = std::fs::read(entry.path())
+            .map_err(anyhow::Error::from)
+            .and_then(|kept| Ok(serde_json::from_slice::<Screenshot>(&kept)?));
+        match read {
+            Ok(screenshot) => screenshots.push(screenshot),
+            Err(err) => warn!(file = ?name, "a kept screenshot is not read: {err:#}"),
+        }
+    }
     screenshots.sort_by_key(|screenshot| std::cmp::Reverse(screenshot.taken_at_ms));
-    screenshots
+    Ok(screenshots)
 }
 
 fn millis(time: SystemTime) -> u64 {

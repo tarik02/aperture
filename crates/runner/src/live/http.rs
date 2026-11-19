@@ -22,6 +22,7 @@ use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncWriteExt, sync::watch};
 use tower_http::services::ServeDir;
+use tracing::warn;
 
 use super::{
     client,
@@ -65,6 +66,7 @@ const UPLOAD_MOST: u64 = 1024 * 1024 * 1024;
 
 /// Serves until the listener fails.
 pub async fn serve(socket: &Path, live: Live, automation: Arc<Automation>) -> std::io::Result<()> {
+    // The socket an earlier run left; binding says what else is in the way.
     let _ = std::fs::remove_file(socket);
     let listener = tokio::net::UnixListener::bind(socket)?;
     let mut app = Router::new()
@@ -140,6 +142,82 @@ async fn session_socket(
     upgrade.on_upgrade(move |socket| client::serve(live, socket, identity))
 }
 
+/// Why a route does not do what was asked of it, as it answers.
+struct Refusal(StatusCode, String);
+
+impl Refusal {
+    fn not_found(what: impl std::fmt::Display) -> Self {
+        Self(StatusCode::NOT_FOUND, what.to_string())
+    }
+
+    fn bad_request(why: impl std::fmt::Display) -> Self {
+        Self(StatusCode::BAD_REQUEST, why.to_string())
+    }
+
+    /// What went wrong here rather than with what was asked.
+    fn failed(err: impl std::fmt::Display) -> Self {
+        Self(StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+    }
+}
+
+impl IntoResponse for Refusal {
+    fn into_response(self) -> Response {
+        (self.0, self.1).into_response()
+    }
+}
+
+impl From<std::io::Error> for Refusal {
+    fn from(err: std::io::Error) -> Self {
+        Self::failed(err)
+    }
+}
+
+impl From<tokio::task::JoinError> for Refusal {
+    fn from(err: tokio::task::JoinError) -> Self {
+        Self::failed(err)
+    }
+}
+
+impl From<aperture_compositor::Error> for Refusal {
+    fn from(err: aperture_compositor::Error) -> Self {
+        let status = match err {
+            aperture_compositor::Error::WindowNotFound(_) => StatusCode::NOT_FOUND,
+            aperture_compositor::Error::NoContent(_) => StatusCode::CONFLICT,
+            aperture_compositor::Error::Render(_) | aperture_compositor::Error::Gone => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+        };
+        Self(status, err.to_string())
+    }
+}
+
+impl From<record::Error> for Refusal {
+    fn from(err: record::Error) -> Self {
+        let status = match err {
+            record::Error::Off => StatusCode::CONFLICT,
+            record::Error::NoTarget | record::Error::NoRecording => StatusCode::NOT_FOUND,
+            record::Error::Options(_) => StatusCode::BAD_REQUEST,
+            record::Error::Failed(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        Self(status, format!("{err:#}"))
+    }
+}
+
+impl Live {
+    /// The target of an id; the newest one when none is named.
+    fn target(&self, id: Option<&str>) -> Result<Target, Refusal> {
+        let targets = self.targets.borrow();
+        let target = match id {
+            Some(id) => targets.iter().find(|target| target.id == id),
+            None => targets.last(),
+        };
+        target.cloned().ok_or_else(|| match id {
+            Some(id) => Refusal::not_found(format_args!("target {id} not found")),
+            None => Refusal::not_found("the session shows no target"),
+        })
+    }
+}
+
 async fn downloads_list(State(live): State<Live>) -> Json<Vec<Download>> {
     Json(live.downloads.borrow().clone())
 }
@@ -180,20 +258,21 @@ struct Uploaded {
     path: PathBuf,
 }
 
-async fn uploads_list(State(live): State<Live>) -> Response {
+async fn uploads_list(State(live): State<Live>) -> Result<Json<Vec<Uploaded>>, Refusal> {
     let directory = live.files.join(UPLOADS);
     let mut uploads = Vec::new();
     let mut entries = match tokio::fs::read_dir(&directory).await {
         Ok(entries) => entries,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            return Json(uploads).into_response();
-        }
-        Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Json(uploads)),
+        Err(err) => return Err(err.into()),
     };
-    while let Ok(Some(entry)) = entries.next_entry().await {
+    while let Some(entry) = entries.next_entry().await? {
         let name = entry.file_name().to_string_lossy().into_owned();
-        let Ok(metadata) = entry.metadata().await else {
-            continue;
+        let metadata = match entry.metadata().await {
+            Ok(metadata) => metadata,
+            // Removed since it was listed.
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(err) => return Err(err.into()),
         };
         if metadata.is_file() && files::named(&directory, &name).is_some() {
             uploads.push(Uploaded {
@@ -204,7 +283,7 @@ async fn uploads_list(State(live): State<Live>) -> Response {
         }
     }
     uploads.sort_by(|a, b| a.name.cmp(&b.name));
-    Json(uploads).into_response()
+    Ok(Json(uploads))
 }
 
 /// Takes the request's body as the file `name` of the session's uploads, in place of one
@@ -213,11 +292,10 @@ async fn upload(
     State(live): State<Live>,
     RoutePath(name): RoutePath<String>,
     body: Body,
-) -> Response {
+) -> Result<Json<Uploaded>, Refusal> {
     let directory = live.files.join(UPLOADS);
-    let Some(path) = files::named(&directory, &name) else {
-        return (StatusCode::BAD_REQUEST, "not a file name").into_response();
-    };
+    let path =
+        files::named(&directory, &name).ok_or_else(|| Refusal::bad_request("not a file name"))?;
     // Under a name no listing shows until the file is whole.
     let partial = directory.join(format!(".{name}.part"));
     let written = async {
@@ -237,29 +315,34 @@ async fn upload(
         tokio::fs::rename(&partial, &path).await?;
         std::io::Result::Ok(Some(size))
     };
-    match written.await {
-        Ok(Some(size)) => Json(Uploaded { name, size, path }).into_response(),
-        Ok(None) => {
-            let _ = tokio::fs::remove_file(&partial).await;
-            (StatusCode::PAYLOAD_TOO_LARGE, "the file is too large").into_response()
-        }
-        Err(err) => {
-            let _ = tokio::fs::remove_file(&partial).await;
-            (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
-        }
+    let size = match written.await {
+        Ok(Some(size)) => return Ok(Json(Uploaded { name, size, path })),
+        Ok(None) => Err(Refusal(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "the file is too large".into(),
+        )),
+        Err(err) => Err(err.into()),
+    };
+    match tokio::fs::remove_file(&partial).await {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => warn!(file = ?partial, %err, "what came of an upload is left behind"),
     }
+    size
 }
 
-async fn upload_remove(State(live): State<Live>, RoutePath(name): RoutePath<String>) -> Response {
-    let Some(path) = files::named(&live.files.join(UPLOADS), &name) else {
-        return (StatusCode::BAD_REQUEST, "not a file name").into_response();
-    };
+async fn upload_remove(
+    State(live): State<Live>,
+    RoutePath(name): RoutePath<String>,
+) -> Result<StatusCode, Refusal> {
+    let path = files::named(&live.files.join(UPLOADS), &name)
+        .ok_or_else(|| Refusal::bad_request("not a file name"))?;
     match tokio::fs::remove_file(&path).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Ok(()) => Ok(StatusCode::NO_CONTENT),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            StatusCode::NOT_FOUND.into_response()
+            Err(Refusal::not_found("no such upload"))
         }
-        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        Err(err) => Err(err.into()),
     }
 }
 
@@ -303,26 +386,9 @@ async fn screenshot(
     State(live): State<Live>,
     RoutePath(id): RoutePath<String>,
     Query(shot): Query<Shot>,
-) -> Response {
-    let window = live
-        .targets
-        .borrow()
-        .iter()
-        .find(|target| target.id == id)
-        .map(|target| target.window);
-    let Some(window) = window else {
-        return (StatusCode::NOT_FOUND, format!("target {id} not found")).into_response();
-    };
-    let frame = match live.compositor.screenshot(window).await {
-        Ok(frame) => frame,
-        Err(err @ aperture_compositor::Error::WindowNotFound(_)) => {
-            return (StatusCode::NOT_FOUND, err.to_string()).into_response();
-        }
-        Err(err @ aperture_compositor::Error::NoContent(_)) => {
-            return (StatusCode::CONFLICT, err.to_string()).into_response();
-        }
-        Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
-    };
+) -> Result<Response, Refusal> {
+    let target = live.target(Some(&id))?;
+    let frame = live.compositor.screenshot(target.window).await?;
     let encoded = tokio::task::spawn_blocking(move || {
         let (width, height, rgba) = match shot.width {
             Some(width) if width > 0 && width < frame.width => shrunk(&frame, width),
@@ -330,11 +396,8 @@ async fn screenshot(
         };
         encode_png(width, height, rgba)
     });
-    match encoded.await {
-        Ok(Ok(png)) => ([(header::CONTENT_TYPE, "image/png")], png).into_response(),
-        Ok(Err(err)) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
-        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
-    }
+    let png = encoded.await?.map_err(Refusal::failed)?;
+    Ok(([(header::CONTENT_TYPE, "image/png")], png).into_response())
 }
 
 #[derive(Deserialize)]
@@ -350,16 +413,8 @@ async fn viewport_set(
     State(live): State<Live>,
     RoutePath(id): RoutePath<String>,
     Json(asked): Json<ViewportView>,
-) -> Response {
-    let target = live
-        .targets
-        .borrow()
-        .iter()
-        .find(|target| target.id == id)
-        .cloned();
-    let Some(target) = target else {
-        return (StatusCode::NOT_FOUND, format!("target {id} not found")).into_response();
-    };
+) -> Result<StatusCode, Refusal> {
+    let target = live.target(Some(&id))?;
     live.compositor.set_viewport(
         target.window,
         Viewport {
@@ -368,15 +423,16 @@ async fn viewport_set(
             scale: asked.scale.unwrap_or(target.scale),
         },
     );
-    StatusCode::NO_CONTENT.into_response()
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Takes the session's proxy configuration, for the connections made from now on.
-async fn proxy_update(State(live): State<Live>, Json(config): Json<proxy::Config>) -> Response {
-    match live.egress.update(&config) {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(reason) => (StatusCode::BAD_REQUEST, reason).into_response(),
-    }
+async fn proxy_update(
+    State(live): State<Live>,
+    Json(config): Json<proxy::Config>,
+) -> Result<StatusCode, Refusal> {
+    live.egress.update(&config).map_err(Refusal::bad_request)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Deserialize, Default)]
@@ -388,15 +444,15 @@ struct StartRecording {
     options: Options,
 }
 
-async fn recording_start(State(live): State<Live>, body: Option<Json<StartRecording>>) -> Response {
+async fn recording_start(
+    State(live): State<Live>,
+    body: Option<Json<StartRecording>>,
+) -> Result<(StatusCode, Json<Recording>), Refusal> {
     let request = body.map(|Json(request)| request).unwrap_or_default();
     let started = live
         .recordings
         .start(request.target.as_deref(), request.options);
-    match started.await {
-        Ok(recording) => (StatusCode::CREATED, Json(recording)).into_response(),
-        Err(err) => (StatusCode::CONFLICT, format!("{err:#}")).into_response(),
-    }
+    Ok((StatusCode::CREATED, Json(started.await?)))
 }
 
 #[derive(Deserialize, Default)]
@@ -406,53 +462,40 @@ struct TakeScreenshot {
 }
 
 /// Takes a screenshot of a target and keeps it in the session's files.
-async fn screenshot_take(State(live): State<Live>, body: Option<Json<TakeScreenshot>>) -> Response {
+async fn screenshot_take(
+    State(live): State<Live>,
+    body: Option<Json<TakeScreenshot>>,
+) -> Result<(StatusCode, Json<Screenshot>), Refusal> {
     let request = body.map(|Json(request)| request).unwrap_or_default();
-    let target = {
-        let targets = live.targets.borrow();
-        match &request.target {
-            Some(id) => targets.iter().find(|target| target.id == *id),
-            None => targets.last(),
-        }
-        .cloned()
-    };
-    let Some(target) = target else {
-        return (StatusCode::NOT_FOUND, "no such target").into_response();
-    };
-    let frame = match live.compositor.screenshot(target.window).await {
-        Ok(frame) => frame,
-        Err(err) => return (StatusCode::CONFLICT, err.to_string()).into_response(),
-    };
+    let target = live.target(request.target.as_deref())?;
+    let frame = live.compositor.screenshot(target.window).await?;
     let files = live.files.clone();
-    match tokio::task::spawn_blocking(move || shots::keep(&files, frame, target.title, target.url))
-        .await
-    {
-        Ok(Ok(screenshot)) => (StatusCode::CREATED, Json(screenshot)).into_response(),
-        Ok(Err(err)) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
-        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
-    }
+    let kept =
+        tokio::task::spawn_blocking(move || shots::keep(&files, frame, target.title, target.url));
+    let screenshot = kept
+        .await?
+        .map_err(|err| Refusal::failed(format_args!("{err:#}")))?;
+    Ok((StatusCode::CREATED, Json(screenshot)))
 }
 
-async fn screenshots_list(State(live): State<Live>) -> Response {
+async fn screenshots_list(State(live): State<Live>) -> Result<Json<Vec<Screenshot>>, Refusal> {
     let files = live.files.clone();
-    match tokio::task::spawn_blocking(move || shots::list(&files)).await {
-        Ok(screenshots) => Json::<Vec<Screenshot>>(screenshots).into_response(),
-        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
-    }
+    let listed = tokio::task::spawn_blocking(move || shots::list(&files));
+    Ok(Json(listed.await??))
 }
 
-async fn recording_get(State(live): State<Live>, RoutePath(id): RoutePath<String>) -> Response {
-    match live.recordings.get(&id) {
-        Ok(recording) => Json(recording).into_response(),
-        Err(err) => (StatusCode::NOT_FOUND, format!("{err:#}")).into_response(),
-    }
+async fn recording_get(
+    State(live): State<Live>,
+    RoutePath(id): RoutePath<String>,
+) -> Result<Json<Recording>, Refusal> {
+    Ok(Json(live.recordings.get(&id)?))
 }
 
-async fn recording_stop(State(live): State<Live>, RoutePath(id): RoutePath<String>) -> Response {
-    match live.recordings.stop(&id).await {
-        Ok(recording) => Json(recording).into_response(),
-        Err(err) => (StatusCode::NOT_FOUND, format!("{err:#}")).into_response(),
-    }
+async fn recording_stop(
+    State(live): State<Live>,
+    RoutePath(id): RoutePath<String>,
+) -> Result<Json<Recording>, Refusal> {
+    Ok(Json(live.recordings.stop(&id).await?))
 }
 
 async fn recordings_list(State(live): State<Live>) -> Json<Vec<Recording>> {

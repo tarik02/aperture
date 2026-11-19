@@ -420,16 +420,18 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
 
         let streams = live::stream::Streams::new(compositor.clone());
         let recorder = live::record::Recordings::new(
-            streams.clone(),
-            compositor.clone(),
-            devtools.clone(),
-            registry.targets(),
+            live::record::Sources {
+                streams: streams.clone(),
+                compositor: compositor.clone(),
+                browser: devtools.clone(),
+                targets: registry.targets(),
+                sound: sound.clone(),
+            },
             spec.files_dir.clone(),
             live::record::Editor {
                 ffmpeg: spec.tools.ffmpeg.clone(),
                 cache: spec.cache_dir.join("ffmpeg"),
             },
-            sound.clone(),
             spec.features.recordings,
         );
         recordings = Some(recorder.clone());
