@@ -3,12 +3,15 @@
 //! click. The runner keeps a DevTools session of its own with each page to hear of them,
 //! and to take a page elsewhere.
 
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::sync::{broadcast, watch};
+use tokio::{
+    sync::{broadcast, watch},
+    time::timeout,
+};
 use tracing::warn;
 
 use crate::{cdp, targets::Target};
@@ -47,6 +50,9 @@ pub enum Along {
     Forward,
     Reload,
 }
+
+/// How long a page that is a target gets to be attached before what is asked of it fails.
+const ATTACHED_WITHIN: Duration = Duration::from_secs(5);
 
 /// What a new tab shows when it is asked for with no page to open.
 const NEW_TAB: &str = "chrome://newtab/";
@@ -185,12 +191,25 @@ impl Pages {
     }
 
     async fn call(&self, target: &str, method: &str, params: Value) -> anyhow::Result<Value> {
-        let session = self
-            .attached
-            .borrow()
-            .iter()
-            .find(|(attached, _)| attached == target)
-            .map(|(_, session)| session.clone())
+        // A page is told of as a target a moment before it is attached here: what is
+        // asked of it right then waits that moment.
+        let mut attached = self.attached.subscribe();
+        let of_target = |attached: &Vec<(String, String)>| {
+            let found = attached.iter().find(|(attached, _)| attached == target);
+            found.map(|(_, session)| session.clone())
+        };
+        let session = timeout(ATTACHED_WITHIN, async {
+            loop {
+                if let Some(session) = of_target(&attached.borrow_and_update()) {
+                    return Some(session);
+                }
+                attached.changed().await.ok()?;
+            }
+        });
+        let session = session
+            .await
+            .ok()
+            .flatten()
             .context("the page is not attached")?;
         Ok(self.browser.call_in(Some(&session), method, params).await?)
     }
