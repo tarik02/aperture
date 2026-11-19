@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
-use crate::{Features, PortRange, Profile, Spec, Tools, Viewport, proxy};
+use crate::{Features, Network, PortRange, Profile, Spec, Tools, Viewport, proxy};
 
 /// What a session's windows fill until a client asks for another size.
 const VIEWPORT: Viewport = Viewport {
@@ -41,6 +41,16 @@ pub struct Options {
         value_delimiter = ','
     )]
     egress_allow: Vec<String>,
+    /// What network sessions' browsers have. `proxied`: none but the session's proxy, so
+    /// that everything a browser sends is held to the session's rules; what is not TCP,
+    /// such as WebRTC, has no way out. `direct`: one of its own that reaches out, UDP
+    /// too; pages still load through the proxy, but what goes around it is held to
+    /// nothing and reaches the local network as well. Takes pasta.
+    #[arg(long, env = "APERTURE_NETWORK", value_enum, default_value_t)]
+    network: Network,
+    /// pasta, of the passt project, which `--network direct` runs browsers with.
+    #[arg(long, env = "APERTURE_PASTA", default_value = "pasta")]
+    pasta: PathBuf,
     /// `aperture-browser-shim`. Next to this program by default.
     #[arg(long, env = "APERTURE_BROWSER_SHIM")]
     browser_shim: Option<PathBuf>,
@@ -77,6 +87,7 @@ pub struct Setup {
     cursor_theme: Option<PathBuf>,
     gpu: bool,
     egress_allow: Vec<String>,
+    network: Network,
     browser_args: Vec<String>,
     features: Features,
 }
@@ -102,7 +113,12 @@ impl Options {
                 native_host: beside(self.native_host, "aperture-native-host")?,
                 browser_shim: beside(self.browser_shim, "aperture-browser-shim")?,
                 ffmpeg: self.ffmpeg.as_deref().map(executable).transpose()?,
+                pasta: match self.network {
+                    Network::Proxied => None,
+                    Network::Direct => Some(named(&self.pasta)?),
+                },
             },
+            network: self.network,
             rtc_ports: self.rtc_ports,
             cursor_theme: self.cursor_theme,
             gpu: !self.no_gpu,
@@ -151,6 +167,7 @@ impl Setup {
             gpu: self.gpu,
             egress_allow: self.egress_allow.clone(),
             proxy,
+            network: self.network,
             browser_args: self.browser_args.clone(),
             features: self.features,
         }
@@ -178,6 +195,17 @@ pub fn executable(program: &Path) -> anyhow::Result<PathBuf> {
             .find(|candidate| candidate.is_file())
     });
     found.with_context(|| format!("{} not found in PATH", program.display()))
+}
+
+/// The program's absolute path under the name it was given by, for one that goes by what
+/// it is called as: pasta is passt under another name.
+fn named(program: &Path) -> anyhow::Result<PathBuf> {
+    if program.components().count() == 1 {
+        return executable(program);
+    }
+    let path = std::path::absolute(program)?;
+    anyhow::ensure!(path.is_file(), "{} not found", program.display());
+    Ok(path)
 }
 
 #[derive(Clone, Copy)]

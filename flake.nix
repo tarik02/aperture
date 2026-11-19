@@ -204,6 +204,7 @@
             pkgs.libgbm
           ];
           APERTURE_BWRAP = lib.getExe pkgs.bubblewrap;
+          APERTURE_PASTA = lib.getExe' pkgs.passt "pasta";
           APERTURE_CHROMIUM = lib.getExe' runtimeChromium "chromium";
           APERTURE_FFMPEG = lib.getExe' runtimeFfmpeg "ffmpeg";
           APERTURE_CURSOR_THEME = "${browserCursorPath}/default";

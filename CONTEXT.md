@@ -75,6 +75,9 @@ _Avoid_: Capability, permission
 **Egress**:
 How the session's browser reaches the network. It has no network of its own: every connection goes through the runner, which refuses local and private addresses unless allowed and routes the rest by the session's proxy rules.
 
+**Network**:
+What network the browser has in its sandbox. _Proxied_, the default, is none but its egress. _Direct_ is one of its own that reaches out, for what egress does not carry: WebRTC and whatever else goes over UDP. Pages still go through egress then, but nothing holds the browser to it.
+
 **Tunnel**:
 A route a client attaches to a session so that connections the rules send `via: local` are made from the client's machine.
 

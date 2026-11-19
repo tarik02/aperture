@@ -49,10 +49,26 @@ pub struct Spec {
     /// How the browser's connections are routed.
     #[serde(default)]
     pub proxy: proxy::Config,
+    #[serde(default)]
+    pub network: Network,
     /// Arguments for the browser after the runner's own.
     pub browser_args: Vec<String>,
     #[serde(default)]
     pub features: Features,
+}
+
+/// What network the browser has in its sandbox.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "snake_case")]
+pub enum Network {
+    /// None but its proxy, which is the session's: everything the browser sends is held
+    /// to the session's rules, and what is not TCP has no way out.
+    #[default]
+    Proxied,
+    /// One of its own that reaches out, for what a proxy does not carry: WebRTC and
+    /// whatever else goes over UDP. Pages still load through the proxy, but nothing holds
+    /// the browser to it: what goes around it reaches the local network too.
+    Direct,
 }
 
 /// What a session offers besides its picture and input. Each is off unless whoever starts
@@ -125,6 +141,9 @@ pub struct Tools {
     pub ffmpeg: Option<PathBuf>,
     /// `aperture-browser-shim`, which runs the browser inside its sandbox.
     pub browser_shim: PathBuf,
+    /// pasta, which gives a browser a network of its own; needed for [`Network::Direct`].
+    #[serde(default)]
+    pub pasta: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

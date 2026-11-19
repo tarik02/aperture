@@ -3,7 +3,7 @@
 use std::{fs, path::Path, process::Stdio, time::Duration};
 
 use anyhow::Context;
-use aperture_runner::{Cdp, DEVTOOLS_AUTHORITY, Spec};
+use aperture_runner::{Cdp, DEVTOOLS_AUTHORITY, Network, Spec};
 use futures_util::SinkExt;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -41,6 +41,10 @@ const GPU_ROOTS: &[&str] = &["/run/opengl-driver", "/sys/dev/char", "/sys/device
 /// and where it serves DevTools.
 const PROXY_PORT: u16 = 1080;
 const DEVTOOLS_PORT: u16 = 9222;
+
+/// Where a browser with a network of its own asks for names: an address pasta answers
+/// at, with what the machine's own resolver says.
+const NAMESERVER: &str = "169.254.1.1";
 
 /// The profile, as the browser sees it.
 const PROFILE: &str = "/profile";
@@ -108,7 +112,8 @@ pub fn start(spec: &Spec, given: &Given) -> anyhow::Result<Child> {
         serde_json::to_vec_pretty(&extension::native_host_manifest(&spec.tools.native_host))?,
     )?;
 
-    let mut command = sandbox(spec, given, &home)?;
+    let mut command = network(spec)?;
+    sandbox(&mut command, spec, given, &home)?;
     command
         .arg("--")
         .arg(&spec.tools.browser_shim)
@@ -122,11 +127,40 @@ pub fn start(spec: &Spec, given: &Given) -> anyhow::Result<Child> {
         .env_clear()
         .stdin(Stdio::null());
     own(&mut command, libc::SIGKILL);
-    command.spawn().context("failed to start bwrap")
+    command
+        .spawn()
+        .with_context(|| format!("failed to start {:?}", command.as_std().get_program()))
 }
 
-/// bwrap, up to the command it runs in the sandbox.
-fn sandbox(spec: &Spec, given: &Given, home: &Path) -> anyhow::Result<Command> {
+/// What runs bwrap: bwrap itself, for a browser with no network but its proxy, which
+/// bwrap leaves it without; or pasta, which gives bwrap and what it runs a network of
+/// their own that reaches out. That network takes nothing in, and the machine's own
+/// loopback is not in it.
+fn network(spec: &Spec) -> anyhow::Result<Command> {
+    let bwrap = &spec.tools.bwrap;
+    match spec.network {
+        Network::Proxied => {
+            let mut command = Command::new(bwrap);
+            command.arg("--unshare-net");
+            Ok(command)
+        }
+        Network::Direct => {
+            let pasta = spec.tools.pasta.as_ref();
+            let mut command = Command::new(pasta.context("a network of its own takes pasta")?);
+            command
+                .args(["--quiet", "--config-net"])
+                .args(["-t", "none", "-u", "none", "-T", "none", "-U", "none"])
+                .args(["--map-host-loopback", "none"])
+                .args(["--dns-forward", NAMESERVER])
+                .arg("--")
+                .arg(bwrap);
+            Ok(command)
+        }
+    }
+}
+
+/// bwrap's arguments, up to the command it runs in the sandbox.
+fn sandbox(command: &mut Command, spec: &Spec, given: &Given, home: &Path) -> anyhow::Result<()> {
     let Given {
         display,
         extension_socket,
@@ -137,14 +171,12 @@ fn sandbox(spec: &Spec, given: &Given, home: &Path) -> anyhow::Result<Command> {
     } = *given;
     let profile = &spec.profile;
     let sockets = display.parent().context("the display has no directory")?;
-    let mut command = Command::new(&spec.tools.bwrap);
     command.args([
         "--die-with-parent",
         "--unshare-user-try",
         "--unshare-uts",
         "--unshare-pid",
         "--unshare-ipc",
-        "--unshare-net",
         "--clearenv",
         "--proc",
         "/proc",
@@ -162,6 +194,14 @@ fn sandbox(spec: &Spec, given: &Given, home: &Path) -> anyhow::Result<Command> {
     }
     if Path::new("/run/systemd/resolve").exists() {
         command.args(["--ro-bind", "/run/systemd/resolve", "/run/systemd/resolve"]);
+    }
+    if spec.network == Network::Direct {
+        // The machine's resolver is often on its loopback, which is not the browser's.
+        let resolver = spec.runtime_dir.join("resolv.conf");
+        fs::write(&resolver, format!("nameserver {NAMESERVER}\n"))?;
+        let asked = fs::canonicalize("/etc/resolv.conf")
+            .context("the machine names no resolver in /etc/resolv.conf")?;
+        command.arg("--ro-bind").arg(resolver).arg(asked);
     }
     if let Some(node) = render_node {
         // The device, and what tells its driver which GPU it is.
@@ -243,7 +283,7 @@ fn sandbox(spec: &Spec, given: &Given, home: &Path) -> anyhow::Result<Command> {
         .arg("--setenv")
         .arg("APERTURE_EXTENSION_SOCKET")
         .arg(extension_socket);
-    Ok(command)
+    Ok(())
 }
 
 /// What Chromium is started with.
