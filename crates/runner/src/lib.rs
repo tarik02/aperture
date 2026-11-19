@@ -51,6 +51,38 @@ pub struct Spec {
     pub proxy: proxy::Config,
     /// Arguments for the browser after the runner's own.
     pub browser_args: Vec<String>,
+    #[serde(default)]
+    pub features: Features,
+}
+
+/// What a session offers besides its picture and input. Each is off unless whoever starts
+/// the session turns it on.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Features {
+    /// Its tabs are heard, and their sound goes into recordings.
+    #[serde(default)]
+    pub sound: bool,
+    /// Clients put files into it, for pages that ask for some.
+    #[serde(default)]
+    pub uploads: bool,
+    /// Its browser downloads files.
+    #[serde(default)]
+    pub downloads: bool,
+    /// Its tabs are recorded, by clients and by automation.
+    #[serde(default)]
+    pub recordings: bool,
+    /// What is copied in it reaches its clients, and what they copy reaches it.
+    #[serde(default)]
+    pub clipboard: bool,
+    /// Its automation is served, at `/mcp`.
+    #[serde(default)]
+    pub mcp: bool,
+    /// Its browser's DevTools endpoint is served, at `/cdp`.
+    #[serde(default)]
+    pub cdp: bool,
+    /// Clients attach tunnels, for the connections its rules send through them.
+    #[serde(default)]
+    pub tunnel: bool,
 }
 
 /// The size browser windows fill, in logical pixels, until one is given another.

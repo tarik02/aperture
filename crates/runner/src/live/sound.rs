@@ -7,7 +7,7 @@
 //! heard at all.
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -15,7 +15,7 @@ use std::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 use serde_json::Value;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 use tracing::info;
 
 /// Samples a second, and how long a packet is: what Opus and WebRTC take.
@@ -29,6 +29,10 @@ const BACKLOG: usize = 256;
 /// A tap's packets follow one another; after a silence this long, the next one is as late
 /// as it came.
 const GAP: Duration = Duration::from_millis(100);
+
+/// A tab that sent no packet for this long plays nothing. Its tap sends on for a while
+/// after the last sound, so a pause between two words is not one.
+const QUIET_AFTER: Duration = Duration::from_millis(400);
 
 /// One Opus packet.
 pub struct Packet {
@@ -44,6 +48,10 @@ pub struct Sound {
     began: Instant,
     /// The tapped tabs, by the browser's ids, each with where its next packet goes.
     taps: Mutex<HashMap<i64, u64>>,
+    /// When each tab's last packet came.
+    last: Mutex<HashMap<i64, Instant>>,
+    /// The tabs that play something now.
+    sounding: watch::Sender<BTreeSet<i64>>,
 }
 
 /// What the extension tells, through its native messaging host.
@@ -82,15 +90,44 @@ impl Listener {
 
 impl Sound {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self {
+        let sound = Arc::new(Self {
             packets: broadcast::Sender::new(BACKLOG),
             began: Instant::now(),
             taps: Mutex::default(),
-        })
+            last: Mutex::default(),
+            sounding: watch::Sender::new(BTreeSet::new()),
+        });
+        let weak = Arc::downgrade(&sound);
+        tokio::spawn(async move {
+            let mut turn = tokio::time::interval(QUIET_AFTER / 2);
+            loop {
+                turn.tick().await;
+                let Some(sound) = weak.upgrade() else {
+                    return;
+                };
+                let playing: BTreeSet<i64> = {
+                    let mut last = sound.last.lock().expect("not poisoned");
+                    last.retain(|_, at| at.elapsed() < QUIET_AFTER);
+                    last.keys().copied().collect()
+                };
+                sound.sounding.send_if_modified(|sounding| {
+                    let changed = *sounding != playing;
+                    *sounding = playing;
+                    changed
+                });
+            }
+        });
+        sound
+    }
+
+    /// The browser's tabs that play something now.
+    pub fn sounding(&self) -> watch::Receiver<BTreeSet<i64>> {
+        self.sounding.subscribe()
     }
 
     /// The extension is gone, and its taps with it.
     pub fn untap(&self) {
+        self.last.lock().expect("not poisoned").clear();
         self.taps.lock().expect("not poisoned").clear();
     }
 
@@ -115,6 +152,17 @@ impl Sound {
             Told::Packet { tab_id, data } => {
                 let data = STANDARD.decode(data)?;
                 let now = self.now();
+                let news = self
+                    .last
+                    .lock()
+                    .expect("not poisoned")
+                    .insert(tab_id, Instant::now())
+                    .is_none();
+                if news {
+                    self.sounding.send_modify(|sounding| {
+                        sounding.insert(tab_id);
+                    });
+                }
                 let at = {
                     let mut taps = self.taps.lock().expect("not poisoned");
                     let next = taps.entry(tab_id).or_insert(0);

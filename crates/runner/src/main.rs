@@ -205,7 +205,8 @@ impl Front {
 /// The session itself, as the gateway reaches it.
 struct Own {
     live: Live,
-    cdp: Cdp,
+    /// None where the session does not serve its DevTools endpoint.
+    cdp: Option<Cdp>,
 }
 
 impl aperture_gateway::Sessions for Own {
@@ -214,7 +215,12 @@ impl aperture_gateway::Sessions for Own {
     }
 
     fn cdp<'a>(&'a self, _id: &'a str) -> BoxFuture<'a, Result<Cdp, Refused>> {
-        Box::pin(async move { Ok(self.cdp.clone()) })
+        Box::pin(async move {
+            self.cdp.clone().ok_or_else(|| Refused {
+                status: axum::http::StatusCode::NOT_FOUND,
+                reason: "the session's DevTools endpoint is off".to_owned(),
+            })
+        })
     }
 
     fn present(&self, _id: &str) -> Box<dyn Send> {
@@ -330,7 +336,15 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
         }),
         tokio::spawn({
             let (egress, socket) = (egress.clone(), tunnel_socket.clone());
-            async move { egress.serve_local(&socket).await }
+            let tunnels = spec.features.tunnel;
+            async move {
+                // Without the socket nobody attaches a tunnel.
+                if tunnels {
+                    egress.serve_local(&socket).await
+                } else {
+                    Ok(())
+                }
+            }
         }),
     ];
     // What the sandbox shares with the outside to put its own sockets in.
@@ -341,7 +355,7 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
     // Before the browser starts: its extension reports as soon as it runs.
     let extension_socket = sockets.join("extension.sock");
     let extension_dir = spec.runtime_dir.join("extension");
-    extension::unpack(&extension_dir).context("failed to write the extension")?;
+    extension::unpack(&extension_dir, spec.features.sound).context("failed to write the extension")?;
     let kept_tabs = spec.state_dir.join("tabs.json");
     let sound = live::sound::Sound::new();
     let registry = targets::Registry::bind(
@@ -377,10 +391,10 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
             .await
             .context("failed to connect to the browser")?;
         registry.attach(devtools.clone());
-        let downloads = files::follow_downloads(devtools.clone(), &spec.files_dir)
+        let downloads = files::follow_downloads(devtools.clone(), &spec.files_dir, spec.features.downloads)
             .await
             .context("failed to follow the browser's downloads")?;
-        let pages = pages::Pages::follow(devtools.clone(), registry.targets());
+        let pages = pages::Pages::follow(devtools.clone(), registry.targets(), spec.features.uploads);
 
         let streams = live::stream::Streams::new(compositor.clone());
         let recorder = live::record::Recordings::new(
@@ -394,6 +408,7 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
                 cache: spec.cache_dir.join("ffmpeg"),
             },
             sound.clone(),
+            spec.features.recordings,
         );
         recordings = Some(recorder.clone());
         let presence = presence::Presence::new(compositor.clone());
@@ -419,6 +434,7 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
                 sound: sound.clone(),
                 presence,
                 files: spec.files_dir.clone(),
+                features: spec.features,
             };
             tokio::spawn(async move { live::serve(&socket, served, automation).await })
         });
@@ -443,13 +459,14 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
             _ = interrupt.recv() => return Ok(()),
         }
         info!(session = %spec.session_id, "session running");
-        status.cdp = Some(cdp.clone());
+        // Whoever reads the status serves the endpoint to those who reach the session.
+        status.cdp = spec.features.cdp.then(|| cdp.clone());
         status.phase = Phase::Running;
         write_status(&spec.runtime_dir, status)?;
         if let (Some(front), Some(live)) = (front, &status.live) {
             let own = Own {
                 live: live.clone(),
-                cdp: cdp.clone(),
+                cdp: status.cdp.clone(),
             };
             served = Some(front.serve(own).await?);
         }

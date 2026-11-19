@@ -171,9 +171,13 @@ const held = () => {
   return holder;
 };
 
+// What the session's runner wrote next to this script when it started the browser.
+const options = fetch(chrome.runtime.getURL("options.json")).then((answer) => answer.json()).catch(() => ({}));
+
 // The tabs that are tapped or about to be.
 const tapped = new Set();
 const tap = async (tab) => {
+  if (!(await options).sound) return;
   if (tab.id === undefined || isMarker(tab) || tapped.has(tab.id)) return;
   tapped.add(tab.id);
   try {

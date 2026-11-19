@@ -53,16 +53,17 @@ pub fn named(directory: &Path, name: &str) -> Option<PathBuf> {
 pub async fn follow_downloads(
     browser: cdp::Client,
     files: &Path,
+    allowed: bool,
 ) -> anyhow::Result<watch::Receiver<Vec<Download>>> {
     let directory = files.join(DOWNLOADS);
     tokio::fs::create_dir_all(&directory).await?;
     let mut events = browser.events();
-    browser
-        .call(
-            "Browser.setDownloadBehavior",
-            json!({ "behavior": "allow", "downloadPath": directory, "eventsEnabled": true }),
-        )
-        .await?;
+    let behavior = if allowed {
+        json!({ "behavior": "allow", "downloadPath": directory, "eventsEnabled": true })
+    } else {
+        json!({ "behavior": "deny" })
+    };
+    browser.call("Browser.setDownloadBehavior", behavior).await?;
     let (told, downloads) = watch::channel(Vec::new());
     tokio::spawn(async move {
         let mut list: Vec<Download> = Vec::new();
@@ -73,6 +74,10 @@ pub async fn follow_downloads(
                 Err(broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(broadcast::error::RecvError::Closed) => return,
             };
+            // The list stays empty, and is still someone's to wait on.
+            if !allowed {
+                continue;
+            }
             let id = event.params["guid"].as_str().unwrap_or_default();
             match event.method.as_str() {
                 "Browser.downloadWillBegin" => {

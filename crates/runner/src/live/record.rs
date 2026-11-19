@@ -86,7 +86,7 @@ const ATTENTION_RADIUS: (f64, f64, f64) = (40.0, 8.0, 300.0);
 const ATTENTION_LOOPS: (u64, u64, u64) = (2, 1, 5);
 const ATTENTION_STEP: Duration = Duration::from_millis(16);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum State {
     Recording,
@@ -94,15 +94,25 @@ pub enum State {
     Failed,
 }
 
-#[derive(Debug, Clone, Serialize)]
+/// A recording as it is told, and as it is kept next to its files: the session knows its
+/// recordings again when it next runs.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct Recording {
     pub id: String,
-    /// The target it is of.
+    /// The target it is of, which is no target of a later run of the session.
     pub target: String,
+    /// The page's title and address as the recording began.
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub url: String,
     /// The raw video's file, relative to the session's files.
     pub file: String,
     /// The journal's file, relative to the session's files.
     pub journal: String,
+    /// A small picture of the target as the recording began; none where it had no
+    /// picture yet.
+    pub preview: Option<String>,
     /// Journal entries that were left out, the journal having grown past its budget.
     pub journal_dropped: usize,
     pub state: State,
@@ -116,7 +126,7 @@ pub struct Recording {
     pub edit: Option<Edit>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EditState {
     Editing,
@@ -124,7 +134,7 @@ pub enum EditState {
     Failed,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct Edit {
     pub state: EditState,
     /// The edited video's file, relative to the session's files, once it is made.
@@ -233,7 +243,11 @@ struct Inner {
     files: PathBuf,
     editor: Editor,
     sound: Arc<Sound>,
+    /// Whether the session's tabs are recorded at all.
+    allowed: bool,
     recordings: Mutex<HashMap<String, Entry>>,
+    /// The recordings of the session's earlier runs, as their files tell.
+    earlier: Vec<Recording>,
     /// How many recordings run, for those who journal to ask cheaply.
     running: AtomicUsize,
 }
@@ -250,15 +264,19 @@ impl Recordings {
         files: PathBuf,
         editor: Editor,
         sound: Arc<Sound>,
+        allowed: bool,
     ) -> Self {
+        let earlier = restore(&files);
         Self(Arc::new(Inner {
             streams,
             compositor,
             browser,
             targets,
             files,
+            earlier,
             editor,
             sound,
+            allowed,
             recordings: Mutex::default(),
             running: AtomicUsize::new(0),
         }))
@@ -267,6 +285,9 @@ impl Recordings {
     /// Starts recording a target; the newest one when none is named.
     pub async fn start(&self, target: Option<&str>, options: Options) -> anyhow::Result<Recording> {
         let inner = &self.0;
+        if !inner.allowed {
+            bail!("recordings are off for this session");
+        }
         options.check().map_err(anyhow::Error::msg)?;
         let target = {
             let targets = inner.targets.borrow();
@@ -304,6 +325,18 @@ impl Recordings {
             })
             .await?;
         let writer = Writer::new(&path)?;
+        let preview_file = format!("{DIRECTORY}/{id}.preview.png");
+        let preview = match inner.compositor.screenshot(target.window).await {
+            Ok(frame) => {
+                let to = inner.files.join(&preview_file);
+                let kept = tokio::task::spawn_blocking(move || {
+                    std::fs::write(to, super::shots::preview(&frame)?)?;
+                    anyhow::Ok(())
+                });
+                matches!(kept.await, Ok(Ok(()))).then_some(preview_file)
+            }
+            Err(_) => None,
+        };
         let heard = Heard {
             packets: inner.sound.listen(),
             tab: target.browser_tab,
@@ -313,8 +346,11 @@ impl Recordings {
         let recording = Recording {
             id: id.clone(),
             target: target.id,
+            title: target.title,
+            url: target.url,
             file,
             journal: journal_file,
+            preview,
             journal_dropped: 0,
             state: State::Recording,
             started_at_ms: SystemTime::now()
@@ -355,6 +391,7 @@ impl Recordings {
             );
             self.count(&recordings);
         }
+        keep(&inner.files, &recording);
         info!(recording = %id, target = %recording.target, "recording started");
         Ok(recording)
     }
@@ -377,12 +414,13 @@ impl Recordings {
     }
 
     pub fn get(&self, id: &str) -> anyhow::Result<Recording> {
-        self.0
-            .recordings
-            .lock()
-            .expect("not poisoned")
+        let recordings = self.0.recordings.lock().expect("not poisoned");
+        let earlier = || self.0.earlier.iter().find(|recording| recording.id == id);
+        recordings
             .get(id)
-            .map(|entry| entry.recording.clone())
+            .map(|entry| &entry.recording)
+            .or_else(earlier)
+            .cloned()
             .context("no such recording")
     }
 
@@ -407,6 +445,7 @@ impl Recordings {
                     edit.state = EditState::Failed;
                     edit.failure = Some("the session ended before the edit was made".into());
                 }
+                keep(&self.0.files, &entry.recording);
             }
         }
     }
@@ -415,7 +454,9 @@ impl Recordings {
         let recordings = self.0.recordings.lock().expect("not poisoned");
         let mut list: Vec<Recording> = recordings
             .values()
-            .map(|entry| entry.recording.clone())
+            .map(|entry| &entry.recording)
+            .chain(&self.0.earlier)
+            .cloned()
             .collect();
         list.sort_by(|a, b| a.id.cmp(&b.id));
         list
@@ -820,6 +861,7 @@ impl Recordings {
                     warn!(recording = %id, "recording failed: {err:#}");
                 }
             }
+            keep(&inner.files, &entry.recording);
         }
         self.count(&recordings);
     }
@@ -847,6 +889,7 @@ impl Recordings {
                 warn!(recording = %id, "recording edit failed: {err:#}");
             }
         }
+        keep(&self.0.files, &entry.recording);
     }
 
     /// Takes count of the recordings that run. The pointer is in the frames while any does.
@@ -861,6 +904,70 @@ impl Recordings {
 }
 
 /// A value an annotation gives or leaves to its default, within its bounds.
+/// Where what is told of a recording is kept, next to its files.
+fn kept_path(files: &Path, id: &str) -> PathBuf {
+    files.join(DIRECTORY).join(format!("{id}.recording.json"))
+}
+
+/// Keeps what is told of a recording, whole or not at all.
+fn keep(files: &Path, recording: &Recording) {
+    let path = kept_path(files, &recording.id);
+    let partial = path.with_extension("part");
+    let written = serde_json::to_vec_pretty(recording)
+        .map_err(std::io::Error::other)
+        .and_then(|told| std::fs::write(&partial, told))
+        .and_then(|()| std::fs::rename(&partial, &path));
+    if let Err(err) = written {
+        warn!(recording = %recording.id, "a recording was not kept for the next run: {err}");
+    }
+}
+
+/// The recordings the session's earlier runs kept. One that was still being made or
+/// edited when its run ended is told as failed: nothing goes on with it.
+fn restore(files: &Path) -> Vec<Recording> {
+    let Ok(entries) = std::fs::read_dir(files.join(DIRECTORY)) else {
+        return Vec::new();
+    };
+    let mut earlier = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if !name.to_string_lossy().ends_with(".recording.json") {
+            continue;
+        }
+        let read = std::fs::read(entry.path())
+            .map_err(anyhow::Error::from)
+            .and_then(|kept| Ok(serde_json::from_slice::<Recording>(&kept)?));
+        let mut recording = match read {
+            Ok(recording) => recording,
+            Err(err) => {
+                warn!(file = ?name, "a kept recording is not read: {err:#}");
+                continue;
+            }
+        };
+        let mut changed = false;
+        if recording.state == State::Recording {
+            recording.state = State::Failed;
+            recording.failure = Some("the session ended while it was recorded".into());
+            recording.bytes = std::fs::metadata(files.join(&recording.file))
+                .ok()
+                .map(|metadata| metadata.len());
+            changed = true;
+        }
+        if let Some(edit) = &mut recording.edit
+            && edit.state == EditState::Editing
+        {
+            edit.state = EditState::Failed;
+            edit.failure = Some("the session ended before the edit was made".into());
+            changed = true;
+        }
+        if changed {
+            keep(files, &recording);
+        }
+        earlier.push(recording);
+    }
+    earlier
+}
+
 fn bounded(value: Option<u64>, (default, low, high): (u64, u64, u64)) -> anyhow::Result<u64> {
     let value = value.unwrap_or(default);
     ensure!(

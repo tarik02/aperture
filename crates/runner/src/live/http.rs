@@ -8,11 +8,11 @@ use std::{
 };
 
 use aperture_compositor::{Frame, Handle, Viewport};
-use aperture_runner::{PortRange, proxy};
+use aperture_runner::{Features, PortRange, proxy};
 use axum::{
     Json, Router,
     body::Body,
-    extract::{Path as RoutePath, State, WebSocketUpgrade},
+    extract::{Path as RoutePath, Query, State, WebSocketUpgrade},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post, put},
@@ -28,6 +28,7 @@ use super::{
     edit::plan::Options,
     mcp,
     record::{self, EditState, Recording, Recordings},
+    shots::{self, Screenshot},
     sound::Sound,
     stream::Streams,
 };
@@ -56,6 +57,7 @@ pub struct Live {
     pub presence: Arc<Presence>,
     /// The session's files.
     pub files: PathBuf,
+    pub features: Features,
 }
 
 /// The largest file that is taken for the browser, in bytes.
@@ -65,7 +67,7 @@ const UPLOAD_MOST: u64 = 1024 * 1024 * 1024;
 pub async fn serve(socket: &Path, live: Live, automation: Arc<Automation>) -> std::io::Result<()> {
     let _ = std::fs::remove_file(socket);
     let listener = tokio::net::UnixListener::bind(socket)?;
-    let app = Router::new()
+    let mut app = Router::new()
         .route("/ws", get(session_socket))
         .route("/targets", get(targets_list))
         .route("/targets/{id}/screenshot.png", get(screenshot))
@@ -76,12 +78,19 @@ pub async fn serve(socket: &Path, live: Live, automation: Arc<Automation>) -> st
         .route("/recordings/{id}/stop", post(recording_stop))
         .route("/downloads", get(downloads_list))
         .route("/busy", get(busy))
-        .route("/uploads", get(uploads_list))
-        .route("/uploads/{name}", put(upload).delete(upload_remove))
-        .nest_service("/files", ServeDir::new(&live.files))
-        .nest_service("/mcp", mcp::service(automation))
-        .with_state(live);
-    axum::serve(listener, app).await
+        .nest_service("/files", ServeDir::new(&live.files));
+    if live.features.mcp {
+        app = app.nest_service("/mcp", mcp::service(automation));
+    }
+    if live.features.recordings {
+        app = app.route("/screenshots", get(screenshots_list).post(screenshot_take));
+    }
+    if live.features.uploads {
+        app = app
+            .route("/uploads", get(uploads_list))
+            .route("/uploads/{name}", put(upload).delete(upload_remove));
+    }
+    axum::serve(listener, app.with_state(live)).await
 }
 
 /// A client's session socket. Who the client is comes with the request, from whoever let
@@ -264,7 +273,18 @@ async fn targets_list(State(live): State<Live>) -> Json<Vec<TargetView>> {
     Json(targets)
 }
 
-async fn screenshot(State(live): State<Live>, RoutePath(id): RoutePath<String>) -> Response {
+/// How a screenshot is asked for.
+#[derive(Deserialize)]
+struct Shot {
+    /// No wider than this many pixels: a smaller picture, for a preview.
+    width: Option<u32>,
+}
+
+async fn screenshot(
+    State(live): State<Live>,
+    RoutePath(id): RoutePath<String>,
+    Query(shot): Query<Shot>,
+) -> Response {
     let window = live
         .targets
         .borrow()
@@ -284,7 +304,14 @@ async fn screenshot(State(live): State<Live>, RoutePath(id): RoutePath<String>) 
         }
         Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
     };
-    match tokio::task::spawn_blocking(move || encode_png(frame)).await {
+    let encoded = tokio::task::spawn_blocking(move || {
+        let (width, height, rgba) = match shot.width {
+            Some(width) if width > 0 && width < frame.width => shrunk(&frame, width),
+            _ => (frame.width, frame.height, frame.rgba),
+        };
+        encode_png(width, height, rgba)
+    });
+    match encoded.await {
         Ok(Ok(png)) => ([(header::CONTENT_TYPE, "image/png")], png).into_response(),
         Ok(Err(err)) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
         Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
@@ -353,6 +380,49 @@ async fn recording_start(State(live): State<Live>, body: Option<Json<StartRecord
     }
 }
 
+#[derive(Deserialize, Default)]
+struct TakeScreenshot {
+    /// The target to take a screenshot of; the newest one when left out.
+    target: Option<String>,
+}
+
+/// Takes a screenshot of a target and keeps it in the session's files.
+async fn screenshot_take(
+    State(live): State<Live>,
+    body: Option<Json<TakeScreenshot>>,
+) -> Response {
+    let request = body.map(|Json(request)| request).unwrap_or_default();
+    let target = {
+        let targets = live.targets.borrow();
+        match &request.target {
+            Some(id) => targets.iter().find(|target| target.id == *id),
+            None => targets.last(),
+        }
+        .cloned()
+    };
+    let Some(target) = target else {
+        return (StatusCode::NOT_FOUND, "no such target").into_response();
+    };
+    let frame = match live.compositor.screenshot(target.window).await {
+        Ok(frame) => frame,
+        Err(err) => return (StatusCode::CONFLICT, err.to_string()).into_response(),
+    };
+    let files = live.files.clone();
+    match tokio::task::spawn_blocking(move || shots::keep(&files, frame, target.title, target.url)).await {
+        Ok(Ok(screenshot)) => (StatusCode::CREATED, Json(screenshot)).into_response(),
+        Ok(Err(err)) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+    }
+}
+
+async fn screenshots_list(State(live): State<Live>) -> Response {
+    let files = live.files.clone();
+    match tokio::task::spawn_blocking(move || shots::list(&files)).await {
+        Ok(screenshots) => Json::<Vec<Screenshot>>(screenshots).into_response(),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+    }
+}
+
 async fn recording_get(State(live): State<Live>, RoutePath(id): RoutePath<String>) -> Response {
     match live.recordings.get(&id) {
         Ok(recording) => Json(recording).into_response(),
@@ -371,9 +441,41 @@ async fn recordings_list(State(live): State<Live>) -> Json<Vec<Recording>> {
     Json(live.recordings.list())
 }
 
-fn encode_png(mut frame: Frame) -> Result<Vec<u8>, png::EncodingError> {
+/// The frame's pixels at `width` across, each the mean of those it stands for.
+pub(super) fn shrunk(frame: &Frame, width: u32) -> (u32, u32, Vec<u8>) {
+    let height =
+        (u64::from(frame.height) * u64::from(width) / u64::from(frame.width)).max(1) as u32;
+    let (from_width, from_height) = (frame.width as usize, frame.height as usize);
+    let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
+    for y in 0..height as usize {
+        let rows = y * from_height / height as usize
+            ..((y + 1) * from_height / height as usize).max(y * from_height / height as usize + 1);
+        for x in 0..width as usize {
+            let columns = x * from_width / width as usize
+                ..((x + 1) * from_width / width as usize).max(x * from_width / width as usize + 1);
+            let mut sums = [0u32; 4];
+            for row in rows.clone() {
+                for column in columns.clone() {
+                    let at = (row * from_width + column) * 4;
+                    for (sum, value) in sums.iter_mut().zip(&frame.rgba[at..at + 4]) {
+                        *sum += u32::from(*value);
+                    }
+                }
+            }
+            let count = (rows.len() * columns.len()) as u32;
+            rgba.extend(sums.map(|sum| (sum / count) as u8));
+        }
+    }
+    (width, height, rgba)
+}
+
+pub(super) fn encode_png(
+    width: u32,
+    height: u32,
+    mut rgba: Vec<u8>,
+) -> Result<Vec<u8>, png::EncodingError> {
     // Frames are premultiplied; PNG stores straight alpha.
-    for pixel in frame.rgba.as_chunks_mut::<4>().0 {
+    for pixel in rgba.as_chunks_mut::<4>().0 {
         let alpha = u32::from(pixel[3]);
         if alpha == 0 || alpha == 255 {
             continue;
@@ -383,10 +485,10 @@ fn encode_png(mut frame: Frame) -> Result<Vec<u8>, png::EncodingError> {
         }
     }
     let mut out = Cursor::new(Vec::new());
-    let mut encoder = png::Encoder::new(&mut out, frame.width, frame.height);
+    let mut encoder = png::Encoder::new(&mut out, width, height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
     encoder.set_compression(png::Compression::Fast);
-    encoder.write_header()?.write_image_data(&frame.rgba)?;
+    encoder.write_header()?.write_image_data(&rgba)?;
     Ok(out.into_inner())
 }

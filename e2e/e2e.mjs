@@ -21,7 +21,7 @@ const base = "http://127.0.0.1:7911";
 // It closes after every answer: a browser would keep the connection for its next request, and
 // rules decide for new connections only.
 const reachable = createServer((_, res) => res.setHeader("Connection", "close").end("reachable")).listen(7921, "127.0.0.2");
-const env = { ...process.env, APERTURE_DATA_DIR: `${D}/data`, APERTURE_RUNTIME_DIR: `${D}/run`, APERTURE_LISTEN: "127.0.0.1:7911", APERTURE_EGRESS_ALLOW: "127.0.0.2" };
+const env = { ...process.env, APERTURE_DATA_DIR: `${D}/data`, APERTURE_RUNTIME_DIR: `${D}/run`, APERTURE_LISTEN: "127.0.0.1:7911", APERTURE_EGRESS_ALLOW: "127.0.0.2", APERTURE_FEATURES: "sound,uploads,downloads,recordings,clipboard,mcp,cdp,tunnel" };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let executor;
 process.on("exit", () => executor?.kill("SIGINT"));
@@ -192,11 +192,45 @@ const viewerBrowser = spawn(process.env.APERTURE_CHROMIUM, ["--headless=new", "-
 process.on("exit", () => viewerBrowser.kill("SIGKILL"));
 const viewerUrl = await new Promise((found) => { let log = ""; viewerBrowser.stderr.on("data", (chunk) => { log += chunk; const url = /DevTools listening on (ws:\/\/\S+)/u.exec(log)?.[1]; if (url) found(url); }); });
 const viewer = cdpAt(viewerUrl);
-const { targetId } = await viewer.send("Target.createTarget", { url: `${live}?token=${token}` });
-const { sessionId } = await viewer.send("Target.attachToTarget", { targetId, flatten: true });
+// What the checks ask of the page that shows a session, the workbench, by the names they
+// have for it: its session is `window.apertureSession`, and its connection is caught as it
+// is made.
+const VIEWER_HOOKS = `(() => {
+  const peers = [];
+  const Native = window.RTCPeerConnection;
+  window.RTCPeerConnection = class extends Native { constructor(...given) { super(...given); peers.push(this); } };
+  const snapshot = () => window.apertureSession?.getSnapshot() ?? { targets: [], selected: undefined, cursor: "default", picture: { way: "video", status: undefined, formats: [] } };
+  const surface = (name) => document.querySelector('[data-aperture-surface="' + name + '"]');
+  const FORMATS = { h264: "VIDEO_FORMAT_H264", "full-chroma": "VIDEO_FORMAT_FULL_CHROMA", h265: "VIDEO_FORMAT_H265", vp9: "VIDEO_FORMAT_VP9", "vp9-full-chroma": "VIDEO_FORMAT_VP9_FULL_CHROMA", av1: "VIDEO_FORMAT_AV1" };
+  const define = (name, get) => Object.defineProperty(window, name, { get, configurable: true });
+  define("peer", () => peers.at(-1));
+  define("canvas", () => surface("canvas") ?? document.createElement("canvas"));
+  define("way", () => snapshot().picture.way);
+  define("view", () => (snapshot().picture.way === "video" ? surface("video") : surface("canvas")) ?? document.body);
+  define("video", () => ({ style: { cursor: snapshot().cursor } }));
+  define("targets", () => snapshot().targets);
+  define("selected", () => snapshot().selected);
+  define("status", () => { const said = snapshot().picture.status; return said && { format: FORMATS[said.format], quality: "VIDEO_QUALITY_" + String(said.quality).toUpperCase(), fps: said.fps }; });
+  window.drawn = Promise.resolve();
+  window.size = () => { const shown = window.view; return shown.tagName === "VIDEO" ? [shown.videoWidth, shown.videoHeight] : [shown.width ?? 0, shown.height ?? 0]; };
+  window.decodable = async () => snapshot().picture.formats.map((format) => FORMATS[format]);
+  const asked = { value: "" };
+  window.controls = { codec: asked };
+  window.hello = () => window.apertureSession.setPicture({ format: Object.keys(FORMATS).find((format) => FORMATS[format] === asked.value) });
+})()`;
+// Opens the workbench in the viewer's browser, with the hooks in before it runs.
+const openViewer = async (url) => {
+  const { targetId } = await viewer.send("Target.createTarget", { url: "about:blank" });
+  const { sessionId } = await viewer.send("Target.attachToTarget", { targetId, flatten: true });
+  await viewer.send("Page.enable", {}, sessionId);
+  await viewer.send("Page.addScriptToEvaluateOnNewDocument", { source: VIEWER_HOOKS }, sessionId);
+  await viewer.send("Page.navigate", { url }, sessionId);
+  return { targetId, sessionId };
+};
+const { targetId, sessionId } = await openViewer(`${live}?token=${token}&fit=0`);
 const evaluate = async (expression) => (await viewer.send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }, sessionId)).result.value;
 let seen = "";
-for (let i = 0; i < 60; i++) { await sleep(250); seen = await evaluate(`JSON.stringify({state: peer.connectionState, status, video: size(), time: view.currentTime, targets: targets.length, selected})`); if (JSON.parse(seen).video[0] > 0 && JSON.parse(seen).selected) break; }
+for (let i = 0; i < 60; i++) { await sleep(250); seen = await evaluate(`JSON.stringify({state: peer?.connectionState, status, video: size(), time: view.currentTime, targets: targets.length, selected})`); if (typeof seen !== "string") { seen = "{}"; continue; } if (JSON.parse(seen).video[0] > 0 && JSON.parse(seen).selected) break; }
 console.log("viewer:", seen);
 check("the viewer plays B's newest target over WebRTC", JSON.parse(seen).video[0] === 1280 && JSON.parse(seen).video[1] === 720 && JSON.parse(seen).selected === created.targetId);
 
@@ -339,11 +373,11 @@ check("tabs close closes the target", (await until((targets) => targets.length =
 
 // Clients with no WebRTC: the same video as frames on the session socket, or tiles.
 for (const way of ["frames", "tiles"]) {
-  const other = await viewer.send("Target.createTarget", { url: `${live}?token=${token}&pixels=${way}` });
-  const otherSession = (await viewer.send("Target.attachToTarget", { targetId: other.targetId, flatten: true })).sessionId;
+  const other = await openViewer(`${live}?token=${token}&fit=0&pixels=${way}`);
+  const otherSession = other.sessionId;
   const otherEvaluate = async (expression) => (await viewer.send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }, otherSession)).result.value;
   let got = "";
-  for (let i = 0; i < 60; i++) { await sleep(250); got = await otherEvaluate(`drawn.then(() => JSON.stringify({ way, status, size: size(), selected, peer: typeof peer, lit: [...canvas.getContext("2d").getImageData(0, 0, canvas.width || 1, canvas.height || 1).data].some((value, index) => index % 4 !== 3 && value > 0) }))`); if (JSON.parse(got).lit) break; }
+  for (let i = 0; i < 60; i++) { await sleep(250); got = await otherEvaluate(`drawn.then(() => JSON.stringify({ way, status, size: size(), selected, peer: typeof peer, lit: [...canvas.getContext("2d").getImageData(0, 0, canvas.width || 1, canvas.height || 1).data].some((value, index) => index % 4 !== 3 && value > 0) }))`); if (typeof got !== "string") { got = "{}"; continue; } if (JSON.parse(got).lit) break; }
   console.log(`${way}:`, got);
   check(`a viewer without WebRTC gets the target's picture as ${way}`, JSON.parse(got).lit && JSON.parse(got).way === way && JSON.parse(got).size.join("x") === "1280x720" && JSON.parse(got).peer === "undefined" && JSON.parse(got).selected === created.targetId);
   await c.send("Runtime.evaluate", { expression: "document.title = 'waiting'" }, bPage);

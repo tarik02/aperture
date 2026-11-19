@@ -39,9 +39,10 @@ async fn shown() -> Html<&'static str> {
     viewer()
 }
 
-/// The page that shows a session, which finds the session where the page itself is.
+/// The workbench: the page that shows a session, which finds the session where the page
+/// itself is.
 pub fn viewer() -> Html<&'static str> {
-    Html(include_str!("viewer.html"))
+    Html(include_str!(concat!(env!("OUT_DIR"), "/workbench.html")))
 }
 
 /// Whatever else is asked of a session is the session's own to answer.
@@ -51,8 +52,19 @@ async fn forward(
     request: Request,
 ) -> Response {
     // As the client wrote it: a path taken apart and put together again is another one
-    // where it has escapes.
-    let rest = request.uri().path().to_owned();
+    // where it has escapes. What the client asks with goes on too, but for what let it in
+    // here, which is nothing of the session's.
+    let asked = request.uri().query().unwrap_or_default().split('&');
+    let asked: Vec<&str> = asked
+        .filter(|pair| {
+            let name = pair.split_once('=').map_or(*pair, |(name, _)| name);
+            !pair.is_empty() && name != "token" && name != "name"
+        })
+        .collect();
+    let mut rest = request.uri().path().to_owned();
+    if !asked.is_empty() {
+        rest = format!("{rest}?{}", asked.join("&"));
+    }
     forward_to(&*sessions, &id, &rest, request).await
 }
 
@@ -177,14 +189,15 @@ async fn tunnel(
         Ok(live) => live,
         Err(refused) => return refused.into_response(),
     };
+    // Before the client is answered: a session that takes no tunnels has no socket for them.
+    let Ok(runner) = UnixStream::connect(&live.tunnel_socket).await else {
+        return (StatusCode::NOT_FOUND, "the session takes no tunnels").into_response();
+    };
     let here = sessions.present(&id);
     upgrade
         .protocols([aperture_tunnel::SUBPROTOCOL])
         .on_upgrade(move |client| async move {
             let _here = here;
-            let Ok(runner) = UnixStream::connect(&live.tunnel_socket).await else {
-                return;
-            };
             let (mut from_runner, mut to_runner) = runner.into_split();
             let (mut to_client, mut from_client) = client.split();
             let up = async {

@@ -1,3 +1,6 @@
 /target
 /result
 .DS_Store
+node_modules/
+apps/*/dist/
+packages/*/dist/

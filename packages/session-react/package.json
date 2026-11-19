@@ -1,0 +1,73 @@
+{
+  "name": "@aperture-browser/session-react",
+  "version": "0.0.0",
+  "description": "React components for watching and controlling one Aperture session: the workbench with its tab strip, toolbar and menus, or the picture alone.",
+  "homepage": "https://github.com/tarik02/aperture#readme",
+  "bugs": "https://github.com/tarik02/aperture/issues",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tarik02/aperture.git",
+    "directory": "packages/session-react"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "exports": {
+    ".": "./src/index.ts",
+    "./headless": "./src/headless.ts",
+    "./styles.css": "./src/styles.css"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./headless": {
+        "types": "./dist/headless.d.ts",
+        "default": "./dist/headless.js"
+      },
+      "./styles.css": "./dist/styles.css"
+    },
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack && tailwindcss -i src/styles.css -o dist/styles.css --minify && node scripts/finalize-styles.ts && publint",
+    "typecheck": "tsgo --noEmit && tsgo --noEmit -p scripts"
+  },
+  "dependencies": {
+    "@aperture-browser/session-client": "workspace:*",
+    "@base-ui/react": "catalog:",
+    "class-variance-authority": "catalog:",
+    "clsx": "catalog:",
+    "lucide-react": "catalog:",
+    "next-themes": "catalog:",
+    "sonner": "catalog:",
+    "tailwind-merge": "catalog:"
+  },
+  "devDependencies": {
+    "@aperture-browser/ui": "workspace:*",
+    "@effect/platform-node": "catalog:",
+    "@tailwindcss/cli": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "effect": "catalog:",
+    "publint": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "tailwindcss": "catalog:",
+    "tw-animate-css": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "catalog:peers",
+    "react": "catalog:peers",
+    "react-dom": "catalog:peers"
+  }
+}

@@ -50,6 +50,8 @@ pub enum Along {
 
 /// The name pages call the runner by, and the name of the world of a page the runner's
 /// own script runs in, apart from the page's.
+/// What a new tab shows when it is asked for with no page to open.
+const NEW_TAB: &str = "chrome://newtab/";
 const CALL: &str = "apertureMenu";
 const WORLD: &str = "aperture";
 
@@ -91,7 +93,11 @@ struct Open {
 
 impl Pages {
     /// Attaches the pages of `targets` as they come, and follows what they ask for.
-    pub fn follow(browser: cdp::Client, mut targets: watch::Receiver<Vec<Target>>) -> Self {
+    pub fn follow(
+        browser: cdp::Client,
+        mut targets: watch::Receiver<Vec<Target>>,
+        uploads: bool,
+    ) -> Self {
         let pages = Self {
             browser: browser.clone(),
             open: watch::Sender::new(Vec::new()),
@@ -109,6 +115,9 @@ impl Pages {
             // Before any page is attached, so no event of one is missed.
             let mut events = browser.events();
             let mut next = 0;
+            // The frames of the targets' pages that are pages of their own to the browser,
+            // each by the DevTools session it is attached as, with the target it is in.
+            let mut frames: Vec<(String, String)> = Vec::new();
             loop {
                 tokio::select! {
                     changed = targets.changed() => {
@@ -125,16 +134,42 @@ impl Pages {
                         let target = attached
                             .borrow()
                             .iter()
+                            .chain(&frames)
                             .find(|(_, session)| Some(session) == event.session.as_ref())
                             .cloned();
                         let Some((target, session)) = target else {
                             continue;
                         };
                         match event.method.as_str() {
+                            "Target.attachedToTarget" => {
+                                let frame = event.params["sessionId"].as_str();
+                                let Some(frame) = frame
+                                    .filter(|_| event.params["targetInfo"]["type"] == "iframe")
+                                else {
+                                    continue;
+                                };
+                                match attach_frame(&browser, frame).await {
+                                    Ok(()) => frames.push((target, frame.to_owned())),
+                                    Err(err) => warn!(
+                                        page = target,
+                                        "a frame asks the browser, not the session: {err:#}"
+                                    ),
+                                }
+                            }
+                            "Target.detachedFromTarget" => {
+                                let gone = event.params["sessionId"].as_str();
+                                frames.retain(|(_, frame)| Some(frame.as_str()) != gone);
+                            }
                             "Page.fileChooserOpened" => {
                                 let Some(node) = event.params["backendNodeId"].as_i64() else {
                                     continue;
                                 };
+                                // The page's request is still taken from the browser,
+                                // which would show a dialog of its own, and left without
+                                // an answer: the page gets no files.
+                                if !uploads {
+                                    continue;
+                                }
                                 next += 1;
                                 let asked = Open {
                                     request: Request {
@@ -171,6 +206,7 @@ impl Pages {
                 attached.send_modify(|attached| {
                     attached.retain(|(target, _)| pages.contains(target));
                 });
+                frames.retain(|(target, _)| pages.contains(target));
                 open.send_if_modified(|open| {
                     let before = open.len();
                     open.retain(|asked| pages.contains(&asked.request.target));
@@ -253,6 +289,12 @@ impl Pages {
 
     /// Opens a page on the web: in the target's tab, or in a new one.
     pub async fn open(&self, target: &str, url: &str, new_tab: bool) -> anyhow::Result<()> {
+        if new_tab && url.is_empty() {
+            self.browser
+                .call("Target.createTarget", json!({ "url": NEW_TAB }))
+                .await?;
+            return Ok(());
+        }
         let web = url::Url::parse(url).is_ok_and(|url| matches!(url.scheme(), "http" | "https"));
         if !web {
             bail!("not a page on the web");
@@ -265,6 +307,14 @@ impl Pages {
             self.call(target, "Page.navigate", json!({ "url": url }))
                 .await?;
         }
+        Ok(())
+    }
+
+    /// Closes the target's tab.
+    pub async fn close(&self, target: &str) -> anyhow::Result<()> {
+        self.browser
+            .call("Target.closeTarget", json!({ "targetId": target }))
+            .await?;
         Ok(())
     }
 
@@ -392,5 +442,28 @@ async fn attach(browser: &cdp::Client, page: &str) -> anyhow::Result<String> {
         )
         .await?;
     }
+    attach_frames(browser, session).await?;
     Ok(session.to_owned())
+}
+
+/// Has the browser attach the frames that are pages of their own to it, those of other
+/// sites, as they come: what one of them asks is not told to the page around it.
+async fn attach_frames(browser: &cdp::Client, session: &str) -> anyhow::Result<()> {
+    let attach = json!({ "autoAttach": true, "waitForDebuggerOnStart": false, "flatten": true });
+    browser
+        .call_in(Some(session), "Target.setAutoAttach", attach)
+        .await?;
+    Ok(())
+}
+
+/// Has a frame ask here for files, and the frames in it attached in turn.
+async fn attach_frame(browser: &cdp::Client, session: &str) -> anyhow::Result<()> {
+    let call = |method: &'static str, params: Value| browser.call_in(Some(session), method, params);
+    call("Page.enable", json!({})).await?;
+    call(
+        "Page.setInterceptFileChooserDialog",
+        json!({ "enabled": true }),
+    )
+    .await?;
+    attach_frames(browser, session).await
 }

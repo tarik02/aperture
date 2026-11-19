@@ -73,6 +73,11 @@ async fn make(
                 let Some(frame) = frame else {
                     continue;
                 };
+                // A frame drawn for another watcher before the pixels were asked for has
+                // none in memory; the next one does.
+                if frame.rgba.len() != frame.width as usize * frame.height as usize * 4 {
+                    continue;
+                }
                 let before = sent.replace(frame.clone());
                 let target = target.clone();
                 let made =

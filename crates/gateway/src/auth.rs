@@ -152,7 +152,9 @@ fn caller(keys: &Keys, request: &Request) -> Result<Caller, StatusCode> {
     if bool::from(given.as_bytes().ct_eq(keys.token.as_bytes())) {
         // The operator says what to be called: there is nobody to say otherwise.
         let name = asked("name")
-            .map(|name| percent_decode_str(name).decode_utf8_lossy().into_owned())
+            // A form writes a space as a plus.
+            .map(|name| name.replace('+', " "))
+            .map(|name| percent_decode_str(&name).decode_utf8_lossy().into_owned())
             .filter(|name| !name.is_empty());
         return Ok(Caller {
             subject: "operator".to_owned(),

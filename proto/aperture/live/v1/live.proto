@@ -46,6 +46,7 @@ message ClientMessage {
     Lease lease = 15;
     Go go = 16;
     CopyPicture copy_picture = 17;
+    Close close = 18;
   }
 }
 
@@ -66,11 +67,35 @@ message ServerMessage {
     Presence presence = 12;
     Menu menu = 13;
     AudioFrame audio = 14;
+    Features features = 15;
   }
 }
 
-// The client's first message. The session answers with its targets, the target the client
-// watches, and the cursor.
+// What the session offers besides its picture and input, as whoever started it chose. Sent
+// first after `hello`. What is off is refused: a client need not show it.
+message Features {
+  // Tabs are heard: targets tell which of them sound, and `audio` comes where asked for.
+  bool sound = 1;
+  // Files are taken (see `uploads` beside the session socket), and pages that ask for
+  // files are told of in `file_requests`.
+  bool uploads = 2;
+  // The session's browser downloads files, which `downloads` tells of.
+  bool downloads = 3;
+  // Tabs are recorded (see `recordings` beside the session socket).
+  bool recordings = 4;
+  // What is copied in the session is told in `clipboard`, and a client's `clipboard` and
+  // `copy_picture` are taken.
+  bool clipboard = 5;
+  // The session's automation is served, at `mcp` beside the session socket.
+  bool mcp = 6;
+  // Its browser's DevTools endpoint is served, at `cdp`.
+  bool cdp = 7;
+  // Tunnels are taken, at `tunnel`.
+  bool tunnel = 8;
+}
+
+// The client's first message. The session answers with what it offers, its targets, the
+// target the client watches, and the cursor.
 message Hello {
   Pixels pixels = 1;
   // The forms of video the client would have, the one it would rather have first. The
@@ -357,7 +382,7 @@ message Menu {
 // Takes the watched target's page elsewhere.
 message Go {
   oneof to {
-    // A page on the web.
+    // A page on the web; or nothing, with `new_tab`, for an empty new tab.
     string url = 1;
     Along along = 2;
   }
@@ -371,6 +396,11 @@ enum Along {
   ALONG_BACK = 1;
   ALONG_FORWARD = 2;
   ALONG_RELOAD = 3;
+}
+
+// Closes a target's tab, for a client that may give it input: one nobody else holds.
+message Close {
+  string target = 1;
 }
 
 // Asks for a picture the watched target's page shows. The session answers with
@@ -454,6 +484,8 @@ message Target {
   // The tab's number. It stays the tab's when the session is suspended and resumed, which
   // the target's id does not.
   uint32 tab = 7;
+  // The tab plays sound now. Never where the session's sound is off.
+  bool sounds = 8;
 }
 
 // Every target of the session, oldest first. Sent after `hello` and whenever a target

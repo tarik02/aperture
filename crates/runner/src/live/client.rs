@@ -1,6 +1,8 @@
 //! One client of the session: the session socket it speaks the live protocol on, the
 //! target it watches, and the way that target's pixels reach it.
 
+use std::collections::BTreeSet;
+
 use aperture_compositor::{Button, Cursor, Form, Forms, Input, Viewport, WindowId, data};
 use axum::extract::ws::{Message as Frame, WebSocket};
 use buffa::Message as _;
@@ -38,6 +40,7 @@ pub async fn serve(live: Live, socket: WebSocket, identity: Identity) {
         file_requests: live.pages.requests(),
         menus: live.pages.menus(),
         present: live.presence.present(),
+        sounding: live.sound.sounding(),
         sound: None,
         member: live.presence.join(identity, false),
         live,
@@ -75,6 +78,8 @@ struct Client {
     present: watch::Receiver<Present>,
     /// The session's sound, for a client that takes it on the socket.
     sound: Option<sound::Listener>,
+    /// The browser's tabs that play something now.
+    sounding: watch::Receiver<BTreeSet<i64>>,
     /// The client as one of those in the session.
     member: Membership,
     socket: WebSocket,
@@ -184,6 +189,12 @@ impl Client {
                         self.send_selected().await?;
                     }
                 }
+                changed = self.sounding.changed() => {
+                    if changed.is_err() {
+                        return Ok(());
+                    }
+                    self.send_targets().await?;
+                }
                 changed = self.cursor.changed() => {
                     if changed.is_err() {
                         return Ok(());
@@ -244,6 +255,9 @@ impl Client {
                         return Ok(());
                     }
                     let copied = self.clipboard.borrow_and_update().clone();
+                    if !self.live.features.clipboard {
+                        continue;
+                    }
                     // What is copied is whoever's copied it: who gave input last.
                     let own = self.live.presence.turn() == Some(self.member.id);
                     if let Some(copied) = copied.filter(|_| own) {
@@ -277,7 +291,8 @@ impl Client {
                     Some(pb::VideoQuality::VIDEO_QUALITY_UNSPECIFIED) | None => None,
                 };
                 self.delivery.pin(self.pinned);
-                self.sound = hello.audio.then(|| self.live.sound.listen());
+                let hears = hello.audio && self.live.features.sound;
+                self.sound = hears.then(|| self.live.sound.listen());
                 self.fps = hello
                     .fps
                     .map(|fps| fps.clamp(*Key::FPS.start(), *Key::FPS.end()));
@@ -295,6 +310,7 @@ impl Client {
                 });
                 self.formats = made.await.unwrap_or_default();
                 self.format = self.formats.first().copied().unwrap_or(Format::H264);
+                self.send_features().await?;
                 self.send_targets().await?;
                 self.send_cursor().await?;
                 self.send_downloads().await?;
@@ -399,7 +415,8 @@ impl Client {
                 composing: m.composing,
             },
             Message::Clipboard(m) => {
-                if let Some(content) = self.content(*m)
+                if self.live.features.clipboard
+                    && let Some(content) = self.content(*m)
                     && self.holds()
                 {
                     self.live.compositor.set_clipboard(content);
@@ -429,7 +446,23 @@ impl Client {
                 }
                 return Ok(());
             }
+            Message::Close(close) => {
+                let tab = {
+                    let targets = self.live.targets.borrow();
+                    let closed = targets.iter().find(|target| target.id == close.target);
+                    closed.map(|target| target.tab)
+                };
+                let held =
+                    tab.is_some_and(|tab| self.live.presence.hold(self.member.id, tab, true));
+                if held && let Err(err) = self.live.pages.close(&close.target).await {
+                    debug!("a tab was not closed: {err:#}");
+                }
+                return Ok(());
+            }
             Message::CopyPicture(picture) => {
+                if !self.live.features.clipboard {
+                    return Ok(());
+                }
                 let Some((target, _)) = self.selected.clone().filter(|_| self.holds()) else {
                     return Ok(());
                 };
@@ -452,7 +485,7 @@ impl Client {
                 return Ok(());
             }
             Message::FilesChosen(m) => {
-                if !self.holds() {
+                if !self.holds() || !self.live.features.uploads {
                     return Ok(());
                 }
                 let uploads = self.live.files.join(files::UPLOADS);
@@ -712,7 +745,24 @@ impl Client {
             .await
     }
 
+    async fn send_features(&mut self) -> Result<(), axum::Error> {
+        let features = self.live.features;
+        self.send(server_message::Message::Features(Box::new(pb::Features {
+            sound: features.sound,
+            uploads: features.uploads,
+            downloads: features.downloads,
+            recordings: features.recordings,
+            clipboard: features.clipboard,
+            mcp: features.mcp,
+            cdp: features.cdp,
+            tunnel: features.tunnel,
+            ..Default::default()
+        })))
+        .await
+    }
+
     async fn send_targets(&mut self) -> Result<(), axum::Error> {
+        let sounding = self.sounding.borrow_and_update().clone();
         let targets = self
             .live
             .targets
@@ -726,6 +776,7 @@ impl Client {
                 width: target.width,
                 height: target.height,
                 scale: target.scale,
+                sounds: sounding.contains(&target.browser_tab),
                 ..Default::default()
             })
             .collect();

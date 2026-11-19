@@ -12,6 +12,7 @@ mod http;
 mod mcp;
 mod net;
 pub mod record;
+mod shots;
 mod rtc;
 pub mod sound;
 pub mod stream;

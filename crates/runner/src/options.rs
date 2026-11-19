@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
-use crate::{PortRange, Profile, Spec, Tools, Viewport, proxy};
+use crate::{Features, PortRange, Profile, Spec, Tools, Viewport, proxy};
 
 /// What a session's windows fill until a client asks for another size.
 const VIEWPORT: Viewport = Viewport {
@@ -50,6 +50,20 @@ pub struct Options {
     /// `aperture-native-host`. Next to this program by default.
     #[arg(long, env = "APERTURE_NATIVE_HOST")]
     native_host: Option<PathBuf>,
+    /// Turns on something sessions offer, or with `-` before its name turns it off: `sound`
+    /// (tabs are heard), `uploads` (clients put files into sessions, for pages that ask for
+    /// some), `downloads` (browsers download files), `recordings` (tabs are recorded and
+    /// screenshots kept), `clipboard` (what is copied passes between sessions and their
+    /// clients), `mcp` (the automation endpoint), `cdp` (the DevTools endpoint), `tunnel`
+    /// (clients attach tunnels). All are off unless turned on; the last word on one counts. May be repeated: `--feature +sound --feature -uploads`.
+    #[arg(
+        long = "feature",
+        env = "APERTURE_FEATURES",
+        value_delimiter = ',',
+        allow_hyphen_values = true,
+        value_parser = feature
+    )]
+    features: Vec<(Feature, bool)>,
     /// An argument for every session's browser. May be repeated.
     #[arg(long = "browser-arg", allow_hyphen_values = true)]
     browser_args: Vec<String>,
@@ -64,6 +78,7 @@ pub struct Setup {
     gpu: bool,
     egress_allow: Vec<String>,
     browser_args: Vec<String>,
+    features: Features,
 }
 
 /// Where a session's own directories are.
@@ -93,6 +108,22 @@ impl Options {
             gpu: !self.no_gpu,
             egress_allow: self.egress_allow,
             browser_args: self.browser_args,
+            features: self.features.into_iter().fold(
+                Features::default(),
+                |mut features, (feature, on)| {
+                    match feature {
+                        Feature::Sound => features.sound = on,
+                        Feature::Uploads => features.uploads = on,
+                        Feature::Downloads => features.downloads = on,
+                        Feature::Recordings => features.recordings = on,
+                        Feature::Clipboard => features.clipboard = on,
+                        Feature::Mcp => features.mcp = on,
+                        Feature::Cdp => features.cdp = on,
+                        Feature::Tunnel => features.tunnel = on,
+                    }
+                    features
+                },
+            ),
         })
     }
 }
@@ -121,6 +152,7 @@ impl Setup {
             egress_allow: self.egress_allow.clone(),
             proxy,
             browser_args: self.browser_args.clone(),
+            features: self.features,
         }
     }
 }
@@ -145,6 +177,43 @@ pub fn executable(program: &Path) -> anyhow::Result<PathBuf> {
         })
     };
     found.with_context(|| format!("{} not found", program.display()))
+}
+
+#[derive(Clone, Copy)]
+enum Feature {
+    Sound,
+    Uploads,
+    Downloads,
+    Recordings,
+    Clipboard,
+    Mcp,
+    Cdp,
+    Tunnel,
+}
+
+fn feature(said: &str) -> Result<(Feature, bool), String> {
+    let said = said.trim();
+    let (name, on) = match said.strip_prefix('-') {
+        Some(name) => (name, false),
+        None => (said.strip_prefix('+').unwrap_or(said), true),
+    };
+    let feature = match name {
+        "sound" => Feature::Sound,
+        "uploads" => Feature::Uploads,
+        "downloads" => Feature::Downloads,
+        "recordings" => Feature::Recordings,
+        "clipboard" => Feature::Clipboard,
+        "mcp" => Feature::Mcp,
+        "cdp" => Feature::Cdp,
+        "tunnel" => Feature::Tunnel,
+        _ => {
+            return Err(format!(
+                "{name:?} is none of sound, uploads, downloads, recordings, clipboard, mcp, \
+                 cdp, tunnel"
+            ));
+        }
+    };
+    Ok((feature, on))
 }
 
 fn port_range(ports: &str) -> Result<PortRange, String> {

@@ -1,0 +1,22 @@
+{
+  "name": "@aperture-browser/workspace",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "vp lint",
+    "format": "vp fmt",
+    "format:check": "vp fmt --check"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@typescript/native-preview": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "engines": {
+    "pnpm": "11.27.1"
+  }
+}

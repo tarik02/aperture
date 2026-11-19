@@ -64,6 +64,10 @@ _Avoid_: Post-processing, render
 **Tap**:
 The session's extension taking one tab's sound apart from the others, so each listener hears the tab they watch. A tapped tab plays into its tap and nowhere else.
 
+**Feature**:
+Something a session offers only where whoever starts it turns it on: `sound`, `uploads`, `downloads`, `recordings`, `clipboard`, `mcp`, `cdp`, `tunnel`. A session tells its clients which it has; what is off is refused, and a client does not show it.
+_Avoid_: Capability, permission
+
 **Egress**:
 How the session's browser reaches the network. It has no network of its own: every connection goes through the runner, which refuses local and private addresses unless allowed and routes the rest by the session's proxy rules.
 
@@ -76,3 +80,13 @@ What a session may use (memory, swap, processor time, tasks) and how long it may
 **Asleep**:
 Suspended by the executor for sitting idle, and resumed when someone reaches the session again. A session suspended on request stays suspended.
 _Avoid_: Hibernated, paused
+
+**Workbench**:
+A session shown as a browser to work in: tab strip, toolbar, menus and the picture. It is made of parts that stand on their own, and of slots.
+
+**Slot**:
+A named place of the workbench: a menu, the toolbar's ends, the title bar's ends, the picture's overlay.
+
+**Contribution**:
+One thing in one slot. Everything the workbench shows in its slots is a contribution, its own included, so an embedder adds, replaces and leaves out by the same means.
+_Avoid_: Plugin, extension

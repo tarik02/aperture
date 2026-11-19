@@ -1,0 +1,25 @@
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "base-nova",
+  "rsc": false,
+  "tsx": true,
+  "tailwind": {
+    "config": "",
+    "css": "src/styles.css",
+    "baseColor": "neutral",
+    "cssVariables": true,
+    "prefix": "aperture"
+  },
+  "aliases": {
+    "components": "@aperture-browser/ui/components",
+    "utils": "@aperture-browser/ui/utils",
+    "ui": "@aperture-browser/ui/components",
+    "lib": "@aperture-browser/ui/lib",
+    "hooks": "@aperture-browser/ui/hooks"
+  },
+  "iconLibrary": "lucide",
+  "rtl": false,
+  "menuColor": "default",
+  "menuAccent": "subtle",
+  "registries": {}
+}

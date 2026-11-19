@@ -1,0 +1,21 @@
+@import "@aperture-browser/session-react/styles.css";
+@import "./fonts.css";
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  /* What shows before the session's own background does, in either theme. */
+  background: Canvas;
+  /* A drag or a pinch on the picture is the session's, not a scroll of this page. */
+  overscroll-behavior: none;
+}
+
+#root {
+  --aperture-font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+}

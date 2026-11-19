@@ -1,0 +1,288 @@
+import * as pb from "./gen/aperture/live/v1/live_pb.ts";
+
+/** How the picture of the watched target reaches the client. */
+export type PictureWay = "video" | "frames" | "tiles";
+
+/** The form a target's video takes; see `VideoFormat` in the protocol. */
+export type VideoFormat = "h264" | "full-chroma" | "h265" | "vp9" | "vp9-full-chroma" | "av1";
+
+/** How much the video costs the link; see `VideoQuality` in the protocol. */
+export type VideoQuality = "low" | "medium" | "full";
+
+export type Role = "view" | "control" | "admin";
+
+export type DownloadState = "running" | "done" | "failed";
+
+export type Along = "back" | "forward" | "reload";
+
+export type LeaseAction = "take" | "release" | "allow" | "keep";
+
+/** A page of the session's browser. */
+export interface Target {
+  /** Lasts as long as the page does in one run of the session. */
+  readonly id: string;
+  /** The tab's number, which stays the tab's when the session is suspended and resumed. */
+  readonly tab: number;
+  readonly title: string;
+  readonly url: string;
+  /** In logical pixels, which pointer positions are in. */
+  readonly width: number;
+  readonly height: number;
+  /** Pixels to a logical pixel. */
+  readonly scale: number;
+  /** The tab plays sound now. */
+  readonly sounds: boolean;
+}
+
+/** What the session offers besides its picture and input, as whoever started it chose. */
+export interface Features {
+  /** Tabs are heard. */
+  readonly sound: boolean;
+  /** Files are taken, for pages that ask for some. */
+  readonly uploads: boolean;
+  /** The session's browser downloads files. */
+  readonly downloads: boolean;
+  /** Tabs are recorded. */
+  readonly recordings: boolean;
+  /** What is copied passes between the session and its clients. */
+  readonly clipboard: boolean;
+  /** The automation endpoint is served. */
+  readonly mcp: boolean;
+  /** The DevTools endpoint is served. */
+  readonly cdp: boolean;
+  /** Tunnels are taken. */
+  readonly tunnel: boolean;
+}
+
+export interface Member {
+  readonly id: number;
+  readonly name: string;
+  readonly role: Role | undefined;
+  /** The tab the member watches. */
+  readonly tab: number | undefined;
+  /** The session's automation rather than a person. */
+  readonly agent: boolean;
+}
+
+export interface HeldTab {
+  readonly tab: number;
+  /** The member who holds it. */
+  readonly holder: number;
+  /** The member who asks the holder for it. */
+  readonly askedBy: number | undefined;
+}
+
+/** Who is in the session and who drives which tab. */
+export interface Presence {
+  /** The member this client is. */
+  readonly you: number;
+  readonly members: readonly Member[];
+  readonly held: readonly HeldTab[];
+}
+
+export interface Download {
+  readonly id: string;
+  /** The file's name below `downloads/` of the session's files. */
+  readonly name: string;
+  readonly url: string;
+  readonly receivedBytes: number;
+  /** Left out while the page does not say. */
+  readonly totalBytes: number | undefined;
+  readonly state: DownloadState | undefined;
+}
+
+/** A page that asks for files and has no answer yet. */
+export interface FileRequest {
+  readonly id: number;
+  /** The target whose page asks. */
+  readonly target: string;
+  readonly multiple: boolean;
+}
+
+/** What a right click in the session was on, when the page showed no menu of its own. */
+export interface Menu {
+  readonly link: string | undefined;
+  readonly image: string | undefined;
+  /** The text that is selected. */
+  readonly text: string | undefined;
+  /** There is a field to write into under the pointer. */
+  readonly editable: boolean;
+}
+
+/** One form of content that is copied or dragged, by its MIME type. */
+export interface ClipboardForm {
+  readonly type: string;
+  readonly data: Uint8Array;
+}
+
+/** Something was copied in the session. */
+export interface ClipboardEvent {
+  readonly forms: readonly ClipboardForm[];
+  /** Whether this browser's clipboard took it; where it did not, a click has to. */
+  readonly written: boolean;
+}
+
+export interface VideoStatus {
+  readonly format: VideoFormat | undefined;
+  readonly quality: VideoQuality | undefined;
+  /** Frames a second at most. */
+  readonly fps: number;
+}
+
+export interface PictureSettings {
+  readonly format?: VideoFormat;
+  readonly quality?: VideoQuality;
+  readonly fps?: number;
+}
+
+export interface Picture {
+  readonly way: PictureWay;
+  /** What this browser can do, best first. */
+  readonly ways: readonly PictureWay[];
+  /** What the session says it sends. */
+  readonly status: VideoStatus | undefined;
+  /** What this browser can decode the current way. */
+  readonly formats: readonly VideoFormat[];
+  readonly settings: PictureSettings;
+  /** The state of the WebRTC connection while the picture comes as video. */
+  readonly rtc: RTCPeerConnectionState | undefined;
+}
+
+export interface Connection {
+  readonly state: "connecting" | "open" | "closed";
+  readonly reason?: string;
+}
+
+export interface Snapshot {
+  readonly connection: Connection;
+  readonly targets: readonly Target[];
+  /** The id of the target that is watched. */
+  readonly selected: string | undefined;
+  readonly presence: Presence | undefined;
+  readonly downloads: readonly Download[];
+  readonly fileRequests: readonly FileRequest[];
+  /** A CSS cursor value. */
+  readonly cursor: string;
+  readonly picture: Picture;
+  /** Nothing is offered until the session has told. */
+  readonly features: Features;
+  /** The numbers of the tabs that are muted here; the others are heard while watched. */
+  readonly muted: readonly number[];
+  /** The session's right-click report, at the client coordinates of the click. */
+  readonly menu: (Menu & { readonly x: number; readonly y: number }) | undefined;
+  /** The watched target's viewport follows the attached stage's size. */
+  readonly fit: boolean;
+}
+
+export const FORMATS = {
+  h264: pb.VideoFormat.H264,
+  "full-chroma": pb.VideoFormat.FULL_CHROMA,
+  h265: pb.VideoFormat.H265,
+  vp9: pb.VideoFormat.VP9,
+  "vp9-full-chroma": pb.VideoFormat.VP9_FULL_CHROMA,
+  av1: pb.VideoFormat.AV1,
+} as const satisfies Record<VideoFormat, pb.VideoFormat>;
+
+export const QUALITIES = {
+  low: pb.VideoQuality.LOW,
+  medium: pb.VideoQuality.MEDIUM,
+  full: pb.VideoQuality.FULL,
+} as const satisfies Record<VideoQuality, pb.VideoQuality>;
+
+export const PIXELS = {
+  video: pb.Pixels.VIDEO,
+  frames: pb.Pixels.FRAMES,
+  tiles: pb.Pixels.TILES,
+} as const satisfies Record<PictureWay, pb.Pixels>;
+
+export const ALONGS = {
+  back: pb.Along.BACK,
+  forward: pb.Along.FORWARD,
+  reload: pb.Along.RELOAD,
+} as const satisfies Record<Along, pb.Along>;
+
+export const LEASE_ACTIONS = {
+  take: pb.LeaseAction.TAKE,
+  release: pb.LeaseAction.RELEASE,
+  allow: pb.LeaseAction.ALLOW,
+  keep: pb.LeaseAction.KEEP,
+} as const satisfies Record<LeaseAction, pb.LeaseAction>;
+
+const ROLES: Partial<Record<pb.Role, Role>> = {
+  [pb.Role.VIEW]: "view",
+  [pb.Role.CONTROL]: "control",
+  [pb.Role.ADMIN]: "admin",
+};
+
+const DOWNLOAD_STATES: Partial<Record<pb.DownloadState, DownloadState>> = {
+  [pb.DownloadState.RUNNING]: "running",
+  [pb.DownloadState.DONE]: "done",
+  [pb.DownloadState.FAILED]: "failed",
+};
+
+const named = <Name extends string>(names: Record<Name, number>, value: number) => {
+  const found = Object.entries<number>(names).find(([, one]) => one === value);
+  return found?.[0] as Name | undefined;
+};
+
+export const formatOf = (format: pb.VideoFormat) => named(FORMATS, format);
+
+export const qualityOf = (quality: pb.VideoQuality) => named(QUALITIES, quality);
+
+// Ids are counters the session starts at one, far below where a double stops being exact.
+const count = (id: bigint | undefined) => (id === undefined ? undefined : Number(id));
+
+export const targetOf = (target: pb.Target): Target => ({
+  id: target.id,
+  tab: target.tab,
+  title: target.title,
+  url: target.url,
+  width: target.width,
+  height: target.height,
+  scale: target.scale,
+  sounds: target.sounds,
+});
+
+export const presenceOf = (presence: pb.Presence): Presence => ({
+  you: Number(presence.you),
+  members: presence.members.map((member) => ({
+    id: Number(member.id),
+    name: member.name,
+    role: ROLES[member.role],
+    tab: member.tab,
+    agent: member.agent,
+  })),
+  held: presence.held.map((held) => ({
+    tab: held.tab,
+    holder: Number(held.holder),
+    askedBy: count(held.askedBy),
+  })),
+});
+
+export const downloadOf = (download: pb.Download): Download => ({
+  id: download.id,
+  name: download.name,
+  url: download.url,
+  receivedBytes: Number(download.receivedBytes),
+  totalBytes: count(download.totalBytes),
+  state: DOWNLOAD_STATES[download.state],
+});
+
+export const fileRequestOf = (request: pb.FileRequest): FileRequest => ({
+  id: Number(request.id),
+  target: request.target,
+  multiple: request.multiple,
+});
+
+export const menuOf = (menu: pb.Menu): Menu => ({
+  link: menu.link,
+  image: menu.image,
+  text: menu.text,
+  editable: menu.editable,
+});
+
+export const statusOf = (status: pb.VideoStatus): VideoStatus => ({
+  format: formatOf(status.format),
+  quality: qualityOf(status.quality),
+  fps: status.fps,
+});

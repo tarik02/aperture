@@ -1,0 +1,41 @@
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme) theme(inline prefix(aperture));
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "tw-animate-css/prefix";
+@import "@aperture-browser/ui/tokens.css";
+@import "@aperture-browser/ui/theme.css";
+@import "./preflight.css";
+
+/* With the aperture prefix these would be emitted as --aperture-font-*, shadowing the
+   published font knobs of the same name, so they are referenced instead of emitted. */
+@theme inline reference {
+  --font-sans: var(--aperture-font-sans, inherit);
+  --font-heading: var(--aperture-font-sans, inherit);
+  --font-mono: var(
+    --aperture-font-mono,
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    "Liberation Mono",
+    "Courier New",
+    monospace
+  );
+}
+@source "./";
+/* Only the toolkit's components the session uses: the others' classes would be dead weight
+   in every page that embeds it. */
+@source "../../ui/src/components/{avatar,badge,button,context-menu,dialog,dropdown-menu,empty,hover-card,input,input-group,popover,scroll-area,sonner,tooltip}.tsx";
+
+/* A line between the groups of a contributed menu that show something: a group whose
+   contributions render nothing is empty, and takes no line. */
+@layer components {
+  [data-workbench-menu-group]:not(:empty) ~ [data-workbench-menu-group]:not(:empty)::before {
+    content: "";
+    display: block;
+    height: 1px;
+    margin: 0.25rem -0.25rem;
+    background: var(--border);
+  }
+}

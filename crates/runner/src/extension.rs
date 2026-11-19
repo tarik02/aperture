@@ -22,13 +22,18 @@ const FILES: [(&str, &str); 5] = [
     ("taps.js", include_str!("../extension/taps.js")),
 ];
 
-/// Writes the extension to `dir`, for the browser to load.
-pub fn unpack(dir: &Path) -> std::io::Result<()> {
+/// Writes the extension to `dir`, for the browser to load. It taps the tabs' sound only
+/// where the session is to be heard.
+pub fn unpack(dir: &Path, sound: bool) -> std::io::Result<()> {
     let _ = std::fs::remove_dir_all(dir);
     std::fs::create_dir_all(dir)?;
     for (name, content) in FILES {
         std::fs::write(dir.join(name), content)?;
     }
+    std::fs::write(
+        dir.join("options.json"),
+        json!({ "sound": sound }).to_string(),
+    )?;
     Ok(())
 }
 

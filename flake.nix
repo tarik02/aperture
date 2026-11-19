@@ -17,6 +17,12 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         lib = pkgs.lib;
+        nodeRuntime = pkgs.nodejs_26;
+        pnpmLatest = pkgs.pnpm_11.override {
+          nodejs-slim = nodeRuntime;
+          version = "11.27.1";
+          hash = "sha256-1Q+IQeZ+8LHYLnyQskBlbHygTV8aoz8GEIAHyB/XZ2Y=";
+        };
 
         browserFonts = [
           pkgs.dejavu_fonts
@@ -94,6 +100,14 @@
                 --set XCURSOR_PATH ${browserCursorPath} \
                 --set XCURSOR_THEME default \
                 --set XCURSOR_SIZE 24 \
+                --prefix XDG_DATA_DIRS : ${
+                  # A dialog of the toolkit's own, such as one the session did not take
+                  # over, ends the browser when it finds no settings schemas.
+                  lib.concatMapStringsSep ":" (schemas: "${schemas}/share/gsettings-schemas/${schemas.name}") [
+                    pkgs.gtk3
+                    pkgs.gsettings-desktop-schemas
+                  ]
+                } \
                 --prefix LD_LIBRARY_PATH : ${
                   lib.makeLibraryPath [
                     pkgs.libva
@@ -172,6 +186,8 @@
             pkgs.rust-analyzer
             pkgs.buf
             pkgs.pkg-config
+            nodeRuntime
+            pnpmLatest
           ];
           buildInputs = [
             pkgs.libxkbcommon
