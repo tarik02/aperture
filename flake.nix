@@ -1309,7 +1309,6 @@
             ];
             APERTURE_BWRAP = lib.getExe pkgs.bubblewrap;
             APERTURE_CHROMIUM = lib.getExe' runtimeChromium "chromium";
-            APERTURE_TAB_WINDOW_EXTENSION = "${tabWindowEnforcer}/share/aperture/extensions/tab-window-enforcer";
             APERTURE_FFMPEG = lib.getExe' runtimeFfmpeg "ffmpeg";
             APERTURE_CURSOR_THEME = "${browserCursorPath}/default";
             APERTURE_GST_PLUGIN_PATH = lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" gstPlugins;

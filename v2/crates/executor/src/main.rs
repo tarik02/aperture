@@ -79,9 +79,6 @@ struct Arguments {
     bwrap: PathBuf,
     #[arg(long, env = "APERTURE_CHROMIUM", default_value = "chromium")]
     chromium: PathBuf,
-    /// The unpacked extension that keeps every page in a browser window of its own.
-    #[arg(long, env = "APERTURE_TAB_WINDOW_EXTENSION")]
-    tab_window_extension: PathBuf,
     /// A local address or network, such as `10.1.2.3` or `192.168.0.0/16`, that sessions'
     /// browsers may reach. What is local to this machine and its network is otherwise
     /// refused them. May be repeated.
@@ -228,10 +225,6 @@ async fn main() -> anyhow::Result<()> {
             tools: Tools {
                 bwrap: executable(&arguments.bwrap)?,
                 chromium: executable(&arguments.chromium)?,
-                extension: arguments
-                    .tab_window_extension
-                    .canonicalize()
-                    .context("the tab window extension was not found")?,
                 native_host: executable(&native_host)?,
                 browser_shim: executable(&browser_shim)?,
                 ffmpeg: arguments.ffmpeg.as_deref().map(executable).transpose()?,

@@ -89,9 +89,7 @@ pub struct Profile {
 pub struct Tools {
     pub bwrap: PathBuf,
     pub chromium: PathBuf,
-    /// The unpacked extension that keeps every page in a browser window of its own.
-    pub extension: PathBuf,
-    /// The extension's native messaging host, `aperture-native-host`.
+    /// The native messaging host of the session's extension, `aperture-native-host`.
     pub native_host: PathBuf,
     /// ffmpeg, which makes the edits of recordings; without it they are left raw.
     pub ffmpeg: Option<PathBuf>,

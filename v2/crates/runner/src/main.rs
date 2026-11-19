@@ -5,6 +5,7 @@
 mod automation;
 mod cdp;
 mod egress;
+mod extension;
 mod files;
 mod live;
 mod pages;
@@ -177,30 +178,27 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
 
     // Before the browser starts: its extension reports as soon as it runs.
     let extension_socket = sockets.join("extension.sock");
+    let extension_dir = spec.runtime_dir.join("extension");
+    extension::unpack(&extension_dir).context("failed to write the extension")?;
     let kept_tabs = spec.state_dir.join("tabs.json");
-    let registry = targets::Registry::bind(&extension_socket, compositor.clone(), kept_tabs)
-        .context("failed to listen for the extension")?;
+    let sound = live::sound::Sound::new();
+    let registry = targets::Registry::bind(
+        &extension_socket,
+        compositor.clone(),
+        kept_tabs,
+        sound.clone(),
+    )
+    .context("failed to listen for the extension")?;
     let mut ready = registry.targets();
 
     let mut live = None;
     let mut recordings = None;
 
-    // The extension that takes the tabs' sounds, and where it is heard. Before the
-    // browser starts, as with the other one.
-    let taps = Taps {
-        socket: sockets.join("sound.sock"),
-        extension: spec.runtime_dir.join("sound-extension"),
-    };
-    live::sound::Sound::unpack_extension(&taps.extension)
-        .context("failed to write the sound extension")?;
-    let sound = live::sound::Sound::new(&taps.socket)
-        .context("failed to listen for the sound extension")?;
-
     let mut browser = start_browser(
         spec,
         &display,
         &extension_socket,
-        &taps,
+        &extension_dir,
         &egress_socket,
         &shared,
         compositor.render_node(),
@@ -317,14 +315,6 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
     outcome
 }
 
-/// What the browser needs to have its tabs' sounds taken.
-struct Taps {
-    /// Where the sound extension's host reaches the runner.
-    socket: PathBuf,
-    /// The extension, unpacked.
-    extension: PathBuf,
-}
-
 /// Starts the browser in its sandbox. The browser runs with `--no-sandbox`, so this one is
 /// what stands between a compromised renderer and the other sessions: it sees its own
 /// profile, cache and files, the sockets of the display, of the extension's host and of its
@@ -336,7 +326,7 @@ fn start_browser(
     spec: &Spec,
     display: &Path,
     extension_socket: &Path,
-    taps: &Taps,
+    extension: &Path,
     egress_socket: &Path,
     shared: &Path,
     render_node: Option<&Path>,
@@ -361,20 +351,9 @@ fn start_browser(
     let hosts = profile.upper.join("NativeMessagingHosts");
     fs::create_dir_all(&hosts)?;
     fs::write(
-        hosts.join(format!("{}.json", targets::NATIVE_HOST)),
-        serde_json::to_vec_pretty(&targets::native_host_manifest(&spec.tools.native_host))?,
+        hosts.join(format!("{}.json", extension::NATIVE_HOST)),
+        serde_json::to_vec_pretty(&extension::native_host_manifest(&spec.tools.native_host))?,
     )?;
-    let manifest = live::sound::Sound::native_host_manifest(&spec.tools.native_host);
-    fs::write(
-        hosts.join(format!("{}.json", live::sound::NATIVE_HOST)),
-        serde_json::to_vec_pretty(&manifest)?,
-    )?;
-
-    let extensions = format!(
-        "{},{}",
-        spec.tools.extension.display(),
-        taps.extension.display()
-    );
 
     let mut command = Command::new(&spec.tools.bwrap);
     command.args([
@@ -414,27 +393,14 @@ fn start_browser(
     command.arg("--dir").arg(sockets);
     command
         .arg("--bind")
-        .arg(&taps.socket)
-        .arg(&taps.socket)
-        .arg("--ro-bind")
-        .arg(&taps.extension)
-        .arg(&taps.extension)
-        .arg("--setenv")
-        .arg(format!(
-            "APERTURE_EXTENSION_SOCKET_{}",
-            live::sound::EXTENSION_ID
-        ))
-        .arg(&taps.socket);
-    command
-        .arg("--bind")
         .arg(display)
         .arg(display)
         .arg("--bind")
         .arg(extension_socket)
         .arg(extension_socket)
         .arg("--ro-bind")
-        .arg(&spec.tools.extension)
-        .arg(&spec.tools.extension)
+        .arg(extension)
+        .arg(extension)
         .arg("--ro-bind")
         .arg(&spec.tools.native_host)
         .arg(&spec.tools.native_host)
@@ -506,8 +472,11 @@ fn start_browser(
         .arg(format!("--user-data-dir={PROFILE}"))
         .arg(format!("--disk-cache-dir={}", spec.cache_dir.display()))
         .arg(format!("--media-cache-dir={}", spec.cache_dir.display()))
-        .arg(format!("--disable-extensions-except={extensions}"))
-        .arg(format!("--load-extension={extensions}"))
+        .arg(format!(
+            "--disable-extensions-except={}",
+            extension.display()
+        ))
+        .arg(format!("--load-extension={}", extension.display()))
         .args([
             "--remote-debugging-address=127.0.0.1",
             "--remote-allow-origins=*",
@@ -554,10 +523,7 @@ fn start_browser(
         .arg(format!("--proxy-server=socks5://127.0.0.1:{PROXY_PORT}"))
         // An extension may tap a tab only once its user has pointed it at the tab, unless
         // it is named here.
-        .arg(format!(
-            "--allowlisted-extension-id={}",
-            live::sound::EXTENSION_ID
-        ))
+        .arg(format!("--allowlisted-extension-id={}", extension::ID))
         .args(&spec.browser_args)
         .env_clear()
         .stdin(Stdio::null());

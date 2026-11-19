@@ -33,12 +33,7 @@ use tokio::{
 };
 use tracing::{debug, info, warn};
 
-use crate::cdp;
-
-/// The extension's id, which follows from the key in its manifest.
-pub const EXTENSION_ID: &str = "imdifnnggmlpoochobfcpghdppldpmjl";
-/// The name the extension asks Chromium for its native messaging host by.
-pub const NATIVE_HOST: &str = "me.tarik02.aperture.tab_window_enforcer";
+use crate::{cdp, live::sound::Sound};
 
 const MESSAGE_LIMIT: usize = 1024 * 1024;
 /// How long the extension waits for a window it opened, or a tab it moved, to show up here.
@@ -156,6 +151,8 @@ struct Inner {
     targets: watch::Sender<Vec<Target>>,
     /// Where the tabs are kept between runs.
     kept: PathBuf,
+    /// What the extension tells of the tabs' sound goes here.
+    sound: Arc<Sound>,
 }
 
 pub struct Registry {
@@ -166,7 +163,12 @@ pub struct Registry {
 impl Registry {
     /// Listens for the extension on `socket`. Targets come once the browser is attached.
     /// The tabs are kept in the file `kept` from one run of the session to the next.
-    pub fn bind(socket: &Path, compositor: Handle, kept: PathBuf) -> std::io::Result<Self> {
+    pub fn bind(
+        socket: &Path,
+        compositor: Handle,
+        kept: PathBuf,
+        sound: Arc<Sound>,
+    ) -> std::io::Result<Self> {
         let _ = std::fs::remove_file(socket);
         let listener = UnixListener::bind(socket)?;
         let (browser, attached) = watch::channel(None);
@@ -187,6 +189,7 @@ impl Registry {
             reconciling: tokio::sync::Mutex::default(),
             targets: watch::Sender::new(Vec::new()),
             kept,
+            sound,
         });
 
         tokio::spawn({
@@ -198,6 +201,7 @@ impl Registry {
                         if let Err(err) = inner.serve(stream).await {
                             debug!("the extension's connection ended: {err:#}");
                         }
+                        inner.sound.untap();
                     });
                 }
             }
@@ -244,7 +248,8 @@ impl Registry {
 
 impl Inner {
     /// Requests and their answers are framed as Chromium frames native messages: the
-    /// length, in the machine's byte order, then JSON.
+    /// length, in the machine's byte order, then JSON. What the extension tells of the
+    /// tabs' sound comes the same way, and is not answered.
     async fn serve(&self, mut stream: UnixStream) -> anyhow::Result<()> {
         loop {
             let mut length = [0; 4];
@@ -256,7 +261,17 @@ impl Inner {
             let mut body = vec![0; length];
             stream.read_exact(&mut body).await?;
 
-            let answer = match serde_json::from_slice::<Request>(&body) {
+            let message: Value = serde_json::from_slice(&body)?;
+            let of_sound = message["type"]
+                .as_str()
+                .is_some_and(|kind| kind.starts_with("sound."));
+            if of_sound {
+                if let Err(err) = self.sound.told(message) {
+                    debug!("the extension said something odd about a tab's sound: {err:#}");
+                }
+                continue;
+            }
+            let answer = match serde_json::from_value::<Request>(message) {
                 Ok(request) => match self.handle(request.kind).await {
                     Ok(()) => json!({ "id": request.id, "ok": true }),
                     Err(err) => {
@@ -594,15 +609,4 @@ struct Page {
     title: String,
     url: String,
     window: Option<i64>,
-}
-
-/// The manifest that tells Chromium where the extension's native messaging host is.
-pub fn native_host_manifest(host: &Path) -> Value {
-    json!({
-        "name": NATIVE_HOST,
-        "description": "Aperture's bridge to the session's extension",
-        "path": host,
-        "type": "stdio",
-        "allowed_origins": [format!("chrome-extension://{EXTENSION_ID}/")],
-    })
 }
