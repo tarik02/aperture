@@ -4,6 +4,7 @@
 //! The runner knows nothing of sessions beyond its own, nor of where the directories it is
 //! given come from.
 
+pub mod options;
 pub mod proxy;
 
 use std::{
@@ -13,12 +14,9 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-/// Who a request to a session's runner comes from, as whoever passed it on says: the
-/// subject and the name to show, both percent-encoded, and the role, `view`, `control` or
-/// `admin`.
-pub const SUBJECT_HEADER: &str = "x-aperture-subject";
-pub const NAME_HEADER: &str = "x-aperture-name";
-pub const ROLE_HEADER: &str = "x-aperture-role";
+pub use aperture_gateway::{
+    Cdp, DEVTOOLS_AUTHORITY, Live, NAME_HEADER, ROLE_HEADER, SUBJECT_HEADER,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Spec {
@@ -114,29 +112,6 @@ pub struct Status {
     pub cdp: Option<Cdp>,
     pub live: Option<Live>,
     pub failure: Option<String>,
-}
-
-/// What the browser calls its DevTools endpoint: where it listens inside its sandbox. The
-/// URLs it lists name it.
-pub const DEVTOOLS_AUTHORITY: &str = "127.0.0.1:9222";
-
-/// The browser's DevTools endpoint: HTTP and WebSockets on a Unix socket, as the browser
-/// serves them on a port of its sandbox.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Cdp {
-    pub socket: PathBuf,
-    /// The path of the browser target's WebSocket, `/devtools/browser/<id>`.
-    pub browser_path: String,
-}
-
-/// Where the session is watched and controlled: the session socket, screenshots and the
-/// rest, as HTTP on a socket. Whoever reaches the socket is trusted.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Live {
-    pub socket: PathBuf,
-    /// Where a client's local tunnel is attached: a connection to this socket is the
-    /// tunnel's bytes.
-    pub tunnel_socket: PathBuf,
 }
 
 pub fn spec_path(runtime_dir: &Path) -> PathBuf {

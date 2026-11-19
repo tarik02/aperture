@@ -18,18 +18,23 @@ mod proto {
 
 use std::{
     fs,
+    hash::{Hash, Hasher},
     os::unix::fs::DirBuilderExt,
     path::{Path, PathBuf},
     process::{ExitCode, Stdio},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
 use anyhow::{Context, bail};
+use aperture_gateway::{Listen, Refused, auth::Keys};
 use aperture_runner::{
-    Cdp, DEVTOOLS_AUTHORITY, Live, Phase, Spec, Status, lock_path, spec_path, write_status,
+    Cdp, DEVTOOLS_AUTHORITY, Live, Phase, Profile, Spec, Status, lock_path,
+    options::{Directories, Options},
+    proxy, spec_path, write_status,
 };
-use futures_util::SinkExt;
+use clap::Parser;
+use futures_util::{SinkExt, future::BoxFuture};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     process::{Child, Command},
@@ -71,6 +76,152 @@ const DEVTOOLS_PORT: u16 = 9222;
 const PROFILE: &str = "/profile";
 const FILES: &str = "/files";
 
+/// Runs one browser session on its own, for whoever holds its token: the session's
+/// endpoints are served here, as an executor serves those of its sessions.
+#[derive(clap::Parser)]
+#[command(name = "aperture-runner serve", bin_name = "aperture-runner serve")]
+struct Serve {
+    /// The session's own directory: its profile, its files and what else it keeps from
+    /// one run to the next. Made when there is none.
+    #[arg(long, env = "APERTURE_DATA")]
+    data: PathBuf,
+    /// An address, or a Unix socket as `unix:PATH`.
+    #[arg(long, env = "APERTURE_LISTEN", default_value = "127.0.0.1:7900")]
+    listen: Listen,
+    /// The session's id, for whoever gives it one: tickets have to name it then. The
+    /// session itself has no use for one.
+    #[arg(long, env = "APERTURE_SESSION_ID")]
+    id: Option<String>,
+    /// Sockets and the state of the running session. A directory of its own below
+    /// `$XDG_RUNTIME_DIR` by default.
+    #[arg(long, env = "APERTURE_RUNTIME_DIR")]
+    runtime_dir: Option<PathBuf>,
+    /// The token requests carry. Generated into the session's directory by default.
+    #[arg(long, env = "APERTURE_TOKEN_FILE")]
+    token_file: Option<PathBuf>,
+    /// The public key tickets are signed with: Ed25519, as PEM. A ticket lets one person
+    /// into the session; none are taken without a key.
+    #[arg(long, env = "APERTURE_TICKET_KEY")]
+    ticket_key: Option<PathBuf>,
+    #[command(flatten)]
+    options: Options,
+}
+
+impl Serve {
+    /// The session's spec, and what it is served with.
+    fn session(self) -> anyhow::Result<(Spec, Front)> {
+        let private = |dir: &Path| {
+            fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(dir)
+                .with_context(|| format!("failed to make {}", dir.display()))
+        };
+        for name in ["profile", "work", "cache", "files", "state"] {
+            private(&self.data.join(name))?;
+        }
+        let data = self.data.canonicalize()?;
+        let within = |name: &str| data.join(name);
+        // The directory tells one session's sockets from another's.
+        let named = {
+            let mut hasher = std::hash::DefaultHasher::new();
+            data.hash(&mut hasher);
+            format!("aperture-session-{:016x}", hasher.finish())
+        };
+        let runtime_dir = match self.runtime_dir {
+            Some(dir) => dir,
+            None => match std::env::var_os("XDG_RUNTIME_DIR").filter(|dir| !dir.is_empty()) {
+                Some(dir) => PathBuf::from(dir).join(named),
+                None => std::env::temp_dir().join(named),
+            },
+        };
+        private(&runtime_dir)?;
+        let keys = Keys::read(
+            &self.token_file.unwrap_or_else(|| within("token")),
+            self.ticket_key.as_deref(),
+            // At the root, for a ticket that names it, or any ticket when it has no name.
+            Box::new({
+                let id = self.id.clone();
+                move |session| {
+                    id.as_deref()
+                        .is_none_or(|id| id == session)
+                        .then(String::new)
+                }
+            }),
+        )?;
+        let directories = Directories {
+            profile: Profile {
+                lowers: Vec::new(),
+                upper: within("profile"),
+                work: within("work"),
+            },
+            cache: within("cache"),
+            files: within("files"),
+            state: within("state"),
+        };
+        let spec = self.options.setup()?.spec(
+            self.id.as_deref().unwrap_or("own"),
+            runtime_dir.canonicalize()?,
+            directories,
+            proxy::Config::default(),
+        );
+        Ok((
+            spec,
+            Front {
+                listen: self.listen,
+                keys: Mutex::new(Some(keys)),
+            },
+        ))
+    }
+}
+
+/// Where a session that runs on its own is reached, and by whom.
+struct Front {
+    listen: Listen,
+    /// Until the session is served.
+    keys: Mutex<Option<Keys>>,
+}
+
+impl Front {
+    /// Serves the session, from now until the task is aborted.
+    async fn serve(&self, own: Own) -> anyhow::Result<tokio::task::JoinHandle<()>> {
+        let keys = self.keys.lock().expect("not poisoned").take();
+        let keys = keys.context("the session is served already")?;
+        let listening = self
+            .listen
+            .bind()
+            .await
+            .with_context(|| format!("failed to listen on {}", self.listen))?;
+        info!(listen = %self.listen, "session served");
+        let app = aperture_gateway::guarded(aperture_gateway::router(Arc::new(own), true), keys);
+        Ok(tokio::spawn(async move {
+            if let Err(err) = listening.serve(app, std::future::pending()).await {
+                warn!("the session is no longer served: {err}");
+            }
+        }))
+    }
+}
+
+/// The session itself, as the gateway reaches it.
+struct Own {
+    live: Live,
+    cdp: Cdp,
+}
+
+impl aperture_gateway::Sessions for Own {
+    fn live<'a>(&'a self, _id: &'a str) -> BoxFuture<'a, Result<Live, Refused>> {
+        Box::pin(async move { Ok(self.live.clone()) })
+    }
+
+    fn cdp<'a>(&'a self, _id: &'a str) -> BoxFuture<'a, Result<Cdp, Refused>> {
+        Box::pin(async move { Ok(self.cdp.clone()) })
+    }
+
+    fn present(&self, _id: &str) -> Box<dyn Send> {
+        Box::new(())
+    }
+}
+
 // Children are told to die with the thread that started them (see `own`). `main`'s future
 // runs on the main thread, the one that lives as long as the runner, so they are started
 // from it and never from a spawned task.
@@ -83,15 +234,26 @@ async fn main() -> anyhow::Result<ExitCode> {
         .init();
 
     let arguments: Vec<String> = std::env::args().skip(1).collect();
-    let [runtime_dir] = &arguments[..] else {
-        eprintln!("usage: aperture-runner RUNTIME_DIR");
-        return Ok(ExitCode::from(2));
+    let (spec, front) = match &arguments[..] {
+        // Its own name is what the first argument stands for here.
+        [first, ..] if first == "serve" => {
+            let (spec, front) = Serve::parse_from(&arguments).session()?;
+            (spec, Some(front))
+        }
+        [runtime_dir] => {
+            let spec =
+                fs::read(spec_path(Path::new(runtime_dir))).context("failed to read the spec")?;
+            (serde_json::from_slice(&spec).context("invalid spec")?, None)
+        }
+        _ => {
+            eprintln!(
+                "usage: aperture-runner RUNTIME_DIR\n       aperture-runner serve --data DIR"
+            );
+            return Ok(ExitCode::from(2));
+        }
     };
-    let runtime_dir = PathBuf::from(runtime_dir);
-    let spec: Spec = serde_json::from_slice(
-        &fs::read(spec_path(&runtime_dir)).context("failed to read the spec")?,
-    )
-    .context("invalid spec")?;
+    let spec: Spec = spec;
+    let runtime_dir = spec.runtime_dir.clone();
 
     // Held until the runner exits, see `aperture_runner::is_alive`. Whoever looks holds it
     // for an instant, hence the wait.
@@ -108,7 +270,7 @@ async fn main() -> anyhow::Result<ExitCode> {
     };
     write_status(&runtime_dir, &status)?;
 
-    let outcome = run(&spec, &mut status).await;
+    let outcome = run(&spec, &mut status, front.as_ref()).await;
     status.cdp = None;
     status.live = None;
     let code = match outcome {
@@ -127,7 +289,7 @@ async fn main() -> anyhow::Result<ExitCode> {
     Ok(code)
 }
 
-async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
+async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow::Result<()> {
     let mut terminate = signal(SignalKind::terminate())?;
     let mut interrupt = signal(SignalKind::interrupt())?;
 
@@ -192,6 +354,7 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
     let mut ready = registry.targets();
 
     let mut live = None;
+    let mut served = None;
     let mut recordings = None;
 
     let mut browser = start_browser(
@@ -283,6 +446,13 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
         status.cdp = Some(cdp.clone());
         status.phase = Phase::Running;
         write_status(&spec.runtime_dir, status)?;
+        if let (Some(front), Some(live)) = (front, &status.live) {
+            let own = Own {
+                live: live.clone(),
+                cdp: cdp.clone(),
+            };
+            served = Some(front.serve(own).await?);
+        }
 
         tokio::select! {
             exit = browser.wait() => bail!("the browser exited: {}", exit?),
@@ -307,6 +477,9 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
     stop(&mut browser, "browser").await;
     if let Some(live) = live {
         live.abort();
+    }
+    if let Some(served) = served {
+        served.abort();
     }
     for task in egress_tasks {
         task.abort();

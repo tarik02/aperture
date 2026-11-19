@@ -1,17 +1,15 @@
-//! A running session's live endpoints, served by the executor at `/sessions/{id}/live`, and
-//! its automation at `/sessions/{id}/mcp`: requests go on to the session's runner, which
-//! serves them on a socket in its runtime directory. The live path itself answers with a
-//! page that shows the session.
+//! A running session's own endpoints: requests go on to the session, which serves them on
+//! a socket of its own. The session's root answers with a page that shows it.
 
 use std::sync::Arc;
 
 use axum::{
     Extension, Router,
     body::{Body, Bytes},
-    extract::{Path, Request, State, WebSocketUpgrade, ws::Message},
+    extract::{Request, State, WebSocketUpgrade, ws::Message},
     http::{StatusCode, Uri, header},
     response::{Html, IntoResponse, Response},
-    routing::{any, get},
+    routing::get,
 };
 use futures_util::{SinkExt, StreamExt};
 use http_body_util::BodyExt;
@@ -22,65 +20,54 @@ use tokio::{
 };
 use tracing::debug;
 
-use crate::{
-    auth::Caller,
-    sessions::{Error, Sessions},
-};
+use crate::{Sessions, Which, auth::Caller};
 
-pub fn path(session_id: &str) -> String {
-    format!("/sessions/{session_id}/live")
+pub fn router(sessions: Arc<dyn Sessions>, viewer: bool) -> Router {
+    let routes = Router::new()
+        .route("/ws", get(session_socket))
+        .route("/tunnel", get(tunnel))
+        .fallback(forward);
+    let routes = if viewer {
+        routes.route("/", get(shown))
+    } else {
+        routes
+    };
+    routes.with_state(sessions)
 }
 
-pub fn mcp_path(session_id: &str) -> String {
-    format!("/sessions/{session_id}/mcp")
+async fn shown() -> Html<&'static str> {
+    viewer()
 }
 
-pub fn tunnel_path(session_id: &str) -> String {
-    format!("/sessions/{session_id}/tunnel")
-}
-
-pub fn router(sessions: Arc<Sessions>) -> Router {
-    Router::new()
-        .route("/sessions/{id}/live", get(viewer))
-        .route("/sessions/{id}/live/", get(viewer))
-        .route("/sessions/{id}/live/ws", get(session_socket))
-        .route("/sessions/{id}/live/{*rest}", any(forward))
-        .route("/sessions/{id}/mcp", any(mcp))
-        .route("/sessions/{id}/tunnel", get(tunnel))
-        .with_state(sessions)
-}
-
-async fn viewer() -> Html<&'static str> {
+/// The page that shows a session, which finds the session where the page itself is.
+pub fn viewer() -> Html<&'static str> {
     Html(include_str!("viewer.html"))
 }
 
+/// Whatever else is asked of a session is the session's own to answer.
 async fn forward(
-    State(sessions): State<Arc<Sessions>>,
-    Path((id, _)): Path<(String, String)>,
+    State(sessions): State<Arc<dyn Sessions>>,
+    Which(id): Which,
     request: Request,
 ) -> Response {
     // As the client wrote it: a path taken apart and put together again is another one
     // where it has escapes.
-    let rest = request.uri().path().strip_prefix(path(&id).as_str());
-    let rest = rest.unwrap_or_default().to_owned();
-    forward_to(&sessions, &id, &rest, request).await
-}
-
-async fn mcp(
-    State(sessions): State<Arc<Sessions>>,
-    Path(id): Path<String>,
-    request: Request,
-) -> Response {
-    forward_to(&sessions, &id, "/mcp", request).await
+    let rest = request.uri().path().to_owned();
+    forward_to(&*sessions, &id, &rest, request).await
 }
 
 /// Passes the request on to the session's runner, as a request for `path` there.
-async fn forward_to(sessions: &Sessions, id: &str, path: &str, mut request: Request) -> Response {
+async fn forward_to(
+    sessions: &dyn Sessions,
+    id: &str,
+    path: &str,
+    mut request: Request,
+) -> Response {
     let live = match sessions.live(id).await {
         Ok(live) => live,
-        Err(err) => return refuse(err),
+        Err(refused) => return refused.into_response(),
     };
-    // The runner knows nothing of the executor's paths or its token.
+    // The session knows nothing of these paths or of tokens.
     *request.uri_mut() = match path.parse::<Uri>() {
         Ok(uri) => uri,
         Err(err) => return (StatusCode::BAD_REQUEST, err.to_string()).into_response(),
@@ -109,8 +96,8 @@ async fn forward_to(sessions: &Sessions, id: &str, path: &str, mut request: Requ
 
 /// A client's session socket: its messages go to the session's runner and back as they are.
 async fn session_socket(
-    State(sessions): State<Arc<Sessions>>,
-    Path(id): Path<String>,
+    State(sessions): State<Arc<dyn Sessions>>,
+    Which(id): Which,
     Extension(caller): Extension<Caller>,
     upgrade: WebSocketUpgrade,
 ) -> Response {
@@ -118,7 +105,7 @@ async fn session_socket(
 
     let live = match sessions.live(&id).await {
         Ok(live) => live,
-        Err(err) => return refuse(err),
+        Err(refused) => return refused.into_response(),
     };
     let runner = async {
         let stream = UnixStream::connect(&live.socket).await?;
@@ -182,13 +169,13 @@ async fn session_socket(
 /// A client attaches the session's local tunnel: the WebSocket's binary messages are the
 /// tunnel's bytes, passed to the runner and back as they are.
 async fn tunnel(
-    State(sessions): State<Arc<Sessions>>,
-    Path(id): Path<String>,
+    State(sessions): State<Arc<dyn Sessions>>,
+    Which(id): Which,
     upgrade: WebSocketUpgrade,
 ) -> Response {
     let live = match sessions.live(&id).await {
         Ok(live) => live,
-        Err(err) => return refuse(err),
+        Err(refused) => return refused.into_response(),
     };
     let here = sessions.present(&id);
     upgrade
@@ -263,16 +250,4 @@ pub async fn put(socket: &std::path::Path, path: &str, body: Vec<u8>) -> anyhow:
     let said = response.into_body().collect().await?.to_bytes();
     anyhow::ensure!(status.is_success(), "{}", String::from_utf8_lossy(&said));
     Ok(())
-}
-
-fn refuse(err: Error) -> Response {
-    let status = match &err {
-        Error::NotRunning(_) => StatusCode::CONFLICT,
-        Error::Store(
-            aperture_store::StoreError::SessionNotFound(_)
-            | aperture_store::StoreError::InvalidId(_),
-        ) => StatusCode::NOT_FOUND,
-        _ => StatusCode::INTERNAL_SERVER_ERROR,
-    };
-    (status, err.to_string()).into_response()
 }

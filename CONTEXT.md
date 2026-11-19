@@ -1,108 +1,78 @@
 # Aperture
 
-Aperture supervises isolated browser sessions and retains the state and files they produce.
+Aperture runs isolated browser sessions that people and agents watch and control together, and keeps what the sessions produce.
 
 ## Language
 
-**Live session**:
-The active, transient browser state and shared activity available while a browser session runs, including browser targets, session clients, presentation, input leases, collaboration, and recording jobs. Interactive clients and automation act on the same live session.
-_Avoid_: Collaboration hub, browser transport, wrapper runtime
+**Session**:
+One browser with its own profile, files and network route, and everything around it that lets it be watched and controlled. It has no use for an id of its own: its routes (`/ws`, `/mcp`, `/cdp`, `/tunnel`, `/targets`, `/files` and the rest) are the same wherever it runs, at the root when it serves itself and below `/sessions/{id}` on an executor.
+_Avoid_: Instance, container, workspace
+
+**Runner**:
+The process that runs one session: its compositor, its sandboxed browser, and its live endpoints, automation, recordings and sound. It knows nothing of sessions other than its own. It runs under an executor, or on its own with `serve`.
+_Avoid_: Wrapper, supervisor, worker
+
+**Executor**:
+The process that runs the sessions of one node: it keeps their profiles and snapshots, starts and stops their runners, holds them to limits, and lets callers in. It needs no control plane.
+_Avoid_: Server, daemon, agent
+
+**Gateway**:
+The way into sessions from outside: it decides who a request comes from and passes it on to the session's own sockets. An executor mounts it for each of its sessions; a runner that serves itself mounts it at the root.
+_Avoid_: Proxy, router, API layer
+
+**Control plane**:
+What stands above executors: tenants, access, and which node a session runs on. It signs tickets. Not built yet.
+
+**Target**:
+A page of the session and the window that shows it. Each page has a window of its own, so a target is what a client watches, records and gives input to. Its id lasts for one run of the session.
+_Avoid_: Window, surface, view
+
+**Tab**:
+A target's number, which stays the same when the session is suspended and resumed. Leases, automation and recordings name a tab; the target id is for one run only.
+
+**Live protocol**:
+The messages a client and a session exchange on the session socket (`aperture.live.v1`): targets, input, clipboard, files, presence, and the target's pixels as WebRTC video, encoded frames or tiles.
+_Avoid_: Collaboration protocol, transport
+
+**Lease**:
+The right to give a tab input, held by one person or agent at a time. A person takes it from an agent at once; equals ask and wait for an answer. Watching needs none.
+_Avoid_: Lock, control, focus
+
+**Presence**:
+Who is connected to a session, which tab each watches, and who holds which lease.
+
+**Operator token**:
+The secret of whoever serves the sessions. Its holder may do anything there.
+
+**Ticket**:
+A signed, expiring pass for one person into one session with one role: `view`, `control` or `admin`. Whoever stands above the executor signs it; the gateway only checks it.
+_Avoid_: Session token, share link
+
+**Snapshot**:
+A session's profile as it was at one moment, kept as a read-only layer. A session created from a snapshot starts with that profile and writes its own changes above it. Snapshots are the executor's; a runner that serves itself has a plain profile directory.
 
 **Session file**:
-A regular file below the session's single files root, identified by its path relative to that root. Browser downloads, completed recordings, uploads, and Playwright MCP output are session files; operational logs and crash dumps are not. Session files never enter a promoted snapshot, and a session created from a snapshot starts with none.
-_Avoid_: Retained file, recording file
+A file under the session's files directory: downloads, uploads and recordings. Session files are not part of the profile and never enter a snapshot.
+
+**Recording**:
+A target's video and sound from start to stop, written as it is encoded for those who watch, with a journal of what automation did meanwhile. That is the raw recording.
 
 **Recording edit**:
-What stopping a recording makes of its raw video and its journal: an H.264 video with the cuts, captions, zooms and click ripples the recording asked for, and a timeline of what the automation did, in the raw and the edited video's time. Stopping returns at once with the raw video kept and published; the edit runs afterwards, shown as `editing` on the recording, and is never a replacement of the raw video. A failed or cancelled edit is reported on the recording.
+What is made of a raw recording once it stops: a second video with the cuts, speed-ups, captions, zooms and click ripples the recording asked for, and a timeline that maps one to the other. The raw recording stays.
 _Avoid_: Post-processing, render
 
-**Automation cadence**:
-How visibly browser automation acts on a live session: `immediate` is raw CDP with no added latency; the paced cadences are real compositor input at a recording's **pace**: `instant` jumps the pointer, `fast` and `slow` glide it in Fitts's-law time. The slowest pace of the running recordings applies, and at least `fast` while a connected owner or editor asked for watchable pacing.
-_Avoid_: Speed mode, slow mode, throttling
+**Tap**:
+The session's extension taking one tab's sound apart from the others, so each listener hears the tab they watch. A tapped tab plays into its tap and nowhere else.
 
-**Pacing**:
-A session client's request (`automation.pacing.set`) that the automation it watches run at least at the `fast` cadence. It is ephemeral: it belongs to the client and ends when the client disconnects.
-_Avoid_: Watch mode, follow mode
+**Egress**:
+How the session's browser reaches the network. It has no network of its own: every connection goes through the runner, which refuses local and private addresses unless allowed and routes the rest by the session's proxy rules.
 
-**Hot storage**:
-Host-local storage for the overlay state of running and stopped sessions.
-_Avoid_: Store, state directory
+**Tunnel**:
+A route a client attaches to a session so that connections the rules send `via: local` are made from the client's machine.
 
-**Cold storage**:
-Storage for promoted snapshots and session files, which outlive the sessions that produced them and may be shared network storage.
-_Avoid_: Archive, file store
+**Limits**:
+What a session may use (memory, swap, processor time, tasks) and how long it may sit idle. Resource limits take an executor that runs sessions as systemd scopes.
 
-**Browser target**:
-A live browser page exposed by Aperture as an independently selectable destination for viewing, control, and recording. Its identity survives navigation and internal remapping, but ends when the page closes or the browser restarts.
-_Avoid_: CDP target, tab
-
-**Presentation**:
-The live visual output of one browser target delivered to one session client. Selecting a presentation is client-local and neither focuses the browser nor retargets another client or recording.
-The session client chooses WebRTC or WebSocket raster delivery locally. The compositor encoder profile, frame rate, and bitrate are shared by all WebRTC presentations in the live session.
-_Avoid_: Active tab, screen share, media target
-
-**Session actor**:
-An interactive session client or one automation operation authorized to act on a live session. Only one session actor may hold the input lease at a time.
-_Avoid_: User, peer, API token
-
-**Session client**:
-One active workbench instance participating in a browser session as a persistent session actor. It retains its identity briefly while replacing a failed session transport; two windows from the same person remain separate session clients.
-_Avoid_: Collaboration client, viewer, user, peer
-
-**Resume secret**:
-An ephemeral credential proving that a replacement session transport belongs to an existing session client. It grants no browser-session access by itself and expires when that client disconnects.
-_Avoid_: Client ID, editor capability, viewer capability
-
-**Session transport**:
-The single active live connection of a session client, carrying both its presentation and session protocol. Replacing it preserves the session client's identity through an atomic handover or a five-second failure recovery window.
-_Avoid_: Transport attachment, collaboration socket, media connection
-
-**Session snapshot**:
-The complete recoverable state delivered when a session transport becomes active, including browser targets, presentation, presence, input lease, follow relationships, and recording jobs. Direct input, cursor positions, and overlay-stroke activity never belong to the snapshot.
-_Avoid_: Shell snapshot, revision, event log
-
-**Realtime message**:
-A disposable update whose newest value matters more than guaranteed delivery, such as pointer motion, cursor position, or an intermediate overlay-stroke point. Realtime messages are never replayed after session transport replacement.
-_Avoid_: State event, command
-
-**Input lease**:
-The session-wide right held by one session actor to send direct input such as pointer, wheel, keyboard, text, and clipboard actions through the live session. It does not restrict authorized target and navigation commands or privileged owner CDP access.
-_Avoid_: Input lock, tab lock, control ownership
-
-**Viewport owner**:
-The one interactive session client, an owner or editor with auto-size enabled, whose own presentation size resizes the browser viewport. Other auto-sizing clients are suspended and see the shared viewport scaled. Ownership passes to the most recent auto-sizing client when the owner disables auto-size or disconnects, becomes vacant after an explicit viewport change by anyone else and stays vacant until a client toggles auto-size on or takes over explicitly. Automation and viewers are never viewport owners.
-_Avoid_: Size lock, viewport lease, auto-sync leader
-
-**Editor capability**:
-A rotatable session secret that permits collaborative browser control without session management, recording, file, or unrestricted CDP authority.
-_Avoid_: Share token, session token
-
-**Viewer capability**:
-A rotatable session secret that permits observing and visual collaboration but never browser input.
-_Avoid_: Read-only session token, guest token
-
-**Follow relationship**:
-An ephemeral directed edge from one session client to another. The follower adopts the followed client's selected browser target and highlights that client's cursor. Chains are allowed; cycles are rejected.
-_Avoid_: Screen share, control transfer
-
-**Proxy rule**:
-An ordered session proxy entry that routes the browser connections its match covers: direct, refused, through a named upstream, or through the local tunnel. The first matching rule wins.
-_Avoid_: Bypass list, proxy assignment
-
-**Local tunnel**:
-A WebSocket a client opens to a running session so that the connections the session's proxy rules route via `local` are dialed on the client's machine. It lasts as long as the WebSocket; a session has at most one.
-_Avoid_: Reverse proxy, tunnel upstream, port forward
-
-**Overlay stroke**:
-An ephemeral visual mark attached to one browser target. Any session client may create one, including clients using a viewer capability. It never becomes browser input or retained session state.
-_Avoid_: Annotation document, whiteboard object
-
-## Example dialogue
-
-Developer: "What should stopping a recording return?"
-
-Domain expert: "Return the session file. Its relative path can be used to create a signed download URL."
-
-Developer: "Does following another client give me control?"
-
-Domain expert: "No. A follow relationship changes your selected browser target; an input lease permits browser input."
+**Asleep**:
+Suspended by the executor for sitting idle, and resumed when someone reaches the session again. A session suspended on request stays suspended.
+_Avoid_: Hibernated, paused

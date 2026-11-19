@@ -1,14 +1,15 @@
 //! Who a request comes from.
 //!
-//! The executor's own token is the operator's: whoever holds it may do anything. Anyone
-//! else comes with a ticket, which whoever runs the executors signs for one person and
-//! one session: a JWT signed with Ed25519 (`EdDSA`), which the executor checks against the
-//! public key it is given. A ticket lets its holder into the session's live endpoints, as
+//! The token of whoever serves the sessions is the operator's: whoever holds it may do
+//! anything. Anyone else comes with a ticket, which whoever stands above signs for one
+//! person and one session: a JWT signed with Ed25519 (`EdDSA`), checked against the public
+//! key that was given. A ticket lets its holder into the session's live endpoints, as
 //! far as its role goes.
 
-use std::sync::Arc;
+use std::{fs, os::unix::fs::PermissionsExt, path::Path, sync::Arc};
 
-use aperture_runner::{NAME_HEADER, ROLE_HEADER, SUBJECT_HEADER};
+use anyhow::Context;
+
 use axum::{
     extract::{Request, State},
     http::{HeaderValue, Method, StatusCode, header},
@@ -19,6 +20,8 @@ use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use percent_encoding::{NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
 use serde::Deserialize;
 use subtle::ConstantTimeEq;
+
+use crate::{NAME_HEADER, ROLE_HEADER, SUBJECT_HEADER};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -80,6 +83,46 @@ pub struct Keys {
     pub token: Arc<str>,
     /// What tickets are checked against; none are taken without.
     pub tickets: Option<DecodingKey>,
+    /// Where the session a ticket names is reached, when it is one of those served here.
+    pub place: Place,
+}
+
+/// The path of a session by its id; none for a session that is not served.
+pub type Place = Box<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
+impl Keys {
+    /// The operator's token from the file `token`, which is made with a new one when
+    /// there is none, and the public key tickets are checked against from `ticket_key`,
+    /// in PEM.
+    pub fn read(token: &Path, ticket_key: Option<&Path>, place: Place) -> anyhow::Result<Self> {
+        if !token.exists() {
+            let made = format!(
+                "{}{}",
+                uuid::Uuid::new_v4().simple(),
+                uuid::Uuid::new_v4().simple()
+            );
+            fs::write(token, &made)
+                .with_context(|| format!("failed to write {}", token.display()))?;
+            fs::set_permissions(token, fs::Permissions::from_mode(0o600))?;
+        }
+        let read = fs::read_to_string(token)
+            .with_context(|| format!("failed to read the token {}", token.display()))?;
+        let read = read.trim();
+        anyhow::ensure!(!read.is_empty(), "the token {} is empty", token.display());
+        let tickets = match ticket_key {
+            Some(key) => {
+                let pem = fs::read(key)
+                    .with_context(|| format!("failed to read the ticket key {}", key.display()))?;
+                Some(DecodingKey::from_ed_pem(&pem).context("the ticket key is no Ed25519 key")?)
+            }
+            None => None,
+        };
+        Ok(Self {
+            token: Arc::from(read),
+            tickets,
+            place,
+        })
+    }
 }
 
 /// The token or ticket comes in `Authorization: Bearer`, or in the query as `token` for
@@ -122,7 +165,7 @@ fn caller(keys: &Keys, request: &Request) -> Result<Caller, StatusCode> {
         .as_ref()
         .and_then(|key| ticket(key, given))
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    if !allows(&claims, request.method(), request.uri().path()) {
+    if !allows(keys, &claims, request.method(), request.uri().path()) {
         return Err(StatusCode::FORBIDDEN);
     }
     Ok(Caller {
@@ -143,14 +186,24 @@ fn ticket(key: &DecodingKey, given: &str) -> Option<Claims> {
 }
 
 /// Whether a ticket lets its holder do this: watching is anyone's, files and a target's
-/// viewport take a role that gives input, and the rest of a session's live endpoints is
-/// an admin's. Nothing outside them is a ticket's.
-fn allows(claims: &Claims, method: &Method, path: &str) -> bool {
-    let live = crate::live::path(&claims.sid);
-    let Some(rest) = path.strip_prefix(&live) else {
+/// viewport take a role that gives input, and the rest of what the session itself answers
+/// is an admin's. Its browser's DevTools, its automation and its tunnel are no ticket's,
+/// and nor is anything outside the session.
+fn allows(keys: &Keys, claims: &Claims, method: &Method, path: &str) -> bool {
+    let Some(session) = (keys.place)(&claims.sid) else {
+        return false;
+    };
+    let Some(rest) = path.strip_prefix(&session) else {
         return false;
     };
     if !rest.is_empty() && !rest.starts_with('/') {
+        return false;
+    }
+    let below = |part: &str| {
+        rest.strip_prefix(part)
+            .is_some_and(|more| more.is_empty() || more.starts_with('/'))
+    };
+    if below("/cdp") || below("/mcp") || below("/tunnel") {
         return false;
     }
     let needed = if method == Method::GET {

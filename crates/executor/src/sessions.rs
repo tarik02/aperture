@@ -15,11 +15,15 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use aperture_gateway::Refused;
 use aperture_runner::{
-    Cdp, Live, Phase, PortRange, Profile, Spec, Status, Tools, Viewport, is_alive, proxy,
-    read_status,
+    Cdp, Live, Phase, Profile, Status, is_alive,
+    options::{Directories, Setup},
+    proxy, read_status,
 };
 use aperture_store::{SessionRecord, SnapshotRecord, Store, StoreError};
+use axum::http::StatusCode;
+use futures_util::future::BoxFuture;
 use tokio::time::{Instant, sleep};
 use tracing::{info, warn};
 
@@ -64,13 +68,8 @@ pub struct Config {
     /// Each session's runtime directory is below this one.
     pub runtime_root: PathBuf,
     pub runner: PathBuf,
-    pub tools: Tools,
-    pub viewport: Viewport,
-    pub rtc_ports: Option<PortRange>,
-    pub cursor_theme: Option<PathBuf>,
-    pub gpu: bool,
-    pub egress_allow: Vec<String>,
-    pub browser_args: Vec<String>,
+    /// How sessions run.
+    pub setup: Setup,
     /// The limits of a session that has none of its own.
     pub limits: Limits,
     /// What holds sessions to their limits; without it they are not.
@@ -201,7 +200,7 @@ impl Sessions {
         else {
             return true;
         };
-        match crate::live::ask(&live.socket, "/busy").await {
+        match aperture_gateway::ask(&live.socket, "/busy").await {
             Ok(busy) => busy
                 .as_object()
                 .is_none_or(|busy| busy.values().any(|count| count.as_u64() != Some(0))),
@@ -253,7 +252,7 @@ impl Sessions {
             .set_session_proxy(id, proxy.map(checked).transpose()?)?;
         if let Ok(live) = self.running_live(id) {
             let body = serde_json::to_vec(&config).expect("a configuration is serializable");
-            crate::live::put(&live.socket, "/proxy", body)
+            aperture_gateway::put(&live.socket, "/proxy", body)
                 .await
                 .map_err(|reason| Error::Proxy(format!("{reason:#}")))?;
         }
@@ -451,26 +450,20 @@ impl Sessions {
             .create(&runtime)
             .map_err(io)?;
         remove_file(&aperture_runner::status_path(&runtime))?;
-        let spec = Spec {
-            session_id: id.to_owned(),
-            runtime_dir: runtime.clone(),
+        let directories = Directories {
             profile: Profile {
                 lowers: paths.lowers,
                 upper: paths.upper,
                 work: paths.work,
             },
-            cache_dir: paths.cache,
-            files_dir: paths.files,
-            state_dir: paths.state,
-            tools: self.config.tools.clone(),
-            viewport: self.config.viewport,
-            rtc_ports: self.config.rtc_ports,
-            cursor_theme: self.config.cursor_theme.clone(),
-            gpu: self.config.gpu,
-            egress_allow: self.config.egress_allow.clone(),
-            proxy,
-            browser_args: self.config.browser_args.clone(),
+            cache: paths.cache,
+            files: paths.files,
+            state: paths.state,
         };
+        let spec = self
+            .config
+            .setup
+            .spec(id, runtime.clone(), directories, proxy);
         fs::write(
             aperture_runner::spec_path(&runtime),
             serde_json::to_vec_pretty(&spec).expect("a spec is serializable"),
@@ -609,6 +602,42 @@ impl Sessions {
 
     fn runtime_dir(&self, id: &str) -> PathBuf {
         self.config.runtime_root.join(id)
+    }
+}
+
+/// Where a session is reached: its own routes are below this.
+pub fn path(session_id: &str) -> String {
+    format!("/sessions/{session_id}")
+}
+
+/// The node's sessions, as the gateway reaches them.
+pub struct Door(pub Arc<Sessions>);
+
+impl aperture_gateway::Sessions for Door {
+    fn live<'a>(&'a self, id: &'a str) -> BoxFuture<'a, std::result::Result<Live, Refused>> {
+        Box::pin(async move { self.0.live(id).await.map_err(refused) })
+    }
+
+    fn cdp<'a>(&'a self, id: &'a str) -> BoxFuture<'a, std::result::Result<Cdp, Refused>> {
+        Box::pin(async move { self.0.cdp(id).await.map_err(refused) })
+    }
+
+    fn present(&self, id: &str) -> Box<dyn Send> {
+        Box::new(self.0.present(id))
+    }
+}
+
+fn refused(err: Error) -> Refused {
+    let status = match &err {
+        Error::NotRunning(_) => StatusCode::CONFLICT,
+        Error::Store(StoreError::SessionNotFound(_) | StoreError::InvalidId(_)) => {
+            StatusCode::NOT_FOUND
+        }
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    Refused {
+        status,
+        reason: err.to_string(),
     }
 }
 

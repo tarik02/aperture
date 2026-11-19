@@ -105,9 +105,9 @@ name = "aperture-executor"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "aperture-gateway",
  "aperture-runner",
  "aperture-store",
- "aperture-tunnel",
  "axum",
  "buffa",
  "buffa-types",
@@ -115,20 +115,34 @@ dependencies = [
  "connectrpc",
  "connectrpc-build",
  "futures-util",
+ "libc",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "aperture-gateway"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aperture-tunnel",
+ "axum",
+ "futures-util",
  "http-body-util",
  "hyper",
  "hyper-util",
  "jsonwebtoken",
- "libc",
  "percent-encoding",
  "serde",
  "serde_json",
  "subtle",
- "thiserror 2.0.21",
  "tokio",
  "tokio-tungstenite",
  "tracing",
- "tracing-subscriber",
  "uuid",
 ]
 
@@ -138,6 +152,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "aperture-compositor",
+ "aperture-gateway",
  "aperture-tunnel",
  "async-trait",
  "axum",
@@ -147,6 +162,7 @@ dependencies = [
  "browse-page",
  "browse-script",
  "buffa",
+ "clap",
  "connectrpc",
  "connectrpc-build",
  "fast-socks5",

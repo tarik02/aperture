@@ -89,7 +89,7 @@ const listed = (await rpc("ListSessions")).sessions;
 check("both sessions survive an executor restart", listed.length === 2 && listed.every((s) => s.state === "SESSION_STATE_RUNNING"));
 
 // B's window, watched and controlled from A's browser through the viewer page.
-const live = `${base}/sessions/${b.id}/live`;
+const live = `${base}/sessions/${b.id}`;
 c = cdp(b.id);
 const page = `<body style='margin:0;background:%23246;color:white;font:48px sans-serif'><h1>Session B</h1><button style='position:absolute;left:100px;top:300px;width:300px;height:100px;font-size:32px' onclick="document.title='clicked'">click me</button><input id=i style='position:absolute;left:100px;top:450px;width:400px;font-size:32px' oninput="document.title='typed:'+this.value"><div style='height:3000px'></div>`;
 const created = await c.send("Target.createTarget", { url: `data:text/html,${page}` });

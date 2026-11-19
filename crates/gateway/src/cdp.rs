@@ -1,19 +1,18 @@
-//! A running session's DevTools endpoint, served by the executor: the browser's WebSocket
+//! A running session's DevTools endpoint: the browser's WebSocket
 //! at `/sessions/{id}/cdp`, and below it the browser's own discovery routes (`json/version`,
 //! `json/list`, ...) and target WebSockets (`devtools/page/<id>`), so that a client given
 //! the one URL finds the rest as it would on the browser's port.
 
 use std::{path::PathBuf, sync::Arc};
 
-use aperture_runner::DEVTOOLS_AUTHORITY;
 use axum::{
     Router,
     body::{Body, Bytes},
     extract::{
-        OriginalUri, Path, State, WebSocketUpgrade,
+        OriginalUri, State, WebSocketUpgrade,
         ws::{Message as ClientMessage, WebSocket},
     },
-    http::{HeaderMap, Method, Request, StatusCode, header},
+    http::{HeaderMap, Method, Request, StatusCode, Uri, header},
     response::{IntoResponse, Response},
     routing::{any, get},
 };
@@ -24,50 +23,49 @@ use tokio::net::UnixStream;
 use tokio_tungstenite::tungstenite::{Message as BrowserMessage, protocol::WebSocketConfig};
 use tracing::debug;
 
-use crate::sessions::{Error, Presence, Sessions};
+use crate::{DEVTOOLS_AUTHORITY, Sessions, Which};
 
-pub fn path(session_id: &str) -> String {
-    format!("/sessions/{session_id}/cdp")
-}
-
-pub fn router(sessions: Arc<Sessions>) -> Router {
+pub fn router(sessions: Arc<dyn Sessions>) -> Router {
     Router::new()
-        .route("/sessions/{id}/cdp", get(browser))
-        .route("/sessions/{id}/cdp/devtools/{*target}", get(target))
-        .route("/sessions/{id}/cdp/json", any(discovery))
-        .route("/sessions/{id}/cdp/json/{*rest}", any(discovery))
+        .route("/cdp", get(browser))
+        .route("/cdp/devtools/{*target}", get(target))
+        .route("/cdp/json", any(discovery))
+        .route("/cdp/json/{*rest}", any(discovery))
         .with_state(sessions)
 }
 
 async fn browser(
-    State(sessions): State<Arc<Sessions>>,
-    Path(id): Path<String>,
+    State(sessions): State<Arc<dyn Sessions>>,
+    Which(id): Which,
     upgrade: WebSocketUpgrade,
 ) -> Response {
     match sessions.cdp(&id).await {
         Ok(cdp) => connect(upgrade, cdp.socket, cdp.browser_path, sessions.present(&id)),
-        Err(err) => refuse(err),
+        Err(refused) => refused.into_response(),
     }
 }
 
 async fn target(
-    State(sessions): State<Arc<Sessions>>,
-    Path((id, target)): Path<(String, String)>,
+    State(sessions): State<Arc<dyn Sessions>>,
+    Which(id): Which,
+    uri: Uri,
     upgrade: WebSocketUpgrade,
 ) -> Response {
+    // `/cdp/devtools/...`, which is `/devtools/...` to the browser.
+    let path = uri.path().strip_prefix("/cdp").unwrap_or_default();
     match sessions.cdp(&id).await {
-        Ok(cdp) => connect(
-            upgrade,
-            cdp.socket,
-            format!("/devtools/{target}"),
-            sessions.present(&id),
-        ),
-        Err(err) => refuse(err),
+        Ok(cdp) => connect(upgrade, cdp.socket, path.to_owned(), sessions.present(&id)),
+        Err(refused) => refused.into_response(),
     }
 }
 
 /// CDP messages carry screenshots and whole documents, so neither side limits their size.
-fn connect(upgrade: WebSocketUpgrade, socket: PathBuf, path: String, here: Presence) -> Response {
+fn connect(
+    upgrade: WebSocketUpgrade,
+    socket: PathBuf,
+    path: String,
+    here: Box<dyn Send>,
+) -> Response {
     upgrade
         .max_message_size(usize::MAX)
         .max_frame_size(usize::MAX)
@@ -134,25 +132,31 @@ where
 }
 
 /// The browser's HTTP discovery routes. The browser names its own address in the WebSocket
-/// URLs it lists, which a client could not reach, or not with the executor's say; they are
+/// URLs it lists, which a client could not reach, or not with the gateway's say; they are
 /// rewritten to this route.
 async fn discovery(
-    State(sessions): State<Arc<Sessions>>,
-    Path(parameters): Path<Vec<String>>,
-    OriginalUri(uri): OriginalUri,
+    State(sessions): State<Arc<dyn Sessions>>,
+    Which(id): Which,
+    OriginalUri(original): OriginalUri,
+    uri: Uri,
     method: Method,
     headers: HeaderMap,
 ) -> Response {
-    let id = &parameters[0];
-    let cdp = match sessions.cdp(id).await {
+    let cdp = match sessions.cdp(&id).await {
         Ok(cdp) => cdp,
-        Err(err) => return refuse(err),
+        Err(refused) => return refused.into_response(),
     };
-    let prefix = path(id);
+    // Where the session is to whoever asks, which the paths here do not say.
+    let prefix = original
+        .path()
+        .strip_suffix(uri.path())
+        .unwrap_or_default()
+        .to_owned()
+        + "/cdp";
     let rest = uri
         .path_and_query()
         .map_or("", |rest| rest.as_str())
-        .strip_prefix(&prefix)
+        .strip_prefix("/cdp")
         .unwrap_or("/json");
     let asked = async {
         let stream = UnixStream::connect(&cdp.socket).await?;
@@ -187,16 +191,4 @@ async fn discovery(
         body,
     )
         .into_response()
-}
-
-fn refuse(err: Error) -> Response {
-    let status = match &err {
-        Error::NotRunning(_) => StatusCode::CONFLICT,
-        Error::Store(
-            aperture_store::StoreError::SessionNotFound(_)
-            | aperture_store::StoreError::InvalidId(_),
-        ) => StatusCode::NOT_FOUND,
-        _ => StatusCode::INTERNAL_SERVER_ERROR,
-    };
-    (status, err.to_string()).into_response()
 }

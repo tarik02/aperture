@@ -10,6 +10,7 @@ license = "MIT"
 [workspace.dependencies]
 anyhow = "1"
 aperture-compositor = { path = "crates/compositor" }
+aperture-gateway = { path = "crates/gateway" }
 aperture-runner = { path = "crates/runner" }
 aperture-store = { path = "crates/store" }
 aperture-tunnel = { path = "crates/tunnel" }

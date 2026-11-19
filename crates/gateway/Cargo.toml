@@ -1,0 +1,23 @@
+[package]
+name = "aperture-gateway"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+aperture-tunnel.workspace = true
+axum = { version = "0.8", features = ["ws"] }
+futures-util.workspace = true
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+jsonwebtoken = "9"
+percent-encoding = "2"
+serde.workspace = true
+serde_json.workspace = true
+subtle = "2"
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+tracing.workspace = true
+uuid.workspace = true

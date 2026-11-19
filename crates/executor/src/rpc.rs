@@ -11,11 +11,9 @@ use connectrpc::{
 };
 
 use crate::{
-    cdp,
     limits::Limits,
-    live,
     proto::aperture::executor::v1::{self as pb, ExecutorService},
-    sessions::{Error, Session, Sessions, State},
+    sessions::{self, Error, Session, Sessions, State},
 };
 
 pub struct Executor(pub Arc<Sessions>);
@@ -168,13 +166,16 @@ impl From<Session> for pb::Session {
         };
         let status = session.status;
         let endpoints = match session.state {
-            State::Running => MessageField::some(pb::Endpoints {
-                cdp_path: cdp::path(&session.record.id),
-                live_path: live::path(&session.record.id),
-                mcp_path: live::mcp_path(&session.record.id),
-                tunnel_path: live::tunnel_path(&session.record.id),
-                ..Default::default()
-            }),
+            State::Running => {
+                let path = sessions::path(&session.record.id);
+                MessageField::some(pb::Endpoints {
+                    cdp_path: format!("{path}/cdp"),
+                    mcp_path: format!("{path}/mcp"),
+                    tunnel_path: format!("{path}/tunnel"),
+                    path,
+                    ..Default::default()
+                })
+            }
             _ => MessageField::none(),
         };
         pb::Session {

@@ -94,22 +94,22 @@ message Usage {
   uint64 oom_kills = 5;
 }
 
-// Where a running session is reached.
+// Where a running session is reached: the executor's paths of it.
 message Endpoints {
-  // The executor's path of the browser's CDP WebSocket. `<cdp_path>/json/version` and the
-  // other discovery routes are below it.
+  // The browser's CDP WebSocket. `<cdp_path>/json/version` and the other discovery routes
+  // are below it.
   string cdp_path = 1;
-  // The executor's path of the session's live endpoints: `<live_path>/rtc` takes a WebRTC
-  // offer as SDP and answers with SDP (the connection carries window video and
-  // `aperture.live.v1`), `<live_path>/targets/<id>/screenshot.png` is a browser target as it
-  // looks now, and `<live_path>/` a page that shows the session.
-  string live_path = 2;
-  // The executor's path of the session's automation, an MCP server over Streamable HTTP.
+  // The session itself, whose own routes are below it: `<path>/ws` is the session socket,
+  // which carries `aperture.live.v1`, `<path>/targets/<id>/screenshot.png` is a browser
+  // target as it looks now, `<path>/files/...` are its files, and `<path>/` is a page that
+  // shows the session, unless the executor leaves that out.
+  string path = 2;
+  // The session's automation, an MCP server over Streamable HTTP.
   string mcp_path = 3;
-  // The executor's path a client attaches the session's local tunnel at: a WebSocket with
-  // the subprotocol `aperture-tunnel.v1`, whose binary messages carry yamux; the session
-  // opens a stream for every connection its rules route `via: local` and asks on it, as a
-  // SOCKS5 client, for the connection to be made on the client's machine.
+  // Where a client attaches the session's local tunnel: a WebSocket with the subprotocol
+  // `aperture-tunnel.v1`, whose binary messages carry yamux; the session opens a stream
+  // for every connection its rules route `via: local` and asks on it, as a SOCKS5 client,
+  // for the connection to be made on the client's machine.
   string tunnel_path = 4;
 }
 

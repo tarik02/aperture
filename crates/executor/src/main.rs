@@ -1,10 +1,7 @@
 // Service impls return concrete message types where the generated traits declare `impl Encodable`.
 #![allow(refining_impl_trait_internal, refining_impl_trait_reachable)]
 
-mod auth;
-mod cdp;
 mod limits;
-mod live;
 mod rpc;
 mod scopes;
 mod sessions;
@@ -13,41 +10,32 @@ mod proto {
     connectrpc::include_generated!();
 }
 
-use std::{
-    fs,
-    net::SocketAddr,
-    os::unix::fs::PermissionsExt,
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::Duration,
-};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::Context;
-use aperture_runner::{PortRange, Tools, Viewport};
+use aperture_gateway::{Listen, auth::Keys};
+use aperture_runner::options::{self, Options};
 use aperture_store::Store;
-use axum::middleware;
+use axum::{Router, routing::get};
 use clap::Parser;
-use jsonwebtoken::DecodingKey;
 use tracing::info;
 
 use crate::{
     limits::Limits,
     scopes::Scopes,
-    sessions::{Config, Sessions},
-};
-
-/// What a session's windows fill until a client asks for another size.
-const VIEWPORT: Viewport = Viewport {
-    width: 1280,
-    height: 720,
-    scale: 1.0,
+    sessions::{Config, Door, Sessions},
 };
 
 /// Runs browser sessions on this machine, for whoever holds its token.
 #[derive(Parser)]
 struct Arguments {
+    /// An address, or a Unix socket as `unix:PATH`.
     #[arg(long, env = "APERTURE_LISTEN", default_value = "127.0.0.1:7900")]
-    listen: SocketAddr,
+    listen: Listen,
+    /// Leave out the page that shows a session, at `/sessions/<id>/`: sessions are shown
+    /// by something else.
+    #[arg(long, env = "APERTURE_NO_VIEWER")]
+    no_viewer: bool,
     /// Sessions and snapshots are kept here. `$XDG_STATE_HOME/aperture` by default.
     #[arg(long, env = "APERTURE_DATA_DIR")]
     data_dir: Option<PathBuf>,
@@ -61,42 +49,9 @@ struct Arguments {
     /// into one session; none are taken without a key.
     #[arg(long, env = "APERTURE_TICKET_KEY")]
     ticket_key: Option<PathBuf>,
-    /// The UDP ports WebRTC media uses, such as `60000-60999`, for a firewall that opens only
-    /// some. Any port by default.
-    #[arg(long, env = "APERTURE_RTC_PORTS", value_parser = port_range)]
-    rtc_ports: Option<PortRange>,
-    /// The cursor theme the pointer is drawn from in recordings, a directory with `cursors`
-    /// in it.
-    #[arg(long, env = "APERTURE_CURSOR_THEME")]
-    cursor_theme: Option<PathBuf>,
-    /// Draw sessions on the CPU also where a GPU works.
-    #[arg(long, env = "APERTURE_NO_GPU")]
-    no_gpu: bool,
     /// `aperture-runner`. Next to this program by default.
     #[arg(long, env = "APERTURE_RUNNER")]
     runner: Option<PathBuf>,
-    #[arg(long, env = "APERTURE_BWRAP", default_value = "bwrap")]
-    bwrap: PathBuf,
-    #[arg(long, env = "APERTURE_CHROMIUM", default_value = "chromium")]
-    chromium: PathBuf,
-    /// A local address or network, such as `10.1.2.3` or `192.168.0.0/16`, that sessions'
-    /// browsers may reach. What is local to this machine and its network is otherwise
-    /// refused them. May be repeated.
-    #[arg(
-        long = "egress-allow",
-        env = "APERTURE_EGRESS_ALLOW",
-        value_delimiter = ','
-    )]
-    egress_allow: Vec<String>,
-    /// `aperture-browser-shim`. Next to this program by default.
-    #[arg(long, env = "APERTURE_BROWSER_SHIM")]
-    browser_shim: Option<PathBuf>,
-    /// ffmpeg, which makes the edits of recordings. Without it they are left raw.
-    #[arg(long, env = "APERTURE_FFMPEG")]
-    ffmpeg: Option<PathBuf>,
-    /// `aperture-native-host`. Next to this program by default.
-    #[arg(long, env = "APERTURE_NATIVE_HOST")]
-    native_host: Option<PathBuf>,
     /// Run each session as a systemd scope of its own, `aperture-session-<id>.scope` in
     /// `aperture-sessions.slice`: what a session uses is counted, it can be held to
     /// limits, and nothing of it outlives it. The scopes are those of the manager the
@@ -127,9 +82,8 @@ struct Arguments {
     /// left running without one.
     #[arg(long, env = "APERTURE_SUSPEND_IDLE_AFTER", value_parser = limits::stretch)]
     suspend_idle_after: Option<Duration>,
-    /// An argument for every session's browser. May be repeated.
-    #[arg(long = "browser-arg", allow_hyphen_values = true)]
-    browser_args: Vec<String>,
+    #[command(flatten)]
+    options: Options,
 }
 
 #[tokio::main]
@@ -155,41 +109,17 @@ async fn main() -> anyhow::Result<()> {
     };
     let runner = match arguments.runner {
         Some(runner) => runner,
-        None => std::env::current_exe()
-            .context("failed to find the executor's own executable")?
-            .with_file_name("aperture-runner"),
-    };
-    let native_host = match arguments.native_host {
-        Some(host) => host,
-        None => std::env::current_exe()
-            .context("failed to find the executor's own executable")?
-            .with_file_name("aperture-native-host"),
-    };
-    let browser_shim = match arguments.browser_shim {
-        Some(shim) => shim,
-        None => std::env::current_exe()
-            .context("failed to find the executor's own executable")?
-            .with_file_name("aperture-browser-shim"),
+        None => options::own_sibling("aperture-runner")?,
     };
     let store = Store::open(&data_dir)
         .with_context(|| format!("failed to open the store {}", data_dir.display()))?;
-    let token = load_token(
+    let keys = Keys::read(
         &arguments
             .token_file
             .unwrap_or_else(|| data_dir.join("token")),
+        arguments.ticket_key.as_deref(),
+        Box::new(|session| Some(sessions::path(session))),
     )?;
-    let tickets = match &arguments.ticket_key {
-        Some(key) => {
-            let pem = std::fs::read(key)
-                .with_context(|| format!("failed to read the ticket key {}", key.display()))?;
-            Some(DecodingKey::from_ed_pem(&pem).context("the ticket key is no Ed25519 key")?)
-        }
-        None => None,
-    };
-    let keys = auth::Keys {
-        token: Arc::from(token),
-        tickets,
-    };
     let limits = Limits {
         memory: arguments.session_memory,
         swap: arguments.session_swap,
@@ -203,8 +133,8 @@ async fn main() -> anyhow::Result<()> {
     limits.check().map_err(anyhow::Error::msg)?;
     let scopes = if arguments.session_scopes {
         let scopes = Scopes::new(
-            executable(&arguments.systemd_run)?,
-            executable(&arguments.systemctl)?,
+            options::executable(&arguments.systemd_run)?,
+            options::executable(&arguments.systemctl)?,
         )
         .await
         .context("sessions cannot run as scopes")?;
@@ -221,20 +151,8 @@ async fn main() -> anyhow::Result<()> {
         store,
         Config {
             runtime_root,
-            runner: executable(&runner)?,
-            tools: Tools {
-                bwrap: executable(&arguments.bwrap)?,
-                chromium: executable(&arguments.chromium)?,
-                native_host: executable(&native_host)?,
-                browser_shim: executable(&browser_shim)?,
-                ffmpeg: arguments.ffmpeg.as_deref().map(executable).transpose()?,
-            },
-            viewport: VIEWPORT,
-            rtc_ports: arguments.rtc_ports,
-            cursor_theme: arguments.cursor_theme,
-            gpu: !arguments.no_gpu,
-            egress_allow: arguments.egress_allow,
-            browser_args: arguments.browser_args,
+            runner: options::executable(&runner)?,
+            setup: arguments.options.setup()?,
             limits,
             scopes,
         },
@@ -242,49 +160,28 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(sessions.clone().suspend_idle());
 
     let connect = connectrpc::Router::new().add_service(Arc::new(rpc::Executor(sessions.clone())));
-    let app = cdp::router(sessions.clone())
-        .merge(live::router(sessions))
-        .fallback_service(connect.into_axum_service())
-        .layer(middleware::from_fn_with_state(Arc::new(keys), auth::check));
-    let listener = tokio::net::TcpListener::bind(arguments.listen)
+    let shown = !arguments.no_viewer;
+    let session = aperture_gateway::router(Arc::new(Door(sessions)), shown);
+    let mut routes = Router::new().nest(&sessions::path("{id}"), session);
+    if shown {
+        // Routes mounted below a path are not at the path with a slash after it.
+        let with_slash = format!("{}/", sessions::path("{id}"));
+        routes = routes.route(&with_slash, get(async || aperture_gateway::viewer()));
+    }
+    let routes = routes.fallback_service(connect.into_axum_service());
+    let app = aperture_gateway::guarded(routes, keys);
+    let listening = arguments
+        .listen
+        .bind()
         .await
         .with_context(|| format!("failed to listen on {}", arguments.listen))?;
     info!(listen = %arguments.listen, data = %data_dir.display(), "executor running");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async {
+    listening
+        .serve(app, async {
             let _ = tokio::signal::ctrl_c().await;
         })
         .await?;
     Ok(())
-}
-
-fn port_range(ports: &str) -> Result<PortRange, String> {
-    let range = ports.split_once('-').and_then(|(first, last)| {
-        Some(PortRange {
-            first: first.trim().parse().ok()?,
-            last: last.trim().parse().ok()?,
-        })
-    });
-    range
-        .filter(|range| range.first > 0 && range.first <= range.last)
-        .ok_or_else(|| format!("{ports:?} is not a port range like 60000-60999"))
-}
-
-fn load_token(path: &Path) -> anyhow::Result<String> {
-    if !path.exists() {
-        let token = format!(
-            "{}{}",
-            uuid::Uuid::new_v4().simple(),
-            uuid::Uuid::new_v4().simple()
-        );
-        fs::write(path, &token).with_context(|| format!("failed to write {}", path.display()))?;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    }
-    let token = fs::read_to_string(path)
-        .with_context(|| format!("failed to read the token {}", path.display()))?;
-    let token = token.trim();
-    anyhow::ensure!(!token.is_empty(), "the token {} is empty", path.display());
-    Ok(token.to_owned())
 }
 
 fn xdg(variable: &str, fallback: &str) -> anyhow::Result<PathBuf> {
@@ -294,19 +191,4 @@ fn xdg(variable: &str, fallback: &str) -> anyhow::Result<PathBuf> {
             Ok(PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?).join(fallback))
         }
     }
-}
-
-/// The program's absolute path, looked up in `PATH` when it is given by name: the browser
-/// is started in a sandbox that has no `PATH`.
-fn executable(program: &Path) -> anyhow::Result<PathBuf> {
-    let found = if program.components().count() > 1 {
-        program.canonicalize().ok()
-    } else {
-        std::env::var_os("PATH").and_then(|path| {
-            std::env::split_paths(&path)
-                .map(|dir| dir.join(program))
-                .find(|candidate| candidate.is_file())
-        })
-    };
-    found.with_context(|| format!("{} not found", program.display()))
 }
