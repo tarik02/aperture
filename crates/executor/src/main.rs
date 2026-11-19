@@ -13,7 +13,7 @@ mod proto {
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::Context;
-use aperture_gateway::{Listen, auth::Keys};
+use aperture_gateway::{Listen, Origin, auth::Keys};
 use aperture_runner::options::{self, Options};
 use aperture_store::Store;
 use axum::{Router, routing::get};
@@ -82,6 +82,15 @@ struct Arguments {
     /// left running without one.
     #[arg(long, env = "APERTURE_SUSPEND_IDLE_AFTER", value_parser = limits::stretch)]
     suspend_idle_after: Option<Duration>,
+    /// An origin whose pages may reach the sessions from a browser, such as
+    /// `https://app.example.com`, or `*` for any. A browser refuses the pages of every
+    /// other origin but the executor's own. May be repeated.
+    #[arg(
+        long = "cors-origin",
+        env = "APERTURE_CORS_ORIGINS",
+        value_delimiter = ','
+    )]
+    cors_origins: Vec<Origin>,
     #[command(flatten)]
     options: Options,
 }
@@ -169,7 +178,7 @@ async fn main() -> anyhow::Result<()> {
         routes = routes.route(&with_slash, get(async || aperture_gateway::viewer()));
     }
     let routes = routes.fallback_service(connect.into_axum_service());
-    let app = aperture_gateway::guarded(routes, keys);
+    let app = aperture_gateway::guarded(routes, keys, &arguments.cors_origins);
     let listening = arguments
         .listen
         .bind()

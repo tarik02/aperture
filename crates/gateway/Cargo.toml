@@ -19,5 +19,6 @@ serde_json.workspace = true
 subtle = "2"
 tokio.workspace = true
 tokio-tungstenite.workspace = true
+tower-http = { version = "0.6", features = ["cors"] }
 tracing.workspace = true
 uuid.workspace = true

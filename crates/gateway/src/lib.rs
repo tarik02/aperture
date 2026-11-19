@@ -6,6 +6,9 @@
 //! A session that runs on its own has them at the root; an executor has them below
 //! `/sessions/{id}` for each of its sessions.
 //!
+//! A page of another origin reaches none of them from a browser unless its origin is named
+//! (see [`Origin`]).
+//!
 //! - `/` shows the session, unless that is left out;
 //! - `/ws` is the session socket;
 //! - `/cdp` is its browser's DevTools endpoint;
@@ -23,12 +26,13 @@ use std::{fmt, io, net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc};
 use axum::{
     Router,
     extract::{FromRequestParts, RawPathParams},
-    http::{StatusCode, request::Parts},
+    http::{HeaderValue, StatusCode, request::Parts},
     middleware,
     response::{IntoResponse, Response},
 };
 use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
+use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 
 pub use access::{Access, Area};
 pub use live::{ask, put, viewer};
@@ -109,9 +113,58 @@ pub fn router(sessions: Arc<dyn Sessions>, viewer: bool) -> Router {
     cdp::router(sessions.clone()).merge(live::router(sessions, viewer))
 }
 
-/// The routes, for those the keys let in.
-pub fn guarded(routes: Router, keys: auth::Keys) -> Router {
-    routes.layer(middleware::from_fn_with_state(Arc::new(keys), auth::check))
+/// The routes, for those the keys let in. Pages of `origins` may reach them from a
+/// browser; a browser refuses those of any other origin.
+pub fn guarded(routes: Router, keys: auth::Keys, origins: &[Origin]) -> Router {
+    let routes = routes.layer(middleware::from_fn_with_state(Arc::new(keys), auth::check));
+    if origins.is_empty() {
+        return routes;
+    }
+    let any = origins.iter().any(|origin| matches!(origin, Origin::Any));
+    let named = origins.iter().filter_map(|origin| match origin {
+        Origin::Any => None,
+        Origin::One(origin) => Some(origin.clone()),
+    });
+    let allowed = match any {
+        true => AllowOrigin::any(),
+        false => AllowOrigin::list(named),
+    };
+    // Around the check of who asks: a browser asks whether it may before it says who for,
+    // and nothing here goes by what a browser sends of itself, such as cookies.
+    routes.layer(
+        CorsLayer::new()
+            .allow_origin(allowed)
+            .allow_methods(AllowMethods::mirror_request())
+            .allow_headers(AllowHeaders::mirror_request()),
+    )
+}
+
+/// An origin whose pages may reach the routes from a browser, such as
+/// `https://app.example.com`; `*` is any origin.
+#[derive(Debug, Clone)]
+pub enum Origin {
+    Any,
+    One(HeaderValue),
+}
+
+impl FromStr for Origin {
+    type Err = String;
+
+    fn from_str(given: &str) -> Result<Self, Self::Err> {
+        if given == "*" {
+            return Ok(Self::Any);
+        }
+        // As a browser sends it: a scheme and a host, a port where it is not the
+        // scheme's own, and nothing after.
+        let rest = given
+            .strip_prefix("https://")
+            .or_else(|| given.strip_prefix("http://"));
+        let plain = rest.is_some_and(|rest| !rest.is_empty() && !rest.contains(['/', '?', '#']));
+        let origin = HeaderValue::from_str(given).ok().filter(|_| plain);
+        origin.map(Self::One).ok_or_else(|| {
+            format!("{given:?} is no origin like https://app.example.com, nor `*` for any")
+        })
+    }
 }
 
 /// Where requests come in: an address, or a Unix socket given as `unix:PATH` or as a path

@@ -11,7 +11,7 @@ use std::{
 };
 
 use anyhow::Context;
-use aperture_gateway::{Listen, Refused, auth::Keys};
+use aperture_gateway::{Listen, Origin, Refused, auth::Keys};
 use aperture_runner::{
     Cdp, Live, Profile, Spec,
     options::{Directories, Options},
@@ -47,6 +47,15 @@ pub struct Serve {
     /// into the session; none are taken without a key.
     #[arg(long, env = "APERTURE_TICKET_KEY")]
     ticket_key: Option<PathBuf>,
+    /// An origin whose pages may reach the session from a browser, such as
+    /// `https://app.example.com`, or `*` for any. A browser refuses the pages of every
+    /// other origin but the session's own. May be repeated.
+    #[arg(
+        long = "cors-origin",
+        env = "APERTURE_CORS_ORIGINS",
+        value_delimiter = ','
+    )]
+    cors_origins: Vec<Origin>,
     #[command(flatten)]
     options: Options,
 }
@@ -112,6 +121,7 @@ impl Serve {
         Ok((
             spec,
             Front {
+                origins: self.cors_origins,
                 listen: self.listen,
                 keys: Mutex::new(Some(keys)),
             },
@@ -122,6 +132,7 @@ impl Serve {
 /// Where a session that runs on its own is reached, and by whom.
 pub struct Front {
     listen: Listen,
+    origins: Vec<Origin>,
     /// Until the session is served.
     keys: Mutex<Option<Keys>>,
 }
@@ -142,7 +153,8 @@ impl Front {
             .await
             .with_context(|| format!("failed to listen on {}", self.listen))?;
         info!(listen = %self.listen, "session served");
-        let app = aperture_gateway::guarded(aperture_gateway::router(Arc::new(own), true), keys);
+        let routes = aperture_gateway::router(Arc::new(own), true);
+        let app = aperture_gateway::guarded(routes, keys, &self.origins);
         Ok(tokio::spawn(async move {
             if let Err(err) = listening.serve(app, std::future::pending()).await {
                 warn!("the session is no longer served: {err}");
