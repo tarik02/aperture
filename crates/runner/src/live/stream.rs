@@ -11,12 +11,12 @@ use std::{
     time::Duration,
 };
 
-use aperture_compositor::{Frames, Handle, WindowId};
+use aperture_compositor::{Frames, Handle, Pixels, WindowId};
 use tokio::{
     sync::{Notify, broadcast},
     time::Instant,
 };
-use tracing::{debug, warn};
+use tracing::warn;
 
 use super::encode::{Format, Quality, VideoEncoder};
 
@@ -153,6 +153,18 @@ impl Streams {
     /// Encodes the window's frames, each as it replaces the last and no more of them than
     /// the quality has a second. Frames that come meanwhile are skipped, down to the
     /// latest.
+    /// The window's pixels in memory, for an encoder that takes them; none, and a word of
+    /// why, where the compositor does not give them.
+    async fn pixels(&self, window: WindowId) -> Option<Pixels> {
+        match self.compositor.pixels(window).await {
+            Ok(pixels) => Some(pixels),
+            Err(err) => {
+                warn!(?window, "an encoder gets no pixels of its window: {err}");
+                None
+            }
+        }
+    }
+
     async fn encode(self: Arc<Self>, key: Key, mut frames: Frames, shared: Arc<Shared>) {
         let made = tokio::task::spawn_blocking(move || {
             VideoEncoder::new(key.format, key.quality, key.fps())
@@ -170,12 +182,14 @@ impl Streams {
         // Held while the encoder takes pixels rather than frames on the GPU.
         let mut pixels = None;
         if encoder.wants_pixels() {
-            pixels = self.compositor.pixels(key.window).await.ok();
+            pixels = self.pixels(key.window).await;
         }
         let apart = (Duration::from_secs(1) / key.fps()).saturating_sub(FRAME_SLACK);
         // When the next frame is due.
         let mut due = Instant::now();
         let mut keyframe = true;
+        // The frame before this one was not encoded.
+        let mut failing = false;
         let mut last_keyframe: Option<Instant> = None;
         // When the keyframe that was asked for is due.
         let mut keyframe_due: Option<Instant> = None;
@@ -239,8 +253,9 @@ impl Streams {
                     // The encoder may have turned to pixels, or to another encoder that
                     // takes them: the next frame comes with them.
                     if pixels.is_none() && encoder.wants_pixels() {
-                        pixels = self.compositor.pixels(key.window).await.ok();
+                        pixels = self.pixels(key.window).await;
                     }
+                    let failed = encoded.is_err();
                     match encoded {
                         Ok(None) => keyframe = force,
                         Ok(Some((data, _))) if data.is_empty() => {}
@@ -253,10 +268,14 @@ impl Streams {
                             let _ = shared.packets.send(Arc::new(packet));
                         }
                         Err(err) => {
-                            debug!("failed to encode a frame: {err:#}");
+                            // Told once for a run of frames that fail the same way.
+                            if !failing {
+                                warn!(window = ?key.window, "failed to encode a frame: {err:#}");
+                            }
                             keyframe = true;
                         }
                     }
+                    failing = failed;
                 }
                 () = tokio::time::sleep(IDLE_CHECK) => {
                     if self.retire(key, &shared) {

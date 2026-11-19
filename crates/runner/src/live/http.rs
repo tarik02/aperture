@@ -100,6 +100,26 @@ async fn session_socket(
     headers: HeaderMap,
     upgrade: WebSocketUpgrade,
 ) -> Response {
+    // What vouches for a caller is told in full or the caller is refused: one that half of
+    // it is missing of would pass for the operator.
+    let vouched = [
+        aperture_runner::SUBJECT_HEADER,
+        aperture_runner::NAME_HEADER,
+        aperture_runner::ACCESS_HEADER,
+    ];
+    if vouched.iter().any(|name| headers.contains_key(*name))
+        && !vouched.iter().all(|name| {
+            headers
+                .get(*name)
+                .is_some_and(|value| value.to_str().is_ok())
+        })
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            "who the request comes from is not told in full",
+        )
+            .into_response();
+    }
     let said = |name: &str| {
         let value = headers.get(name)?.to_str().ok()?;
         Some(percent_decode_str(value).decode_utf8_lossy().into_owned())

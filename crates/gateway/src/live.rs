@@ -20,7 +20,7 @@ use tokio::{
 };
 use tracing::debug;
 
-use crate::{Sessions, Which, auth::Caller};
+use crate::{ACCESS_HEADER, NAME_HEADER, SUBJECT_HEADER, Sessions, Which, auth::Caller};
 
 pub fn router(sessions: Arc<dyn Sessions>, viewer: bool) -> Router {
     let routes = Router::new()
@@ -85,8 +85,19 @@ async fn forward_to(
         Err(err) => return (StatusCode::BAD_REQUEST, err.to_string()).into_response(),
     };
     request.headers_mut().remove(header::AUTHORIZATION);
-    if let Some(caller) = request.extensions().get::<Caller>().cloned() {
-        caller.name_in(request.headers_mut());
+    match request.extensions().get::<Caller>().cloned() {
+        Some(caller) => {
+            if let Err(err) = caller.name_in(request.headers_mut()) {
+                return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response();
+            }
+        }
+        // Whoever mounted the routes lets anyone in: nobody is vouched for, whatever the
+        // request says of itself.
+        None => {
+            for name in [SUBJECT_HEADER, NAME_HEADER, ACCESS_HEADER] {
+                request.headers_mut().remove(name);
+            }
+        }
     }
 
     let answered = async {
@@ -122,7 +133,7 @@ async fn session_socket(
     let runner = async {
         let stream = UnixStream::connect(&live.socket).await?;
         let mut request = "ws://runner/ws".into_client_request()?;
-        caller.name_in(request.headers_mut());
+        caller.name_in(request.headers_mut())?;
         let (runner, _) = tokio_tungstenite::client_async(request, stream).await?;
         anyhow::Ok(runner)
     };

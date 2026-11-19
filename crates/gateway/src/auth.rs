@@ -12,7 +12,7 @@ use anyhow::Context;
 
 use axum::{
     extract::{Request, State},
-    http::{HeaderValue, Method, StatusCode, header},
+    http::{HeaderValue, Method, StatusCode, header, header::InvalidHeaderValue},
     middleware::Next,
     response::{IntoResponse, Response},
 };
@@ -48,7 +48,7 @@ pub struct Caller {
 impl Caller {
     /// Tells the session's runner who the request comes from, in place of whatever the
     /// request itself says of that.
-    pub fn name_in(&self, headers: &mut axum::http::HeaderMap) {
+    pub fn name_in(&self, headers: &mut axum::http::HeaderMap) -> Result<(), InvalidHeaderValue> {
         let access = self.access.to_string();
         let name = utf8_percent_encode(&self.name, NON_ALPHANUMERIC).to_string();
         let subject = utf8_percent_encode(&self.subject, NON_ALPHANUMERIC).to_string();
@@ -57,11 +57,11 @@ impl Caller {
             (NAME_HEADER, name.as_str()),
             (ACCESS_HEADER, access.as_str()),
         ] {
-            match HeaderValue::from_str(value) {
-                Ok(value) => headers.insert(header, value),
-                Err(_) => headers.remove(header),
-            };
+            // A caller the runner is not told of would be nobody's, which there is the
+            // operator: the request is not passed on without all three.
+            headers.insert(header, HeaderValue::from_str(value)?);
         }
+        Ok(())
     }
 }
 

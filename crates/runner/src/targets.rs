@@ -172,10 +172,12 @@ impl Registry {
         let _ = std::fs::remove_file(socket);
         let listener = UnixListener::bind(socket)?;
         let (browser, attached) = watch::channel(None);
-        let before: Kept = std::fs::read(&kept)
-            .ok()
-            .and_then(|kept| serde_json::from_slice(&kept).ok())
-            .unwrap_or_default();
+        // Tabs whose numbers are not known again would be given numbers that were theirs.
+        let before: Kept = match std::fs::read(&kept) {
+            Ok(read) => serde_json::from_slice(&read).map_err(std::io::Error::other)?,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Kept::default(),
+            Err(err) => return Err(err),
+        };
         let state = State {
             last_tab: before.last,
             returning: before.tabs.clone(),
@@ -195,11 +197,19 @@ impl Registry {
         tokio::spawn({
             let inner = inner.clone();
             async move {
-                while let Ok((stream, _)) = listener.accept().await {
+                loop {
+                    let stream = match listener.accept().await {
+                        Ok((stream, _)) => stream,
+                        Err(err) => {
+                            warn!("the extension's socket took no connection: {err}");
+                            sleep(RECONCILE_EVERY).await;
+                            continue;
+                        }
+                    };
                     let inner = inner.clone();
                     tokio::spawn(async move {
                         if let Err(err) = inner.serve(stream).await {
-                            debug!("the extension's connection ended: {err:#}");
+                            warn!("the extension's connection ended: {err:#}");
                         }
                         inner.sound.untap();
                     });
@@ -209,14 +219,18 @@ impl Registry {
         tokio::spawn({
             let inner = Arc::downgrade(&inner);
             async move {
+                // What the last pass failed of, told once for as long as it stays the same.
+                let mut failing: Option<String> = None;
                 loop {
                     sleep(RECONCILE_EVERY).await;
                     let Some(inner) = inner.upgrade() else {
                         return;
                     };
-                    if let Err(err) = inner.reconcile().await {
-                        debug!("failed to reconcile targets: {err:#}");
+                    let failed = inner.reconcile().await.err().map(|err| format!("{err:#}"));
+                    if let Some(err) = failed.as_ref().filter(|_| failed != failing) {
+                        warn!("failed to reconcile targets: {err}");
                     }
+                    failing = failed;
                 }
             }
         });

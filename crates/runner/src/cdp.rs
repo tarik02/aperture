@@ -14,6 +14,7 @@ use tokio_tungstenite::{
     WebSocketStream,
     tungstenite::{Message, protocol::WebSocketConfig},
 };
+use tracing::warn;
 
 /// Events buffered for a subscriber that falls behind; it then misses the oldest.
 const EVENT_BUFFER: usize = 1024;
@@ -84,7 +85,8 @@ pub async fn connect(cdp: &Cdp) -> anyhow::Result<Client> {
                     if let Some(session) = call.session {
                         message["sessionId"] = session.into();
                     }
-                    if sink.send(Message::text(message.to_string())).await.is_err() {
+                    if let Err(err) = sink.send(Message::text(message.to_string())).await {
+                        warn!("the browser's DevTools socket took no call: {err}");
                         return;
                     }
                     waiting.insert(next, call.reply);
@@ -92,14 +94,23 @@ pub async fn connect(cdp: &Cdp) -> anyhow::Result<Client> {
                 message = stream.next() => {
                     // When the browser is gone, those still waiting learn it from their
                     // dropped replies.
-                    let Some(Ok(message)) = message else {
-                        return;
+                    let message = match message {
+                        Some(Ok(message)) => message,
+                        Some(Err(err)) => {
+                            warn!("the browser's DevTools socket failed: {err}");
+                            return;
+                        }
+                        None => return,
                     };
                     let Message::Text(text) = message else {
                         continue;
                     };
-                    let Ok(mut message) = serde_json::from_str::<Value>(text.as_str()) else {
-                        continue;
+                    let mut message = match serde_json::from_str::<Value>(text.as_str()) {
+                        Ok(message) => message,
+                        Err(err) => {
+                            warn!("the browser said what is no DevTools message: {err}");
+                            continue;
+                        }
                     };
                     if let Some(id) = message["id"].as_u64() {
                         if let Some(reply) = waiting.remove(&id) {

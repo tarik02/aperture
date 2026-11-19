@@ -202,6 +202,27 @@ impl Front {
     }
 }
 
+/// Waits for one of the session's own services to end, and tells which and why: none of
+/// them ends while the session runs.
+async fn ended<const N: usize>(
+    services: [(
+        &str,
+        Option<&mut tokio::task::JoinHandle<std::io::Result<()>>>,
+    ); N],
+) -> anyhow::Error {
+    let (names, tasks): (Vec<&str>, Vec<_>) = services
+        .into_iter()
+        .filter_map(|(name, task)| Some((name, task?)))
+        .unzip();
+    let (outcome, at, _) = futures_util::future::select_all(tasks).await;
+    let name = names[at];
+    match outcome {
+        Ok(Ok(())) => anyhow::anyhow!("{name} stopped"),
+        Ok(Err(err)) => anyhow::Error::from(err).context(format!("{name} failed")),
+        Err(err) => anyhow::anyhow!("{name} failed: {err}"),
+    }
+}
+
 /// The session itself, as the gateway reaches it.
 struct Own {
     live: Live,
@@ -329,7 +350,7 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
     let policy = egress::Policy::new(&spec.egress_allow)?;
     let egress = egress::Egress::new(policy, &spec.proxy)?;
     let tunnel_socket = spec.runtime_dir.join("tunnel.sock");
-    let egress_tasks = [
+    let mut egress_tasks = [
         tokio::spawn({
             let (egress, socket) = (egress.clone(), egress_socket.clone());
             async move { egress.serve(&socket).await }
@@ -342,7 +363,7 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
                 if tunnels {
                     egress.serve_local(&socket).await
                 } else {
-                    Ok(())
+                    std::future::pending().await
                 }
             }
         }),
@@ -472,8 +493,15 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
             served = Some(front.serve(own).await?);
         }
 
+        let [egress_task, tunnel_task] = &mut egress_tasks;
+        let services = [
+            ("the browser's way out", Some(egress_task)),
+            ("the tunnel's socket", Some(tunnel_task)),
+            ("the live endpoints", live.as_mut()),
+        ];
         tokio::select! {
             exit = browser.wait() => bail!("the browser exited: {}", exit?),
+            failed = ended(services) => return Err(failed),
             // The channel closes when the compositor's thread ends.
             _ = async { while windows.changed().await.is_ok() {} } => bail!("the compositor stopped"),
             _ = terminate.recv() => {}
