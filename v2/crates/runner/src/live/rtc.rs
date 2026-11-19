@@ -89,6 +89,8 @@ pub struct Watched {
     /// The forms of video the client would have, the one it would rather have first;
     /// the first one the connection takes is sent, H.264 when none is.
     pub formats: Vec<Format>,
+    /// The browser's tab whose sound it plays.
+    pub heard: Option<i64>,
 }
 
 pub type Watch = mpsc::Sender<Watched>;
@@ -100,7 +102,7 @@ pub async fn connect(
     ports: Option<PortRange>,
     offer: &str,
     events: mpsc::Sender<FromPeer>,
-    sound: Option<broadcast::Receiver<Arc<sound::Packet>>>,
+    sound: sound::Listener,
 ) -> Result<(String, Watch), ConnectError> {
     let mut config = Rtc::builder()
         .set_ice_lite(true)
@@ -157,7 +159,8 @@ pub async fn connect(
         streams,
         video: None,
         audio: None,
-        sound,
+        sound: Some(sound),
+        heard: None,
         connected: false,
         window: None,
         fps: None,
@@ -187,8 +190,9 @@ struct Peer {
     video: Option<Mid>,
     /// The client's audio track, when it takes the session's sound.
     audio: Option<Mid>,
-    /// The session's sound, when it has any.
-    sound: Option<broadcast::Receiver<Arc<sound::Packet>>>,
+    /// The session's sound while it lasts, and the browser's tab it is heard of.
+    sound: Option<sound::Listener>,
+    heard: Option<i64>,
     connected: bool,
     window: Option<WindowId>,
     fps: Option<u32>,
@@ -237,7 +241,7 @@ impl Peer {
                     let Some(datagram) = datagram else { return Ok(()) };
                     self.receive(datagram)?;
                 }
-                packet = sound::next(&mut self.sound) => match packet {
+                packet = sound::next(&mut self.sound, self.heard) => match packet {
                     Ok(packet) => self.play(&packet)?,
                     // What was missed is not played late.
                     Err(broadcast::error::RecvError::Lagged(_)) => {}
@@ -286,6 +290,7 @@ impl Peer {
                         self.link.pin(watched.quality);
                         self.fps = watched.fps;
                         self.formats = watched.formats;
+                        self.heard = watched.heard;
                         self.next = None;
                         self.feed = self.subscribe().await;
                         self.report();

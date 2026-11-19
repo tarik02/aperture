@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Aperture sound",
+  "version": "1.0.0",
+  "description": "Takes the sound of each tab apart from the others.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzW3L+qH//WoYoE2kAPdkF6aI2EBSWVHo0rgT4ka7WLAnLHKW3Zq4aB9BIhIzvCkFf46SRDW3J1rQK8FpCFbnsUeSmTExZkhewTBDFVmW0EUBYeMw5S76z5LIZUu9PXXo85LPAN3WQPdCXdgcq1vy/Jhg9iVcwQGqZskrIlITyOuj4FIh9mW8cm/ABH3tAw4gkNPupfmACm7bkeCLl8Uv1YlGZj48NEBtlQZh6QuLJiEiNDgWhljprprG3I5LuXhd7mN3FoU/XXHQSsfVK9b5UTlabeGRpPRkdKcd7hG9/d/iEhQjJr7fCVuTEmkTjrFoK7YOL/mv8Ng0jqi6Omr7twIDAQAB",
+  "permissions": [
+    "nativeMessaging",
+    "offscreen",
+    "tabCapture",
+    "tabs"
+  ],
+  "background": {
+    "service_worker": "worker.js"
+  }
+}

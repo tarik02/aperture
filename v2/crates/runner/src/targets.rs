@@ -53,6 +53,8 @@ pub struct Target {
     pub id: String,
     /// The tab's number, which stays the tab's when the session is suspended and resumed.
     pub tab: u32,
+    /// The browser's own id of the tab, which the session's extensions know it by.
+    pub browser_tab: i64,
     pub window: WindowId,
     pub title: String,
     pub url: String,
@@ -105,6 +107,7 @@ struct Ready {
     /// Targets are listed in the order they came to be.
     order: u64,
     tab: u32,
+    browser_tab: i64,
 }
 
 /// What is kept of a tab from one run of the session to the next: the browser brings the
@@ -381,7 +384,8 @@ impl Inner {
             let (Some(id), Some(url)) = (info["targetId"].as_str(), info["url"].as_str()) else {
                 continue;
             };
-            let own = url.starts_with(&format!("chrome-extension://{EXTENSION_ID}/"));
+            // The session's extensions have pages of their own, which are nobody's tabs.
+            let own = url.starts_with("chrome-extension://");
             if info["type"] != "page" || own || url.starts_with("devtools://") {
                 continue;
             }
@@ -464,6 +468,7 @@ impl Inner {
                             url: String::new(),
                             order: state.next_order,
                             tab,
+                            browser_tab: binding.tab,
                         },
                     );
                 }
@@ -521,6 +526,7 @@ impl Inner {
                 Some(Target {
                     id: id.clone(),
                     tab: ready.tab,
+                    browser_tab: ready.browser_tab,
                     window: ready.window,
                     title: ready.title.clone(),
                     url: ready.url.clone(),

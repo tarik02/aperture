@@ -1,6 +1,6 @@
-//! The native messaging host of the session's extension: Chromium starts it inside the
+//! The native messaging host of the session's extensions: Chromium starts it inside the
 //! sandbox and talks to it on stdin and stdout, and it passes both on, as they are, to the
-//! runner's socket.
+//! runner's socket for the extension.
 
 use std::{
     io::{self, Read, Write},
@@ -10,7 +10,15 @@ use std::{
 };
 
 fn main() -> ExitCode {
-    let Some(socket) = std::env::var_os("APERTURE_EXTENSION_SOCKET") else {
+    // Chromium names the extension that asked for the host. One with a socket of its own
+    // gets that one.
+    let own = std::env::args().nth(1).and_then(|origin| {
+        let id = origin
+            .strip_prefix("chrome-extension://")?
+            .trim_end_matches('/');
+        std::env::var_os(format!("APERTURE_EXTENSION_SOCKET_{id}"))
+    });
+    let Some(socket) = own.or_else(|| std::env::var_os("APERTURE_EXTENSION_SOCKET")) else {
         eprintln!("APERTURE_EXTENSION_SOCKET is not set");
         return ExitCode::FAILURE;
     };

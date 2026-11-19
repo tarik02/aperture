@@ -393,7 +393,6 @@
                 --prefix LD_LIBRARY_PATH : ${
                   lib.makeLibraryPath [
                     pkgs.libva
-                    pkgs.libpulseaudio
                     runtimePipewire
                     pkgs.wayland
                     pkgs.gtk3
@@ -1312,7 +1311,6 @@
             APERTURE_CHROMIUM = lib.getExe' runtimeChromium "chromium";
             APERTURE_TAB_WINDOW_EXTENSION = "${tabWindowEnforcer}/share/aperture/extensions/tab-window-enforcer";
             APERTURE_FFMPEG = lib.getExe' runtimeFfmpeg "ffmpeg";
-            APERTURE_PULSEAUDIO = lib.getExe' pkgs.pulseaudio "pulseaudio";
             APERTURE_CURSOR_THEME = "${browserCursorPath}/default";
             APERTURE_GST_PLUGIN_PATH = lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" gstPlugins;
           };

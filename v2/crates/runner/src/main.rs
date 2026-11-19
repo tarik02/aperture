@@ -185,32 +185,22 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
     let mut live = None;
     let mut recordings = None;
 
-    // Before the browser, which looks for a sound server once, as it starts.
-    let mut sound_server = match &spec.tools.pulseaudio {
-        Some(pulseaudio) => Some(
-            start_sound_server(pulseaudio, &spec.runtime_dir, &sockets)
-                .context("failed to start the sound server")?,
-        ),
-        None => None,
+    // The extension that takes the tabs' sounds, and where it is heard. Before the
+    // browser starts, as with the other one.
+    let taps = Taps {
+        socket: sockets.join("sound.sock"),
+        extension: spec.runtime_dir.join("sound-extension"),
     };
-    if sound_server.is_some() {
-        let listens = async {
-            while !sound_socket(&sockets).exists() {
-                sleep(Duration::from_millis(20)).await;
-            }
-        };
-        timeout(SOUND_SERVER_WITHIN, listens)
-            .await
-            .context("the sound server did not start in time")?;
-    }
-    let sound = sound_server
-        .is_some()
-        .then(|| live::sound::Sound::new(sound_socket(&sockets)));
+    live::sound::Sound::unpack_extension(&taps.extension)
+        .context("failed to write the sound extension")?;
+    let sound = live::sound::Sound::new(&taps.socket)
+        .context("failed to listen for the sound extension")?;
 
     let mut browser = start_browser(
         spec,
         &display,
         &extension_socket,
+        &taps,
         &egress_socket,
         &shared,
         compositor.render_node(),
@@ -314,9 +304,6 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
     .await;
 
     stop(&mut browser, "browser").await;
-    if let Some(server) = &mut sound_server {
-        stop(server, "sound server").await;
-    }
     if let Some(live) = live {
         live.abort();
     }
@@ -327,53 +314,12 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
     outcome
 }
 
-const SOUND_SERVER_WITHIN: Duration = Duration::from_secs(5);
-
-/// Where the session's sound server listens: where a program whose runtime directory is
-/// the browser's looks for one.
-fn sound_socket(sockets: &Path) -> PathBuf {
-    sockets.join("pulse").join("native")
-}
-
-/// Starts the session's own sound server, with one output that goes nowhere: the browser
-/// plays into it, and what it plays is taken from there. It takes whoever reaches its
-/// socket, which is who shares the browser's runtime directory.
-fn start_sound_server(pulseaudio: &Path, runtime: &Path, sockets: &Path) -> anyhow::Result<Child> {
-    let socket = sound_socket(sockets);
-    let beside = socket.parent().expect("the socket is in a directory");
-    fs::DirBuilder::new().mode(0o700).create(beside)?;
-    // The server's own files, apart from those of whoever runs the runner.
-    let home = runtime.join("sound");
-    let _ = fs::remove_dir_all(&home);
-    fs::DirBuilder::new().mode(0o700).create(&home)?;
-    let output = live::sound::OUTPUT;
-    let rate = live::sound::RATE;
-    let mut command = Command::new(pulseaudio);
-    command
-        .env_clear()
-        .env("HOME", &home)
-        .env("XDG_RUNTIME_DIR", &home)
-        .env("XDG_CONFIG_HOME", &home)
-        .args([
-            "-n",
-            "--daemonize=no",
-            "--use-pid-file=no",
-            "--log-target=stderr",
-            "--log-level=error",
-        ])
-        .args(["--exit-idle-time=-1", "--disallow-exit"])
-        // The browser is in namespaces of its own, where shared memory does not reach.
-        .args(["--disable-shm=yes", "--enable-memfd=no"])
-        .arg(format!(
-            "--load=module-native-protocol-unix socket={} auth-anonymous=1",
-            socket.display()
-        ))
-        .arg(format!(
-            "--load=module-null-sink sink_name={output} rate={rate} channels=2"
-        ))
-        .stdin(Stdio::null());
-    own(&mut command, libc::SIGKILL);
-    Ok(command.spawn()?)
+/// What the browser needs to have its tabs' sounds taken.
+struct Taps {
+    /// Where the sound extension's host reaches the runner.
+    socket: PathBuf,
+    /// The extension, unpacked.
+    extension: PathBuf,
 }
 
 /// Starts the browser in its sandbox. The browser runs with `--no-sandbox`, so this one is
@@ -387,6 +333,7 @@ fn start_browser(
     spec: &Spec,
     display: &Path,
     extension_socket: &Path,
+    taps: &Taps,
     egress_socket: &Path,
     shared: &Path,
     render_node: Option<&Path>,
@@ -414,6 +361,17 @@ fn start_browser(
         hosts.join(format!("{}.json", targets::NATIVE_HOST)),
         serde_json::to_vec_pretty(&targets::native_host_manifest(&spec.tools.native_host))?,
     )?;
+    let manifest = live::sound::Sound::native_host_manifest(&spec.tools.native_host);
+    fs::write(
+        hosts.join(format!("{}.json", live::sound::NATIVE_HOST)),
+        serde_json::to_vec_pretty(&manifest)?,
+    )?;
+
+    let extensions = format!(
+        "{},{}",
+        spec.tools.extension.display(),
+        taps.extension.display()
+    );
 
     let mut command = Command::new(&spec.tools.bwrap);
     command.args([
@@ -451,11 +409,19 @@ fn start_browser(
         }
     }
     command.arg("--dir").arg(sockets);
-    // The sound server's socket, where there is one.
-    let sound = sound_socket(sockets);
-    if let Some(beside) = sound.parent().filter(|beside| beside.exists()) {
-        command.arg("--bind").arg(beside).arg(beside);
-    }
+    command
+        .arg("--bind")
+        .arg(&taps.socket)
+        .arg(&taps.socket)
+        .arg("--ro-bind")
+        .arg(&taps.extension)
+        .arg(&taps.extension)
+        .arg("--setenv")
+        .arg(format!(
+            "APERTURE_EXTENSION_SOCKET_{}",
+            live::sound::EXTENSION_ID
+        ))
+        .arg(&taps.socket);
     command
         .arg("--bind")
         .arg(display)
@@ -537,14 +503,8 @@ fn start_browser(
         .arg(format!("--user-data-dir={PROFILE}"))
         .arg(format!("--disk-cache-dir={}", spec.cache_dir.display()))
         .arg(format!("--media-cache-dir={}", spec.cache_dir.display()))
-        .arg(format!(
-            "--disable-extensions-except={}",
-            spec.tools.extension.display()
-        ))
-        .arg(format!(
-            "--load-extension={}",
-            spec.tools.extension.display()
-        ))
+        .arg(format!("--disable-extensions-except={extensions}"))
+        .arg(format!("--load-extension={extensions}"))
         .args([
             "--remote-debugging-address=127.0.0.1",
             "--remote-allow-origins=*",
@@ -589,6 +549,12 @@ fn start_browser(
         })
         .arg(format!("--remote-debugging-port={DEVTOOLS_PORT}"))
         .arg(format!("--proxy-server=socks5://127.0.0.1:{PROXY_PORT}"))
+        // An extension may tap a tab only once its user has pointed it at the tab, unless
+        // it is named here.
+        .arg(format!(
+            "--allowlisted-extension-id={}",
+            live::sound::EXTENSION_ID
+        ))
         .args(&spec.browser_args)
         .env_clear()
         .stdin(Stdio::null());

@@ -51,8 +51,8 @@ pub struct Live {
     pub rtc_ports: Option<PortRange>,
     pub downloads: watch::Receiver<Vec<Download>>,
     pub pages: Pages,
-    /// The session's sound, when it has any.
-    pub sound: Option<Arc<Sound>>,
+    /// The session's sound.
+    pub sound: Arc<Sound>,
     pub presence: Arc<Presence>,
     /// The session's files.
     pub files: PathBuf,

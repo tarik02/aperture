@@ -95,10 +95,6 @@ pub struct Tools {
     pub native_host: PathBuf,
     /// ffmpeg, which makes the edits of recordings; without it they are left raw.
     pub ffmpeg: Option<PathBuf>,
-    /// PulseAudio, the sound server the browser plays into; without it sessions are
-    /// silent.
-    #[serde(default)]
-    pub pulseaudio: Option<PathBuf>,
     /// `aperture-browser-shim`, which runs the browser inside its sandbox.
     pub browser_shim: PathBuf,
 }

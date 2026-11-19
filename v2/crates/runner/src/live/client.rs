@@ -1,8 +1,6 @@
 //! One client of the session: the session socket it speaks the live protocol on, the
 //! target it watches, and the way that target's pixels reach it.
 
-use std::sync::Arc;
-
 use aperture_compositor::{Button, Cursor, Form, Forms, Input, Viewport, WindowId, data};
 use axum::extract::ws::{Message as Frame, WebSocket};
 use buffa::Message as _;
@@ -76,7 +74,7 @@ struct Client {
     menus: broadcast::Receiver<pages::Menu>,
     present: watch::Receiver<Present>,
     /// The session's sound, for a client that takes it on the socket.
-    sound: Option<broadcast::Receiver<Arc<sound::Packet>>>,
+    sound: Option<sound::Listener>,
     /// The client as one of those in the session.
     member: Membership,
     socket: WebSocket,
@@ -120,6 +118,7 @@ impl Client {
         mut peer_events: mpsc::Receiver<FromPeer>,
     ) -> Result<(), axum::Error> {
         loop {
+            let heard = self.heard();
             tokio::select! {
                 frame = self.socket.recv() => {
                     let (envelope, json) = match frame {
@@ -191,7 +190,7 @@ impl Client {
                     }
                     self.send_cursor().await?;
                 }
-                packet = sound::next(&mut self.sound) => match packet {
+                packet = sound::next(&mut self.sound, heard) => match packet {
                     Ok(packet) => {
                         let rate = u64::from(sound::RATE);
                         let frame = pb::AudioFrame {
@@ -278,12 +277,7 @@ impl Client {
                     Some(pb::VideoQuality::VIDEO_QUALITY_UNSPECIFIED) | None => None,
                 };
                 self.delivery.pin(self.pinned);
-                self.sound = self
-                    .live
-                    .sound
-                    .as_ref()
-                    .filter(|_| hello.audio)
-                    .map(|sound| sound.listen());
+                self.sound = hello.audio.then(|| self.live.sound.listen());
                 self.fps = hello
                     .fps
                     .map(|fps| fps.clamp(*Key::FPS.start(), *Key::FPS.end()));
@@ -512,6 +506,16 @@ impl Client {
             .map(|target| target.tab)
     }
 
+    /// The browser's own id of the tab the client watches, which is whose sound it hears.
+    fn heard(&self) -> Option<i64> {
+        let (id, _) = self.selected.as_ref()?;
+        let targets = self.live.targets.borrow();
+        targets
+            .iter()
+            .find(|target| target.id == *id)
+            .map(|target| target.browser_tab)
+    }
+
     /// Whether the client holds the tab it watches, which it takes when nobody does.
     fn holds(&self) -> bool {
         self.tab()
@@ -525,7 +529,7 @@ impl Client {
             self.live.rtc_ports,
             offer,
             self.from_peer.clone(),
-            self.live.sound.as_ref().map(|sound| sound.listen()),
+            self.live.sound.listen(),
         );
         match connected.await {
             Ok((sdp, video)) => {
@@ -586,6 +590,7 @@ impl Client {
                 quality: self.pinned,
                 fps: self.fps,
                 formats: self.formats.clone(),
+                heard: self.heard(),
             };
             // A connection that ended takes nothing; the client offers another.
             let _ = video.send(watched).await;
