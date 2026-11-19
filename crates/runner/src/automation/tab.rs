@@ -170,10 +170,7 @@ impl TabSession {
                     json!({ "text": text }),
                 )
                 .await
-                .map_err(|err| match err {
-                    cdp::Error::Refused(message) => CdpError::Protocol(message),
-                    cdp::Error::Gone => CdpError::Disconnected,
-                })?;
+                .map_err(CdpError::from)?;
             sleep(each).await;
         }
         Ok(true)
@@ -269,6 +266,16 @@ impl TabSession {
     }
 }
 
+impl From<cdp::Error> for CdpError {
+    fn from(err: cdp::Error) -> Self {
+        match err {
+            cdp::Error::Refused(message) => Self::Protocol(message),
+            cdp::Error::Detached => Self::Protocol(err.to_string()),
+            cdp::Error::Gone => Self::Disconnected,
+        }
+    }
+}
+
 #[async_trait]
 impl Cdp for TabSession {
     async fn send(
@@ -324,10 +331,7 @@ impl Cdp for TabSession {
         self.browser
             .call_in(Some(session_id.unwrap_or(&self.session)), method, params)
             .await
-            .map_err(|err| match err {
-                cdp::Error::Refused(message) => CdpError::Protocol(message),
-                cdp::Error::Gone => CdpError::Disconnected,
-            })
+            .map_err(CdpError::from)
     }
 
     fn events(&self) -> broadcast::Receiver<CdpEvent> {

@@ -24,6 +24,9 @@ pub enum Error {
     /// The browser refused the command.
     #[error("{0}")]
     Refused(String),
+    /// The target the command was for ended before it answered.
+    #[error("the target is gone")]
+    Detached,
     #[error("the browser is gone")]
     Gone,
 }
@@ -72,7 +75,8 @@ pub async fn connect(cdp: &Cdp) -> anyhow::Result<Client> {
     let (events, _) = broadcast::channel(EVENT_BUFFER);
     let published = events.clone();
     tokio::spawn(async move {
-        let mut waiting: HashMap<u64, Reply> = HashMap::new();
+        // The calls that have no answer yet, each with the session it was for.
+        let mut waiting: HashMap<u64, (Option<String>, Reply)> = HashMap::new();
         let mut next = 0;
         loop {
             tokio::select! {
@@ -82,14 +86,14 @@ pub async fn connect(cdp: &Cdp) -> anyhow::Result<Client> {
                     };
                     next += 1;
                     let mut message = json!({ "id": next, "method": call.method, "params": call.params });
-                    if let Some(session) = call.session {
-                        message["sessionId"] = session.into();
+                    if let Some(session) = &call.session {
+                        message["sessionId"] = session.as_str().into();
                     }
                     if let Err(err) = sink.send(Message::text(message.to_string())).await {
                         warn!("the browser's DevTools socket took no call: {err}");
                         return;
                     }
-                    waiting.insert(next, call.reply);
+                    waiting.insert(next, (call.session, call.reply));
                 }
                 message = stream.next() => {
                     // When the browser is gone, those still waiting learn it from their
@@ -113,7 +117,7 @@ pub async fn connect(cdp: &Cdp) -> anyhow::Result<Client> {
                         }
                     };
                     if let Some(id) = message["id"].as_u64() {
-                        if let Some(reply) = waiting.remove(&id) {
+                        if let Some((_, reply)) = waiting.remove(&id) {
                             // Whoever called may have stopped waiting.
                             let _ = reply.send(match message.get("error") {
                                 Some(error) => Err(Error::Refused(
@@ -123,6 +127,17 @@ pub async fn connect(cdp: &Cdp) -> anyhow::Result<Client> {
                             });
                         }
                     } else if let Some(method) = message["method"].as_str() {
+                        // The browser answers nothing more for a session that ended, not
+                        // even that it did: whoever waits for it is told here.
+                        if method == "Target.detachedFromTarget"
+                            && let Some(ended) = message["params"]["sessionId"].as_str()
+                        {
+                            let of_ended =
+                                |(session, _): &(Option<String>, Reply)| session.as_deref() == Some(ended);
+                            for (_, (_, reply)) in waiting.extract_if(|_, call| of_ended(call)) {
+                                let _ = reply.send(Err(Error::Detached));
+                            }
+                        }
                         // Nobody listening is fine.
                         let _ = published.send(Event {
                             method: method.to_owned(),
