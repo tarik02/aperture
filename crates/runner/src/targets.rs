@@ -236,6 +236,10 @@ impl Registry {
                     let Some(inner) = inner.upgrade() else {
                         return;
                     };
+                    // Nothing to bring in line before there is a browser to ask.
+                    if inner.browser.borrow().is_none() {
+                        continue;
+                    }
                     let failed = inner.reconcile().await.err().map(|err| format!("{err:#}"));
                     if let Some(err) = failed.as_ref().filter(|_| failed != failing) {
                         warn!("failed to reconcile targets: {err}");

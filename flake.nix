@@ -175,6 +175,156 @@
           pkgs.gst_all_1.gst-plugins-bad # h264parse, nvcodec, va, openh264
           pkgs.gst_all_1.gst-plugins-ugly # x264enc
         ];
+
+        version = "0.1.0";
+        # What the programs and the page are built of, so that nothing else builds them again.
+        src = lib.fileset.toSource {
+          root = ./.;
+          fileset = lib.fileset.unions [
+            ./Cargo.toml
+            ./Cargo.lock
+            ./buf.yaml
+            ./crates
+            ./proto
+            ./apps
+            ./packages
+            ./package.json
+            ./pnpm-lock.yaml
+            ./pnpm-workspace.yaml
+            ./tsconfig.base.json
+            ./vite.config.ts
+          ];
+        };
+
+        workspacePnpmDeps = pkgs.fetchPnpmDeps {
+          pname = "aperture-workspace";
+          inherit version src;
+          pnpm = pnpmLatest;
+          fetcherVersion = 4;
+          hash = "sha256-k3qIlJchYV44ks5Lwj5JvWhbk1I1Kc50Oylz66uHm7I=";
+        };
+
+        # The page that shows a session: one HTML file with everything it needs in it, which the
+        # gateway takes into the programs.
+        workbench = pkgs.stdenvNoCC.mkDerivation {
+          pname = "aperture-workbench";
+          inherit version src;
+          pnpmDeps = workspacePnpmDeps;
+          nativeBuildInputs = [
+            nodeRuntime
+            pnpmLatest
+            pkgs.pnpmConfigHook
+          ];
+          env.CI = "true";
+          buildPhase = ''
+            runHook preBuild
+            # pnpm 11.27.1 shims use `command -p`, which finds nothing in the sandbox.
+            find . -path '*/node_modules/.bin/*' -type f -exec sed -i 's/command -p //g' {} +
+            pnpm --filter @aperture-browser/workbench build
+            runHook postBuild
+          '';
+          installPhase = ''
+            runHook preInstall
+            install -Dm644 apps/workbench/dist/index.html $out/index.html
+            runHook postInstall
+          '';
+        };
+
+        sessionLibraries = [
+          pkgs.libxkbcommon
+          pkgs.pixman
+          pkgs.openssl
+          pkgs.gst_all_1.gstreamer
+          pkgs.gst_all_1.gst-plugins-base
+          pkgs.libglvnd
+          pkgs.libgbm
+        ];
+
+        # The programs as cargo builds them, which find nothing of what they run by themselves.
+        apertureUnwrapped = pkgs.rustPlatform.buildRustPackage {
+          pname = "aperture-unwrapped";
+          inherit version src;
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+            allowBuiltinFetchGit = true;
+          };
+          nativeBuildInputs = [
+            pkgs.pkg-config
+            pkgs.buf
+          ];
+          buildInputs = sessionLibraries;
+          env.APERTURE_WORKBENCH = "${workbench}/index.html";
+          preBuild = ''
+            # buf keeps a cache in the home directory.
+            export HOME=$TMPDIR
+            # browse-script takes a file of browse-capture's by its place next to it in their
+            # repository, which is not its place among vendored crates.
+            vendored=$NIX_BUILD_TOP/cargo-vendor-dir
+            capture=$(basename "$vendored"/browse-capture-*)
+            ln -s "$capture" "$vendored/browse-capture"
+          '';
+          doCheck = false;
+        };
+
+        # The programs with what they run: the browser and its sandbox, ffmpeg, pasta, the
+        # encoders. Each is still named by its option or its variable where another is wanted.
+        aperture =
+          pkgs.runCommand "aperture-${version}"
+            {
+              nativeBuildInputs = [ pkgs.makeWrapper ];
+              meta.mainProgram = "aperture-runner";
+            }
+            ''
+              mkdir -p $out/bin
+              for program in aperture-runner aperture-executor; do
+                makeWrapper ${apertureUnwrapped}/bin/$program $out/bin/$program \
+                  --set-default APERTURE_BWRAP ${lib.getExe pkgs.bubblewrap} \
+                  --set-default APERTURE_PASTA ${lib.getExe' pkgs.passt "pasta"} \
+                  --set-default APERTURE_CHROMIUM ${lib.getExe' runtimeChromium "chromium"} \
+                  --set-default APERTURE_FFMPEG ${lib.getExe' runtimeFfmpeg "ffmpeg"} \
+                  --set-default APERTURE_CURSOR_THEME ${browserCursorPath}/default \
+                  --set-default FONTCONFIG_FILE ${browserFontsConf} \
+                  --set-default APERTURE_GST_PLUGIN_PATH ${lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" gstPlugins} \
+                  --prefix LD_LIBRARY_PATH : ${
+                    # libEGL is found when the compositor starts; vendor drivers come from the system.
+                    lib.makeLibraryPath [
+                      pkgs.libglvnd
+                      pkgs.libgbm
+                    ]
+                  }
+              done
+              ln -s ${apertureUnwrapped}/bin/aperture-tunnel $out/bin/aperture-tunnel
+            '';
+
+        # One session in a container: `aperture-runner serve`, with its directory at /data.
+        # Its browser is sandboxed inside the container, with a /proc of its own, which a
+        # container runtime does not let it mount over the one it masks: under podman it
+        # runs with `--security-opt unmask=ALL`.
+        container = pkgs.dockerTools.streamLayeredImage {
+          name = "aperture-session";
+          tag = version;
+          contents = [
+            aperture
+            pkgs.dockerTools.fakeNss
+          ];
+          extraCommands = ''
+            mkdir -p data tmp run
+            chmod 1777 tmp
+          '';
+          config = {
+            Entrypoint = [
+              (lib.getExe aperture)
+              "serve"
+            ];
+            Env = [
+              "APERTURE_DATA=/data"
+              "APERTURE_LISTEN=0.0.0.0:7900"
+              "APERTURE_RUNTIME_DIR=/run/aperture"
+            ];
+            ExposedPorts."7900/tcp" = { };
+            Volumes."/data" = { };
+          };
+        };
       in
       {
         devShells.default = pkgs.mkShell {
@@ -189,15 +339,7 @@
             nodeRuntime
             pnpmLatest
           ];
-          buildInputs = [
-            pkgs.libxkbcommon
-            pkgs.pixman
-            pkgs.openssl
-            pkgs.gst_all_1.gstreamer
-            pkgs.gst_all_1.gst-plugins-base
-            pkgs.libglvnd
-            pkgs.libgbm
-          ];
+          buildInputs = sessionLibraries;
           # libEGL is found when the compositor starts; vendor drivers come from the system.
           LD_LIBRARY_PATH = lib.makeLibraryPath [
             pkgs.libglvnd
@@ -212,6 +354,10 @@
         };
 
         packages = {
+          default = aperture;
+          inherit aperture container;
+          aperture-unwrapped = apertureUnwrapped;
+          aperture-workbench = workbench;
           aperture-chromium = runtimeChromium;
           aperture-ffmpeg = runtimeFfmpeg;
         };
