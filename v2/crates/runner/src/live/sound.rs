@@ -205,8 +205,8 @@ impl Sound {
         }
     }
 
-    /// Samples since the session's sound began.
-    fn now(&self) -> u64 {
+    /// Samples since the session's sound began, which is the time packets are stamped in.
+    pub fn now(&self) -> u64 {
         (self.began.elapsed().as_micros() * u128::from(RATE) / 1_000_000) as u64
     }
 

@@ -1,6 +1,8 @@
 //! Recordings of a target, as files of the session. A recording takes the target's video as
 //! it is encoded for those who watch it and writes it into a Matroska file, so recording
 //! costs no second encoding. The pointer is drawn into the video while any recording runs.
+//! The tab's sound goes into the file the same way, as the packets its listeners get, with
+//! silence where it played nothing.
 //!
 //! That is the raw video: what a target showed, from start to stop. Once it stopped, the
 //! edit (see [`edit`](super::edit)) makes a second video of it and its journal; the raw one
@@ -58,6 +60,7 @@ use super::{
         plan::{Options, Pace, Video},
     },
     encode::{Format, Quality},
+    sound::{self, Sound},
     stream::{Key, Packet, Streams, Subscription},
 };
 use crate::{cdp, targets::Target};
@@ -214,15 +217,22 @@ struct Entry {
     editing: Option<JoinHandle<()>>,
 }
 
+/// What makes the edits.
+pub struct Editor {
+    /// ffmpeg; without it recordings are left raw.
+    pub ffmpeg: Option<PathBuf>,
+    /// Where ffmpeg may keep what it builds once.
+    pub cache: PathBuf,
+}
+
 struct Inner {
     streams: Arc<Streams>,
     compositor: Handle,
     browser: cdp::Client,
     targets: watch::Receiver<Vec<Target>>,
     files: PathBuf,
-    /// ffmpeg, for the edits; without it recordings are left raw.
-    ffmpeg: Option<PathBuf>,
-    cache: PathBuf,
+    editor: Editor,
+    sound: Arc<Sound>,
     recordings: Mutex<HashMap<String, Entry>>,
     /// How many recordings run, for those who journal to ask cheaply.
     running: AtomicUsize,
@@ -238,8 +248,8 @@ impl Recordings {
         browser: cdp::Client,
         targets: watch::Receiver<Vec<Target>>,
         files: PathBuf,
-        ffmpeg: Option<PathBuf>,
-        cache: PathBuf,
+        editor: Editor,
+        sound: Arc<Sound>,
     ) -> Self {
         Self(Arc::new(Inner {
             streams,
@@ -247,8 +257,8 @@ impl Recordings {
             browser,
             targets,
             files,
-            ffmpeg,
-            cache,
+            editor,
+            sound,
             recordings: Mutex::default(),
             running: AtomicUsize::new(0),
         }))
@@ -294,6 +304,12 @@ impl Recordings {
             })
             .await?;
         let writer = Writer::new(&path)?;
+        let heard = Heard {
+            packets: inner.sound.listen(),
+            tab: target.browser_tab,
+            clock: inner.sound.clone(),
+            compositor: inner.compositor.clone(),
+        };
         let recording = Recording {
             id: id.clone(),
             target: target.id,
@@ -317,8 +333,8 @@ impl Recordings {
             let id = id.clone();
             let journal = journal.clone();
             async move {
-                let outcome =
-                    record(subscription, writer, stopped, &journal.start, threshold).await;
+                let start = &journal.start;
+                let outcome = record(subscription, heard, writer, stopped, start, threshold).await;
                 drop(pixels);
                 recordings.ended(&id, outcome);
             }
@@ -765,7 +781,7 @@ impl Recordings {
                     recording.state = State::Finished;
                     recording.duration_ms = Some(raw.duration.as_millis() as u64);
                     info!(recording = %id, duration = ?raw.duration, "recording finished");
-                    if let Some(ffmpeg) = &inner.ffmpeg {
+                    if let Some(ffmpeg) = &inner.editor.ffmpeg {
                         recording.edit = Some(Edit {
                             state: EditState::Editing,
                             file: None,
@@ -777,7 +793,7 @@ impl Recordings {
                             ffmpeg: ffmpeg.clone(),
                             journal: inner.files.join(&recording.journal),
                             work: video.with_extension("edit"),
-                            cache: inner.cache.clone(),
+                            cache: inner.editor.cache.clone(),
                             options: recording.options.clone(),
                             changed_at_ms: raw.changed_at_ms,
                             frame: Video {
@@ -903,10 +919,28 @@ impl<'a> Probe<'a> {
     }
 }
 
+/// The sound of the tab a recording is of.
+struct Heard {
+    packets: sound::Listener,
+    tab: i64,
+    /// What the packets are stamped by, and what the video's are.
+    clock: Arc<Sound>,
+    compositor: Handle,
+}
+
+/// An Opus packet that plays as silence.
+const SILENCE: [u8; 3] = [0xf8, 0xff, 0xfe];
+
+/// How far behind the present the file's sound is left open for a packet that is on its
+/// way, and how often what stayed empty is filled with silence.
+const SOUND_BEHIND: Duration = Duration::from_millis(200);
+const SOUND_FILL_EVERY: Duration = Duration::from_millis(200);
+
 /// Writes the stream from its next keyframe until told to stop, or until the target's
 /// window closes.
 async fn record(
     mut subscription: Subscription,
+    mut heard: Heard,
     writer: Writer,
     mut stopped: oneshot::Receiver<()>,
     start: &OnceLock<Duration>,
@@ -937,16 +971,55 @@ async fn record(
         }
         writer.write(packet, last)
     };
+    let samples = u64::from(sound::RATE) * sound::PACKET.as_millis() as u64 / 1000;
+    let in_samples = |time: Duration| time.as_micros() as u64 * u64::from(sound::RATE) / 1_000_000;
+    // The sound's time at the video's start, once it started, and how far the file's
+    // sound reaches, in samples of the video's time. The file's sound has no holes: the
+    // file is written as far as both of its tracks reach.
+    let mut sound_start = None;
+    let mut sound_end = 0;
+    let silence_until = |end: u64, sound_end: &mut u64| -> anyhow::Result<()> {
+        while *sound_end + samples <= end {
+            writer.play(&SILENCE, *sound_end)?;
+            *sound_end += samples;
+        }
+        Ok(())
+    };
+    let mut fill = tokio::time::interval(SOUND_FILL_EVERY);
     loop {
         tokio::select! {
             packet = subscription.packets.recv() => match packet {
-                Ok(packet) => write(&packet, &mut decodable)?,
+                Ok(packet) => {
+                    write(&packet, &mut decodable)?;
+                    if decodable && sound_start.is_none() {
+                        // The frame is of a moment ago.
+                        let ago = heard.compositor.elapsed().saturating_sub(packet.time);
+                        sound_start = Some(heard.clock.now().saturating_sub(in_samples(ago)));
+                    }
+                }
                 Err(broadcast::error::RecvError::Lagged(_)) => {
                     decodable = false;
                     subscription.keyframe();
                 }
                 Err(broadcast::error::RecvError::Closed) => break,
             },
+            packet = heard.packets.next(Some(heard.tab)) => {
+                // What was missed is silence; what came before the video is left out.
+                let at = packet.ok().zip(sound_start).and_then(|(packet, start)| {
+                    Some((packet.at.checked_sub(start)?, packet))
+                });
+                if let Some((at, packet)) = at {
+                    silence_until(at, &mut sound_end)?;
+                    writer.play(&packet.data, sound_end)?;
+                    sound_end += samples;
+                }
+            }
+            _ = fill.tick() => {
+                if let Some(start) = sound_start {
+                    let open = heard.clock.now().saturating_sub(start + in_samples(SOUND_BEHIND));
+                    silence_until(open, &mut sound_end)?;
+                }
+            }
             _ = &mut stopped => {
                 // A window at rest sent its last frame long ago: one more, stamped now,
                 // makes the recording last until now.
@@ -970,6 +1043,7 @@ async fn record(
     if first.is_none() {
         bail!("the target showed nothing while it was recorded");
     }
+    silence_until(in_samples(last), &mut sound_end)?;
     tokio::task::spawn_blocking(move || writer.finish()).await??;
     Ok(Raw {
         duration: last,
@@ -982,6 +1056,7 @@ async fn record(
 struct Writer {
     pipeline: gst::Pipeline,
     src: gst_app::AppSrc,
+    sound: gst_app::AppSrc,
 }
 
 impl Writer {
@@ -1002,12 +1077,53 @@ impl Writer {
         let sink = gst::ElementFactory::make("filesink")
             .property("location", path.to_str().context("the path is not UTF-8")?)
             .build()?;
-        pipeline.add_many([src.upcast_ref(), &parse, &mux, &sink])?;
+        let sound = gst_app::AppSrc::builder()
+            .format(gst::Format::Time)
+            .caps(
+                &gst::Caps::builder("audio/x-opus")
+                    .field("rate", sound::RATE as i32)
+                    .field("channels", 2)
+                    .field("channel-mapping-family", 0)
+                    .field("stream-count", 1)
+                    .field("coupled-count", 1)
+                    .build(),
+            )
+            .build();
+        pipeline.add_many([src.upcast_ref(), &parse, &mux, &sink, sound.upcast_ref()])?;
         gst::Element::link_many([src.upcast_ref(), &parse, &mux, &sink])?;
+        // By name: left to choose, the muxer takes it for another picture.
+        let into = mux
+            .request_pad_simple("audio_%u")
+            .context("the muxer takes no sound")?;
+        sound
+            .static_pad("src")
+            .context("the sound has no pad")?
+            .link(&into)?;
         pipeline
             .set_state(gst::State::Playing)
             .context("failed to start writing the recording")?;
-        Ok(Self { pipeline, src })
+        Ok(Self {
+            pipeline,
+            src,
+            sound,
+        })
+    }
+
+    /// Writes an Opus packet that plays after `at` samples of the video.
+    fn play(&self, data: &[u8], at: u64) -> anyhow::Result<()> {
+        let rate = u64::from(sound::RATE);
+        let mut buffer = gst::Buffer::from_slice(data.to_vec());
+        {
+            let buffer = buffer.get_mut().expect("the buffer was just made");
+            buffer.set_pts(gst::ClockTime::from_nseconds(at * 1_000_000_000 / rate));
+            buffer.set_duration(gst::ClockTime::from_nseconds(
+                sound::PACKET.as_nanos() as u64
+            ));
+        }
+        self.sound
+            .push_buffer(buffer)
+            .map_err(|err| anyhow::anyhow!("failed to write the sound: {err}"))?;
+        Ok(())
     }
 
     fn write(&self, packet: &Packet, time: Duration) -> anyhow::Result<()> {
@@ -1027,9 +1143,10 @@ impl Writer {
 
     /// Ends the file and waits until it is written out.
     fn finish(self) -> anyhow::Result<()> {
-        self.src
-            .end_of_stream()
-            .map_err(|err| anyhow::anyhow!("failed to end the recording: {err}"))?;
+        for src in [&self.src, &self.sound] {
+            src.end_of_stream()
+                .map_err(|err| anyhow::anyhow!("failed to end the recording: {err}"))?;
+        }
         let bus = self.pipeline.bus().context("the pipeline has no bus")?;
         let message = bus.timed_pop_filtered(
             FINISH_WITHIN,

@@ -182,6 +182,8 @@ pub struct Plan {
     pub pieces: Vec<Piece>,
     /// ffmpeg's filter chain, from the raw video to the edited one.
     pub filter: String,
+    /// The same for the sound.
+    pub sound: String,
     /// The script the chain reads as `ripples.ass`, when clicks are marked.
     pub ripples: Option<String>,
     /// The script the chain reads as `captions.ass`, when there are captions.
@@ -250,9 +252,16 @@ pub fn plan(
         chain.push("ass=captions.ass".to_owned());
         subtitles(&cues, &[], video)
     });
+    let mut sound = Vec::new();
+    if pieces != [whole] {
+        sound.extend(remap_sound_filters(&pieces));
+    }
+    // Silence where the sound has none, and from the start.
+    sound.push("aresample=async=1:first_pts=0".to_owned());
     Ok(Plan {
         pieces,
         filter: chain.join(","),
+        sound: sound.join(","),
         ripples,
         captions,
     })
@@ -489,6 +498,29 @@ fn remap_filters(pieces: &[Piece]) -> [String; 2] {
     [
         format!("select='{}'", keep.join("+")),
         format!("setpts='({})/TB'", times.join("+")),
+    ]
+}
+
+/// The same for the sound, of the pieces played as they were: sound that is sped up is
+/// noise, so such a piece is silent.
+fn remap_sound_filters(pieces: &[Piece]) -> [String; 2] {
+    let seconds = |ms: i64| format!("{:.3}", ms as f64 / 1000.0);
+    let mut keep = vec!["0".to_owned()];
+    let mut times = Vec::new();
+    for piece in pieces {
+        let (from, to) = (seconds(piece.start), seconds(piece.end));
+        if piece.speed == 1.0 {
+            keep.push(format!("gte(t,{from})*lt(t,{to})"));
+        }
+        let mut term = format!("(clip(T,{from},{to})-{from})");
+        if piece.speed != 1.0 {
+            let _ = write!(term, "/{}", piece.speed);
+        }
+        times.push(term);
+    }
+    [
+        format!("aselect='{}'", keep.join("+")),
+        format!("asetpts='({})/TB'", times.join("+")),
     ]
 }
 

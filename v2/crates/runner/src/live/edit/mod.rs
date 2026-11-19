@@ -67,6 +67,7 @@ async fn make(job: &Job) -> anyhow::Result<()> {
     // ffmpeg reads the chain from a file, so its length does not meet the limit of a
     // command line.
     tokio::fs::write(job.work.join("filter.txt"), &planned.filter).await?;
+    tokio::fs::write(job.work.join("sound.txt"), &planned.sound).await?;
     for (name, script) in [
         ("ripples.ass", &planned.ripples),
         ("captions.ass", &planned.captions),
@@ -91,8 +92,9 @@ async fn render(job: &Job) -> anyhow::Result<()> {
         .args(["-protocol_whitelist", "file", "-f", "matroska"])
         .arg("-i")
         .arg(&job.video)
-        .args(["-xerror", "-y", "-an", "-/vf", "filter.txt"])
+        .args(["-xerror", "-y", "-/vf", "filter.txt", "-/af", "sound.txt"])
         .args(["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"])
+        .args(["-c:a", "aac", "-b:a", "128k"])
         .args(["-pix_fmt", "yuv420p", "-fps_mode", "passthrough"])
         .args(["-movflags", "+faststart", "-f", "mp4"])
         .arg(&job.edited)

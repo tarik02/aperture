@@ -228,8 +228,11 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
             devtools.clone(),
             registry.targets(),
             spec.files_dir.clone(),
-            spec.tools.ffmpeg.clone(),
-            spec.cache_dir.join("ffmpeg"),
+            live::record::Editor {
+                ffmpeg: spec.tools.ffmpeg.clone(),
+                cache: spec.cache_dir.join("ffmpeg"),
+            },
+            sound.clone(),
         );
         recordings = Some(recorder.clone());
         let presence = presence::Presence::new(compositor.clone());
