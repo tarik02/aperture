@@ -2,7 +2,9 @@
 //! session to those who watch it, reports where the session is reached in the status file,
 //! and stops the browser on SIGTERM.
 
+mod alone;
 mod automation;
+mod browser;
 mod cdp;
 mod egress;
 mod extension;
@@ -17,237 +19,23 @@ mod proto {
 }
 
 use std::{
-    fs,
-    hash::{Hash, Hasher},
-    os::unix::fs::DirBuilderExt,
-    path::{Path, PathBuf},
-    process::{ExitCode, Stdio},
-    sync::{Arc, Mutex},
-    time::Duration,
+    fs, os::unix::fs::DirBuilderExt, path::Path, process::ExitCode, sync::Arc, time::Duration,
 };
 
 use anyhow::{Context, bail};
-use aperture_gateway::{Listen, Refused, auth::Keys};
-use aperture_runner::{
-    Cdp, DEVTOOLS_AUTHORITY, Live, Phase, Profile, Spec, Status, lock_path,
-    options::{Directories, Options},
-    proxy, spec_path, write_status,
-};
+use aperture_runner::{Cdp, Live, Phase, Spec, Status, lock_path, spec_path, write_status};
 use clap::Parser;
-use futures_util::{SinkExt, future::BoxFuture};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    process::{Child, Command},
-    signal::unix::{SignalKind, signal},
-    time::{Instant, sleep, timeout},
+    process::Child,
+    signal::unix::{Signal, SignalKind, signal},
+    task::JoinHandle,
+    time::timeout,
 };
-use tokio_tungstenite::tungstenite::Message;
 use tracing::{info, warn};
 
-const BROWSER_READY_WITHIN: Duration = Duration::from_secs(60);
+use crate::{alone::Front, live::record::Recordings};
+
 const TARGET_READY_WITHIN: Duration = Duration::from_secs(30);
-/// A browser asked to close writes its profile out first.
-const BROWSER_CLOSE_WITHIN: Duration = Duration::from_secs(15);
-const TERMINATE_WITHIN: Duration = Duration::from_secs(10);
-const POLL: Duration = Duration::from_millis(50);
-
-/// Host trees the browser loads its libraries, fonts, certificates and resolver
-/// configuration from.
-const SYSTEM_ROOTS: &[&str] = &[
-    "/usr",
-    "/lib",
-    "/lib64",
-    "/bin",
-    "/etc",
-    "/nix/store",
-    "/var/cache/fontconfig",
-];
-
-/// Where a GPU's drivers are and what describes the device to them, for a browser that
-/// draws on one.
-const GPU_ROOTS: &[&str] = &["/run/opengl-driver", "/sys/dev/char", "/sys/devices"];
-
-/// Ports on the loopback of the browser's sandbox, which is its own: the browser's proxy,
-/// and where it serves DevTools.
-const PROXY_PORT: u16 = 1080;
-const DEVTOOLS_PORT: u16 = 9222;
-
-/// The profile, as the browser sees it.
-const PROFILE: &str = "/profile";
-const FILES: &str = "/files";
-
-/// Runs one browser session on its own, for whoever holds its token: the session's
-/// endpoints are served here, as an executor serves those of its sessions.
-#[derive(clap::Parser)]
-#[command(name = "aperture-runner serve", bin_name = "aperture-runner serve")]
-struct Serve {
-    /// The session's own directory: its profile, its files and what else it keeps from
-    /// one run to the next. Made when there is none.
-    #[arg(long, env = "APERTURE_DATA")]
-    data: PathBuf,
-    /// An address, or a Unix socket as `unix:PATH`.
-    #[arg(long, env = "APERTURE_LISTEN", default_value = "127.0.0.1:7900")]
-    listen: Listen,
-    /// The session's id, for whoever gives it one: tickets have to name it then. The
-    /// session itself has no use for one.
-    #[arg(long, env = "APERTURE_SESSION_ID")]
-    id: Option<String>,
-    /// Sockets and the state of the running session. A directory of its own below
-    /// `$XDG_RUNTIME_DIR` by default.
-    #[arg(long, env = "APERTURE_RUNTIME_DIR")]
-    runtime_dir: Option<PathBuf>,
-    /// The token requests carry. Generated into the session's directory by default.
-    #[arg(long, env = "APERTURE_TOKEN_FILE")]
-    token_file: Option<PathBuf>,
-    /// The public key tickets are signed with: Ed25519, as PEM. A ticket lets one person
-    /// into the session; none are taken without a key.
-    #[arg(long, env = "APERTURE_TICKET_KEY")]
-    ticket_key: Option<PathBuf>,
-    #[command(flatten)]
-    options: Options,
-}
-
-impl Serve {
-    /// The session's spec, and what it is served with.
-    fn session(self) -> anyhow::Result<(Spec, Front)> {
-        let private = |dir: &Path| {
-            fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(dir)
-                .with_context(|| format!("failed to make {}", dir.display()))
-        };
-        for name in ["profile", "work", "cache", "files", "state"] {
-            private(&self.data.join(name))?;
-        }
-        let data = self.data.canonicalize()?;
-        let within = |name: &str| data.join(name);
-        // The directory tells one session's sockets from another's.
-        let named = {
-            let mut hasher = std::hash::DefaultHasher::new();
-            data.hash(&mut hasher);
-            format!("aperture-session-{:016x}", hasher.finish())
-        };
-        let runtime_dir = match self.runtime_dir {
-            Some(dir) => dir,
-            None => match std::env::var_os("XDG_RUNTIME_DIR").filter(|dir| !dir.is_empty()) {
-                Some(dir) => PathBuf::from(dir).join(named),
-                None => std::env::temp_dir().join(named),
-            },
-        };
-        private(&runtime_dir)?;
-        let keys = Keys::read(
-            &self.token_file.unwrap_or_else(|| within("token")),
-            self.ticket_key.as_deref(),
-            // At the root, for a ticket that names it, or any ticket when it has no name.
-            Box::new({
-                let id = self.id.clone();
-                move |session| {
-                    id.as_deref()
-                        .is_none_or(|id| id == session)
-                        .then(String::new)
-                }
-            }),
-        )?;
-        let directories = Directories {
-            profile: Profile {
-                lowers: Vec::new(),
-                upper: within("profile"),
-                work: within("work"),
-            },
-            cache: within("cache"),
-            files: within("files"),
-            state: within("state"),
-        };
-        let spec = self.options.setup()?.spec(
-            self.id.as_deref().unwrap_or("own"),
-            runtime_dir.canonicalize()?,
-            directories,
-            proxy::Config::default(),
-        );
-        Ok((
-            spec,
-            Front {
-                listen: self.listen,
-                keys: Mutex::new(Some(keys)),
-            },
-        ))
-    }
-}
-
-/// Where a session that runs on its own is reached, and by whom.
-struct Front {
-    listen: Listen,
-    /// Until the session is served.
-    keys: Mutex<Option<Keys>>,
-}
-
-impl Front {
-    /// Serves the session, from now until the task is aborted.
-    async fn serve(&self, own: Own) -> anyhow::Result<tokio::task::JoinHandle<()>> {
-        let keys = self.keys.lock().expect("not poisoned").take();
-        let keys = keys.context("the session is served already")?;
-        let listening = self
-            .listen
-            .bind()
-            .await
-            .with_context(|| format!("failed to listen on {}", self.listen))?;
-        info!(listen = %self.listen, "session served");
-        let app = aperture_gateway::guarded(aperture_gateway::router(Arc::new(own), true), keys);
-        Ok(tokio::spawn(async move {
-            if let Err(err) = listening.serve(app, std::future::pending()).await {
-                warn!("the session is no longer served: {err}");
-            }
-        }))
-    }
-}
-
-/// Waits for one of the session's own services to end, and tells which and why: none of
-/// them ends while the session runs.
-async fn ended<const N: usize>(
-    services: [(
-        &str,
-        Option<&mut tokio::task::JoinHandle<std::io::Result<()>>>,
-    ); N],
-) -> anyhow::Error {
-    let (names, tasks): (Vec<&str>, Vec<_>) = services
-        .into_iter()
-        .filter_map(|(name, task)| Some((name, task?)))
-        .unzip();
-    let (outcome, at, _) = futures_util::future::select_all(tasks).await;
-    let name = names[at];
-    match outcome {
-        Ok(Ok(())) => anyhow::anyhow!("{name} stopped"),
-        Ok(Err(err)) => anyhow::Error::from(err).context(format!("{name} failed")),
-        Err(err) => anyhow::anyhow!("{name} failed: {err}"),
-    }
-}
-
-/// The session itself, as the gateway reaches it.
-struct Own {
-    live: Live,
-    /// None where the session does not serve its DevTools endpoint.
-    cdp: Option<Cdp>,
-}
-
-impl aperture_gateway::Sessions for Own {
-    fn live<'a>(&'a self, _id: &'a str) -> BoxFuture<'a, Result<Live, Refused>> {
-        Box::pin(async move { Ok(self.live.clone()) })
-    }
-
-    fn cdp<'a>(&'a self, _id: &'a str) -> BoxFuture<'a, Result<Cdp, Refused>> {
-        Box::pin(async move {
-            self.cdp.clone().ok_or_else(|| Refused {
-                status: axum::http::StatusCode::NOT_FOUND,
-                reason: "the session's DevTools endpoint is off".to_owned(),
-            })
-        })
-    }
-
-    fn present(&self, _id: &str) -> Box<dyn Send> {
-        Box::new(())
-    }
-}
 
 // Children are told to die with the thread that started them (see `own`). `main`'s future
 // runs on the main thread, the one that lives as long as the runner, so they are started
@@ -261,10 +49,10 @@ async fn main() -> anyhow::Result<ExitCode> {
         .init();
 
     let arguments: Vec<String> = std::env::args().skip(1).collect();
-    let (spec, front) = match &arguments[..] {
+    let (spec, front): (Spec, _) = match &arguments[..] {
         // Its own name is what the first argument stands for here.
         [first, ..] if first == "serve" => {
-            let (spec, front) = Serve::parse_from(&arguments).session()?;
+            let (spec, front) = alone::Serve::parse_from(&arguments).session()?;
             (spec, Some(front))
         }
         [runtime_dir] => {
@@ -279,7 +67,6 @@ async fn main() -> anyhow::Result<ExitCode> {
             return Ok(ExitCode::from(2));
         }
     };
-    let spec: Spec = spec;
     let runtime_dir = spec.runtime_dir.clone();
 
     // Held until the runner exits, see `aperture_runner::is_alive`. Whoever looks holds it
@@ -316,15 +103,58 @@ async fn main() -> anyhow::Result<ExitCode> {
     Ok(code)
 }
 
+/// The runner being told to stop.
+struct Stop {
+    terminate: Signal,
+    interrupt: Signal,
+}
+
+impl Stop {
+    fn new() -> std::io::Result<Self> {
+        Ok(Self {
+            terminate: signal(SignalKind::terminate())?,
+            interrupt: signal(SignalKind::interrupt())?,
+        })
+    }
+
+    async fn asked(&mut self) {
+        tokio::select! {
+            _ = self.terminate.recv() => {}
+            _ = self.interrupt.recv() => {}
+        }
+    }
+}
+
+/// A service of the session, which ends with it and not before.
+type Service = JoinHandle<std::io::Result<()>>;
+
+/// What a session runs beside its browser, and what ends with it.
+struct Session {
+    compositor: aperture_compositor::Handle,
+    egress: Arc<egress::Egress>,
+    /// The browser's way out, and the socket tunnels attach to.
+    ways_out: [Service; 2],
+    registry: targets::Registry,
+    sound: Arc<live::sound::Sound>,
+    /// From when the browser serves DevTools.
+    live: Option<Service>,
+    recordings: Option<Recordings>,
+    /// Of a session that runs on its own.
+    served: Option<JoinHandle<()>>,
+}
+
 async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow::Result<()> {
-    let mut terminate = signal(SignalKind::terminate())?;
-    let mut interrupt = signal(SignalKind::interrupt())?;
+    let mut stop = Stop::new()?;
 
     // The browser's runtime directory holds the sockets of the display and of the
     // extension's host and nothing else: it is all of the session's runtime directory that
     // the sandbox gets to see.
     let sockets = spec.runtime_dir.join("browser");
-    let _ = fs::remove_dir_all(&sockets);
+    match fs::remove_dir_all(&sockets) {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => return Err(err).context("failed to clear the browser's runtime directory"),
+    }
     fs::DirBuilder::new().mode(0o700).create(&sockets)?;
     let display = sockets.join("wayland-0");
     let compositor = aperture_compositor::start(aperture_compositor::Config {
@@ -343,20 +173,18 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
         },
     })
     .context("failed to start the compositor")?;
-    let mut windows = compositor.windows();
 
     // The browser has no network: this is its one way out.
     let egress_socket = sockets.join("proxy.sock");
     let policy = egress::Policy::new(&spec.egress_allow)?;
     let egress = egress::Egress::new(policy, &spec.proxy)?;
-    let tunnel_socket = spec.runtime_dir.join("tunnel.sock");
-    let mut egress_tasks = [
+    let ways_out = [
         tokio::spawn({
             let (egress, socket) = (egress.clone(), egress_socket.clone());
             async move { egress.serve(&socket).await }
         }),
         tokio::spawn({
-            let (egress, socket) = (egress.clone(), tunnel_socket.clone());
+            let (egress, socket) = (egress.clone(), tunnel_socket(spec));
             let tunnels = spec.features.tunnel;
             async move {
                 // Without the socket nobody attaches a tunnel.
@@ -368,64 +196,152 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
             }
         }),
     ];
-    // What the sandbox shares with the outside to put its own sockets in.
     let shared = sockets.join("shared");
     fs::DirBuilder::new().mode(0o700).create(&shared)?;
-    let devtools_socket = shared.join("devtools.sock");
 
     // Before the browser starts: its extension reports as soon as it runs.
     let extension_socket = sockets.join("extension.sock");
     let extension_dir = spec.runtime_dir.join("extension");
     extension::unpack(&extension_dir, spec.features.sound)
         .context("failed to write the extension")?;
-    let kept_tabs = spec.state_dir.join("tabs.json");
     let sound = live::sound::Sound::new();
     let registry = targets::Registry::bind(
         &extension_socket,
         compositor.clone(),
-        kept_tabs,
+        spec.state_dir.join("tabs.json"),
         sound.clone(),
     )
     .context("failed to listen for the extension")?;
-    let mut ready = registry.targets();
 
-    let mut live = None;
-    let mut served = None;
-    let mut recordings = None;
+    let given = browser::Given {
+        display: &display,
+        extension_socket: &extension_socket,
+        extension: &extension_dir,
+        egress_socket: &egress_socket,
+        shared: &shared,
+        render_node: compositor.render_node(),
+    };
+    let mut browser = browser::start(spec, &given)?;
+    let devtools_socket = given.devtools_socket();
+    let mut session = Session {
+        compositor,
+        egress,
+        ways_out,
+        registry,
+        sound,
+        live: None,
+        recordings: None,
+        served: None,
+    };
+    let outcome = session
+        .serve(
+            spec,
+            status,
+            front,
+            &devtools_socket,
+            &mut browser,
+            &mut stop,
+        )
+        .await;
 
-    let mut browser = start_browser(
-        spec,
-        &display,
-        &extension_socket,
-        &extension_dir,
-        &egress_socket,
-        &shared,
-        compositor.render_node(),
-    )?;
-    let outcome = async {
+    browser::stop(&mut browser).await;
+    session.end().await;
+    outcome
+}
+
+fn tunnel_socket(spec: &Spec) -> std::path::PathBuf {
+    spec.runtime_dir.join("tunnel.sock")
+}
+
+impl Session {
+    /// Brings the session up once its browser serves DevTools, and keeps it until it is
+    /// told to stop, which is how it ends well, or something of it ends by itself.
+    async fn serve(
+        &mut self,
+        spec: &Spec,
+        status: &mut Status,
+        front: Option<&Front>,
+        devtools_socket: &Path,
+        browser: &mut Child,
+        stop: &mut Stop,
+    ) -> anyhow::Result<()> {
         let cdp = tokio::select! {
-            cdp = browser_endpoint(&devtools_socket) => cdp?,
+            cdp = browser::endpoint(devtools_socket) => cdp?,
             exit = browser.wait() => bail!("the browser exited while starting: {}", exit?),
-            _ = terminate.recv() => return Ok(()),
-            _ = interrupt.recv() => return Ok(()),
+            () = stop.asked() => return Ok(()),
         };
-        let devtools = cdp::connect(&cdp)
+        let live = self.serve_live(spec, &cdp).await?;
+        status.live = Some(live.clone());
+
+        // A session is running once there is a page to show.
+        let mut ready = self.registry.targets();
+        let first_target = ready.wait_for(|targets| !targets.is_empty());
+        tokio::select! {
+            shown = timeout(TARGET_READY_WITHIN, first_target) => {
+                shown
+                    .context("the browser's first page did not get a window of its own")?
+                    .context("the browser's targets are no longer followed")?;
+            }
+            exit = browser.wait() => bail!("the browser exited while starting: {}", exit?),
+            () = stop.asked() => return Ok(()),
+        }
+        info!(session = %spec.session_id, "session running");
+        // Whoever reads the status serves the endpoint to those who reach the session.
+        status.cdp = spec.features.cdp.then(|| cdp.clone());
+        status.phase = Phase::Running;
+        write_status(&spec.runtime_dir, status)?;
+        if let Some(front) = front {
+            self.served = Some(front.serve(live, status.cdp.clone()).await?);
+        }
+
+        let [way_out, tunnels] = &mut self.ways_out;
+        let services = [
+            ("the browser's way out", Some(way_out)),
+            ("the tunnel's socket", Some(tunnels)),
+            ("the live endpoints", self.live.as_mut()),
+        ];
+        let mut windows = self.compositor.windows();
+        tokio::select! {
+            exit = browser.wait() => bail!("the browser exited: {}", exit?),
+            failed = ended(services) => return Err(failed),
+            // The channel closes when the compositor's thread ends.
+            _ = async { while windows.changed().await.is_ok() {} } => bail!("the compositor stopped"),
+            () = stop.asked() => {}
+        }
+        status.phase = Phase::Stopping;
+        write_status(&spec.runtime_dir, status)?;
+        // The tabs are kept as they are now, not as the browser takes them down.
+        self.registry.freeze();
+        // While the browser still shows what they record.
+        if let Some(recordings) = &self.recordings {
+            recordings.stop_all().await;
+        }
+        browser::close(&cdp, browser).await;
+        Ok(())
+    }
+
+    /// Connects to the browser and serves the session's live endpoints. Gives where they
+    /// are reached.
+    async fn serve_live(&mut self, spec: &Spec, cdp: &Cdp) -> anyhow::Result<Live> {
+        let devtools = cdp::connect(cdp)
             .await
             .context("failed to connect to the browser")?;
-        registry.attach(devtools.clone());
-        let downloads = files::follow_downloads(devtools.clone(), &spec.files_dir, spec.features.downloads)
-            .await
-            .context("failed to follow the browser's downloads")?;
-        let pages = pages::Pages::follow(devtools.clone(), registry.targets(), spec.features.uploads);
+        self.registry.attach(devtools.clone());
+        let downloads =
+            files::follow_downloads(devtools.clone(), &spec.files_dir, spec.features.downloads)
+                .await
+                .context("failed to follow the browser's downloads")?;
+        let targets = || self.registry.targets();
+        let pages = pages::Pages::follow(devtools.clone(), targets(), spec.features.uploads);
 
-        let streams = live::stream::Streams::new(compositor.clone());
-        let recorder = live::record::Recordings::new(
+        let streams = live::stream::Streams::new(self.compositor.clone());
+        let recordings = Recordings::new(
             live::record::Sources {
                 streams: streams.clone(),
-                compositor: compositor.clone(),
+                compositor: self.compositor.clone(),
                 browser: devtools.clone(),
-                targets: registry.targets(),
-                sound: sound.clone(),
+                targets: targets(),
+                sound: self.sound.clone(),
             },
             spec.files_dir.clone(),
             live::record::Editor {
@@ -434,417 +350,66 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
             },
             spec.features.recordings,
         );
-        recordings = Some(recorder.clone());
-        let presence = presence::Presence::new(compositor.clone());
+        let presence = presence::Presence::new(self.compositor.clone());
         let automation = Arc::new(automation::Automation::new(
             devtools,
-            registry.targets(),
-            recorder.clone(),
+            targets(),
+            recordings.clone(),
             spec.files_dir.clone(),
             &presence,
         ));
-        let live_socket = spec.runtime_dir.join("live.sock");
-        live = Some({
-            let socket = live_socket.clone();
-            let served = live::Live {
-                compositor: compositor.clone(),
-                streams,
-                targets: registry.targets(),
-                recordings: recorder,
-                egress: egress.clone(),
-                rtc_ports: spec.rtc_ports,
-                downloads,
-                pages,
-                sound: sound.clone(),
-                presence,
-                files: spec.files_dir.clone(),
-                features: spec.features,
-            };
-            tokio::spawn(async move { live::serve(&socket, served, automation).await })
-        });
-        status.live = Some(Live {
-            socket: live_socket,
-            tunnel_socket: tunnel_socket.clone(),
-        });
-        // A session is running once there is a page to show.
-        let first_target = async {
-            while ready.borrow_and_update().is_empty() {
-                if ready.changed().await.is_err() {
-                    break;
-                }
-            }
+        let served = live::Live {
+            compositor: self.compositor.clone(),
+            streams,
+            targets: targets(),
+            recordings: recordings.clone(),
+            egress: self.egress.clone(),
+            rtc_ports: spec.rtc_ports,
+            downloads,
+            pages,
+            sound: self.sound.clone(),
+            presence,
+            files: spec.files_dir.clone(),
+            features: spec.features,
         };
-        tokio::select! {
-            shown = timeout(TARGET_READY_WITHIN, first_target) => {
-                shown.context("the browser's first page did not get a window of its own")?;
-            }
-            exit = browser.wait() => bail!("the browser exited while starting: {}", exit?),
-            _ = terminate.recv() => return Ok(()),
-            _ = interrupt.recv() => return Ok(()),
-        }
-        info!(session = %spec.session_id, "session running");
-        // Whoever reads the status serves the endpoint to those who reach the session.
-        status.cdp = spec.features.cdp.then(|| cdp.clone());
-        status.phase = Phase::Running;
-        write_status(&spec.runtime_dir, status)?;
-        if let (Some(front), Some(live)) = (front, &status.live) {
-            let own = Own {
-                live: live.clone(),
-                cdp: status.cdp.clone(),
-            };
-            served = Some(front.serve(own).await?);
-        }
-
-        let [egress_task, tunnel_task] = &mut egress_tasks;
-        let services = [
-            ("the browser's way out", Some(egress_task)),
-            ("the tunnel's socket", Some(tunnel_task)),
-            ("the live endpoints", live.as_mut()),
-        ];
-        tokio::select! {
-            exit = browser.wait() => bail!("the browser exited: {}", exit?),
-            failed = ended(services) => return Err(failed),
-            // The channel closes when the compositor's thread ends.
-            _ = async { while windows.changed().await.is_ok() {} } => bail!("the compositor stopped"),
-            _ = terminate.recv() => {}
-            _ = interrupt.recv() => {}
-        }
-        status.phase = Phase::Stopping;
-        write_status(&spec.runtime_dir, status)?;
-        // The tabs are kept as they are now, not as the browser takes them down.
-        registry.freeze();
-        // While the browser still shows what they record.
-        if let Some(recordings) = &recordings {
-            recordings.stop_all().await;
-        }
-        close_browser(&cdp, &mut browser).await;
-        Ok(())
-    }
-    .await;
-
-    stop(&mut browser, "browser").await;
-    if let Some(live) = live {
-        live.abort();
-    }
-    if let Some(served) = served {
-        served.abort();
-    }
-    for task in egress_tasks {
-        task.abort();
-    }
-    let _ = tokio::task::spawn_blocking(move || compositor.stop()).await;
-    outcome
-}
-
-/// Starts the browser in its sandbox. The browser runs with `--no-sandbox`, so this one is
-/// what stands between a compromised renderer and the other sessions: it sees its own
-/// profile, cache and files, the sockets of the display, of the extension's host and of its
-/// egress, and the host's system trees read only. Of `/run` it gets no more than those
-/// sockets. It has no network but a loopback of its own: what it sends goes to the egress
-/// socket, and its DevTools endpoint is reached through a socket in `shared` (see the
-/// browser shim).
-fn start_browser(
-    spec: &Spec,
-    display: &Path,
-    extension_socket: &Path,
-    extension: &Path,
-    egress_socket: &Path,
-    shared: &Path,
-    render_node: Option<&Path>,
-) -> anyhow::Result<Child> {
-    let profile = &spec.profile;
-    for name in [
-        "SingletonLock",
-        "SingletonSocket",
-        "SingletonCookie",
-        "DevToolsActivePort",
-    ] {
-        let _ = fs::remove_file(profile.upper.join(name));
-    }
-    let home = spec.cache_dir.join("home");
-    for dir in [home.join(".cache"), home.join(".config")] {
-        fs::create_dir_all(dir)?;
-    }
-    let sockets = display.parent().context("the display has no directory")?;
-
-    // Chromium looks for native messaging hosts in its profile, and starts the host inside
-    // the sandbox.
-    let hosts = profile.upper.join("NativeMessagingHosts");
-    fs::create_dir_all(&hosts)?;
-    fs::write(
-        hosts.join(format!("{}.json", extension::NATIVE_HOST)),
-        serde_json::to_vec_pretty(&extension::native_host_manifest(&spec.tools.native_host))?,
-    )?;
-
-    let mut command = Command::new(&spec.tools.bwrap);
-    command.args([
-        "--die-with-parent",
-        "--unshare-user-try",
-        "--unshare-uts",
-        "--unshare-pid",
-        "--unshare-ipc",
-        "--unshare-net",
-        "--clearenv",
-        "--proc",
-        "/proc",
-        "--dev",
-        "/dev",
-        "--tmpfs",
-        "/tmp",
-        "--dir",
-        "/run",
-    ]);
-    for root in SYSTEM_ROOTS {
-        if Path::new(root).exists() {
-            command.args(["--ro-bind", root, root]);
-        }
-    }
-    if Path::new("/run/systemd/resolve").exists() {
-        command.args(["--ro-bind", "/run/systemd/resolve", "/run/systemd/resolve"]);
-    }
-    if let Some(node) = render_node {
-        // The device, and what tells its driver which GPU it is.
-        command.arg("--dev-bind").arg(node).arg(node);
-        for described in GPU_ROOTS {
-            if Path::new(described).exists() {
-                command.args(["--ro-bind", described, described]);
-            }
-        }
-    }
-    command.arg("--dir").arg(sockets);
-    command
-        .arg("--bind")
-        .arg(display)
-        .arg(display)
-        .arg("--bind")
-        .arg(extension_socket)
-        .arg(extension_socket)
-        .arg("--ro-bind")
-        .arg(extension)
-        .arg(extension)
-        .arg("--ro-bind")
-        .arg(&spec.tools.native_host)
-        .arg(&spec.tools.native_host)
-        .arg("--bind")
-        .arg(egress_socket)
-        .arg(egress_socket)
-        .arg("--bind")
-        .arg(shared)
-        .arg(shared)
-        .arg("--ro-bind")
-        .arg(&spec.tools.browser_shim)
-        .arg(&spec.tools.browser_shim);
-    if profile.lowers.is_empty() {
-        command.arg("--bind").arg(&profile.upper).arg(PROFILE);
-    } else {
-        // bwrap stacks them in the order given, the first at the bottom.
-        for lower in &profile.lowers {
-            command.arg("--overlay-src").arg(lower);
-        }
-        command
-            .arg("--overlay")
-            .arg(&profile.upper)
-            .arg(&profile.work)
-            .arg(PROFILE);
-    }
-    command
-        .arg("--bind")
-        .arg(&spec.cache_dir)
-        .arg(&spec.cache_dir)
-        .arg("--bind")
-        .arg(&spec.files_dir)
-        .arg(FILES)
-        // Also where it is outside: the automation tools, which run there, name the files
-        // a page is to upload by their paths.
-        .arg("--bind")
-        .arg(&spec.files_dir)
-        .arg(&spec.files_dir)
-        .args(["--setenv", "TMPDIR", "/tmp"])
-        // File names are UTF-8: without a locale that says so the browser crashes on a
-        // file it is handed whose name has more than ASCII.
-        .args(["--setenv", "LC_ALL", "C.UTF-8"])
-        .arg("--setenv")
-        .arg("HOME")
-        .arg(&home)
-        .arg("--setenv")
-        .arg("XDG_CACHE_HOME")
-        .arg(home.join(".cache"))
-        .arg("--setenv")
-        .arg("XDG_CONFIG_HOME")
-        .arg(home.join(".config"))
-        .arg("--setenv")
-        .arg("XDG_RUNTIME_DIR")
-        .arg(sockets)
-        .arg("--setenv")
-        .arg("WAYLAND_DISPLAY")
-        .arg(display)
-        .args(["--setenv", "XDG_SESSION_TYPE", "wayland"])
-        .arg("--setenv")
-        .arg("APERTURE_EXTENSION_SOCKET")
-        .arg(extension_socket)
-        .arg("--")
-        .arg(&spec.tools.browser_shim)
-        .arg(PROXY_PORT.to_string())
-        .arg(egress_socket)
-        .arg(shared.join("devtools.sock"))
-        .arg(DEVTOOLS_PORT.to_string())
-        .arg("--")
-        .arg(&spec.tools.chromium)
-        .arg(format!("--user-data-dir={PROFILE}"))
-        .arg(format!("--disk-cache-dir={}", spec.cache_dir.display()))
-        .arg(format!("--media-cache-dir={}", spec.cache_dir.display()))
-        .arg(format!(
-            "--disable-extensions-except={}",
-            extension.display()
-        ))
-        .arg(format!("--load-extension={}", extension.display()))
-        .args([
-            "--remote-debugging-address=127.0.0.1",
-            "--remote-allow-origins=*",
-            // Everything goes to the proxy, also what names the sandbox's own loopback,
-            // where the browser's DevTools endpoint is: a page has no business there.
-            "--proxy-bypass-list=<-loopback>",
-            // Datagrams have no way out.
-            "--disable-quic",
-            "--ozone-platform=wayland",
-            // Fields take text as text, whatever keyboard it takes to write it.
-            "--enable-wayland-ime",
-            "--wayland-text-input-version=3",
-            // No browser interface around the page, and none of the hints a fullscreen
-            // window shows otherwise.
-            "--kiosk",
-            // The pages there were when the session last ran, with their histories.
-            "--restore-last-session",
-            // The browser would quit with its last window, and the extension closes the
-            // window a page leaves for one of its own.
-            "--keep-alive-for-test",
-            "--no-sandbox",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--disable-breakpad",
-        ])
-        .args(match render_node {
-            // The browser draws on the GPU the compositor draws on, and hands it its
-            // pages as buffers there.
-            Some(node) => vec![
-                "--use-gl=angle".to_owned(),
-                "--use-angle=gles-egl".to_owned(),
-                format!("--render-node-override={}", node.display()),
-                "--ignore-gpu-blocklist".to_owned(),
-                "--enable-gpu-rasterization".to_owned(),
-                "--enable-zero-copy".to_owned(),
-            ],
-            None => vec![
-                "--use-gl=angle".to_owned(),
-                "--use-angle=swiftshader".to_owned(),
-                "--enable-unsafe-swiftshader".to_owned(),
-            ],
+        self.recordings = Some(recordings);
+        let socket = spec.runtime_dir.join("live.sock");
+        self.live = Some(tokio::spawn({
+            let socket = socket.clone();
+            async move { live::serve(&socket, served, automation).await }
+        }));
+        Ok(Live {
+            socket,
+            tunnel_socket: tunnel_socket(spec),
         })
-        .arg(format!("--remote-debugging-port={DEVTOOLS_PORT}"))
-        .arg(format!("--proxy-server=socks5://127.0.0.1:{PROXY_PORT}"))
-        // An extension may tap a tab only once its user has pointed it at the tab, unless
-        // it is named here.
-        .arg(format!("--allowlisted-extension-id={}", extension::ID))
-        .args(&spec.browser_args)
-        .env_clear()
-        .stdin(Stdio::null());
-    own(&mut command, libc::SIGKILL);
-    command.spawn().context("failed to start bwrap")
-}
-
-/// Waits for the browser to serve DevTools, and asks it for the path of the browser
-/// target's WebSocket.
-async fn browser_endpoint(socket: &Path) -> anyhow::Result<Cdp> {
-    let deadline = Instant::now() + BROWSER_READY_WITHIN;
-    loop {
-        // Refused until the browser listens.
-        if let Ok(version) = devtools_version(socket).await
-            && let Some(url) = version["webSocketDebuggerUrl"].as_str()
-            && let Some(at) = url.find("/devtools/")
-        {
-            return Ok(Cdp {
-                socket: socket.to_owned(),
-                browser_path: url[at..].to_owned(),
-            });
-        }
-        if Instant::now() >= deadline {
-            bail!("the browser did not open its DevTools endpoint in time");
-        }
-        sleep(POLL).await;
     }
-}
 
-/// What the browser says of itself at `/json/version`.
-async fn devtools_version(socket: &Path) -> anyhow::Result<serde_json::Value> {
-    let mut stream = tokio::net::UnixStream::connect(socket).await?;
-    let request = format!(
-        "GET /json/version HTTP/1.1\r\nHost: {DEVTOOLS_AUTHORITY}\r\nConnection: close\r\n\r\n"
-    );
-    stream.write_all(request.as_bytes()).await?;
-    // The browser keeps the connection open, so the answer is read by its length.
-    let mut response = Vec::new();
-    let mut chunk = [0; 4096];
-    loop {
-        let read = stream.read(&mut chunk).await?;
-        anyhow::ensure!(read > 0, "the browser's answer was cut short");
-        response.extend_from_slice(&chunk[..read]);
-        let Some(end) = response.windows(4).position(|window| window == b"\r\n\r\n") else {
-            continue;
-        };
-        let head = std::str::from_utf8(&response[..end])?;
-        anyhow::ensure!(head.starts_with("HTTP/1.1 200"), "the browser refused");
-        let length: usize = head
-            .lines()
-            .filter_map(|line| line.split_once(':'))
-            .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
-            .context("the browser's answer has no length")?
-            .1
-            .trim()
-            .parse()?;
-        if let Some(body) = response.get(end + 4..end + 4 + length) {
-            return Ok(serde_json::from_slice(body)?);
+    async fn end(self) {
+        for service in self.ways_out.into_iter().chain(self.live) {
+            service.abort();
+        }
+        if let Some(served) = self.served {
+            served.abort();
+        }
+        let compositor = self.compositor;
+        if let Err(err) = tokio::task::spawn_blocking(move || compositor.stop()).await {
+            warn!(%err, "the compositor did not stop well");
         }
     }
 }
 
-/// Asks the browser to close, which lets it write its profile out, and waits for it.
-async fn close_browser(cdp: &Cdp, browser: &mut Child) {
-    let asked = async {
-        let mut socket = cdp::open(cdp, &cdp.browser_path).await?;
-        socket
-            .send(Message::text(r#"{"id":1,"method":"Browser.close"}"#))
-            .await?;
-        anyhow::Ok(browser.wait().await?)
-    };
-    match timeout(BROWSER_CLOSE_WITHIN, asked).await {
-        Ok(Ok(_)) => {}
-        Ok(Err(err)) => warn!("failed to ask the browser to close: {err:#}"),
-        Err(_) => warn!("the browser did not close in time"),
-    }
-}
-
-/// Makes the child die with the runner, however the runner dies.
-fn own(command: &mut Command, signal: libc::c_int) {
-    // Safety: `prctl` is async-signal-safe, and nothing else runs between fork and exec.
-    unsafe {
-        command.pre_exec(move || {
-            if libc::prctl(libc::PR_SET_PDEATHSIG, signal) != 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
-}
-
-/// Terminates the child if it still runs, and kills it when that does not end it.
-async fn stop(child: &mut Child, name: &str) {
-    let Some(pid) = child.id() else {
-        return;
-    };
-    // Safety: the child is not reaped yet, so the pid is still its own.
-    unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
-    if timeout(TERMINATE_WITHIN, child.wait()).await.is_err() {
-        warn!("the {name} did not stop in time; killing it");
-        let _ = child.kill().await;
+/// Waits for one of the session's own services to end, and tells which and why: none of
+/// them ends while the session runs.
+async fn ended<const N: usize>(services: [(&str, Option<&mut Service>); N]) -> anyhow::Error {
+    let (names, tasks): (Vec<&str>, Vec<_>) = services
+        .into_iter()
+        .filter_map(|(name, task)| Some((name, task?)))
+        .unzip();
+    let (outcome, at, _) = futures_util::future::select_all(tasks).await;
+    let name = names[at];
+    match outcome {
+        Ok(Ok(())) => anyhow::anyhow!("{name} stopped"),
+        Ok(Err(err)) => anyhow::Error::from(err).context(format!("{name} failed")),
+        Err(err) => anyhow::anyhow!("{name} failed: {err}"),
     }
 }
