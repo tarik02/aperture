@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file aperture/live/v1/live.proto.
  */
 export const file_aperture_live_v1_live: GenFile = /*@__PURE__*/
-  fileDesc("ChthcGVydHVyZS9saXZlL3YxL2xpdmUucHJvdG8SEGFwZXJ0dXJlLmxpdmUudjEi/gYKDUNsaWVudE1lc3NhZ2USKgoGc2VsZWN0GAEgASgLMhguYXBlcnR1cmUubGl2ZS52MS5TZWxlY3RIABI5Cg5wb2ludGVyX21vdGlvbhgCIAEoCzIfLmFwZXJ0dXJlLmxpdmUudjEuUG9pbnRlck1vdGlvbkgAEjkKDnBvaW50ZXJfYnV0dG9uGAMgASgLMh8uYXBlcnR1cmUubGl2ZS52MS5Qb2ludGVyQnV0dG9uSAASOQoOcG9pbnRlcl9zY3JvbGwYBCABKAsyHy5hcGVydHVyZS5saXZlLnYxLlBvaW50ZXJTY3JvbGxIABI3Cg1wb2ludGVyX2xlYXZlGAUgASgLMh4uYXBlcnR1cmUubGl2ZS52MS5Qb2ludGVyTGVhdmVIABIkCgNrZXkYBiABKAsyFS5hcGVydHVyZS5saXZlLnYxLktleUgAEiYKBHRleHQYByABKAsyFi5hcGVydHVyZS5saXZlLnYxLlRleHRIABIuCgh2aWV3cG9ydBgIIAEoCzIaLmFwZXJ0dXJlLmxpdmUudjEuVmlld3BvcnRIABIoCgVoZWxsbxgJIAEoCzIXLmFwZXJ0dXJlLmxpdmUudjEuSGVsbG9IABIvCglydGNfb2ZmZXIYCiABKAsyGi5hcGVydHVyZS5saXZlLnYxLlJ0Y09mZmVySAASMwoLdmlkZW9fc2hvd24YCyABKAsyHC5hcGVydHVyZS5saXZlLnYxLlZpZGVvU2hvd25IABIwCgljbGlwYm9hcmQYDCABKAsyGy5hcGVydHVyZS5saXZlLnYxLkNsaXBib2FyZEgAEiYKBGRyb3AYDSABKAsyFi5hcGVydHVyZS5saXZlLnYxLkRyb3BIABI1CgxmaWxlc19jaG9zZW4YDiABKAsyHS5hcGVydHVyZS5saXZlLnYxLkZpbGVzQ2hvc2VuSAASKAoFbGVhc2UYDyABKAsyFy5hcGVydHVyZS5saXZlLnYxLkxlYXNlSAASIgoCZ28YECABKAsyFC5hcGVydHVyZS5saXZlLnYxLkdvSAASNQoMY29weV9waWN0dXJlGBEgASgLMh0uYXBlcnR1cmUubGl2ZS52MS5Db3B5UGljdHVyZUgAEigKBWNsb3NlGBIgASgLMhcuYXBlcnR1cmUubGl2ZS52MS5DbG9zZUgAQgkKB21lc3NhZ2Ui9AUKDVNlcnZlck1lc3NhZ2USLAoHdGFyZ2V0cxgBIAEoCzIZLmFwZXJ0dXJlLmxpdmUudjEuVGFyZ2V0c0gAEi4KCHNlbGVjdGVkGAIgASgLMhouYXBlcnR1cmUubGl2ZS52MS5TZWxlY3RlZEgAEioKBmN1cnNvchgDIAEoCzIYLmFwZXJ0dXJlLmxpdmUudjEuQ3Vyc29ySAASMQoKcnRjX2Fuc3dlchgEIAEoCzIbLmFwZXJ0dXJlLmxpdmUudjEuUnRjQW5zd2VySAASJgoEdGlsZRgFIAEoCzIWLmFwZXJ0dXJlLmxpdmUudjEuVGlsZUgAEjMKC3J0Y19yZWZ1c2VkGAYgASgLMhwuYXBlcnR1cmUubGl2ZS52MS5SdGNSZWZ1c2VkSAASMwoLdmlkZW9fZnJhbWUYByABKAsyHC5hcGVydHVyZS5saXZlLnYxLlZpZGVvRnJhbWVIABI1Cgx2aWRlb19zdGF0dXMYCCABKAsyHS5hcGVydHVyZS5saXZlLnYxLlZpZGVvU3RhdHVzSAASMAoJY2xpcGJvYXJkGAkgASgLMhsuYXBlcnR1cmUubGl2ZS52MS5DbGlwYm9hcmRIABIwCglkb3dubG9hZHMYCiABKAsyGy5hcGVydHVyZS5saXZlLnYxLkRvd25sb2Fkc0gAEjcKDWZpbGVfcmVxdWVzdHMYCyABKAsyHi5hcGVydHVyZS5saXZlLnYxLkZpbGVSZXF1ZXN0c0gAEi4KCHByZXNlbmNlGAwgASgLMhouYXBlcnR1cmUubGl2ZS52MS5QcmVzZW5jZUgAEiYKBG1lbnUYDSABKAsyFi5hcGVydHVyZS5saXZlLnYxLk1lbnVIABItCgVhdWRpbxgOIAEoCzIcLmFwZXJ0dXJlLmxpdmUudjEuQXVkaW9GcmFtZUgAEi4KCGZlYXR1cmVzGA8gASgLMhouYXBlcnR1cmUubGl2ZS52MS5GZWF0dXJlc0gAQgkKB21lc3NhZ2UizQMKCEZlYXR1cmVzEiYKBWlucHV0GAkgASgLMhcuYXBlcnR1cmUubGl2ZS52MS5HcmFudBIlCgR0YWJzGAogASgLMhcuYXBlcnR1cmUubGl2ZS52MS5HcmFudBImCgVsZWFzZRgLIAEoCzIXLmFwZXJ0dXJlLmxpdmUudjEuR3JhbnQSJgoFc291bmQYASABKAsyFy5hcGVydHVyZS5saXZlLnYxLkdyYW50EigKB3VwbG9hZHMYAiABKAsyFy5hcGVydHVyZS5saXZlLnYxLkdyYW50EioKCWRvd25sb2FkcxgDIAEoCzIXLmFwZXJ0dXJlLmxpdmUudjEuR3JhbnQSKwoKcmVjb3JkaW5ncxgEIAEoCzIXLmFwZXJ0dXJlLmxpdmUudjEuR3JhbnQSKgoJY2xpcGJvYXJkGAUgASgLMhcuYXBlcnR1cmUubGl2ZS52MS5HcmFudBIkCgNtY3AYBiABKAsyFy5hcGVydHVyZS5saXZlLnYxLkdyYW50EiQKA2NkcBgHIAEoCzIXLmFwZXJ0dXJlLmxpdmUudjEuR3JhbnQSJwoGdHVubmVsGAggASgLMhcuYXBlcnR1cmUubGl2ZS52MS5HcmFudCIkCgVHcmFudBIMCgRyZWFkGAEgASgIEg0KBXdyaXRlGAIgASgIIrsBCgVIZWxsbxIoCgZwaXhlbHMYASABKA4yGC5hcGVydHVyZS5saXZlLnYxLlBpeGVscxIuCgdmb3JtYXRzGAIgAygOMh0uYXBlcnR1cmUubGl2ZS52MS5WaWRlb0Zvcm1hdBIvCgdxdWFsaXR5GAMgASgOMh4uYXBlcnR1cmUubGl2ZS52MS5WaWRlb1F1YWxpdHkSEAoDZnBzGAQgASgNSACIAQESDQoFYXVkaW8YBSABKAhCBgoEX2ZwcyJ6CgtWaWRlb1N0YXR1cxItCgZmb3JtYXQYASABKA4yHS5hcGVydHVyZS5saXZlLnYxLlZpZGVvRm9ybWF0Ei8KB3F1YWxpdHkYAiABKA4yHi5hcGVydHVyZS5saXZlLnYxLlZpZGVvUXVhbGl0eRILCgNmcHMYAyABKA0iKwoKQXVkaW9GcmFtZRIPCgd0aW1lX3VzGAEgASgEEgwKBGRhdGEYAiABKAwiHQoKVmlkZW9TaG93bhIPCgd0aW1lX3VzGAEgASgEIhcKCFJ0Y09mZmVyEgsKA3NkcBgBIAEoCSIYCglSdGNBbnN3ZXISCwoDc2RwGAEgASgJIhwKClJ0Y1JlZnVzZWQSDgoGcmVhc29uGAEgASgJIpsBCgpWaWRlb0ZyYW1lEg4KBnRhcmdl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CgZUYXJnZXQSCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSCwoDdXJsGAMgASgJEg0KBXdpZHRoGAQgASgNEg4KBmhlaWdodBgFIAEoDRINCgVzY2FsZRgGIAEoARILCgN0YWIYByABKA0SDgoGc291bmRzGAggASgIIjQKB1RhcmdldHMSKQoHdGFyZ2V0cxgBIAMoCzIYLmFwZXJ0dXJlLmxpdmUudjEuVGFyZ2V0IioKCFNlbGVjdGVkEhMKBnRhcmdldBgBIAEoCUgAiAEBQgkKB190YXJnZXQiYAoGQ3Vyc29yEg8KBW5hbWVkGAEgASgJSAASMQoGaGlkZGVuGAIgASgLMh8uYXBlcnR1cmUubGl2ZS52MS5DdXJzb3IuSGlkZGVuSAAaCAoGSGlkZGVuQggKBmN1cnNvcirFAQoLVmlkZW9Gb3JtYXQSHAoYVklERU9fRk9STUFUX1VOU1BFQ0lGSUVEEAASFQoRVklERU9fRk9STUFUX0gyNjQQARIcChhWSURFT19GT1JNQVRfRlVMTF9DSFJPTUEQAhIVChFWSURFT19GT1JNQVRfSDI2NRADEhQKEFZJREVPX0ZPUk1BVF9WUDkQBBIgChxWSURFT19GT1JNQVRfVlA5X0ZVTExfQ0hST01BEAUSFAoQVklERU9fRk9STUFUX0FWMRAGKnYKDFZpZGVvUXVhbGl0eRIdChlWSURFT19RVUFMSVRZX1VOU1BFQ0lGSUVEEAASFQoRVklERU9fUVVBTElUWV9MT1cQARIYChRWSURFT19RVUFMSVRZX01FRElVTRACEhYKElZJREVPX1FVQUxJVFlfRlVMTBADKlcKBlBpeGVscxIWChJQSVhFTFNfVU5TUEVDSUZJRUQQABIQCgxQSVhFTFNfVklERU8QARIQCgxQSVhFTFNfVElMRVMQAhIRCg1QSVhFTFNfRlJBTUVTEAMqpAEKC01vdXNlQnV0dG9uEhwKGE1PVVNFX0JVVFRPTl9VTlNQRUNJRklFRBAAEhUKEU1PVVNFX0JVVFRPTl9MRUZUEAESFgoSTU9VU0VfQlVUVE9OX1JJR0hUEAISFwoTTU9VU0VfQlVUVE9OX01JRERMRRADEhUKEU1PVVNFX0JVVFRPTl9CQUNLEAQSGAoUTU9VU0VfQlVUVE9OX0ZPUldBUkQQBSp/Cg1Eb3dubG9hZFN0YXRlEh4KGkRPV05MT0FEX1NUQVRFX1VOU1BFQ0lGSUVEEAASGgoWRE9XTkxPQURfU1RBVEVfUlVOTklORxABEhcKE0RPV05MT0FEX1NUQVRFX0RPTkUQAhIZChVET1dOTE9BRF9TVEFURV9GQUlMRUQQAypNCgRSb2xlEhQKEFJPTEVfVU5TUEVDSUZJRUQQABINCglST0xFX1ZJRVcQARIQCgxST0xFX0NPTlRST0wQAhIOCgpST0xFX0FETUlOEAMqiwEKC0xlYXNlQWN0aW9uEhwKGExFQVNFX0FDVElPTl9VTlNQRUNJRklFRBAAEhUKEUxFQVNFX0FDVElPTl9UQUtFEAESGAoUTEVBU0VfQUNUSU9OX1JFTEVBU0UQAhIWChJMRUFTRV9BQ1RJT05fQUxMT1cQAxIVChFMRUFTRV9BQ1RJT05fS0VFUBAEKlMKBUFsb25nEhUKEUFMT05HX1VOU1BFQ0lGSUVEEAASDgoKQUxPTkdfQkFDSxABEhEKDUFMT05HX0ZPUldBUkQQAhIQCgxBTE9OR19SRUxPQUQQA2IGcHJvdG8z");
+  fileDesc("ChthcGVydHVyZS9saXZlL3YxL2xpdmUucHJvdG8SEGFwZXJ0dXJlLmxpdmUudjEi/gYKDUNsaWVudE1lc3NhZ2USKgoGc2VsZWN0GAEgASgLMhguYXBlcnR1cmUubGl2ZS52MS5TZWxlY3RIABI5Cg5wb2ludGVyX21vdGlvbhgCIAEoCzIfLmFwZXJ0dXJlLmxpdmUudjEuUG9pbnRlck1vdGlvbkgAEjkKDnBvaW50ZXJfYnV0dG9uGAMgASgLMh8uYXBlcnR1cmUubGl2ZS52MS5Qb2ludGVyQnV0dG9uSAASOQoOcG9pbnRlcl9zY3JvbGwYBCABKAsyHy5hcGVydHVyZS5saXZlLnYxLlBvaW50ZXJTY3JvbGxIABI3Cg1wb2ludGVyX2xlYXZlGAUgASgLMh4uYXBlcnR1cmUubGl2ZS52MS5Qb2ludGVyTGVhdmVIABIkCgNrZXkYBiABKAsyFS5hcGVydHVyZS5saXZlLnYxLktleUgAEiYKBHRleHQYByABKAsyFi5hcGVydHVyZS5saXZlLnYxLlRleHRIABIuCgh2aWV3cG9ydBgIIAEoCzIaLmFwZXJ0dXJlLmxpdmUudjEuVmlld3BvcnRIABIoCgVoZWxsbxgJIAEoCzIXLmFwZXJ0dXJlLmxpdmUudjEuSGVsbG9IABIvCglydGNfb2ZmZXIYCiABKAsyGi5hcGVydHVyZS5saXZlLnYxLlJ0Y09mZmVySAASMwoLdmlkZW9fc2hvd24YCyABKAsyHC5hcGVydHVyZS5saXZlLnYxLlZpZGVvU2hvd25IABIwCgljbGlwYm9hcmQYDCABKAsyGy5hcGVydHVyZS5saXZlLnYxLkNsaXBib2FyZEgAEiYKBGRyb3AYDSABKAsyFi5hcGVydHVyZS5saXZlLnYxLkRyb3BIABI1CgxmaWxlc19jaG9zZW4YDiABKAsyHS5hcGVydHVyZS5saXZlLnYxLkZpbGVzQ2hvc2VuSAASKAoFbGVhc2UYDyABKAsyFy5hcGVydHVyZS5saXZlLnYxLkxlYXNlSAASIgoCZ28YECABKAsyFC5hcGVydHVyZS5saXZlLnYxLkdvSAASNQoMY29weV9waWN0dXJlGBEgASgLMh0uYXBlcnR1cmUubGl2ZS52MS5Db3B5UGljdHVyZUgAEigKBWNsb3NlGBIgASgLMhcuYXBlcnR1cmUubGl2ZS52MS5DbG9zZUgAQgkKB21lc3NhZ2UioAYKDVNlcnZlck1lc3NhZ2USLAoHdGFyZ2V0cxgBIAEoCzIZLmFwZXJ0dXJlLmxpdmUudjEuVGFyZ2V0c0gAEi4KCHNlbGVjdGVkGAIgASgLMhouYXBlcnR1cmUubGl2ZS52MS5TZWxlY3RlZEgAEioKBmN1cnNvchgDIAEoCzIYLmFwZXJ0dXJlLmxpdmUudjEuQ3Vyc29ySAASMQoKcnRjX2Fuc3dlchgEIAEoCzIbLmFwZXJ0dXJlLmxpdmUudjEuUnRjQW5zd2VySAASJgoEdGlsZRgFIAEoCzIWLmFwZXJ0dXJlLmxpdmUudjEuVGlsZUgAEjMKC3J0Y19yZWZ1c2VkGAYgASgLMhwuYXBlcnR1cmUubGl2ZS52MS5SdGNSZWZ1c2VkSAASMwoLdmlkZW9fZnJhbWUYByABKAsyHC5hcGVydHVyZS5saXZlLnYxLlZpZGVvRnJhbWVIABI1Cgx2aWRlb19zdGF0dXMYCCABKAsyHS5hcGVydHVyZS5saXZlLnYxLlZpZGVvU3RhdHVzSAASMAoJY2xpcGJvYXJkGAkgASgLMhsuYXBlcnR1cmUubGl2ZS52MS5DbGlwYm9hcmRIABIwCglkb3dubG9hZHMYCiABKAsyGy5hcGVydHVyZS5saXZlLnYxLkRvd25sb2Fkc0gAEjcKDWZpbGVfcmVxdWVzdHMYCyABKAsyHi5hcGVydHVyZS5saXZlLnYxLkZpbGVSZXF1ZXN0c0gAEi4KCHByZXNlbmNlGAwgASgLMhouYXBlcnR1cmUubGl2ZS52MS5QcmVzZW5jZUgAEiYKBG1lbnUYDSABKAsyFi5hcGVydHVyZS5saXZlLnYxLk1lbnVIABItCgVhdWRpbxgOIAEoCzIcLmFwZXJ0dXJlLmxpdmUudjEuQXVkaW9GcmFtZUgAEi4KCGZlYXR1cmVzGA8gASgLMhouYXBlcnR1cmUubGl2ZS52MS5GZWF0dXJlc0gAEioKBmZhaWxlZBgQIAEoCzIYLmFwZXJ0dXJlLmxpdmUudjEuRmFpbGVkSABCCQoHbWVzc2FnZSLNAwoIRmVhdHVyZXMSJgoFaW5wdXQYCSABKAsyFy5hcGVydHVyZS5saXZlLnYxLkdyYW50EiUKBHRhYnMYCiABKAsyFy5hcGVydHVyZS5saXZlLnYxLkdyYW50EiYKBWxlYXNlGAsgASgLMhcuYXBlcnR1cmUubGl2ZS52MS5HcmFudBImCgVzb3VuZBgBIAEoCzIXLmFwZXJ0dXJlLmxpdmUudjEuR3JhbnQSKAoHdXBsb2FkcxgCIAEoCzIXLmFwZXJ0dXJlLmxpdmUudjEuR3JhbnQSKgoJZG93bmxvYWRzGAMgASgLMhcuYXBlcnR1cmUubGl2ZS52MS5HcmFudBIrCgpyZWNvcmRpbmdzGAQgASgLMhcuYXBlcnR1cmUubGl2ZS52MS5HcmFudBIqCgljbGlwYm9hcmQYBSABKAsyFy5hcGVydHVyZS5saXZlLnYxLkdyYW50EiQKA21jcBgGIAEoCzIXLmFwZXJ0dXJlLmxpdmUudjEuR3JhbnQSJAoDY2RwGAcgASgLMhcuYXBlcnR1cmUubGl2ZS52MS5HcmFudBInCgZ0dW5uZWwYCCABKAsyFy5hcGVydHVyZS5saXZlLnYxLkdyYW50IiQKBUdyYW50EgwKBHJlYWQYASABKAgSDQoFd3JpdGUYAiABKAgiuwEKBUhlbGxvEigKBnBpeGVscxgBIAEoDjIYLmFwZXJ0dXJlLmxpdmUudjEuUGl4ZWxzEi4KB2Zvcm1hdHMYAiADKA4yHS5hcGVydHVyZS5saXZlLnYxLlZpZGVvRm9ybWF0Ei8KB3F1YWxpdHkYAyABKA4yHi5hcGVydHVyZS5saXZlLnYxLlZpZGVvUXVhbGl0eRIQCgNmcHMYBCABKA1IAIgBARINCgVhdWRpbxgFIAEoCEIGCgRfZnBzInoKC1ZpZGVvU3RhdHVzEi0KBmZvcm1hdBgBIAEoDjIdLmFwZXJ0dXJlLmxpdmUudjEuVmlkZW9Gb3JtYXQSLwoHcXVhbGl0eRgCIAEoDjIeLmFwZXJ0dXJlLmxpdmUudjEuVmlkZW9RdWFsaXR5EgsKA2ZwcxgDIAEoDSIrCgpBdWRpb0ZyYW1lEg8KB3RpbWVfdXMYASABKAQSDAoEZGF0YRgCIAEoDCIdCgpWaWRlb1Nob3duEg8KB3RpbWVfdXMYASABKAQiFwoIUnRjT2ZmZXISCwoDc2RwGAEgASgJIhgKCVJ0Y0Fuc3dlchILCgNzZHAYASABKAkiHAoKUnRjUmVm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IgoERm9ybRIMCgR0eXBlGAEgASgJEgwKBGRhdGEYAiABKAwiRwoIVmlld3BvcnQSDQoFd2lkdGgYASABKA0SDgoGaGVpZ2h0GAIgASgNEhIKBXNjYWxlGAMgASgBSACIAQFCCAoGX3NjYWxlInsKBlRhcmdldBIKCgJpZBgBIAEoCRINCgV0aXRsZRgCIAEoCRILCgN1cmwYAyABKAkSDQoFd2lkdGgYBCABKA0SDgoGaGVpZ2h0GAUgASgNEg0KBXNjYWxlGAYgASgBEgsKA3RhYhgHIAEoDRIOCgZzb3VuZHMYCCABKAgiNAoHVGFyZ2V0cxIpCgd0YXJnZXRzGAEgAygLMhguYXBlcnR1cmUubGl2ZS52MS5UYXJnZXQiKgoIU2VsZWN0ZWQSEwoGdGFyZ2V0GAEgASgJSACIAQFCCQoHX3RhcmdldCJgCgZDdXJzb3ISDwoFbmFtZWQYASABKAlIABIxCgZoaWRkZW4YAiABKAsyHy5hcGVydHVyZS5saXZlLnYxLkN1cnNvci5IaWRkZW5IABoICgZIaWRkZW5CCAoGY3Vyc29yKsUBCgtWaWRlb0Zvcm1hdBIcChhWSURFT19GT1JNQVRfVU5TUEVDSUZJRUQQABIVChFWSURFT19GT1JNQVRfSDI2NBABEhwKGFZJREVPX0ZPUk1BVF9GVUxMX0NIUk9NQRACEhUKEVZJREVPX0ZPUk1BVF9IMjY1EAMSFAoQVklERU9fRk9STUFUX1ZQORAEEiAKHFZJREVPX0ZPUk1BVF9WUDlfRlVMTF9DSFJPTUEQBRIUChBWSURFT19GT1JNQVRfQVYxEAYqdgoMVmlkZW9RdWFsaXR5Eh0KGVZJREVPX1FVQUxJVFlfVU5TUEVDSUZJRUQQABIVChFWSURFT19RVUFMSVRZX0xPVxABEhgKFFZJREVPX1FVQUxJVFlfTUVESVVNEAISFgoSVklERU9fUVVBTElUWV9GVUxMEAMqVwoGUGl4ZWxzEhYKElBJWEVMU19VTlNQRUNJRklFRBAAEhAKDFBJWEVMU19WSURFTxABEhAKDFBJWEVMU19USUxFUxACEhEKDVBJWEVMU19GUkFNRVMQAyqkAQoLTW91c2VCdXR0b24SHAoYTU9VU0VfQlVUVE9OX1VOU1BFQ0lGSUVEEAASFQoRTU9VU0VfQlVUVE9OX0xFRlQQARIWChJNT1VTRV9CVVRUT05fUklHSFQQAhIXChNNT1VTRV9CVVRUT05fTUlERExFEAMSFQoRTU9VU0VfQlVUVE9OX0JBQ0sQBBIYChRNT1VTRV9CVVRUT05fRk9SV0FSRBAFKn8KDURvd25sb2FkU3RhdGUSHgoaRE9XTkxPQURfU1RBVEVfVU5TUEVDSUZJRUQQABIaChZET1dOTE9BRF9TVEFURV9SVU5OSU5HEAESFwoTRE9XTkxPQURfU1RBVEVfRE9ORRACEhkKFURPV05MT0FEX1NUQVRFX0ZBSUxFRBADKk0KBFJvbGUSFAoQUk9MRV9VTlNQRUNJRklFRBAAEg0KCVJPTEVfVklFVxABEhAKDFJPTEVfQ09OVFJPTBACEg4KClJPTEVfQURNSU4QAyqLAQoLTGVhc2VBY3Rpb24SHAoYTEVBU0VfQUNUSU9OX1VOU1BFQ0lGSUVEEAASFQoRTEVBU0VfQUNUSU9OX1RBS0UQARIYChRMRUFTRV9BQ1RJT05fUkVMRUFTRRACEhYKEkxFQVNFX0FDVElPTl9BTExPVxADEhUKEUxFQVNFX0FDVElPTl9LRUVQEAQqUwoFQWxvbmcSFQoRQUxPTkdfVU5TUEVDSUZJRUQQABIOCgpBTE9OR19CQUNLEAESEQoNQUxPTkdfRk9SV0FSRBACEhAKDEFMT05HX1JFTE9BRBADKm0KBUFza2VkEhUKEUFTS0VEX1VOU1BFQ0lGSUVEEAASDAoIQVNLRURfR08QARIPCgtBU0tFRF9DTE9TRRACEhYKEkFTS0VEX0NPUFlfUElDVFVSRRADEhYKEkFTS0VEX0ZJTEVTX0NIT1NFThAEYgZwcm90bzM");
 
 /**
  * @generated from message aperture.live.v1.ClientMessage
@@ -242,6 +242,12 @@ export type ServerMessage = Message<"aperture.live.v1.ServerMessage"> & {
      */
     value: Features;
     case: "features";
+  } | {
+    /**
+     * @generated from field: aperture.live.v1.Failed failed = 16;
+     */
+    value: Failed;
+    case: "failed";
   } | { case: undefined; value?: undefined };
 };
 
@@ -1137,6 +1143,33 @@ export const CloseSchema: GenMessage<Close> = /*@__PURE__*/
   messageDesc(file_aperture_live_v1_live, 28);
 
 /**
+ * Something a client asked for was not done. What is done is not answered: it shows in
+ * what the session tells anyway.
+ *
+ * @generated from message aperture.live.v1.Failed
+ */
+export type Failed = Message<"aperture.live.v1.Failed"> & {
+  /**
+   * @generated from field: aperture.live.v1.Asked asked = 1;
+   */
+  asked: Asked;
+
+  /**
+   * Why, for a person to read.
+   *
+   * @generated from field: string reason = 2;
+   */
+  reason: string;
+};
+
+/**
+ * Describes the message aperture.live.v1.Failed.
+ * Use `create(FailedSchema)` to create a new message.
+ */
+export const FailedSchema: GenMessage<Failed> = /*@__PURE__*/
+  messageDesc(file_aperture_live_v1_live, 29);
+
+/**
  * Asks for a picture the watched target's page shows. The session answers with
  * `clipboard`, the picture in the form the page has it, such as `image/jpeg`.
  *
@@ -1154,7 +1187,7 @@ export type CopyPicture = Message<"aperture.live.v1.CopyPicture"> & {
  * Use `create(CopyPictureSchema)` to create a new message.
  */
 export const CopyPictureSchema: GenMessage<CopyPicture> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 29);
+  messageDesc(file_aperture_live_v1_live, 30);
 
 /**
  * The pages that ask for files and have no answer yet, as a page does when a file input
@@ -1175,7 +1208,7 @@ export type FileRequests = Message<"aperture.live.v1.FileRequests"> & {
  * Use `create(FileRequestsSchema)` to create a new message.
  */
 export const FileRequestsSchema: GenMessage<FileRequests> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 30);
+  messageDesc(file_aperture_live_v1_live, 31);
 
 /**
  * @generated from message aperture.live.v1.FileRequest
@@ -1206,7 +1239,7 @@ export type FileRequest = Message<"aperture.live.v1.FileRequest"> & {
  * Use `create(FileRequestSchema)` to create a new message.
  */
 export const FileRequestSchema: GenMessage<FileRequest> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 31);
+  messageDesc(file_aperture_live_v1_live, 32);
 
 /**
  * Answers a page's request for files with files a client put into the session first (see
@@ -1232,7 +1265,7 @@ export type FilesChosen = Message<"aperture.live.v1.FilesChosen"> & {
  * Use `create(FilesChosenSchema)` to create a new message.
  */
 export const FilesChosenSchema: GenMessage<FilesChosen> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 32);
+  messageDesc(file_aperture_live_v1_live, 33);
 
 /**
  * Drops content onto the watched target at a position, as one who dragged it there would:
@@ -1265,7 +1298,7 @@ export type Drop = Message<"aperture.live.v1.Drop"> & {
  * Use `create(DropSchema)` to create a new message.
  */
 export const DropSchema: GenMessage<Drop> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 33);
+  messageDesc(file_aperture_live_v1_live, 34);
 
 /**
  * Content that is copied or dragged: the same content in each form it is had in, at most
@@ -1285,7 +1318,7 @@ export type Clipboard = Message<"aperture.live.v1.Clipboard"> & {
  * Use `create(ClipboardSchema)` to create a new message.
  */
 export const ClipboardSchema: GenMessage<Clipboard> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 34);
+  messageDesc(file_aperture_live_v1_live, 35);
 
 /**
  * @generated from message aperture.live.v1.Clipboard.Form
@@ -1312,7 +1345,7 @@ export type Clipboard_Form = Message<"aperture.live.v1.Clipboard.Form"> & {
  * Use `create(Clipboard_FormSchema)` to create a new message.
  */
 export const Clipboard_FormSchema: GenMessage<Clipboard_Form> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 34, 0);
+  messageDesc(file_aperture_live_v1_live, 35, 0);
 
 /**
  * The viewport of the target the client watches: the size its page gets, in logical (CSS)
@@ -1347,7 +1380,7 @@ export type Viewport = Message<"aperture.live.v1.Viewport"> & {
  * Use `create(ViewportSchema)` to create a new message.
  */
 export const ViewportSchema: GenMessage<Viewport> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 35);
+  messageDesc(file_aperture_live_v1_live, 36);
 
 /**
  * A browser target: a page of the session's browser, shown in a window of its own.
@@ -1413,7 +1446,7 @@ export type Target = Message<"aperture.live.v1.Target"> & {
  * Use `create(TargetSchema)` to create a new message.
  */
 export const TargetSchema: GenMessage<Target> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 36);
+  messageDesc(file_aperture_live_v1_live, 37);
 
 /**
  * Every target of the session, oldest first. Sent after `hello` and whenever a target
@@ -1433,7 +1466,7 @@ export type Targets = Message<"aperture.live.v1.Targets"> & {
  * Use `create(TargetsSchema)` to create a new message.
  */
 export const TargetsSchema: GenMessage<Targets> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 37);
+  messageDesc(file_aperture_live_v1_live, 38);
 
 /**
  * The target the client's video shows from now on; none when the session has no target.
@@ -1452,7 +1485,7 @@ export type Selected = Message<"aperture.live.v1.Selected"> & {
  * Use `create(SelectedSchema)` to create a new message.
  */
 export const SelectedSchema: GenMessage<Selected> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 38);
+  messageDesc(file_aperture_live_v1_live, 39);
 
 /**
  * @generated from message aperture.live.v1.Cursor
@@ -1483,7 +1516,7 @@ export type Cursor = Message<"aperture.live.v1.Cursor"> & {
  * Use `create(CursorSchema)` to create a new message.
  */
 export const CursorSchema: GenMessage<Cursor> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 39);
+  messageDesc(file_aperture_live_v1_live, 40);
 
 /**
  * @generated from message aperture.live.v1.Cursor.Hidden
@@ -1496,7 +1529,7 @@ export type Cursor_Hidden = Message<"aperture.live.v1.Cursor.Hidden"> & {
  * Use `create(Cursor_HiddenSchema)` to create a new message.
  */
 export const Cursor_HiddenSchema: GenMessage<Cursor_Hidden> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 39, 0);
+  messageDesc(file_aperture_live_v1_live, 40, 0);
 
 /**
  * The form a target's video takes.
@@ -1827,4 +1860,40 @@ export enum Along {
  */
 export const AlongSchema: GenEnum<Along> = /*@__PURE__*/
   enumDesc(file_aperture_live_v1_live, 7);
+
+/**
+ * @generated from enum aperture.live.v1.Asked
+ */
+export enum Asked {
+  /**
+   * @generated from enum value: ASKED_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: ASKED_GO = 1;
+   */
+  GO = 1,
+
+  /**
+   * @generated from enum value: ASKED_CLOSE = 2;
+   */
+  CLOSE = 2,
+
+  /**
+   * @generated from enum value: ASKED_COPY_PICTURE = 3;
+   */
+  COPY_PICTURE = 3,
+
+  /**
+   * @generated from enum value: ASKED_FILES_CHOSEN = 4;
+   */
+  FILES_CHOSEN = 4,
+}
+
+/**
+ * Describes the enum aperture.live.v1.Asked.
+ */
+export const AskedSchema: GenEnum<Asked> = /*@__PURE__*/
+  enumDesc(file_aperture_live_v1_live, 8);
 

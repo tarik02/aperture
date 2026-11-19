@@ -68,6 +68,7 @@ message ServerMessage {
     Menu menu = 13;
     AudioFrame audio = 14;
     Features features = 15;
+    Failed failed = 16;
   }
 }
 
@@ -413,6 +414,22 @@ enum Along {
 // Closes a target's tab, for a client that may give it input: one nobody else holds.
 message Close {
   string target = 1;
+}
+
+// Something a client asked for was not done. What is done is not answered: it shows in
+// what the session tells anyway.
+message Failed {
+  Asked asked = 1;
+  // Why, for a person to read.
+  string reason = 2;
+}
+
+enum Asked {
+  ASKED_UNSPECIFIED = 0;
+  ASKED_GO = 1;
+  ASKED_CLOSE = 2;
+  ASKED_COPY_PICTURE = 3;
+  ASKED_FILES_CHOSEN = 4;
 }
 
 // Asks for a picture the watched target's page shows. The session answers with

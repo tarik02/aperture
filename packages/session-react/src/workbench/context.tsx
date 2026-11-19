@@ -80,6 +80,7 @@ export function WorkbenchProvider({
   const features = useMemo(() => resolveSessionFeatures(given, offered), [given, offered]);
   const recordings = useRecordings(features.recordings);
   useClipboardNotices();
+  useFailureNotices();
   useRecordingNotices(recordings);
   useRememberedFit(fit);
 
@@ -125,6 +126,30 @@ function useClipboardNotices() {
             label: picture ? "Open" : "Copy",
             onClick: () => copyByHand(session, event.forms),
           },
+        });
+      }),
+    [session],
+  );
+}
+
+const NOT_DONE = {
+  go: "The page did not open",
+  close: "The tab was not closed",
+  copyPicture: "The picture was not copied",
+  chooseFiles: "The page did not get the files",
+} as const;
+
+function useFailureNotices() {
+  const session = useSession();
+
+  useEffect(
+    () =>
+      session.onFailure((failure) => {
+        showNotice({
+          level: "error",
+          message:
+            failure.asked === undefined ? "The session did not do that" : NOT_DONE[failure.asked],
+          description: failure.reason,
         });
       }),
     [session],

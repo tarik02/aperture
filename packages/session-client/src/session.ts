@@ -22,6 +22,8 @@ import {
   type ClipboardEvent,
   type ClipboardForm,
   downloadOf,
+  type Failure,
+  failureOf,
   fileRequestOf,
   formatOf,
   FORMATS,
@@ -90,6 +92,9 @@ export interface SessionService {
   /** What is copied in the session, after this browser's clipboard was offered it. */
   readonly clipboard: Stream.Stream<ClipboardEvent>;
   readonly onClipboard: (listener: (event: ClipboardEvent) => void) => () => void;
+  /** What this client asked for and the session did not do. */
+  readonly failures: Stream.Stream<Failure>;
+  readonly onFailure: (listener: (failure: Failure) => void) => () => void;
 
   readonly select: (target: string) => Effect.Effect<void>;
   readonly go: (to: Destination, options?: GoOptions) => Effect.Effect<void>;
@@ -237,6 +242,13 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
     clipboardListeners.add(listener);
     return () => {
       clipboardListeners.delete(listener);
+    };
+  };
+  const failureListeners = new Set<(failure: Failure) => void>();
+  const onFailure = (listener: (failure: Failure) => void) => {
+    failureListeners.add(listener);
+    return () => {
+      failureListeners.delete(listener);
     };
   };
   const watched = () => snapshot.targets.find((target) => target.id === snapshot.selected);
@@ -572,6 +584,13 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
         updatePicture({ status: statusOf(message.value) });
         break;
       }
+      case "failed": {
+        const failure = failureOf(message.value);
+        for (const listener of failureListeners) {
+          listener(failure);
+        }
+        break;
+      }
       case "features": {
         update({ features: featuresOf(message.value) });
         break;
@@ -799,6 +818,13 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
       ),
     ),
     onClipboard,
+    failures: Stream.callback<Failure>((queue) =>
+      Effect.acquireRelease(
+        Effect.sync(() => onFailure((failure) => Queue.offerUnsafe(queue, failure))),
+        (unsubscribe) => Effect.sync(unsubscribe),
+      ),
+    ),
+    onFailure,
 
     select: (target) => Effect.sync(() => send({ case: "select", value: { target } })),
     go: (to, { newTab = false } = {}) =>

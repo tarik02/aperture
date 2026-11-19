@@ -333,14 +333,26 @@ impl Peer {
             quality: self.link.quality(),
             fps: self.fps,
         };
-        self.streams.subscribe(key).await.ok()
+        match self.streams.subscribe(key).await {
+            Ok(feed) => Some(feed),
+            Err(err) => {
+                warn!(%err, "a client gets no video of the target it watches");
+                None
+            }
+        }
     }
 
     fn report(&self) {
-        // A session that takes no more is one that is ending.
         if let Some(feed) = &self.feed {
-            // A session that takes no more is one that is ending.
-            let _ = self.events.try_send(FromPeer::Stream(feed.key));
+            self.tell(FromPeer::Stream(feed.key));
+        }
+    }
+
+    /// Hands the session socket something of the connection's. A socket that takes no
+    /// more is one that is ending.
+    fn tell(&self, event: FromPeer) {
+        if let Err(mpsc::error::TrySendError::Full(_)) = self.events.try_send(event) {
+            warn!("a client sends more than its session socket takes; a message is dropped");
         }
     }
 
@@ -389,7 +401,7 @@ impl Peer {
                         .map_err(|err| err.to_string())
                 };
                 match message.map(|envelope| envelope.message) {
-                    Ok(Some(message)) => drop(self.events.try_send(FromPeer::Message(message))),
+                    Ok(Some(message)) => self.tell(FromPeer::Message(message)),
                     Ok(None) => {}
                     Err(reason) => warn!(%reason, "malformed client message"),
                 }

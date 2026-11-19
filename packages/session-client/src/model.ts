@@ -171,6 +171,13 @@ export interface ClipboardEvent {
   readonly written: boolean;
 }
 
+/** Something this client asked for over the session socket was not done. */
+export interface Failure {
+  readonly asked: "go" | "close" | "copyPicture" | "chooseFiles" | undefined;
+  /** Why, as the session says it. */
+  readonly reason: string;
+}
+
 export interface VideoStatus {
   readonly format: VideoFormat | undefined;
   readonly quality: VideoQuality | undefined;
@@ -262,6 +269,18 @@ const ROLES: Partial<Record<pb.Role, Role>> = {
   [pb.Role.CONTROL]: "control",
   [pb.Role.ADMIN]: "admin",
 };
+
+const ASKED: Partial<Record<pb.Asked, NonNullable<Failure["asked"]>>> = {
+  [pb.Asked.GO]: "go",
+  [pb.Asked.CLOSE]: "close",
+  [pb.Asked.COPY_PICTURE]: "copyPicture",
+  [pb.Asked.FILES_CHOSEN]: "chooseFiles",
+};
+
+export const failureOf = (failed: pb.Failed): Failure => ({
+  asked: ASKED[failed.asked],
+  reason: failed.reason,
+});
 
 const DOWNLOAD_STATES: Partial<Record<pb.DownloadState, DownloadState>> = {
   [pb.DownloadState.RUNNING]: "running",

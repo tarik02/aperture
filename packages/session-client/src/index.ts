@@ -10,7 +10,7 @@ import type {
   ViewportSize,
 } from "./http.ts";
 import type { Surfaces } from "./input.ts";
-import type { ClipboardEvent, ClipboardForm, LeaseAction, Snapshot } from "./model.ts";
+import type { ClipboardEvent, ClipboardForm, Failure, LeaseAction, Snapshot } from "./model.ts";
 import {
   type ConnectOptions,
   type Destination,
@@ -40,6 +40,7 @@ export type {
   Connection,
   Download,
   DownloadState,
+  Failure,
   Features,
   Grant,
   FileRequest,
@@ -117,6 +118,11 @@ export interface Session {
    */
   readonly onClipboard: (listener: (event: ClipboardEvent) => void) => () => void;
   /**
+   * What this client asked for with `go`, `closeTab`, `copyPicture` or `chooseFiles` and
+   * the session did not do, with the reason.
+   */
+  readonly onFailure: (listener: (failure: Failure) => void) => () => void;
+  /**
    * Pastes into the session: the forms given, or what this browser's clipboard has where
    * a page may read it. False when there was nothing to paste.
    */
@@ -187,6 +193,7 @@ export const connect = (options: ConnectOptions): Session => {
     copyPicture: (url) => Effect.runSync(session.copyPicture(url)),
     writeClipboard: (forms) => Effect.runSync(session.writeClipboard(forms)),
     onClipboard: session.onClipboard,
+    onFailure: session.onFailure,
     paste: (forms) => promised(session.paste(forms)),
     copySelection: () => Effect.runSync(session.copySelection),
     selectAll: () => Effect.runSync(session.selectAll),
