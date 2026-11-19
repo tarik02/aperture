@@ -29,7 +29,9 @@ use tokio::{
     time::{Instant, sleep, timeout},
 };
 
-use crate::presence::{Identity, Membership, Presence, Role};
+use aperture_runner::{Access, Area};
+
+use crate::presence::{Identity, Membership, Presence};
 use crate::{
     cdp,
     live::{
@@ -93,7 +95,8 @@ impl Automation {
         let agent = Identity {
             subject: "agent".to_owned(),
             name: "Agent".to_owned(),
-            role: Role::Control,
+            // The automation gives input and asks for the tabs it wants, as a person does.
+            access: Access::default().writing(Area::Input),
         };
         let session = Arc::new(Session {
             browser,

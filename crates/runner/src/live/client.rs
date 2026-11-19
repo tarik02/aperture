@@ -4,6 +4,7 @@
 use std::collections::BTreeSet;
 
 use aperture_compositor::{Button, Cursor, Form, Forms, Input, Viewport, WindowId, data};
+use aperture_runner::{Access, Area};
 use axum::extract::ws::{Message as Frame, WebSocket};
 use buffa::Message as _;
 use tokio::sync::{broadcast, mpsc, watch};
@@ -26,11 +27,19 @@ use crate::{
     proto::aperture::live::v1::{self as pb, client_message, server_message},
 };
 
+/// What a client may do in one area.
+#[derive(Clone, Copy)]
+struct Grant {
+    read: bool,
+    write: bool,
+}
+
 /// What a client's WebRTC connection has to tell that waits for its session socket's turn.
 const CHANNEL_MESSAGES: usize = 256;
 
 /// Serves the client until its socket closes or the session ends.
 pub async fn serve(live: Live, socket: WebSocket, identity: Identity) {
+    let access = identity.access;
     let (tiles_watch, tiles) = tiles::start(live.compositor.clone());
     let (from_peer, peer_events) = mpsc::channel(CHANNEL_MESSAGES);
     let mut client = Client {
@@ -42,6 +51,7 @@ pub async fn serve(live: Live, socket: WebSocket, identity: Identity) {
         present: live.presence.present(),
         sounding: live.sound.sounding(),
         sound: None,
+        access,
         member: live.presence.join(identity, false),
         live,
         socket,
@@ -76,6 +86,8 @@ struct Client {
     file_requests: watch::Receiver<Vec<pages::Request>>,
     menus: broadcast::Receiver<pages::Menu>,
     present: watch::Receiver<Present>,
+    /// What the client may do, as whoever let it in says.
+    access: Access,
     /// The session's sound, for a client that takes it on the socket.
     sound: Option<sound::Listener>,
     /// The browser's tabs that play something now.
@@ -255,7 +267,7 @@ impl Client {
                         return Ok(());
                     }
                     let copied = self.clipboard.borrow_and_update().clone();
-                    if !self.live.features.clipboard {
+                    if !self.grant(Area::Clipboard).read {
                         continue;
                     }
                     // What is copied is whoever's copied it: who gave input last.
@@ -291,7 +303,7 @@ impl Client {
                     Some(pb::VideoQuality::VIDEO_QUALITY_UNSPECIFIED) | None => None,
                 };
                 self.delivery.pin(self.pinned);
-                let hears = hello.audio && self.live.features.sound;
+                let hears = hello.audio && self.grant(Area::Sound).read;
                 self.sound = hears.then(|| self.live.sound.listen());
                 self.fps = hello
                     .fps
@@ -348,6 +360,7 @@ impl Client {
                     Some((*window, target.scale))
                 });
                 if let Some((window, scale)) = watched
+                    && self.grant(Area::Tabs).write
                     && self.holds()
                 {
                     self.live.compositor.set_viewport(
@@ -415,7 +428,7 @@ impl Client {
                 composing: m.composing,
             },
             Message::Clipboard(m) => {
-                if self.live.features.clipboard
+                if self.grant(Area::Clipboard).write
                     && let Some(content) = self.content(*m)
                     && self.holds()
                 {
@@ -424,6 +437,9 @@ impl Client {
                 return Ok(());
             }
             Message::Go(go) => {
+                if !self.grant(Area::Tabs).write {
+                    return Ok(());
+                }
                 let Some((target, _)) = self.selected.clone().filter(|_| self.holds()) else {
                     return Ok(());
                 };
@@ -447,6 +463,9 @@ impl Client {
                 return Ok(());
             }
             Message::Close(close) => {
+                if !self.grant(Area::Tabs).write {
+                    return Ok(());
+                }
                 let tab = {
                     let targets = self.live.targets.borrow();
                     let closed = targets.iter().find(|target| target.id == close.target);
@@ -460,7 +479,7 @@ impl Client {
                 return Ok(());
             }
             Message::CopyPicture(picture) => {
-                if !self.live.features.clipboard {
+                if !self.grant(Area::Clipboard).read {
                     return Ok(());
                 }
                 let Some((target, _)) = self.selected.clone().filter(|_| self.holds()) else {
@@ -485,7 +504,7 @@ impl Client {
                 return Ok(());
             }
             Message::FilesChosen(m) => {
-                if !self.holds() || !self.live.features.uploads {
+                if !self.holds() || !self.grant(Area::Uploads).write {
                     return Ok(());
                 }
                 let uploads = self.live.files.join(files::UPLOADS);
@@ -562,7 +581,9 @@ impl Client {
             self.live.rtc_ports,
             offer,
             self.from_peer.clone(),
-            self.live.sound.listen(),
+            self.grant(Area::Sound)
+                .read
+                .then(|| self.live.sound.listen()),
         );
         match connected.await {
             Ok((sdp, video)) => {
@@ -746,19 +767,52 @@ impl Client {
     }
 
     async fn send_features(&mut self) -> Result<(), axum::Error> {
-        let features = self.live.features;
-        self.send(server_message::Message::Features(Box::new(pb::Features {
-            sound: features.sound,
-            uploads: features.uploads,
-            downloads: features.downloads,
-            recordings: features.recordings,
-            clipboard: features.clipboard,
-            mcp: features.mcp,
-            cdp: features.cdp,
-            tunnel: features.tunnel,
+        let features = pb::Features {
+            input: buffa::MessageField::some(self.told(Area::Input)),
+            tabs: buffa::MessageField::some(self.told(Area::Tabs)),
+            lease: buffa::MessageField::some(self.told(Area::Lease)),
+            sound: buffa::MessageField::some(self.told(Area::Sound)),
+            clipboard: buffa::MessageField::some(self.told(Area::Clipboard)),
+            uploads: buffa::MessageField::some(self.told(Area::Uploads)),
+            downloads: buffa::MessageField::some(self.told(Area::Downloads)),
+            recordings: buffa::MessageField::some(self.told(Area::Recordings)),
+            mcp: buffa::MessageField::some(self.told(Area::Mcp)),
+            cdp: buffa::MessageField::some(self.told(Area::Cdp)),
+            tunnel: buffa::MessageField::some(self.told(Area::Tunnel)),
             ..Default::default()
-        })))
-        .await
+        };
+        self.send(server_message::Message::Features(Box::new(features)))
+            .await
+    }
+
+    fn told(&self, area: Area) -> pb::Grant {
+        let Grant { read, write } = self.grant(area);
+        pb::Grant {
+            read,
+            write,
+            ..Default::default()
+        }
+    }
+
+    /// What the client may do in an area: what whoever let it in gave it, of what the
+    /// session offers at all.
+    fn grant(&self, area: Area) -> Grant {
+        let features = self.live.features;
+        let offered = match area {
+            Area::Input | Area::Tabs | Area::Lease | Area::Proxy => true,
+            Area::Sound => features.sound,
+            Area::Clipboard => features.clipboard,
+            Area::Uploads => features.uploads,
+            Area::Downloads => features.downloads,
+            Area::Recordings => features.recordings,
+            Area::Mcp => features.mcp,
+            Area::Cdp => features.cdp,
+            Area::Tunnel => features.tunnel,
+        };
+        Grant {
+            read: offered && self.access.reads(area),
+            write: offered && self.access.writes(area),
+        }
     }
 
     async fn send_targets(&mut self) -> Result<(), axum::Error> {
@@ -829,7 +883,7 @@ impl Client {
         let members = present.members.iter().map(|member| pb::Member {
             id: member.id,
             name: member.identity.name.clone(),
-            role: match member.identity.role {
+            role: match member.identity.role() {
                 Role::View => pb::Role::ROLE_VIEW,
                 Role::Control => pb::Role::ROLE_CONTROL,
                 Role::Admin => pb::Role::ROLE_ADMIN,
@@ -856,10 +910,13 @@ impl Client {
     }
 
     async fn send_file_requests(&mut self) -> Result<(), axum::Error> {
+        // Told to those who may answer.
+        let answers = self.grant(Area::Uploads).write;
         let requests = self
             .file_requests
             .borrow_and_update()
             .iter()
+            .filter(|_| answers)
             .map(|request| pb::FileRequest {
                 id: request.id,
                 target: request.target.clone(),
@@ -876,10 +933,12 @@ impl Client {
     }
 
     async fn send_downloads(&mut self) -> Result<(), axum::Error> {
+        let reads = self.grant(Area::Downloads).read;
         let downloads = self
             .downloads
             .borrow_and_update()
             .iter()
+            .filter(|_| reads)
             .map(|download| pb::Download {
                 id: download.id.clone(),
                 name: download.name.clone(),

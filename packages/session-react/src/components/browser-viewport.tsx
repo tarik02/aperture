@@ -80,7 +80,7 @@ export function BrowserViewport({ className }: BrowserViewportProps) {
             <EmptyTitle>No tabs</EmptyTitle>
             <EmptyDescription>The session's browser has no tab open.</EmptyDescription>
           </EmptyHeader>
-          {lease.givesInput ? (
+          {snapshot.features.tabs.write ? (
             <EmptyContent>
               <Button type="button" size="sm" onClick={() => session.newTab()}>
                 <Plus />

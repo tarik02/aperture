@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { Session } from "@aperture-browser/session-client";
-import { useLease, useSession, useSessionSnapshot } from "../session.tsx";
+import { useSession, useSessionSnapshot } from "../session.tsx";
 import { useStored } from "./use-stored.ts";
 
 const FIT_KEY = "aperture.session.fit";
@@ -15,14 +15,13 @@ const isBoolean = (value: unknown): value is boolean => typeof value === "boolea
 export function useRememberedFit(follows = true) {
   const session = useSession();
   const snapshot = useSessionSnapshot();
-  const lease = useLease();
   const [remembered, remember] = useStored(FIT_KEY, true, isBoolean);
   const applied = useRef<Session | undefined>(undefined);
   const ready =
     follows &&
     snapshot.connection.state === "open" &&
     snapshot.selected !== undefined &&
-    lease.givesInput;
+    snapshot.features.tabs.write;
 
   useEffect(() => {
     if (!ready) {

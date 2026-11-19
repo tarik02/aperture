@@ -355,7 +355,8 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
     // Before the browser starts: its extension reports as soon as it runs.
     let extension_socket = sockets.join("extension.sock");
     let extension_dir = spec.runtime_dir.join("extension");
-    extension::unpack(&extension_dir, spec.features.sound).context("failed to write the extension")?;
+    extension::unpack(&extension_dir, spec.features.sound)
+        .context("failed to write the extension")?;
     let kept_tabs = spec.state_dir.join("tabs.json");
     let sound = live::sound::Sound::new();
     let registry = targets::Registry::bind(

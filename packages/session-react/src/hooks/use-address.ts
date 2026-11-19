@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLease, useSession, useSessionSnapshot } from "../session.tsx";
+import { useSession, useSessionSnapshot } from "../session.tsx";
 
 export interface AddressControl {
   /** What the address field shows: what is typed, or the watched tab's address. */
@@ -17,7 +17,6 @@ export interface AddressControl {
 export function useAddress(): AddressControl {
   const session = useSession();
   const snapshot = useSessionSnapshot();
-  const lease = useLease();
   const watched = snapshot.targets.find((target) => target.id === snapshot.selected);
   const [draft, setDraft] = useState<{ target: string | undefined; url: string } | null>(null);
   // What was typed and not sent belongs to the tab it was typed for.
@@ -25,7 +24,8 @@ export function useAddress(): AddressControl {
 
   return {
     value: typed ?? watched?.url ?? "",
-    navigates: snapshot.connection.state === "open" && lease.givesInput && watched !== undefined,
+    navigates:
+      snapshot.connection.state === "open" && snapshot.features.tabs.write && watched !== undefined,
     type: (url) => setDraft({ target: watched?.id, url }),
     reset: () => setDraft(null),
     submit: (value) => {

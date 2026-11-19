@@ -23,7 +23,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture-browser/ui/co
 import { keptOf, recordingIsEdited, recordingRuns, type Kept } from "../hooks/use-recordings.ts";
 import { useStored } from "../hooks/use-stored.ts";
 import { failureText, showNotice } from "../notices.ts";
-import { useLease, useSession, useSessionSnapshot, useWatchedTarget } from "../session.tsx";
+import { useSession, useSessionSnapshot, useWatchedTarget } from "../session.tsx";
 import { useWorkbench } from "../workbench/context.tsx";
 import {
   Described,
@@ -94,11 +94,9 @@ function startOptions(target: string, settings: RecordingSettings): StartRecordi
 export function RecordItem() {
   const { recordings } = useWorkbench();
   const snapshot = useSessionSnapshot();
-  const lease = useLease();
   const [settings] = useRecordingSettings();
   const watched = useWatchedTarget();
-  // Only an admin's role lets the session start and stop recordings.
-  const allowed = lease.role === undefined || lease.role === "admin";
+  const allowed = snapshot.features.recordings.write;
   const recordsWatched = recordings.recordings.some(
     (one) => recordingRuns(one) && one.target === watched?.id,
   );
@@ -129,7 +127,7 @@ export function RecordItem() {
         {allowed ? (
           "Record this tab"
         ) : (
-          <Described title="Record this tab">Takes an admin's role</Described>
+          <Described title="Record this tab">Not yours to make here</Described>
         )}
       </TooltipTrigger>
       <TooltipContent side="left">
@@ -144,10 +142,9 @@ export function RecordItem() {
 export function RunningRecordingItems() {
   const { recordings } = useWorkbench();
   const snapshot = useSessionSnapshot();
-  const lease = useLease();
   const running = recordings.recordings.filter(recordingRuns);
   const now = useNow(running.length > 0);
-  const allowed = lease.role === undefined || lease.role === "admin";
+  const allowed = snapshot.features.recordings.write;
 
   const stop = (recording: Recording) => {
     recordings.stop(recording.id).catch((cause: unknown) => {
@@ -274,10 +271,8 @@ export function KeptFacts({ kept }: { kept: Kept }) {
 export function ScreenshotItem() {
   const { recordings } = useWorkbench();
   const snapshot = useSessionSnapshot();
-  const lease = useLease();
   const watched = useWatchedTarget();
-  // As with recordings, only an admin's role lets the session keep one.
-  const allowed = lease.role === undefined || lease.role === "admin";
+  const allowed = snapshot.features.recordings.write;
   const takes = snapshot.connection.state === "open" && allowed && watched !== undefined;
 
   const take = () => {
@@ -303,7 +298,7 @@ export function ScreenshotItem() {
   return (
     <DropdownMenuItem disabled={!takes} closeOnClick={false} onClick={take}>
       <Camera />
-      {allowed ? "Screenshot" : <Described title="Screenshot">Takes an admin's role</Described>}
+      {allowed ? "Screenshot" : <Described title="Screenshot">Not yours to make here</Described>}
     </DropdownMenuItem>
   );
 }

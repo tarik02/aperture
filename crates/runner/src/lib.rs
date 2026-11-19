@@ -15,7 +15,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 pub use aperture_gateway::{
-    Cdp, DEVTOOLS_AUTHORITY, Live, NAME_HEADER, ROLE_HEADER, SUBJECT_HEADER,
+    ACCESS_HEADER, Access, Area, Cdp, DEVTOOLS_AUTHORITY, Live, NAME_HEADER, SUBJECT_HEADER,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

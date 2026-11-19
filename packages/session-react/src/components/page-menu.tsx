@@ -110,7 +110,7 @@ export function PagePictureItems() {
         <ExternalLink />
         Open picture in new tab
       </DropdownMenuItem>
-      {features.clipboard ? (
+      {features.access.clipboard.read ? (
         <DropdownMenuItem onClick={act(() => session.copyPicture(image))}>
           <Image />
           Copy picture
@@ -133,7 +133,7 @@ export function PageTextItems() {
 
   return (
     <>
-      {menu?.text === undefined || !features.clipboard ? null : (
+      {menu?.text === undefined || !features.access.clipboard.read ? null : (
         <DropdownMenuItem onClick={act(session.copySelection)}>
           <Copy />
           Copy
@@ -141,7 +141,7 @@ export function PageTextItems() {
       )}
       {menu?.editable ? (
         <>
-          {features.clipboard ? (
+          {features.access.clipboard.write ? (
             <DropdownMenuItem onClick={act(() => pasteHere(session))}>
               <ClipboardPaste />
               Paste

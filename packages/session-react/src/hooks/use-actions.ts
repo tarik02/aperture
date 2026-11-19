@@ -25,7 +25,7 @@ export function useTabSound(target: Target | undefined): TabSound {
 
 export interface InputState {
   readonly open: boolean;
-  /** This member may open, close and take tabs elsewhere. */
+  /** This member may open, close and take tabs elsewhere, and give them another size. */
   readonly changes: boolean;
   /** This member may give the watched tab input. */
   readonly gives: boolean;
@@ -36,6 +36,9 @@ export function useInputState(): InputState {
   const snapshot = useSessionSnapshot();
   const lease = useLease();
   const open = snapshot.connection.state === "open";
-  const changes = open && lease.givesInput;
-  return { open, changes, gives: changes && snapshot.selected !== undefined };
+  return {
+    open,
+    changes: open && snapshot.features.tabs.write,
+    gives: open && lease.givesInput && snapshot.selected !== undefined,
+  };
 }

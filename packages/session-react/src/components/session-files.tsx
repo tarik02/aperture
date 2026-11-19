@@ -22,7 +22,7 @@ import { cn } from "@aperture-browser/ui/utils";
 import { useUploads, type UploadsControl } from "../hooks/use-uploads.ts";
 import { useWorkbench } from "../workbench/context.tsx";
 import { failureText, showNotice } from "../notices.ts";
-import { useLease, useSession, useSessionSnapshot } from "../session.tsx";
+import { useSession, useSessionSnapshot } from "../session.tsx";
 import { formatBytes } from "./menu-parts.tsx";
 
 /**
@@ -105,6 +105,7 @@ export function SessionFilesButton() {
           request={request}
           downloads={snapshot.downloads}
           offers={features}
+          puts={features.access.uploads.write}
         />
       </PopoverContent>
     </Popover>
@@ -116,15 +117,17 @@ function SessionFiles({
   request,
   downloads,
   offers,
+  puts,
 }: {
   uploads: UploadsControl;
   request: FileRequest | undefined;
   downloads: readonly Download[];
   /** Which of the two the session has. */
   offers: { readonly uploads: boolean; readonly downloads: boolean };
+  /** This member may put files into the session, and answer pages with them. */
+  puts: boolean;
 }) {
   const session = useSession();
-  const lease = useLease();
   const picker = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [chosen, setChosen] = useState<readonly string[]>([]);
@@ -186,7 +189,7 @@ function SessionFiles({
     <div
       className="aperture:relative aperture:flex aperture:max-h-[min(32rem,calc(100vh-6rem))] aperture:flex-col"
       onDragOver={(event) => {
-        if (offers.uploads && lease.givesInput && event.dataTransfer.types.includes("Files")) {
+        if (offers.uploads && puts && event.dataTransfer.types.includes("Files")) {
           event.preventDefault();
           event.dataTransfer.dropEffect = "copy";
           setDragging(true);
@@ -232,7 +235,7 @@ function SessionFiles({
             <Button
               type="button"
               size="sm"
-              disabled={!lease.givesInput}
+              disabled={!puts}
               onClick={() => picker.current?.click()}
             >
               <ArrowUpFromLine />
@@ -242,7 +245,7 @@ function SessionFiles({
               type="button"
               size="sm"
               variant="secondary"
-              disabled={existing.length === 0 || !lease.givesInput}
+              disabled={existing.length === 0 || !puts}
               onClick={() => session.chooseFiles(request.id, existing)}
             >
               <Check />
@@ -253,7 +256,7 @@ function SessionFiles({
               size="sm"
               variant="ghost"
               className="aperture:ml-auto"
-              disabled={!lease.givesInput}
+              disabled={!puts}
               onClick={() => session.chooseFiles(request.id, [])}
             >
               Cancel
@@ -273,7 +276,7 @@ function SessionFiles({
                   type="button"
                   size="xs"
                   variant="outline"
-                  disabled={!lease.givesInput}
+                  disabled={!puts}
                   onClick={() => picker.current?.click()}
                 >
                   <ArrowUpFromLine />
@@ -339,7 +342,7 @@ function SessionFiles({
                     variant="ghost"
                     aria-label={`Remove ${file.name}`}
                     className="aperture:shrink-0 aperture:opacity-55 aperture:group-hover/file:opacity-100 aperture:hover:opacity-100"
-                    disabled={!lease.givesInput}
+                    disabled={!puts}
                     onClick={(event) => {
                       event.stopPropagation();
                       remove(file);
@@ -352,7 +355,7 @@ function SessionFiles({
             })}
             {uploads.uploads.length === 0 && uploads.inProgress.length === 0 ? (
               <p className="aperture:rounded-md aperture:border aperture:border-dashed aperture:px-2 aperture:py-3 aperture:text-center aperture:text-xs aperture:text-muted-foreground">
-                {lease.givesInput
+                {puts
                   ? "Nothing uploaded. Drop files here, or onto the page itself."
                   : "Nothing uploaded."}
               </p>

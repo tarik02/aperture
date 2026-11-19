@@ -37,7 +37,7 @@ use crate::{
     egress::Egress,
     files::{self, Download, Progress, UPLOADS},
     pages::Pages,
-    presence::{Identity, Presence, Role},
+    presence::{Identity, Presence},
     targets::Target,
 };
 
@@ -110,11 +110,10 @@ async fn session_socket(
                 .filter(|name| !name.is_empty())
                 .unwrap_or_else(|| subject.clone()),
             subject,
-            role: match said(aperture_runner::ROLE_HEADER).as_deref() {
-                Some("admin") => Role::Admin,
-                Some("control") => Role::Control,
-                _ => Role::View,
-            },
+            // Whoever vouches for a caller says what they may do; nothing, when it does not.
+            access: said(aperture_runner::ACCESS_HEADER)
+                .and_then(|access| access.parse().ok())
+                .unwrap_or_default(),
         },
         None => Identity::operator(),
     };
@@ -387,10 +386,7 @@ struct TakeScreenshot {
 }
 
 /// Takes a screenshot of a target and keeps it in the session's files.
-async fn screenshot_take(
-    State(live): State<Live>,
-    body: Option<Json<TakeScreenshot>>,
-) -> Response {
+async fn screenshot_take(State(live): State<Live>, body: Option<Json<TakeScreenshot>>) -> Response {
     let request = body.map(|Json(request)| request).unwrap_or_default();
     let target = {
         let targets = live.targets.borrow();
@@ -408,7 +404,9 @@ async fn screenshot_take(
         Err(err) => return (StatusCode::CONFLICT, err.to_string()).into_response(),
     };
     let files = live.files.clone();
-    match tokio::task::spawn_blocking(move || shots::keep(&files, frame, target.title, target.url)).await {
+    match tokio::task::spawn_blocking(move || shots::keep(&files, frame, target.title, target.url))
+        .await
+    {
         Ok(Ok(screenshot)) => (StatusCode::CREATED, Json(screenshot)).into_response(),
         Ok(Err(err)) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
         Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),

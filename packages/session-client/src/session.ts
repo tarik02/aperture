@@ -32,6 +32,8 @@ import {
   type PictureSettings,
   type PictureWay,
   PIXELS,
+  featuresOf,
+  NO_FEATURES,
   presenceOf,
   QUALITIES,
   type Snapshot,
@@ -201,16 +203,7 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
     fileRequests: [],
     cursor: "default",
     picture: { way, ways, status: undefined, formats: [], settings, rtc: undefined },
-    features: {
-      sound: false,
-      uploads: false,
-      downloads: false,
-      recordings: false,
-      clipboard: false,
-      mcp: false,
-      cdp: false,
-      tunnel: false,
-    },
+    features: NO_FEATURES,
     muted: [],
     menu: undefined,
     fit: false,
@@ -547,7 +540,7 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
   const tune = () => {
     const target = watched();
     const on =
-      snapshot.features.sound && target !== undefined && !snapshot.muted.includes(target.tab);
+      snapshot.features.sound.read && target !== undefined && !snapshot.muted.includes(target.tab);
     if (on === sounds) {
       return;
     }
@@ -580,8 +573,7 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
         break;
       }
       case "features": {
-        const { $typeName: _, $unknown: __, ...features } = message.value;
-        update({ features });
+        update({ features: featuresOf(message.value) });
         break;
       }
       case "presence": {

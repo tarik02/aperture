@@ -45,8 +45,12 @@ Who is connected to a session, which tab each watches, and who holds which lease
 The secret of whoever serves the sessions. Its holder may do anything there.
 
 **Ticket**:
-A signed, expiring pass for one person into one session with one role: `view`, `control` or `admin`. Whoever stands above the executor signs it; the gateway only checks it.
+A signed, expiring pass for one person into one session. It lets its holder watch, and says what else they may do as access. Whoever stands above the executor signs it; the gateway only checks it.
 _Avoid_: Session token, share link
+
+**Access**:
+What a caller may do in a session, area by area: `input`, `tabs`, `lease`, `sound`, `clipboard`, `uploads`, `downloads`, `recordings`, `proxy`, `mcp`, `cdp`, `tunnel`, each read, written, both or neither. Watching takes none. The operator token gives all of it; a ticket gives what it says, and a feature that is off gives nothing to anyone.
+_Avoid_: Role, permission, scope
 
 **Snapshot**:
 A session's profile as it was at one moment, kept as a read-only layer. A session created from a snapshot starts with that profile and writes its own changes above it. Snapshots are the executor's; a runner that serves itself has a plain profile directory.

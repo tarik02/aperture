@@ -63,7 +63,9 @@ pub async fn follow_downloads(
     } else {
         json!({ "behavior": "deny" })
     };
-    browser.call("Browser.setDownloadBehavior", behavior).await?;
+    browser
+        .call("Browser.setDownloadBehavior", behavior)
+        .await?;
     let (told, downloads) = watch::channel(Vec::new());
     tokio::spawn(async move {
         let mut list: Vec<Download> = Vec::new();

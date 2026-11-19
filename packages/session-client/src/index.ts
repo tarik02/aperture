@@ -41,6 +41,7 @@ export type {
   Download,
   DownloadState,
   Features,
+  Grant,
   FileRequest,
   HeldTab,
   LeaseAction,

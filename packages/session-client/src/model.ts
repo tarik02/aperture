@@ -34,25 +34,74 @@ export interface Target {
   readonly sounds: boolean;
 }
 
-/** What the session offers besides its picture and input, as whoever started it chose. */
-export interface Features {
-  /** Tabs are heard. */
-  readonly sound: boolean;
-  /** Files are taken, for pages that ask for some. */
-  readonly uploads: boolean;
-  /** The session's browser downloads files. */
-  readonly downloads: boolean;
-  /** Tabs are recorded. */
-  readonly recordings: boolean;
-  /** What is copied passes between the session and its clients. */
-  readonly clipboard: boolean;
-  /** The automation endpoint is served. */
-  readonly mcp: boolean;
-  /** The DevTools endpoint is served. */
-  readonly cdp: boolean;
-  /** Tunnels are taken. */
-  readonly tunnel: boolean;
+/** What this client may do in one area of the session. */
+export interface Grant {
+  readonly read: boolean;
+  readonly write: boolean;
 }
+
+/**
+ * What this client may do in the session, area by area: what whoever let it in gave it, of
+ * what the session offers at all. Watching takes no grant.
+ */
+export interface Features {
+  /** Write: giving the watched tab input. */
+  readonly input: Grant;
+  /** Write: opening, closing and navigating tabs, and giving them another size. */
+  readonly tabs: Grant;
+  /** Write: taking a tab from whoever holds it, without asking. */
+  readonly lease: Grant;
+  /** Read: hearing tabs. */
+  readonly sound: Grant;
+  /** Read: what is copied in the session. Write: pasting into it. */
+  readonly clipboard: Grant;
+  /** Read: the files put into the session. Write: putting them, and answering pages. */
+  readonly uploads: Grant;
+  /** Read: what the session's browser downloaded. */
+  readonly downloads: Grant;
+  /** Read: recordings and screenshots. Write: making them. */
+  readonly recordings: Grant;
+  /** Write: the automation endpoint. */
+  readonly mcp: Grant;
+  /** Write: the DevTools endpoint. */
+  readonly cdp: Grant;
+  /** Write: attaching a tunnel. */
+  readonly tunnel: Grant;
+}
+
+const NOTHING: Grant = { read: false, write: false };
+
+/** What a client may do before the session has told: nothing. */
+export const NO_FEATURES: Features = {
+  input: NOTHING,
+  tabs: NOTHING,
+  lease: NOTHING,
+  sound: NOTHING,
+  clipboard: NOTHING,
+  uploads: NOTHING,
+  downloads: NOTHING,
+  recordings: NOTHING,
+  mcp: NOTHING,
+  cdp: NOTHING,
+  tunnel: NOTHING,
+};
+
+const grantOf = (grant: pb.Grant | undefined): Grant =>
+  grant === undefined ? NOTHING : { read: grant.read, write: grant.write };
+
+export const featuresOf = (features: pb.Features): Features => ({
+  input: grantOf(features.input),
+  tabs: grantOf(features.tabs),
+  lease: grantOf(features.lease),
+  sound: grantOf(features.sound),
+  clipboard: grantOf(features.clipboard),
+  uploads: grantOf(features.uploads),
+  downloads: grantOf(features.downloads),
+  recordings: grantOf(features.recordings),
+  mcp: grantOf(features.mcp),
+  cdp: grantOf(features.cdp),
+  tunnel: grantOf(features.tunnel),
+});
 
 export interface Member {
   readonly id: number;
@@ -164,7 +213,7 @@ export interface Snapshot {
   /** A CSS cursor value. */
   readonly cursor: string;
   readonly picture: Picture;
-  /** Nothing is offered until the session has told. */
+  /** Nothing is granted until the session has told. */
   readonly features: Features;
   /** The numbers of the tabs that are muted here; the others are heard while watched. */
   readonly muted: readonly number[];

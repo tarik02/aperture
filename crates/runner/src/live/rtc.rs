@@ -102,7 +102,8 @@ pub async fn connect(
     ports: Option<PortRange>,
     offer: &str,
     events: mpsc::Sender<FromPeer>,
-    sound: sound::Listener,
+    // None for a client that may not hear the session.
+    sound: Option<sound::Listener>,
 ) -> Result<(String, Watch), ConnectError> {
     let mut config = Rtc::builder()
         .set_ice_lite(true)
@@ -159,7 +160,7 @@ pub async fn connect(
         streams,
         video: None,
         audio: None,
-        sound: Some(sound),
+        sound,
         heard: None,
         connected: false,
         window: None,

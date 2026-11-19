@@ -1,12 +1,12 @@
-//! Who a request comes from.
+//! Who a request comes from, and what they may do.
 //!
 //! The token of whoever serves the sessions is the operator's: whoever holds it may do
 //! anything. Anyone else comes with a ticket, which whoever stands above signs for one
 //! person and one session: a JWT signed with Ed25519 (`EdDSA`), checked against the public
-//! key that was given. A ticket lets its holder into the session's live endpoints, as
-//! far as its role goes.
+//! key that was given. A ticket lets its holder watch the session it names, and do what
+//! its `access` says, area by area (see [`Access`]).
 
-use std::{fs, os::unix::fs::PermissionsExt, path::Path, sync::Arc};
+use std::{collections::HashMap, fs, os::unix::fs::PermissionsExt, path::Path, sync::Arc};
 
 use anyhow::Context;
 
@@ -21,18 +21,7 @@ use percent_encoding::{NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode
 use serde::Deserialize;
 use subtle::ConstantTimeEq;
 
-use crate::{NAME_HEADER, ROLE_HEADER, SUBJECT_HEADER};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Role {
-    /// Watches the session.
-    View,
-    /// Gives it input, and files.
-    Control,
-    /// Does all a session's live endpoints do.
-    Admin,
-}
+use crate::{ACCESS_HEADER, Access, Area, NAME_HEADER, SUBJECT_HEADER};
 
 /// What a ticket says.
 #[derive(Deserialize)]
@@ -41,9 +30,11 @@ struct Claims {
     sub: String,
     /// The name others in the session see; the subject without.
     name: Option<String>,
-    role: Role,
     /// The session it is for.
     sid: String,
+    /// What its holder may do besides watching: an area's name to `r`, `w` or `rw`.
+    #[serde(default)]
+    access: HashMap<String, String>,
 }
 
 /// Who a request comes from; with every request that got in.
@@ -51,24 +42,20 @@ struct Claims {
 pub struct Caller {
     pub subject: String,
     pub name: String,
-    pub role: Role,
+    pub access: Access,
 }
 
 impl Caller {
     /// Tells the session's runner who the request comes from, in place of whatever the
     /// request itself says of that.
     pub fn name_in(&self, headers: &mut axum::http::HeaderMap) {
-        let role = match self.role {
-            Role::View => "view",
-            Role::Control => "control",
-            Role::Admin => "admin",
-        };
+        let access = self.access.to_string();
         let name = utf8_percent_encode(&self.name, NON_ALPHANUMERIC).to_string();
         let subject = utf8_percent_encode(&self.subject, NON_ALPHANUMERIC).to_string();
         for (header, value) in [
             (SUBJECT_HEADER, subject.as_str()),
             (NAME_HEADER, name.as_str()),
-            (ROLE_HEADER, role),
+            (ACCESS_HEADER, access.as_str()),
         ] {
             match HeaderValue::from_str(value) {
                 Ok(value) => headers.insert(header, value),
@@ -159,7 +146,7 @@ fn caller(keys: &Keys, request: &Request) -> Result<Caller, StatusCode> {
         return Ok(Caller {
             subject: "operator".to_owned(),
             name: name.unwrap_or_else(|| "Operator".to_owned()),
-            role: Role::Admin,
+            access: Access::ALL,
         });
     }
     let claims = keys
@@ -167,13 +154,20 @@ fn caller(keys: &Keys, request: &Request) -> Result<Caller, StatusCode> {
         .as_ref()
         .and_then(|key| ticket(key, given))
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    if !allows(keys, &claims, request.method(), request.uri().path()) {
+    let access = Access::of(&claims.access);
+    if !allows(
+        keys,
+        &claims.sid,
+        access,
+        request.method(),
+        request.uri().path(),
+    ) {
         return Err(StatusCode::FORBIDDEN);
     }
     Ok(Caller {
         name: claims.name.unwrap_or_else(|| claims.sub.clone()),
         subject: claims.sub,
-        role: claims.role,
+        access,
     })
 }
 
@@ -187,12 +181,49 @@ fn ticket(key: &DecodingKey, given: &str) -> Option<Claims> {
         .map(|ticket| ticket.claims)
 }
 
-/// Whether a ticket lets its holder do this: watching is anyone's, files and a target's
-/// viewport take a role that gives input, and the rest of what the session itself answers
-/// is an admin's. Its browser's DevTools, its automation and its tunnel are no ticket's,
-/// and nor is anything outside the session.
-fn allows(keys: &Keys, claims: &Claims, method: &Method, path: &str) -> bool {
-    let Some(session) = (keys.place)(&claims.sid) else {
+/// What a request to a session takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Needs {
+    /// Nothing but being let into the session.
+    Watching,
+    Reading(Area),
+    Writing(Area),
+    /// The operator's token: no ticket gives it.
+    Operator,
+}
+
+/// What the request for `rest`, a path below the session's own, takes. A route that is
+/// not named here is the operator's, so that a new one is nobody's by oversight.
+fn needs(method: &Method, rest: &str) -> Needs {
+    let mut parts = rest.trim_start_matches('/').split('/');
+    let (first, second) = (parts.next().unwrap_or_default(), parts.next());
+    let reads = *method == Method::GET || *method == Method::HEAD;
+    let either = |area| match reads {
+        true => Needs::Reading(area),
+        false => Needs::Writing(area),
+    };
+    match (first, second) {
+        ("" | "ws" | "busy", None) if reads => Needs::Watching,
+        ("targets", _) if reads => Needs::Watching,
+        ("targets", Some(_)) if rest.ends_with("/viewport") => Needs::Writing(Area::Tabs),
+        ("recordings" | "screenshots", _) => either(Area::Recordings),
+        ("uploads", _) => either(Area::Uploads),
+        ("downloads", None) if reads => Needs::Reading(Area::Downloads),
+        ("files", Some("recordings" | "screenshots")) if reads => Needs::Reading(Area::Recordings),
+        ("files", Some("downloads")) if reads => Needs::Reading(Area::Downloads),
+        ("files", Some("uploads")) if reads => Needs::Reading(Area::Uploads),
+        ("proxy", None) if !reads => Needs::Writing(Area::Proxy),
+        ("mcp", _) => Needs::Writing(Area::Mcp),
+        ("cdp", _) => Needs::Writing(Area::Cdp),
+        ("tunnel", None) => Needs::Writing(Area::Tunnel),
+        _ => Needs::Operator,
+    }
+}
+
+/// Whether a ticket for the session `sid` with this access lets its holder do this.
+/// Nothing outside the session is a ticket's.
+fn allows(keys: &Keys, sid: &str, access: Access, method: &Method, path: &str) -> bool {
+    let Some(session) = (keys.place)(sid) else {
         return false;
     };
     let Some(rest) = path.strip_prefix(&session) else {
@@ -201,19 +232,10 @@ fn allows(keys: &Keys, claims: &Claims, method: &Method, path: &str) -> bool {
     if !rest.is_empty() && !rest.starts_with('/') {
         return false;
     }
-    let below = |part: &str| {
-        rest.strip_prefix(part)
-            .is_some_and(|more| more.is_empty() || more.starts_with('/'))
-    };
-    if below("/cdp") || below("/mcp") || below("/tunnel") {
-        return false;
+    match needs(method, rest) {
+        Needs::Watching => true,
+        Needs::Reading(area) => access.reads(area),
+        Needs::Writing(area) => access.writes(area),
+        Needs::Operator => false,
     }
-    let needed = if method == Method::GET {
-        Role::View
-    } else if rest.starts_with("/uploads/") || rest.ends_with("/viewport") {
-        Role::Control
-    } else {
-        Role::Admin
-    };
-    claims.role >= needed
 }

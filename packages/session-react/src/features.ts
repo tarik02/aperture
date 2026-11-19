@@ -28,19 +28,25 @@ export interface ApertureSessionFeatures extends SessionFeatures {
 }
 
 /**
- * What the workbench shows: what the embedder did not leave out, of what the session
- * offers.
+ * What the workbench shows: what the embedder did not leave out, of what this client may
+ * read or write at all. `access` tells which of the two, for what depends on it.
  */
 export interface ResolvedSessionFeatures extends Required<SessionFeatures> {
   readonly uploads: boolean;
   readonly downloads: boolean;
+  readonly access: Features;
 }
+
+const any = (grant: { readonly read: boolean; readonly write: boolean }) =>
+  grant.read || grant.write;
 
 export function resolveSessionFeatures(
   features: SessionFeatures | undefined,
-  offered: Features,
+  access: Features,
 ): ResolvedSessionFeatures {
   const files = features?.files ?? true;
+  const uploads = files && any(access.uploads);
+  const downloads = files && access.downloads.read;
   return {
     tabs: true,
     navigation: true,
@@ -49,11 +55,12 @@ export function resolveSessionFeatures(
     menus: true,
     pageMenu: true,
     ...features,
-    recordings: (features?.recordings ?? true) && offered.recordings,
-    clipboard: (features?.clipboard ?? true) && offered.clipboard,
-    sound: (features?.sound ?? true) && offered.sound,
-    uploads: files && offered.uploads,
-    downloads: files && offered.downloads,
-    files: files && (offered.uploads || offered.downloads),
+    recordings: (features?.recordings ?? true) && any(access.recordings),
+    clipboard: (features?.clipboard ?? true) && any(access.clipboard),
+    sound: (features?.sound ?? true) && access.sound.read,
+    uploads,
+    downloads,
+    files: uploads || downloads,
+    access,
   };
 }

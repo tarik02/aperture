@@ -13,6 +13,7 @@
 //! - the rest is the session's own to answer: `/mcp`, its automation, `/targets`,
 //!   `/files`, `/uploads`, `/recordings` and so on.
 
+mod access;
 pub mod auth;
 mod cdp;
 mod live;
@@ -29,13 +30,14 @@ use axum::{
 use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
+pub use access::{Access, Area};
 pub use live::{ask, put, viewer};
 
 /// Who a request to a session comes from, as whoever passed it on says: the subject and
-/// the name to show, both percent-encoded, and the role, `view`, `control` or `admin`.
+/// the name to show, both percent-encoded, and what they may do (see [`Access`]).
 pub const SUBJECT_HEADER: &str = "x-aperture-subject";
 pub const NAME_HEADER: &str = "x-aperture-name";
-pub const ROLE_HEADER: &str = "x-aperture-role";
+pub const ACCESS_HEADER: &str = "x-aperture-access";
 
 /// What the browser calls its DevTools endpoint: where it listens inside its sandbox. The
 /// URLs it lists name it.

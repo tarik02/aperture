@@ -18,7 +18,7 @@ import {
   DropdownMenuSubContent,
 } from "@aperture-browser/ui/components/dropdown-menu";
 import { Input } from "@aperture-browser/ui/components/input";
-import { useLease, useSession, useSessionSnapshot } from "../session.tsx";
+import { useSession, useSessionSnapshot } from "../session.tsx";
 import { Described, SettingSubTrigger } from "./menu-parts.tsx";
 
 const AUTO = "auto";
@@ -259,10 +259,9 @@ export function PictureItems() {
 export function ViewportItems() {
   const session = useSession();
   const snapshot = useSessionSnapshot();
-  const lease = useLease();
   const watched = snapshot.targets.find((target) => target.id === snapshot.selected);
   const open = snapshot.connection.state === "open";
-  const resizes = open && lease.givesInput && watched !== undefined;
+  const resizes = open && snapshot.features.tabs.write && watched !== undefined;
 
   return (
     <>

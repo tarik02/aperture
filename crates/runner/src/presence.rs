@@ -12,6 +12,7 @@ use std::{
 };
 
 use aperture_compositor::{Button, Handle, Input, WindowId};
+use aperture_runner::{Access, Area};
 use tokio::{sync::watch, time::Instant};
 
 /// A tab is its holder's until they gave it no input for this long.
@@ -39,7 +40,7 @@ pub enum Role {
 pub struct Identity {
     pub subject: String,
     pub name: String,
-    pub role: Role,
+    pub access: Access,
 }
 
 impl Identity {
@@ -48,7 +49,18 @@ impl Identity {
         Self {
             subject: "operator".to_owned(),
             name: "Operator".to_owned(),
-            role: Role::Admin,
+            access: Access::ALL,
+        }
+    }
+
+    /// What the access comes to among the session's members.
+    pub fn role(&self) -> Role {
+        if !self.access.writes(Area::Input) {
+            Role::View
+        } else if self.access.writes(Area::Lease) {
+            Role::Admin
+        } else {
+            Role::Control
         }
     }
 }
@@ -220,7 +232,7 @@ impl Presence {
         let may = state
             .members
             .iter()
-            .any(|member| member.id == id && member.identity.role >= Role::Control);
+            .any(|member| member.id == id && member.identity.role() >= Role::Control);
         if !may {
             return false;
         }
@@ -387,7 +399,7 @@ impl Presence {
             return self.tell(&state);
         }
         let asker = state.members.iter().find(|member| member.id == id);
-        let Some(role) = asker.map(|asker| asker.identity.role) else {
+        let Some(role) = asker.map(|asker| asker.identity.role()) else {
             return;
         };
         if role < Role::Control {

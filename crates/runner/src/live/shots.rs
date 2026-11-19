@@ -87,7 +87,7 @@ pub fn list(files: &Path) -> Vec<Screenshot> {
         .filter(|entry| entry.file_name().to_string_lossy().ends_with(KEPT))
         .filter_map(|entry| serde_json::from_slice(&std::fs::read(entry.path()).ok()?).ok())
         .collect();
-    screenshots.sort_by(|a, b| b.taken_at_ms.cmp(&a.taken_at_ms));
+    screenshots.sort_by_key(|screenshot| std::cmp::Reverse(screenshot.taken_at_ms));
     screenshots
 }
 

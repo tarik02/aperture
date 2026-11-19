@@ -135,7 +135,7 @@ export function CopyItem() {
   const { gives } = useInputState();
   const thenFocus = useThenFocus();
 
-  if (!features.clipboard) {
+  if (!features.access.clipboard.read) {
     return null;
   }
   return (
@@ -152,7 +152,7 @@ export function PasteItem() {
   const { gives } = useInputState();
   const thenFocus = useThenFocus();
 
-  if (!features.clipboard) {
+  if (!features.access.clipboard.write) {
     return null;
   }
   return (

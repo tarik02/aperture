@@ -71,27 +71,39 @@ message ServerMessage {
   }
 }
 
-// What the session offers besides its picture and input, as whoever started it chose. Sent
-// first after `hello`. What is off is refused: a client need not show it.
+// What the client may do in the session, area by area: what whoever let it in gave it, of
+// what the session offers at all. Sent first after `hello`. What is not granted is refused:
+// a client need not show it. Watching takes no grant.
 message Features {
-  // Tabs are heard: targets tell which of them sound, and `audio` comes where asked for.
-  bool sound = 1;
-  // Files are taken (see `uploads` beside the session socket), and pages that ask for
-  // files are told of in `file_requests`.
-  bool uploads = 2;
-  // The session's browser downloads files, which `downloads` tells of.
-  bool downloads = 3;
-  // Tabs are recorded (see `recordings` beside the session socket).
-  bool recordings = 4;
-  // What is copied in the session is told in `clipboard`, and a client's `clipboard` and
-  // `copy_picture` are taken.
-  bool clipboard = 5;
-  // The session's automation is served, at `mcp` beside the session socket.
-  bool mcp = 6;
-  // Its browser's DevTools endpoint is served, at `cdp`.
-  bool cdp = 7;
-  // Tunnels are taken, at `tunnel`.
-  bool tunnel = 8;
+  // Write: the pointer, the keyboard and what is dropped go into the tab the client holds.
+  Grant input = 9;
+  // Write: `go`, `close` and `viewport` are taken.
+  Grant tabs = 10;
+  // Write: a tab is taken from whoever holds it, without asking.
+  Grant lease = 11;
+  // Read: targets tell which of them sound, and `audio` comes where asked for.
+  Grant sound = 1;
+  // Read: files that were put into the session are listed. Write: files are taken (see
+  // `uploads` beside the session socket), and pages that ask for files are answered.
+  Grant uploads = 2;
+  // Read: what the session's browser downloaded is told in `downloads`, and fetched.
+  Grant downloads = 3;
+  // Read: recordings and screenshots are listed and fetched. Write: they are made.
+  Grant recordings = 4;
+  // Read: what is copied in the session is told in `clipboard`, and `copy_picture` is
+  // taken. Write: a client's `clipboard` is taken.
+  Grant clipboard = 5;
+  // Write: the session's automation, at `mcp` beside the session socket.
+  Grant mcp = 6;
+  // Write: its browser's DevTools endpoint, at `cdp`.
+  Grant cdp = 7;
+  // Write: a tunnel, at `tunnel`.
+  Grant tunnel = 8;
+}
+
+message Grant {
+  bool read = 1;
+  bool write = 2;
 }
 
 // The client's first message. The session answers with what it offers, its targets, the
