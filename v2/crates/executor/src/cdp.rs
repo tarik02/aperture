@@ -24,7 +24,7 @@ use tokio::net::UnixStream;
 use tokio_tungstenite::tungstenite::{Message as BrowserMessage, protocol::WebSocketConfig};
 use tracing::debug;
 
-use crate::sessions::{Error, Sessions};
+use crate::sessions::{Error, Presence, Sessions};
 
 pub fn path(session_id: &str) -> String {
     format!("/sessions/{session_id}/cdp")
@@ -44,8 +44,8 @@ async fn browser(
     Path(id): Path<String>,
     upgrade: WebSocketUpgrade,
 ) -> Response {
-    match sessions.cdp(&id) {
-        Ok(cdp) => connect(upgrade, cdp.socket, cdp.browser_path),
+    match sessions.cdp(&id).await {
+        Ok(cdp) => connect(upgrade, cdp.socket, cdp.browser_path, sessions.present(&id)),
         Err(err) => refuse(err),
     }
 }
@@ -55,18 +55,24 @@ async fn target(
     Path((id, target)): Path<(String, String)>,
     upgrade: WebSocketUpgrade,
 ) -> Response {
-    match sessions.cdp(&id) {
-        Ok(cdp) => connect(upgrade, cdp.socket, format!("/devtools/{target}")),
+    match sessions.cdp(&id).await {
+        Ok(cdp) => connect(
+            upgrade,
+            cdp.socket,
+            format!("/devtools/{target}"),
+            sessions.present(&id),
+        ),
         Err(err) => refuse(err),
     }
 }
 
 /// CDP messages carry screenshots and whole documents, so neither side limits their size.
-fn connect(upgrade: WebSocketUpgrade, socket: PathBuf, path: String) -> Response {
+fn connect(upgrade: WebSocketUpgrade, socket: PathBuf, path: String, here: Presence) -> Response {
     upgrade
         .max_message_size(usize::MAX)
         .max_frame_size(usize::MAX)
         .on_upgrade(move |client| async move {
+            let _here = here;
             let config = WebSocketConfig::default()
                 .max_message_size(None)
                 .max_frame_size(None);
@@ -138,7 +144,7 @@ async fn discovery(
     headers: HeaderMap,
 ) -> Response {
     let id = &parameters[0];
-    let cdp = match sessions.cdp(id) {
+    let cdp = match sessions.cdp(id).await {
         Ok(cdp) => cdp,
         Err(err) => return refuse(err),
     };

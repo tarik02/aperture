@@ -66,6 +66,13 @@ pub struct SessionRecord {
     /// reads it. It holds the secrets of the session's upstreams.
     #[serde(default)]
     pub proxy: Option<serde_json::Value>,
+    /// What the session may use and how long it may sit idle, as whoever runs the session
+    /// reads it.
+    #[serde(default)]
+    pub limits: Option<serde_json::Value>,
+    /// It was suspended for sitting idle, and is to be resumed when someone reaches it.
+    #[serde(default)]
+    pub asleep: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,6 +137,7 @@ impl Store {
         &self,
         snapshot_id: Option<&str>,
         proxy: Option<serde_json::Value>,
+        limits: Option<serde_json::Value>,
     ) -> Result<SessionRecord> {
         let base_layer = match snapshot_id {
             Some(id) => self.snapshot(id)?.layer,
@@ -142,6 +150,8 @@ impl Store {
             base_layer,
             freezing: None,
             proxy,
+            limits,
+            asleep: false,
         };
         // Built aside and renamed into place, so the session appears with its record.
         let staged = self.root.join("sessions").join(format!(".{}", session.id));
@@ -163,6 +173,15 @@ impl Store {
         let mut session = self.session(id)?;
         session.proxy = proxy;
         write_record(&self.session_dir(id).join("session.json"), &session)
+    }
+
+    pub fn set_session_asleep(&self, id: &str, asleep: bool) -> Result<()> {
+        let mut session = self.session(id)?;
+        if session.asleep != asleep {
+            session.asleep = asleep;
+            write_record(&self.session_dir(id).join("session.json"), &session)?;
+        }
+        Ok(())
     }
 
     pub fn sessions(&self) -> Result<Vec<SessionRecord>> {

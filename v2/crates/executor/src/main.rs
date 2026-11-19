@@ -3,8 +3,10 @@
 
 mod auth;
 mod cdp;
+mod limits;
 mod live;
 mod rpc;
+mod scopes;
 mod sessions;
 
 mod proto {
@@ -17,6 +19,7 @@ use std::{
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 use anyhow::Context;
@@ -27,7 +30,11 @@ use clap::Parser;
 use jsonwebtoken::DecodingKey;
 use tracing::info;
 
-use crate::sessions::{Config, Sessions};
+use crate::{
+    limits::Limits,
+    scopes::Scopes,
+    sessions::{Config, Sessions},
+};
 
 /// What a session's windows fill until a client asks for another size.
 const VIEWPORT: Viewport = Viewport {
@@ -93,6 +100,36 @@ struct Arguments {
     /// `aperture-native-host`. Next to this program by default.
     #[arg(long, env = "APERTURE_NATIVE_HOST")]
     native_host: Option<PathBuf>,
+    /// Run each session as a systemd scope of its own, `aperture-session-<id>.scope` in
+    /// `aperture-sessions.slice`: what a session uses is counted, it can be held to
+    /// limits, and nothing of it outlives it. The scopes are those of the manager the
+    /// executor runs under: its user's, or the system's for root.
+    #[arg(long, env = "APERTURE_SESSION_SCOPES")]
+    session_scopes: bool,
+    #[arg(long, env = "APERTURE_SYSTEMD_RUN", default_value = "systemd-run")]
+    systemd_run: PathBuf,
+    #[arg(long, env = "APERTURE_SYSTEMCTL", default_value = "systemctl")]
+    systemctl: PathBuf,
+    /// The memory a session may use, such as `4G`, unless it has a limit of its own. A
+    /// session that needs more loses a process, most likely a tab.
+    #[arg(long, env = "APERTURE_SESSION_MEMORY", value_parser = limits::size)]
+    session_memory: Option<u64>,
+    /// The swap a session with a memory limit may use on top of it, such as `1G`, unless
+    /// it has a limit of its own. Such a session uses none without this.
+    #[arg(long, env = "APERTURE_SESSION_SWAP", value_parser = limits::size)]
+    session_swap: Option<u64>,
+    /// The processors' worth of time a session may use, such as `2` or `1.5`, unless it
+    /// has a limit of its own. Takes `--session-scopes`, as the other limits do.
+    #[arg(long, env = "APERTURE_SESSION_CPUS")]
+    session_cpus: Option<f64>,
+    /// The processes and threads a session may have, unless it has a limit of its own.
+    #[arg(long, env = "APERTURE_SESSION_TASKS")]
+    session_tasks: Option<u64>,
+    /// How long nobody may use a session before it is suspended, such as `30m`, unless it
+    /// has a time of its own. It is resumed when someone reaches it again. Sessions are
+    /// left running without one.
+    #[arg(long, env = "APERTURE_SUSPEND_IDLE_AFTER", value_parser = limits::stretch)]
+    suspend_idle_after: Option<Duration>,
     /// An argument for every session's browser. May be repeated.
     #[arg(long = "browser-arg", allow_hyphen_values = true)]
     browser_args: Vec<String>,
@@ -156,6 +193,33 @@ async fn main() -> anyhow::Result<()> {
         token: Arc::from(token),
         tickets,
     };
+    let limits = Limits {
+        memory: arguments.session_memory,
+        swap: arguments.session_swap,
+        cpus: arguments.session_cpus,
+        tasks: arguments.session_tasks,
+        idle_ms: arguments
+            .suspend_idle_after
+            .map(|after| after.as_millis() as u64),
+    }
+    .over(Limits::default());
+    limits.check().map_err(anyhow::Error::msg)?;
+    let scopes = if arguments.session_scopes {
+        let scopes = Scopes::new(
+            executable(&arguments.systemd_run)?,
+            executable(&arguments.systemctl)?,
+        )
+        .await
+        .context("sessions cannot run as scopes")?;
+        info!("sessions run as scopes of their own");
+        Some(scopes)
+    } else {
+        anyhow::ensure!(
+            !limits.on_resources(),
+            "limits on what sessions use take --session-scopes"
+        );
+        None
+    };
     let sessions = Arc::new(Sessions::new(
         store,
         Config {
@@ -178,8 +242,11 @@ async fn main() -> anyhow::Result<()> {
             gpu: !arguments.no_gpu,
             egress_allow: arguments.egress_allow,
             browser_args: arguments.browser_args,
+            limits,
+            scopes,
         },
     ));
+    tokio::spawn(sessions.clone().suspend_idle());
 
     let connect = connectrpc::Router::new().add_service(Arc::new(rpc::Executor(sessions.clone())));
     let app = cdp::router(sessions.clone())

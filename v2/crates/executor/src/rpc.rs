@@ -5,13 +5,15 @@ use std::sync::Arc;
 use aperture_runner::proxy;
 use aperture_store::{SnapshotRecord, StoreError};
 use buffa::{EnumValue, MessageField};
-use buffa_types::google::protobuf::Timestamp;
+use buffa_types::google::protobuf::{Duration, Timestamp};
 use connectrpc::{
     ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult,
 };
 
 use crate::{
-    cdp, live,
+    cdp,
+    limits::Limits,
+    live,
     proto::aperture::executor::v1::{self as pb, ExecutorService},
     sessions::{Error, Session, Sessions, State},
 };
@@ -26,9 +28,15 @@ impl ExecutorService for Executor {
     ) -> ServiceResult<pb::CreateSessionResponse> {
         let request = request.to_owned_message();
         let proxy = request.proxy.as_option().map(proxy_config);
+        let limits = request.limits.as_option().map(limits).unwrap_or_default();
         let session = self
             .0
-            .create(request.snapshot_id.as_deref(), request.suspended, proxy)
+            .create(
+                request.snapshot_id.as_deref(),
+                request.suspended,
+                proxy,
+                limits,
+            )
             .await?;
         Response::ok(pb::CreateSessionResponse {
             session: MessageField::some(session.into()),
@@ -178,9 +186,51 @@ impl From<Session> for pb::Session {
                 State::Failed => status.and_then(|status| status.failure),
                 _ => None,
             },
+            limits: MessageField::some(pb::Limits {
+                memory_bytes: session.limits.memory,
+                swap_bytes: session.limits.swap,
+                cpus: session.limits.cpus,
+                tasks: session.limits.tasks,
+                suspend_idle_after: session.limits.idle().map(duration).into(),
+                ..Default::default()
+            }),
+            usage: session
+                .usage
+                .map(|usage| pb::Usage {
+                    memory_bytes: usage.memory,
+                    memory_peak_bytes: usage.memory_peak,
+                    cpu_time: MessageField::some(duration(usage.cpu)),
+                    tasks: usage.tasks,
+                    oom_kills: usage.oom_kills,
+                    ..Default::default()
+                })
+                .into(),
+            idle_since: session.idle_since_ms.map(timestamp).into(),
+            asleep: session.record.asleep && session.state == State::Suspended,
             id: session.record.id,
             ..Default::default()
         }
+    }
+}
+
+fn limits(limits: &pb::Limits) -> Limits {
+    Limits {
+        memory: limits.memory_bytes,
+        swap: limits.swap_bytes,
+        cpus: limits.cpus,
+        tasks: limits.tasks,
+        idle_ms: limits.suspend_idle_after.as_option().map(|after| {
+            let ms = after.seconds.saturating_mul(1000) + i64::from(after.nanos) / 1_000_000;
+            ms.max(0) as u64
+        }),
+    }
+}
+
+fn duration(duration: std::time::Duration) -> Duration {
+    Duration {
+        seconds: duration.as_secs() as i64,
+        nanos: duration.subsec_nanos() as i32,
+        ..Default::default()
     }
 }
 
@@ -232,8 +282,10 @@ impl From<Error> for ConnectError {
             Error::Store(StoreError::SessionNotFound(_) | StoreError::SnapshotNotFound(_)) => {
                 ErrorCode::NotFound
             }
-            Error::Store(StoreError::InvalidId(_)) | Error::Proxy(_) => ErrorCode::InvalidArgument,
-            Error::NotRunning(_) => ErrorCode::FailedPrecondition,
+            Error::Store(StoreError::InvalidId(_)) | Error::Proxy(_) | Error::Limits(_) => {
+                ErrorCode::InvalidArgument
+            }
+            Error::NotRunning(_) | Error::NoCgroups => ErrorCode::FailedPrecondition,
             Error::Store(_) | Error::Start { .. } | Error::Stop(_) | Error::Io(..) => {
                 ErrorCode::Internal
             }

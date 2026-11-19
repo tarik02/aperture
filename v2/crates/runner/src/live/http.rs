@@ -27,14 +27,14 @@ use super::{
     client,
     edit::plan::Options,
     mcp,
-    record::{Recording, Recordings},
+    record::{self, EditState, Recording, Recordings},
     sound::Sound,
     stream::Streams,
 };
 use crate::{
     automation::Automation,
     egress::Egress,
-    files::{self, Download, UPLOADS},
+    files::{self, Download, Progress, UPLOADS},
     pages::Pages,
     presence::{Identity, Presence, Role},
     targets::Target,
@@ -75,6 +75,7 @@ pub async fn serve(socket: &Path, live: Live, automation: Arc<Automation>) -> st
         .route("/recordings/{id}", get(recording_get))
         .route("/recordings/{id}/stop", post(recording_stop))
         .route("/downloads", get(downloads_list))
+        .route("/busy", get(busy))
         .route("/uploads", get(uploads_list))
         .route("/uploads/{name}", put(upload).delete(upload_remove))
         .nest_service("/files", ServeDir::new(&live.files))
@@ -113,6 +114,33 @@ async fn session_socket(
 
 async fn downloads_list(State(live): State<Live>) -> Json<Vec<Download>> {
     Json(live.downloads.borrow().clone())
+}
+
+/// What the session does that nobody has to be connected for.
+#[derive(Serialize)]
+struct Busy {
+    /// Recordings that run or are being edited.
+    recordings: usize,
+    /// Downloads that are not done yet.
+    downloads: usize,
+}
+
+async fn busy(State(live): State<Live>) -> Json<Busy> {
+    let recordings = live.recordings.list().into_iter().filter(|recording| {
+        let editing = recording
+            .edit
+            .as_ref()
+            .is_some_and(|edit| edit.state == EditState::Editing);
+        recording.state == record::State::Recording || editing
+    });
+    let downloads = live.downloads.borrow();
+    Json(Busy {
+        recordings: recordings.count(),
+        downloads: downloads
+            .iter()
+            .filter(|download| download.state == Progress::Running)
+            .count(),
+    })
 }
 
 /// A file put into the session for the browser to take.

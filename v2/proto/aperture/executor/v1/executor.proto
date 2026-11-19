@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package aperture.executor.v1;
 
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
 // What one node does on request: browser sessions and the snapshots taken of them, on the
@@ -50,6 +51,47 @@ message Session {
   // Set while the session is running.
   optional Endpoints endpoints = 5;
   optional string failure = 6;
+  // The limits the session is held to: its own where it has them, the executor's where it
+  // does not. One that is left out is not held.
+  Limits limits = 7;
+  // What the session uses, while it runs on an executor that counts it.
+  optional Usage usage = 8;
+  // Since when nobody uses the session, while it runs and nobody does: no client is
+  // connected to it, and this is when the last one left or the last request for it came.
+  optional google.protobuf.Timestamp idle_since = 9;
+  // The session was suspended for sitting idle. It is resumed when someone reaches it:
+  // on any of its endpoints, which answer once it runs. A session that was suspended on
+  // request is not.
+  bool asleep = 10;
+}
+
+// What a session may use, and how long it may sit idle. Resources are held only by an
+// executor that has a control group of its own to divide.
+message Limits {
+  // Bytes of memory. A session that needs more loses a process, most likely a tab.
+  optional uint64 memory_bytes = 1;
+  // Bytes of swap a session with a memory limit may use on top of it. It may use none
+  // unless this says so; a session without a memory limit swaps as the node lets it.
+  optional uint64 swap_bytes = 5;
+  // Processors' worth of time: 1.5 is a processor and a half.
+  optional double cpus = 2;
+  // Processes and threads.
+  optional uint64 tasks = 3;
+  // How long nobody may use the session before the executor suspends it, to resume it
+  // when someone reaches it again. A session that records, edits a recording or
+  // downloads is in use.
+  optional google.protobuf.Duration suspend_idle_after = 4;
+}
+
+message Usage {
+  uint64 memory_bytes = 1;
+  // The most it used since it was started.
+  uint64 memory_peak_bytes = 2;
+  // Processor time since it was started.
+  google.protobuf.Duration cpu_time = 3;
+  uint64 tasks = 4;
+  // Processes the session lost to its memory limit since it was started.
+  uint64 oom_kills = 5;
 }
 
 // Where a running session is reached.
@@ -109,6 +151,9 @@ message CreateSessionRequest {
   // Create the session without starting its browser.
   bool suspended = 2;
   optional ProxyConfig proxy = 3;
+  // The session's own limits. One that is left out is the executor's; zero is none, also
+  // where the executor has one.
+  Limits limits = 4;
 }
 
 message CreateSessionResponse {

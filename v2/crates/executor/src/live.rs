@@ -76,7 +76,7 @@ async fn mcp(
 
 /// Passes the request on to the session's runner, as a request for `path` there.
 async fn forward_to(sessions: &Sessions, id: &str, path: &str, mut request: Request) -> Response {
-    let live = match sessions.live(id) {
+    let live = match sessions.live(id).await {
         Ok(live) => live,
         Err(err) => return refuse(err),
     };
@@ -116,7 +116,7 @@ async fn session_socket(
 ) -> Response {
     use tokio_tungstenite::tungstenite::{Message as RunnerMessage, client::IntoClientRequest};
 
-    let live = match sessions.live(&id) {
+    let live = match sessions.live(&id).await {
         Ok(live) => live,
         Err(err) => return refuse(err),
     };
@@ -131,7 +131,9 @@ async fn session_socket(
         Ok(runner) => runner,
         Err(err) => return (StatusCode::BAD_GATEWAY, format!("{err:#}")).into_response(),
     };
+    let here = sessions.present(&id);
     upgrade.on_upgrade(move |client| async move {
+        let _here = here;
         let (mut to_runner, mut from_runner) = runner.split();
         let (mut to_client, mut from_client) = client.split();
         let up = async {
@@ -184,13 +186,15 @@ async fn tunnel(
     Path(id): Path<String>,
     upgrade: WebSocketUpgrade,
 ) -> Response {
-    let live = match sessions.live(&id) {
+    let live = match sessions.live(&id).await {
         Ok(live) => live,
         Err(err) => return refuse(err),
     };
+    let here = sessions.present(&id);
     upgrade
         .protocols([aperture_tunnel::SUBPROTOCOL])
         .on_upgrade(move |client| async move {
+            let _here = here;
             let Ok(runner) = UnixStream::connect(&live.tunnel_socket).await else {
                 return;
             };
@@ -223,6 +227,23 @@ async fn tunnel(
                 () = down => {}
             }
         })
+}
+
+/// Asks the session's runner for something it says as JSON.
+pub async fn ask(socket: &std::path::Path, path: &str) -> anyhow::Result<serde_json::Value> {
+    let stream = UnixStream::connect(socket).await?;
+    let (mut sender, connection) =
+        hyper::client::conn::http1::handshake(TokioIo::new(stream)).await?;
+    tokio::spawn(connection);
+    let request = axum::http::Request::builder()
+        .uri(path)
+        .header(header::HOST, "runner")
+        .body(Body::empty())?;
+    let response = sender.send_request(request).await?;
+    let status = response.status();
+    let said = response.into_body().collect().await?.to_bytes();
+    anyhow::ensure!(status.is_success(), "{}", String::from_utf8_lossy(&said));
+    Ok(serde_json::from_slice(&said)?)
 }
 
 /// Sends the session's runner a request with a JSON body, and fails unless it took it.
