@@ -21,7 +21,6 @@ use http_body_util::BodyExt;
 use hyper_util::rt::TokioIo;
 use tokio::net::UnixStream;
 use tokio_tungstenite::tungstenite::{Message as BrowserMessage, protocol::WebSocketConfig};
-use tracing::debug;
 
 use crate::{DEVTOOLS_AUTHORITY, Sessions, Which};
 
@@ -40,7 +39,7 @@ async fn browser(
     upgrade: WebSocketUpgrade,
 ) -> Response {
     match sessions.cdp(&id).await {
-        Ok(cdp) => connect(upgrade, cdp.socket, cdp.browser_path, sessions.present(&id)),
+        Ok(cdp) => connect(upgrade, cdp.socket, cdp.browser_path, sessions.present(&id)).await,
         Err(refused) => refused.into_response(),
     }
 }
@@ -54,40 +53,48 @@ async fn target(
     // `/cdp/devtools/...`, which is `/devtools/...` to the browser.
     let path = uri.path().strip_prefix("/cdp").unwrap_or_default();
     match sessions.cdp(&id).await {
-        Ok(cdp) => connect(upgrade, cdp.socket, path.to_owned(), sessions.present(&id)),
+        Ok(cdp) => connect(upgrade, cdp.socket, path.to_owned(), sessions.present(&id)).await,
         Err(refused) => refused.into_response(),
     }
 }
 
+/// Passes a client's WebSocket on to one of the browser's, which is reached before the
+/// client is answered: a browser that does not answer is told as such.
+///
 /// CDP messages carry screenshots and whole documents, so neither side limits their size.
-fn connect(
+async fn connect(
     upgrade: WebSocketUpgrade,
     socket: PathBuf,
     path: String,
     here: Box<dyn Send>,
 ) -> Response {
+    let config = WebSocketConfig::default()
+        .max_message_size(None)
+        .max_frame_size(None);
+    let url = format!("ws://{DEVTOOLS_AUTHORITY}{path}");
+    let connected = async {
+        let stream = UnixStream::connect(&socket).await?;
+        let connected =
+            tokio_tungstenite::client_async_with_config(url, stream, Some(config)).await?;
+        anyhow::Ok(connected.0)
+    };
+    let browser = match connected.await {
+        Ok(browser) => browser,
+        Err(err) => {
+            let reason = format!("failed to reach the browser: {err:#}");
+            return (StatusCode::BAD_GATEWAY, reason).into_response();
+        }
+    };
     upgrade
         .max_message_size(usize::MAX)
         .max_frame_size(usize::MAX)
         .on_upgrade(move |client| async move {
             let _here = here;
-            let config = WebSocketConfig::default()
-                .max_message_size(None)
-                .max_frame_size(None);
-            let url = format!("ws://{DEVTOOLS_AUTHORITY}{path}");
-            let connected = async {
-                let stream = UnixStream::connect(&socket).await?;
-                let connected =
-                    tokio_tungstenite::client_async_with_config(url, stream, Some(config)).await?;
-                anyhow::Ok(connected.0)
-            };
-            match connected.await {
-                Ok(browser) => relay(client, browser).await,
-                Err(err) => debug!("failed to reach the browser: {err:#}"),
-            }
+            relay(client, browser).await;
         })
 }
 
+/// Passes messages both ways until either side closes or fails, which ends both.
 async fn relay<S>(client: WebSocket, browser: tokio_tungstenite::WebSocketStream<S>)
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,

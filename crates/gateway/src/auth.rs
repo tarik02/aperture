@@ -21,7 +21,7 @@ use percent_encoding::{NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode
 use serde::Deserialize;
 use subtle::ConstantTimeEq;
 
-use crate::{ACCESS_HEADER, Access, Area, NAME_HEADER, SUBJECT_HEADER};
+use crate::{ACCESS_HEADER, Access, Area, NAME_HEADER, Refused, SUBJECT_HEADER};
 
 /// What a ticket says.
 #[derive(Deserialize)]
@@ -124,7 +124,11 @@ pub async fn check(State(keys): State<Arc<Keys>>, mut request: Request, next: Ne
     }
 }
 
-fn caller(keys: &Keys, request: &Request) -> Result<Caller, StatusCode> {
+fn caller(keys: &Keys, request: &Request) -> Result<Caller, Refused> {
+    let refused = |status, reason: &str| Refused {
+        status,
+        reason: reason.to_owned(),
+    };
     let header = request
         .headers()
         .get(header::AUTHORIZATION)
@@ -135,7 +139,9 @@ fn caller(keys: &Keys, request: &Request) -> Result<Caller, StatusCode> {
         let mut pairs = query.split('&').filter_map(|pair| pair.split_once('='));
         pairs.find(|(key, _)| *key == name).map(|(_, value)| value)
     };
-    let given = header.or(asked("token")).ok_or(StatusCode::UNAUTHORIZED)?;
+    let given = header
+        .or(asked("token"))
+        .ok_or_else(|| refused(StatusCode::UNAUTHORIZED, "no token or ticket was given"))?;
     if bool::from(given.as_bytes().ct_eq(keys.token.as_bytes())) {
         // The operator says what to be called: there is nobody to say otherwise.
         let name = asked("name")
@@ -149,11 +155,15 @@ fn caller(keys: &Keys, request: &Request) -> Result<Caller, StatusCode> {
             access: Access::ALL,
         });
     }
-    let claims = keys
+    let key = keys
         .tickets
         .as_ref()
-        .and_then(|key| ticket(key, given))
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+        .ok_or_else(|| refused(StatusCode::UNAUTHORIZED, "that is not the token"))?;
+    // Why a ticket is no good is its holder's to know: it says nothing of the key.
+    let claims = ticket(key, given).map_err(|err| {
+        let reason = format!("that is not the token, and no good ticket: {err}");
+        refused(StatusCode::UNAUTHORIZED, &reason)
+    })?;
     let access = Access::of(&claims.access);
     if !allows(
         keys,
@@ -162,7 +172,10 @@ fn caller(keys: &Keys, request: &Request) -> Result<Caller, StatusCode> {
         request.method(),
         request.uri().path(),
     ) {
-        return Err(StatusCode::FORBIDDEN);
+        return Err(refused(
+            StatusCode::FORBIDDEN,
+            "the ticket does not give this",
+        ));
     }
     Ok(Caller {
         name: claims.name.unwrap_or_else(|| claims.sub.clone()),
@@ -172,13 +185,11 @@ fn caller(keys: &Keys, request: &Request) -> Result<Caller, StatusCode> {
 }
 
 /// What a ticket says, when it is signed with the key and still good.
-fn ticket(key: &DecodingKey, given: &str) -> Option<Claims> {
+fn ticket(key: &DecodingKey, given: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
     let mut validation = Validation::new(Algorithm::EdDSA);
     validation.set_required_spec_claims(&["exp", "sub"]);
     validation.validate_aud = false;
-    jsonwebtoken::decode::<Claims>(given, key, &validation)
-        .ok()
-        .map(|ticket| ticket.claims)
+    Ok(jsonwebtoken::decode::<Claims>(given, key, &validation)?.claims)
 }
 
 /// What a request to a session takes.

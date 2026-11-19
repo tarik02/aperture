@@ -144,6 +144,7 @@ async fn session_socket(
     let here = sessions.present(&id);
     upgrade.on_upgrade(move |client| async move {
         let _here = here;
+        // A side that fails is done, as one that closes is.
         let (mut to_runner, mut from_runner) = runner.split();
         let (mut to_client, mut from_client) = client.split();
         let up = async {
@@ -170,6 +171,7 @@ async fn session_socket(
                             code: frame.code.into(),
                             reason: frame.reason.as_str().into(),
                         };
+                        // A client that is gone already reads no reason.
                         let _ = to_client.send(Message::Close(Some(frame))).await;
                         break;
                     }
@@ -201,14 +203,22 @@ async fn tunnel(
         Err(refused) => return refused.into_response(),
     };
     // Before the client is answered: a session that takes no tunnels has no socket for them.
-    let Ok(runner) = UnixStream::connect(&live.tunnel_socket).await else {
-        return (StatusCode::NOT_FOUND, "the session takes no tunnels").into_response();
+    let runner = match UnixStream::connect(&live.tunnel_socket).await {
+        Ok(runner) => runner,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return (StatusCode::NOT_FOUND, "the session takes no tunnels").into_response();
+        }
+        Err(err) => {
+            let reason = format!("failed to reach the session's tunnel: {err}");
+            return (StatusCode::BAD_GATEWAY, reason).into_response();
+        }
     };
     let here = sessions.present(&id);
     upgrade
         .protocols([aperture_tunnel::SUBPROTOCOL])
         .on_upgrade(move |client| async move {
             let _here = here;
+            // A side that fails is done, as one that closes is.
             let (mut from_runner, mut to_runner) = runner.into_split();
             let (mut to_client, mut from_client) = client.split();
             let up = async {

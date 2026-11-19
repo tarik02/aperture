@@ -187,12 +187,17 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
             let (egress, socket) = (egress.clone(), tunnel_socket(spec));
             let tunnels = spec.features.tunnel;
             async move {
-                // Without the socket nobody attaches a tunnel.
                 if tunnels {
-                    egress.serve_local(&socket).await
-                } else {
-                    std::future::pending().await
+                    return egress.serve_local(&socket).await;
                 }
+                // Without the socket nobody attaches a tunnel: not one an earlier run
+                // left either.
+                match fs::remove_file(&socket) {
+                    Ok(()) => {}
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(err) => return Err(err),
+                }
+                std::future::pending().await
             }
         }),
     ];
