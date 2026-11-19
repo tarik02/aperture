@@ -25,7 +25,12 @@ const FILES: [(&str, &str); 5] = [
 /// Writes the extension to `dir`, for the browser to load. It taps the tabs' sound only
 /// where the session is to be heard.
 pub fn unpack(dir: &Path, sound: bool) -> std::io::Result<()> {
-    let _ = std::fs::remove_dir_all(dir);
+    // Nothing of an earlier run's extension is left for the browser to load.
+    match std::fs::remove_dir_all(dir) {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => return Err(err),
+    }
     std::fs::create_dir_all(dir)?;
     for (name, content) in FILES {
         std::fs::write(dir.join(name), content)?;

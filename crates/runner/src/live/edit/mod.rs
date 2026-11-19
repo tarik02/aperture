@@ -12,6 +12,7 @@ use std::{
 
 use anyhow::{Context, bail};
 use tokio::{io::AsyncReadExt, process::Command, time::timeout};
+use tracing::warn;
 
 use self::plan::{Event, Options, Video};
 
@@ -44,7 +45,11 @@ pub struct Job {
 /// Plans and renders the edit. Whatever it leaves in its work directory goes with it.
 pub async fn run(job: Job) -> anyhow::Result<()> {
     let made = make(&job).await;
-    let _ = tokio::fs::remove_dir_all(&job.work).await;
+    match tokio::fs::remove_dir_all(&job.work).await {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => warn!(work = ?job.work, %err, "what an edit worked in is left behind"),
+    }
     made
 }
 
@@ -52,11 +57,16 @@ async fn make(job: &Job) -> anyhow::Result<()> {
     let journal = tokio::fs::read_to_string(&job.journal)
         .await
         .context("failed to read the journal")?;
-    // A line that does not parse is one the journal was cut short in.
-    let mut events: Vec<Event> = journal
-        .lines()
-        .filter_map(|line| serde_json::from_str(line).ok())
-        .collect();
+    let mut events: Vec<Event> = Vec::new();
+    for (line, said) in journal.lines().enumerate() {
+        match serde_json::from_str(said) {
+            Ok(event) => events.push(event),
+            // The journal was cut short in it, where it is the last one.
+            Err(err) => {
+                warn!(journal = ?job.journal, line = line + 1, %err, "a journal entry is not read")
+            }
+        }
+    }
     events.sort_by_key(|event| event.at_ms);
 
     let active = plan::active_spans(&job.changed_at_ms);

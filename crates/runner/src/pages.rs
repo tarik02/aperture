@@ -48,10 +48,10 @@ pub enum Along {
     Reload,
 }
 
-/// The name pages call the runner by, and the name of the world of a page the runner's
-/// own script runs in, apart from the page's.
 /// What a new tab shows when it is asked for with no page to open.
 const NEW_TAB: &str = "chrome://newtab/";
+/// The name pages call the runner by, and the name of the world of a page the runner's
+/// own script runs in, apart from the page's.
 const CALL: &str = "apertureMenu";
 const WORLD: &str = "aperture";
 
@@ -104,126 +104,34 @@ impl Pages {
             menus: broadcast::Sender::new(16),
             attached: Arc::new(watch::Sender::new(Vec::new())),
         };
-        let (open, menus, attached) = (
-            pages.open.clone(),
-            pages.menus.clone(),
-            pages.attached.clone(),
-        );
+        let mut follower = Follower {
+            // Before any page is attached, so no event of one is missed.
+            events: browser.events(),
+            pages: pages.clone(),
+            uploads,
+            asked: 0,
+            frames: Vec::new(),
+        };
         // The pages there are by now are looked at first.
         targets.mark_changed();
         tokio::spawn(async move {
-            // Before any page is attached, so no event of one is missed.
-            let mut events = browser.events();
-            let mut next = 0;
-            // The frames of the targets' pages that are pages of their own to the browser,
-            // each by the DevTools session it is attached as, with the target it is in.
-            let mut frames: Vec<(String, String)> = Vec::new();
             loop {
                 tokio::select! {
                     changed = targets.changed() => {
                         if changed.is_err() {
                             return;
                         }
-                    }
-                    event = events.recv() => {
-                        let event = match event {
-                            Ok(event) => event,
-                            Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                            Err(broadcast::error::RecvError::Closed) => return,
-                        };
-                        let target = attached
-                            .borrow()
+                        let pages = targets
+                            .borrow_and_update()
                             .iter()
-                            .chain(&frames)
-                            .find(|(_, session)| Some(session) == event.session.as_ref())
-                            .cloned();
-                        let Some((target, session)) = target else {
-                            continue;
-                        };
-                        match event.method.as_str() {
-                            "Target.attachedToTarget" => {
-                                let frame = event.params["sessionId"].as_str();
-                                let Some(frame) = frame
-                                    .filter(|_| event.params["targetInfo"]["type"] == "iframe")
-                                else {
-                                    continue;
-                                };
-                                match attach_frame(&browser, frame).await {
-                                    Ok(()) => frames.push((target, frame.to_owned())),
-                                    Err(err) => warn!(
-                                        page = target,
-                                        "a frame asks the browser, not the session: {err:#}"
-                                    ),
-                                }
-                            }
-                            "Target.detachedFromTarget" => {
-                                let gone = event.params["sessionId"].as_str();
-                                frames.retain(|(_, frame)| Some(frame.as_str()) != gone);
-                            }
-                            "Page.fileChooserOpened" => {
-                                let Some(node) = event.params["backendNodeId"].as_i64() else {
-                                    continue;
-                                };
-                                // The page's request is still taken from the browser,
-                                // which would show a dialog of its own, and left without
-                                // an answer: the page gets no files.
-                                if !uploads {
-                                    continue;
-                                }
-                                next += 1;
-                                let asked = Open {
-                                    request: Request {
-                                        id: next,
-                                        target: target.clone(),
-                                        multiple: event.params["mode"] == "selectMultiple",
-                                    },
-                                    session,
-                                    node,
-                                };
-                                open.send_modify(|open| {
-                                    // A page asks for one thing at a time.
-                                    open.retain(|before| before.request.target != target);
-                                    open.push(asked);
-                                });
-                            }
-                            "Runtime.bindingCalled" if event.params["name"] == CALL => {
-                                let said = event.params["payload"].as_str().unwrap_or_default();
-                                if let Ok(menu) = serde_json::from_str::<Menu>(said) {
-                                    // Nobody watching is fine.
-                                    let _ = menus.send(Menu { target, ..menu });
-                                }
-                            }
-                            _ => {}
-                        }
-                        continue;
+                            .map(|target| target.id.clone())
+                            .collect();
+                        follower.keep(pages).await;
                     }
-                }
-                let pages: Vec<String> = targets
-                    .borrow_and_update()
-                    .iter()
-                    .map(|target| target.id.clone())
-                    .collect();
-                attached.send_modify(|attached| {
-                    attached.retain(|(target, _)| pages.contains(target));
-                });
-                frames.retain(|(target, _)| pages.contains(target));
-                open.send_if_modified(|open| {
-                    let before = open.len();
-                    open.retain(|asked| pages.contains(&asked.request.target));
-                    open.len() != before
-                });
-                for page in pages {
-                    if attached.borrow().iter().any(|(target, _)| *target == page) {
-                        continue;
-                    }
-                    match attach(&browser, &page).await {
-                        Ok(session) => {
-                            attached.send_modify(|attached| attached.push((page, session)))
-                        }
-                        Err(err) => {
-                            warn!(page, "a page asks the browser, not the session: {err:#}")
-                        }
-                    }
+                    event = follower.events.next() => match event {
+                        Some(event) => follower.hear(event).await,
+                        None => return,
+                    },
                 }
             }
         });
@@ -395,6 +303,125 @@ impl Pages {
             _ => bail!("not a picture"),
         };
         Ok((kind, bytes))
+    }
+}
+
+/// What follows the pages for [`Pages`].
+struct Follower {
+    pages: Pages,
+    events: cdp::Events,
+    /// Whether pages get the files they ask for.
+    uploads: bool,
+    /// How many requests for files there were, which numbers them.
+    asked: u64,
+    /// The frames of the targets' pages that are pages of their own to the browser, each
+    /// by the target it is in and the DevTools session it is attached as.
+    frames: Vec<(String, String)>,
+}
+
+impl Follower {
+    /// Attaches the pages that are new, and forgets what was of those that are gone.
+    async fn keep(&mut self, pages: Vec<String>) {
+        let Pages {
+            browser,
+            open,
+            attached,
+            ..
+        } = &self.pages;
+        attached.send_modify(|attached| {
+            attached.retain(|(target, _)| pages.contains(target));
+        });
+        self.frames.retain(|(target, _)| pages.contains(target));
+        open.send_if_modified(|open| {
+            let before = open.len();
+            open.retain(|asked| pages.contains(&asked.request.target));
+            open.len() != before
+        });
+        for page in pages {
+            if attached.borrow().iter().any(|(target, _)| *target == page) {
+                continue;
+            }
+            match attach(browser, &page).await {
+                Ok(session) => attached.send_modify(|attached| attached.push((page, session))),
+                Err(err) => warn!(page, "a page asks the browser, not the session: {err:#}"),
+            }
+        }
+    }
+
+    /// Takes an event of a page that is followed, or of a frame in one.
+    async fn hear(&mut self, event: cdp::Event) {
+        let from = self
+            .pages
+            .attached
+            .borrow()
+            .iter()
+            .chain(&self.frames)
+            .find(|(_, session)| Some(session) == event.session.as_ref())
+            .cloned();
+        let Some((target, session)) = from else {
+            return;
+        };
+        match event.method.as_str() {
+            "Target.attachedToTarget" => {
+                let frame = event.params["sessionId"].as_str();
+                let Some(frame) = frame.filter(|_| event.params["targetInfo"]["type"] == "iframe")
+                else {
+                    return;
+                };
+                match attach_frame(&self.pages.browser, frame).await {
+                    Ok(()) => self.frames.push((target, frame.to_owned())),
+                    Err(err) => warn!(
+                        page = target,
+                        "a frame asks the browser, not the session: {err:#}"
+                    ),
+                }
+            }
+            "Target.detachedFromTarget" => {
+                let gone = event.params["sessionId"].as_str();
+                self.frames
+                    .retain(|(_, frame)| Some(frame.as_str()) != gone);
+            }
+            "Page.fileChooserOpened" => {
+                let Some(node) = event.params["backendNodeId"].as_i64() else {
+                    warn!(
+                        page = target,
+                        "a page asks for files with no input to give them"
+                    );
+                    return;
+                };
+                // The page's request is still taken from the browser, which would show a
+                // dialog of its own, and left without an answer: the page gets no files.
+                if !self.uploads {
+                    return;
+                }
+                self.asked += 1;
+                let asked = Open {
+                    request: Request {
+                        id: self.asked,
+                        target: target.clone(),
+                        multiple: event.params["mode"] == "selectMultiple",
+                    },
+                    session,
+                    node,
+                };
+                self.pages.open.send_modify(|open| {
+                    // A page asks for one thing at a time.
+                    open.retain(|before| before.request.target != target);
+                    open.push(asked);
+                });
+            }
+            "Runtime.bindingCalled" if event.params["name"] == CALL => {
+                let said = event.params["payload"].as_str().unwrap_or_default();
+                // The page's own scripts do not reach the binding, which is of the
+                // runner's world: what is no menu is the runner's script gone wrong.
+                match serde_json::from_str::<Menu>(said) {
+                    // Nobody watching is fine.
+                    Ok(menu) => drop(self.pages.menus.send(Menu { target, ..menu })),
+                    Err(err) => warn!(page = target, %err, "a page's menu is not read"),
+                }
+            }
+            _ => {}
+        }
     }
 }
 

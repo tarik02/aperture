@@ -79,21 +79,30 @@ fn relay(
 ) -> io::Result<()> {
     let outbound = TcpListener::bind(("127.0.0.1", proxy_port))?;
     std::thread::spawn(move || {
-        for connection in outbound.incoming().flatten() {
+        for connection in outbound.incoming() {
+            let Some(connection) = accepted(connection) else {
+                continue;
+            };
             let egress = egress.clone();
-            std::thread::spawn(move || {
-                if let Ok(out) = UnixStream::connect(egress) {
+            std::thread::spawn(move || match UnixStream::connect(egress) {
+                Ok(out) => {
+                    // Without it the connection is only slower.
                     let _ = connection.set_nodelay(true);
                     join(connection, out);
                 }
+                Err(err) => eprintln!("the browser has no way out: {err}"),
             });
         }
     });
 
+    // The socket an earlier run left; binding says what else is in the way.
     let _ = std::fs::remove_file(&devtools);
     let inbound = UnixListener::bind(devtools)?;
     std::thread::spawn(move || {
-        for connection in inbound.incoming().flatten() {
+        for connection in inbound.incoming() {
+            let Some(connection) = accepted(connection) else {
+                continue;
+            };
             std::thread::spawn(move || {
                 // Refused until the browser listens; whoever connects tries again.
                 if let Ok(browser) = TcpStream::connect(("127.0.0.1", devtools_port)) {
@@ -106,13 +115,31 @@ fn relay(
     Ok(())
 }
 
+/// A connection a listener took; none, and a word of why, for one it failed to take. The
+/// wait keeps a listener that fails over and over from spinning.
+fn accepted<T>(connection: io::Result<T>) -> Option<T> {
+    match connection {
+        Ok(connection) => Some(connection),
+        Err(err) => {
+            eprintln!("a connection was not taken: {err}");
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            None
+        }
+    }
+}
+
 /// Passes bytes both ways until both sides are done; one side being done is passed on as
 /// such, so that the other may still finish what it sends.
 fn join(tcp: TcpStream, unix: UnixStream) {
-    let (Ok(mut tcp_read), Ok(mut unix_read)) = (tcp.try_clone(), unix.try_clone()) else {
-        return;
+    let (mut tcp_read, mut unix_read) = match (tcp.try_clone(), unix.try_clone()) {
+        (Ok(tcp_read), Ok(unix_read)) => (tcp_read, unix_read),
+        (Err(err), _) | (_, Err(err)) => {
+            eprintln!("a connection was not passed on: {err}");
+            return;
+        }
     };
     let (mut tcp_write, mut unix_write) = (tcp, unix);
+    // A side that fails is done: the other is told so, as when it ends.
     let up = std::thread::spawn(move || {
         let _ = io::copy(&mut tcp_read, &mut unix_write);
         let _ = unix_write.shutdown(Shutdown::Write);

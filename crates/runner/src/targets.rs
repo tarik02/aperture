@@ -31,7 +31,7 @@ use tokio::{
     sync::watch,
     time::{Instant, sleep, timeout},
 };
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 use crate::{cdp, live::sound::Sound};
 
@@ -169,6 +169,7 @@ impl Registry {
         kept: PathBuf,
         sound: Arc<Sound>,
     ) -> std::io::Result<Self> {
+        // The socket an earlier run left; binding says what else is in the way.
         let _ = std::fs::remove_file(socket);
         let listener = UnixListener::bind(socket)?;
         let (browser, attached) = watch::channel(None);
@@ -267,8 +268,11 @@ impl Inner {
     async fn serve(&self, mut stream: UnixStream) -> anyhow::Result<()> {
         loop {
             let mut length = [0; 4];
-            if stream.read_exact(&mut length).await.is_err() {
-                return Ok(());
+            match stream.read_exact(&mut length).await {
+                Ok(_) => {}
+                // The extension's host ended, between two messages.
+                Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
+                Err(err) => return Err(err.into()),
             }
             let length = u32::from_ne_bytes(length) as usize;
             ensure!(length <= MESSAGE_LIMIT, "a message of {length} bytes");
@@ -281,7 +285,7 @@ impl Inner {
                 .is_some_and(|kind| kind.starts_with("sound."));
             if of_sound {
                 if let Err(err) = self.sound.told(message) {
-                    debug!("the extension said something odd about a tab's sound: {err:#}");
+                    warn!("the extension said something odd about a tab's sound: {err:#}");
                 }
                 continue;
             }
@@ -293,7 +297,10 @@ impl Inner {
                         json!({ "id": request.id, "ok": false, "error": format!("{err:#}") })
                     }
                 },
-                Err(err) => json!({ "id": "", "ok": false, "error": err.to_string() }),
+                Err(err) => {
+                    warn!("the extension asked for what is not understood: {err}");
+                    json!({ "id": "", "ok": false, "error": err.to_string() })
+                }
             };
             let answer = answer.to_string();
             stream
@@ -405,113 +412,8 @@ impl Inner {
             .clone()
             .context("the browser is not attached yet")?;
 
-        // Pages, each with Chromium's id of its window; none for a page that has no
-        // window yet.
-        let mut pages = Vec::new();
-        let listed = browser.call("Target.getTargets", json!({})).await?;
-        for info in listed["targetInfos"].as_array().into_iter().flatten() {
-            let (Some(id), Some(url)) = (info["targetId"].as_str(), info["url"].as_str()) else {
-                continue;
-            };
-            // The session's extensions have pages of their own, which are nobody's tabs.
-            let own = url.starts_with("chrome-extension://");
-            if info["type"] != "page" || own || url.starts_with("devtools://") {
-                continue;
-            }
-            let window = browser
-                .call("Browser.getWindowForTarget", json!({ "targetId": id }))
-                .await
-                .ok()
-                .and_then(|window| window["windowId"].as_i64());
-            pages.push(Page {
-                id: id.to_owned(),
-                title: info["title"].as_str().unwrap_or_default().to_owned(),
-                url: url.to_owned(),
-                window,
-            });
-        }
-
-        let mut fresh = Vec::new();
-        // The tabs that are back, each with the window it is in.
-        let mut returned = Vec::new();
-        {
-            let mut state = self.state.lock().expect("not poisoned");
-            let state = &mut *state;
-            let unresolved = pages.iter().any(|page| page.window.is_none());
-            for (chromium_window, binding) in &state.bindings {
-                if !binding.settled {
-                    continue;
-                }
-                let inside: Vec<&Page> = pages
-                    .iter()
-                    .filter(|page| page.window == Some(*chromium_window))
-                    .collect();
-                // A tab a page just opened shares its opener's window, or has no window
-                // yet, until the extension moves it to one of its own. The opener is still
-                // there, so its target stays instead of going and coming back.
-                let shared = inside.len() > 1
-                    && inside.iter().any(|page| {
-                        state
-                            .ready
-                            .get(&page.id)
-                            .is_some_and(|ready| ready.window == binding.window)
-                    });
-                if unresolved || shared {
-                    continue;
-                }
-                let [page] = inside[..] else {
-                    state
-                        .ready
-                        .retain(|_, ready| ready.chromium_window != *chromium_window);
-                    continue;
-                };
-                let known = state
-                    .ready
-                    .get(&page.id)
-                    .is_some_and(|ready| ready.window == binding.window);
-                if !known {
-                    info!(page = %page.id, window = binding.window.0, "target ready");
-                    fresh.push(page.id.clone());
-                    state.next_order += 1;
-                    let back = state
-                        .returning
-                        .iter()
-                        .position(|kept| kept.url == page.url)
-                        .map(|at| state.returning.remove(at));
-                    let tab = match back {
-                        Some(back) => {
-                            returned.push((binding.window, back.clone()));
-                            back.tab
-                        }
-                        None => {
-                            state.last_tab += 1;
-                            state.last_tab
-                        }
-                    };
-                    state.ready.insert(
-                        page.id.clone(),
-                        Ready {
-                            chromium_window: *chromium_window,
-                            window: binding.window,
-                            title: String::new(),
-                            url: String::new(),
-                            order: state.next_order,
-                            tab,
-                            browser_tab: binding.tab,
-                        },
-                    );
-                }
-            }
-            state.ready.retain(|id, ready| {
-                let Some(page) = pages.iter().find(|page| page.id == *id) else {
-                    info!(page = %id, "target closed");
-                    return false;
-                };
-                ready.title.clone_from(&page.title);
-                ready.url.clone_from(&page.url);
-                true
-            });
-        }
+        let pages = pages(&browser).await?;
+        let (fresh, returned) = self.state.lock().expect("not poisoned").settle(&pages);
         for (window, back) in returned {
             let viewport = Viewport {
                 width: back.width,
@@ -522,7 +424,7 @@ impl Inner {
         }
         for page in fresh {
             if let Err(err) = focus_page(&browser, &page).await {
-                debug!(page, "failed to focus a page: {err:#}");
+                warn!(page, "a page takes no keys until it is clicked: {err:#}");
             }
         }
         self.publish();
@@ -593,6 +495,116 @@ impl Inner {
             changed
         });
     }
+}
+
+impl State {
+    /// Takes in the browser's pages: a settled window with exactly one page is that page's
+    /// target, and a page that is gone takes its target along. Gives the pages that became
+    /// targets, and the tabs of the last run that are back, each with the window it is in.
+    fn settle(&mut self, pages: &[Page]) -> (Vec<String>, Vec<(WindowId, KeptTab)>) {
+        let mut fresh = Vec::new();
+        let mut returned = Vec::new();
+        let unresolved = pages.iter().any(|page| page.window.is_none());
+        for (chromium_window, binding) in &self.bindings {
+            if !binding.settled {
+                continue;
+            }
+            let inside: Vec<&Page> = pages
+                .iter()
+                .filter(|page| page.window == Some(*chromium_window))
+                .collect();
+            let shows = |page: &Page| {
+                self.ready
+                    .get(&page.id)
+                    .is_some_and(|ready| ready.window == binding.window)
+            };
+            // A tab a page just opened shares its opener's window, or has no window yet,
+            // until the extension moves it to one of its own. The opener is still there,
+            // so its target stays instead of going and coming back.
+            let shared = inside.len() > 1 && inside.iter().any(|page| shows(page));
+            if unresolved || shared {
+                continue;
+            }
+            let [page] = inside[..] else {
+                self.ready
+                    .retain(|_, ready| ready.chromium_window != *chromium_window);
+                continue;
+            };
+            if shows(page) {
+                continue;
+            }
+            info!(page = %page.id, window = binding.window.0, "target ready");
+            fresh.push(page.id.clone());
+            self.next_order += 1;
+            let back = self
+                .returning
+                .iter()
+                .position(|kept| kept.url == page.url)
+                .map(|at| self.returning.remove(at));
+            let tab = match back {
+                Some(back) => {
+                    returned.push((binding.window, back.clone()));
+                    back.tab
+                }
+                None => {
+                    self.last_tab += 1;
+                    self.last_tab
+                }
+            };
+            self.ready.insert(
+                page.id.clone(),
+                Ready {
+                    chromium_window: *chromium_window,
+                    window: binding.window,
+                    title: String::new(),
+                    url: String::new(),
+                    order: self.next_order,
+                    tab,
+                    browser_tab: binding.tab,
+                },
+            );
+        }
+        self.ready.retain(|id, ready| {
+            let Some(page) = pages.iter().find(|page| page.id == *id) else {
+                info!(page = %id, "target closed");
+                return false;
+            };
+            ready.title.clone_from(&page.title);
+            ready.url.clone_from(&page.url);
+            true
+        });
+        (fresh, returned)
+    }
+}
+
+/// The browser's pages that are tabs, each with Chromium's id of its window.
+async fn pages(browser: &cdp::Client) -> Result<Vec<Page>, cdp::Error> {
+    let mut pages = Vec::new();
+    let listed = browser.call("Target.getTargets", json!({})).await?;
+    for info in listed["targetInfos"].as_array().into_iter().flatten() {
+        let (Some(id), Some(url)) = (info["targetId"].as_str(), info["url"].as_str()) else {
+            continue;
+        };
+        // The session's extension has pages of its own, which are nobody's tabs.
+        let own = url.starts_with("chrome-extension://");
+        if info["type"] != "page" || own || url.starts_with("devtools://") {
+            continue;
+        }
+        let window = browser.call("Browser.getWindowForTarget", json!({ "targetId": id }));
+        let window = match window.await {
+            Ok(window) => window["windowId"].as_i64(),
+            // A page that has no window yet, or is gone since it was listed.
+            Err(cdp::Error::Refused(_)) => None,
+            Err(err @ cdp::Error::Gone) => return Err(err),
+        };
+        pages.push(Page {
+            id: id.to_owned(),
+            title: info["title"].as_str().unwrap_or_default().to_owned(),
+            url: url.to_owned(),
+            window,
+        });
+    }
+    Ok(pages)
 }
 
 /// Puts the browser's own focus on the page. The extension opens a page's window without

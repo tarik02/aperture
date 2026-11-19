@@ -167,16 +167,17 @@ pub fn own_sibling(name: &str) -> anyhow::Result<PathBuf> {
 /// The program's absolute path, looked up in `PATH` when it is given by name: the browser
 /// is started in a sandbox that has no `PATH`.
 pub fn executable(program: &Path) -> anyhow::Result<PathBuf> {
-    let found = if program.components().count() > 1 {
-        program.canonicalize().ok()
-    } else {
-        std::env::var_os("PATH").and_then(|path| {
-            std::env::split_paths(&path)
-                .map(|dir| dir.join(program))
-                .find(|candidate| candidate.is_file())
-        })
-    };
-    found.with_context(|| format!("{} not found", program.display()))
+    if program.components().count() > 1 {
+        return program
+            .canonicalize()
+            .with_context(|| format!("{} not found", program.display()));
+    }
+    let found = std::env::var_os("PATH").and_then(|path| {
+        std::env::split_paths(&path)
+            .map(|dir| dir.join(program))
+            .find(|candidate| candidate.is_file())
+    });
+    found.with_context(|| format!("{} not found in PATH", program.display()))
 }
 
 #[derive(Clone, Copy)]

@@ -142,6 +142,7 @@ impl Egress {
 
     /// Serves the proxy on `socket` until the listener fails.
     pub async fn serve(self: Arc<Self>, socket: &Path) -> std::io::Result<()> {
+        // The socket an earlier run left; binding says what else is in the way.
         let _ = std::fs::remove_file(socket);
         let listener = UnixListener::bind(socket)?;
         loop {
@@ -158,6 +159,7 @@ impl Egress {
     /// Takes the tunnels clients attach, on `socket`: each connection there is a tunnel's
     /// bytes. A session has one such tunnel, and a new one takes the place of the last.
     pub async fn serve_local(self: Arc<Self>, socket: &Path) -> std::io::Result<()> {
+        // As in `serve`.
         let _ = std::fs::remove_file(socket);
         let listener = UnixListener::bind(socket)?;
         loop {
@@ -252,13 +254,19 @@ impl Egress {
             ));
         }
         // The addresses that were checked are the ones connected to.
+        let mut unanswered = anyhow::anyhow!("no address answered");
         for address in permitted {
-            if let Ok(Ok(stream)) = timeout(CONNECT_WITHIN, TcpStream::connect(address)).await {
-                let _ = stream.set_nodelay(true);
-                return Ok(stream);
+            match timeout(CONNECT_WITHIN, TcpStream::connect(address)).await {
+                Ok(Ok(stream)) => {
+                    // Without it the connection is only slower.
+                    let _ = stream.set_nodelay(true);
+                    return Ok(stream);
+                }
+                Ok(Err(err)) => unanswered = anyhow::Error::from(err).context(address),
+                Err(_) => unanswered = anyhow::anyhow!("{address} did not answer in time"),
             }
         }
-        Err(Refused::unreachable(anyhow::anyhow!("no address answered")))
+        Err(Refused::unreachable(unanswered))
     }
 
     async fn through_proxy(

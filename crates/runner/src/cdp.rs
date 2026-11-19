@@ -114,6 +114,7 @@ pub async fn connect(cdp: &Cdp) -> anyhow::Result<Client> {
                     };
                     if let Some(id) = message["id"].as_u64() {
                         if let Some(reply) = waiting.remove(&id) {
+                            // Whoever called may have stopped waiting.
                             let _ = reply.send(match message.get("error") {
                                 Some(error) => Err(Error::Refused(
                                     error["message"].as_str().unwrap_or("failed").to_owned(),
@@ -160,7 +161,31 @@ impl Client {
         answer.await.map_err(|_| Error::Gone)?
     }
 
-    pub fn events(&self) -> broadcast::Receiver<Event> {
-        self.events.subscribe()
+    /// The events from now on.
+    pub fn events(&self) -> Events {
+        Events(self.events.subscribe())
+    }
+}
+
+/// The events of the browser and of the targets attached through it, as they come.
+pub struct Events(broadcast::Receiver<Event>);
+
+impl Events {
+    /// The next event; none once the browser is gone. A reader that fell behind missed
+    /// the oldest, which is said: what follows the browser by its events may be wrong
+    /// from then on.
+    pub async fn next(&mut self) -> Option<Event> {
+        loop {
+            match self.0.recv().await {
+                Ok(event) => return Some(event),
+                Err(broadcast::error::RecvError::Lagged(missed)) => {
+                    warn!(
+                        missed,
+                        "the browser's events came faster than they were read"
+                    );
+                }
+                Err(broadcast::error::RecvError::Closed) => return None,
+            }
+        }
     }
 }

@@ -273,7 +273,7 @@ pub fn timeline(plan: &Plan, events: &[Event], dropped: usize, video: Video) -> 
     let events: Vec<Value> = events
         .iter()
         .map(|event| {
-            let mut value = serde_json::to_value(event).unwrap_or_default();
+            let mut value = serde_json::to_value(event).expect("an event is JSON");
             value["edited_at_ms"] = map_time(&plan.pieces, event.at_ms).into();
             value["edited_end_ms"] = map_time(&plan.pieces, event.end_ms).into();
             value

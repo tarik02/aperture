@@ -18,26 +18,27 @@ use std::{
 
 use anyhow::{Context, bail};
 use aperture_compositor::{Button, Input, WindowId};
+use aperture_runner::{Access, Area};
 use async_trait::async_trait;
 use browse_core::{
     Browser, Cdp, CdpError, CdpEvent, HandoffResult, TabId, TabInfo, TabOptions, TabState, Tool,
     ToolContext, ToolOutput, ToolSpec,
 };
+use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::{
     sync::{broadcast, watch},
     time::{Instant, sleep, timeout},
 };
+use tracing::warn;
 
-use aperture_runner::{Access, Area};
-
-use crate::presence::{Identity, Membership, Presence};
 use crate::{
     cdp,
     live::{
         edit::plan::Pace,
-        record::{Place, Recordings, Subject},
+        record::{Place, Recordings, Rect, Subject},
     },
+    presence::{Identity, Membership, Presence},
     targets::Target,
 };
 
@@ -148,6 +149,8 @@ impl Automation {
         if within || !browser.human_input(tab).await {
             return None;
         }
+        // A page that cannot be measured is scrolled as asked, and says what is wrong
+        // with it then.
         let measured = browser
             .cdp(tab)
             .await
@@ -195,7 +198,9 @@ impl Automation {
         {
             // The page travels there first; the call itself then finds it there, and says
             // where that is.
-            let _ = tool.call(self.context.clone(), travel).await;
+            if let Err(err) = tool.call(self.context.clone(), travel).await {
+                warn!("a scroll to an edge goes there in one step: {err:#}");
+            }
         }
         let output = match tool.call(self.context.clone(), arguments).await {
             Ok(output) => output,
@@ -489,12 +494,7 @@ impl TabSession {
         let own = attached.session.clone();
         tokio::spawn(async move {
             let mut children: HashSet<String> = HashSet::new();
-            loop {
-                let event = match browser_events.recv().await {
-                    Ok(event) => event,
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                    Err(broadcast::error::RecvError::Closed) => break,
-                };
+            while let Some(event) = browser_events.next().await {
                 let about = event.params["sessionId"].as_str();
                 let session_id = match &event.session {
                     Some(session) if *session == own => None,
@@ -531,7 +531,6 @@ impl TabSession {
         self.events.lock().expect("not poisoned").is_some()
     }
 
-    /// The window that shows the tab now.
     /// The tab's number.
     fn tab(&self) -> Option<u32> {
         self.targets
@@ -541,6 +540,7 @@ impl TabSession {
             .map(|target| target.tab)
     }
 
+    /// The window that shows the tab now.
     fn window(&self) -> Option<WindowId> {
         self.targets
             .borrow()
@@ -665,6 +665,8 @@ impl TabSession {
                     "awaitPromise": true,
                 }),
             );
+            // A page that is busy or on its way elsewhere has the input no sooner for the
+            // waiting: the command is done either way.
             let _ = timeout(INPUT_SETTLES_WITHIN, frame).await;
         }
         Some(())
@@ -889,11 +891,17 @@ impl Tool for TabsTool {
                 .collect();
             ToolOutput::text(Value::from(listed).to_string())
         };
-        match args["action"].as_str().unwrap_or("list") {
+        #[derive(Deserialize)]
+        struct Asked {
+            action: Option<String>,
+            url: Option<String>,
+        }
+        let asked: Asked = serde_json::from_value(args.clone()).context("invalid arguments")?;
+        match asked.action.as_deref().unwrap_or("list") {
             "list" => Ok(targets(ctx.browser.tabs().await?)),
             "new" => {
                 let options = TabOptions::default();
-                let tab = ctx.browser.open_tab(args["url"].as_str(), &options).await?;
+                let tab = ctx.browser.open_tab(asked.url.as_deref(), &options).await?;
                 Ok(targets(vec![tab]))
             }
             "close" => {
@@ -990,10 +998,27 @@ impl Tool for RecordingTool {
     }
 
     async fn call(&self, ctx: ToolContext, args: Value) -> anyhow::Result<ToolOutput> {
-        let id = args["id"].as_str();
-        let duration_ms = args["duration_ms"].as_u64();
-        let selector = args["selector"].as_str().map(str::to_owned);
-        match args["action"].as_str().unwrap_or_default() {
+        /// What the actions take, but for how a recording is started.
+        #[derive(Deserialize)]
+        struct Asked {
+            #[serde(default)]
+            action: String,
+            id: Option<String>,
+            duration_ms: Option<u64>,
+            text: Option<String>,
+            rect: Option<Rect>,
+            selector: Option<String>,
+            pointer: Option<bool>,
+            zoom: Option<f64>,
+            x: Option<f64>,
+            y: Option<f64>,
+            radius: Option<f64>,
+            loops: Option<u64>,
+        }
+        let asked: Asked = serde_json::from_value(args.clone()).context("invalid arguments")?;
+        let id = asked.id.as_deref();
+        let named = || id.context("pass the recording's `id`");
+        match asked.action.as_str() {
             "start" => {
                 let target = match args.get("tab").filter(|tab| !tab.is_null()) {
                     Some(tab) => {
@@ -1018,27 +1043,24 @@ impl Tool for RecordingTool {
                     }
                 }
                 let options = serde_json::from_value(options.into())
-                    .context("invalid capture, idle, ripple, burst or pace")?;
-                Ok(shown(&self.0.start(target.as_deref(), options).await?))
+                    .context("invalid capture, idle, ripple, burst, pace or motion_threshold")?;
+                shown(&self.0.start(target.as_deref(), options).await?)
             }
             "caption" => {
-                let text = args["text"].as_str().context("pass the caption's `text`")?;
-                self.0.caption(id, text, duration_ms)?;
+                let text = asked.text.context("pass the caption's `text`")?;
+                self.0.caption(id, &text, asked.duration_ms)?;
                 Ok(ToolOutput::text("captioned"))
             }
             "focus" => {
-                let rect = args.get("rect").filter(|rect| !rect.is_null());
-                let pointer = args["pointer"].as_bool().unwrap_or(false);
-                let subject = match (rect, selector, pointer) {
-                    (Some(rect), None, false) => Subject::Rect(
-                        serde_json::from_value(rect.clone()).context("rect needs x and y")?,
-                    ),
+                let pointer = asked.pointer.unwrap_or(false);
+                let subject = match (asked.rect, asked.selector, pointer) {
+                    (Some(rect), None, false) => Subject::Rect(rect),
                     (None, Some(selector), false) => Subject::Selector(selector),
                     (None, None, true) => Subject::Pointer,
                     _ => bail!("pass exactly one of `rect`, `selector` and `pointer`"),
                 };
-                let zoom = args["zoom"].as_f64().context("pass the `zoom` factor")?;
-                self.0.focus(id, subject, zoom, duration_ms).await?;
+                let zoom = asked.zoom.context("pass the `zoom` factor")?;
+                self.0.focus(id, subject, zoom, asked.duration_ms).await?;
                 Ok(ToolOutput::text("focused"))
             }
             "reset_focus" => {
@@ -1046,33 +1068,25 @@ impl Tool for RecordingTool {
                 Ok(ToolOutput::text("zoomed out"))
             }
             "attention" => {
-                let point = args["x"].as_f64().zip(args["y"].as_f64());
-                let place = match (point, selector) {
+                let place = match (asked.x.zip(asked.y), asked.selector) {
                     (Some((x, y)), None) => Place::Point { x, y },
                     (None, Some(selector)) => Place::Selector(selector),
                     _ => bail!("pass `x` and `y`, or a `selector`, not both"),
                 };
-                let (radius, loops) = (args["radius"].as_f64(), args["loops"].as_u64());
                 self.0
-                    .attention(id, place, radius, loops, duration_ms)
+                    .attention(id, place, asked.radius, asked.loops, asked.duration_ms)
                     .await?;
                 Ok(ToolOutput::text("done"))
             }
-            "stop" => {
-                let id = id.context("pass the recording's `id`")?;
-                Ok(shown(&self.0.stop(id).await?))
-            }
-            "status" => {
-                let id = id.context("pass the recording's `id`")?;
-                Ok(shown(&self.0.get(id)?))
-            }
-            "list" => Ok(shown(&self.0.list())),
+            "stop" => shown(&self.0.stop(named()?).await?),
+            "status" => shown(&self.0.get(named()?)?),
+            "list" => shown(&self.0.list()),
             other => bail!("unknown action {other:?}"),
         }
     }
 }
 
 /// A value as a tool shows it: JSON.
-fn shown(value: &impl serde::Serialize) -> ToolOutput {
-    ToolOutput::text(serde_json::to_string_pretty(value).unwrap_or_default())
+fn shown(value: &impl serde::Serialize) -> anyhow::Result<ToolOutput> {
+    Ok(ToolOutput::text(serde_json::to_string_pretty(value)?))
 }

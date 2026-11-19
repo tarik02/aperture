@@ -172,8 +172,10 @@ impl Streams {
         let mut encoder = match made.await {
             Ok(Ok(encoder)) => encoder,
             failed => {
-                if let Ok(Err(err)) = failed {
-                    warn!("no video: {err:#}");
+                match failed {
+                    Ok(Err(err)) => warn!("no video: {err:#}"),
+                    Err(err) => warn!("no video: the encoder was not made: {err}"),
+                    Ok(Ok(_)) => unreachable!("taken above"),
                 }
                 self.streams.lock().expect("not poisoned").remove(&key);
                 return;
@@ -246,8 +248,12 @@ impl Streams {
                         let encoded = encoder.encode(&frame, force);
                         (encoder, encoded)
                     });
-                    let Ok((returned, encoded)) = task.await else {
-                        break;
+                    let (returned, encoded) = match task.await {
+                        Ok(done) => done,
+                        Err(err) => {
+                            warn!("the video ends: its encoder did: {err}");
+                            break;
+                        }
                     };
                     encoder = returned;
                     // The encoder may have turned to pixels, or to another encoder that

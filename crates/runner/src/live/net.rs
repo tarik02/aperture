@@ -49,8 +49,12 @@ impl Sockets {
                     continue;
                 }
             };
-            let Ok(addr) = socket.local_addr() else {
-                continue;
+            let addr = match socket.local_addr() {
+                Ok(addr) => addr,
+                Err(err) => {
+                    debug!(%ip, %err, "skipping address");
+                    continue;
+                }
             };
             match Candidate::host(addr, "udp") {
                 Ok(candidate) => candidates.push(candidate),

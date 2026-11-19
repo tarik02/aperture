@@ -8,7 +8,7 @@ use std::{
 
 use serde::Serialize;
 use serde_json::json;
-use tokio::sync::{broadcast, watch};
+use tokio::sync::watch;
 
 use crate::cdp;
 
@@ -70,12 +70,7 @@ pub async fn follow_downloads(
     tokio::spawn(async move {
         let mut list: Vec<Download> = Vec::new();
         let mut last = Instant::now();
-        loop {
-            let event = match events.recv().await {
-                Ok(event) => event,
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(broadcast::error::RecvError::Closed) => return,
-            };
+        while let Some(event) = events.next().await {
             // The list stays empty, and is still someone's to wait on.
             if !allowed {
                 continue;

@@ -36,7 +36,8 @@ pub(super) const GPU_FORMAT: &str = "XB24";
 /// The layouts (DRM format modifiers) in which this machine's encoders take frames on the
 /// GPU; none when they take none there.
 pub fn frame_layouts() -> Vec<u64> {
-    if init().is_err() {
+    if let Err(err) = init() {
+        warn!("gstreamer is unavailable: {err:#}");
         return Vec::new();
     }
     let Some(converter) = gst::ElementFactory::find("vapostproc") else {
