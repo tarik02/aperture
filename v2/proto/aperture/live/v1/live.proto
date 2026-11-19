@@ -65,6 +65,7 @@ message ServerMessage {
     FileRequests file_requests = 11;
     Presence presence = 12;
     Menu menu = 13;
+    AudioFrame audio = 14;
   }
 }
 
@@ -81,6 +82,9 @@ message Hello {
   VideoQuality quality = 3;
   // Frames a second at most, 1 to 60; as many as the quality has when left out.
   optional uint32 fps = 4;
+  // The client takes the session's sound on the session socket, as `audio`. A client
+  // with a WebRTC connection takes it there instead, on an audio track it offers.
+  bool audio = 5;
 }
 
 // The form a target's video takes.
@@ -122,6 +126,14 @@ message VideoStatus {
   VideoQuality quality = 2;
   // Frames a second at most.
   uint32 fps = 3;
+}
+
+// The session's sound: what its browser plays, all its pages together, as Opus packets of
+// 20 ms, 48 kHz, stereo. Packets a client is too slow for are left out.
+message AudioFrame {
+  // Where in the sound the packet starts.
+  uint64 time_us = 1;
+  bytes data = 2;
 }
 
 // The client showed the video frame stamped `time_us`, or let it go undecoded. A client

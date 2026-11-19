@@ -185,6 +185,28 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
     let mut live = None;
     let mut recordings = None;
 
+    // Before the browser, which looks for a sound server once, as it starts.
+    let mut sound_server = match &spec.tools.pulseaudio {
+        Some(pulseaudio) => Some(
+            start_sound_server(pulseaudio, &spec.runtime_dir, &sockets)
+                .context("failed to start the sound server")?,
+        ),
+        None => None,
+    };
+    if sound_server.is_some() {
+        let listens = async {
+            while !sound_socket(&sockets).exists() {
+                sleep(Duration::from_millis(20)).await;
+            }
+        };
+        timeout(SOUND_SERVER_WITHIN, listens)
+            .await
+            .context("the sound server did not start in time")?;
+    }
+    let sound = sound_server
+        .is_some()
+        .then(|| live::sound::Sound::new(sound_socket(&sockets)));
+
     let mut browser = start_browser(
         spec,
         &display,
@@ -240,6 +262,7 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
                 rtc_ports: spec.rtc_ports,
                 downloads,
                 pages,
+                sound: sound.clone(),
                 presence,
                 files: spec.files_dir.clone(),
             };
@@ -291,6 +314,9 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
     .await;
 
     stop(&mut browser, "browser").await;
+    if let Some(server) = &mut sound_server {
+        stop(server, "sound server").await;
+    }
     if let Some(live) = live {
         live.abort();
     }
@@ -299,6 +325,55 @@ async fn run(spec: &Spec, status: &mut Status) -> anyhow::Result<()> {
     }
     let _ = tokio::task::spawn_blocking(move || compositor.stop()).await;
     outcome
+}
+
+const SOUND_SERVER_WITHIN: Duration = Duration::from_secs(5);
+
+/// Where the session's sound server listens: where a program whose runtime directory is
+/// the browser's looks for one.
+fn sound_socket(sockets: &Path) -> PathBuf {
+    sockets.join("pulse").join("native")
+}
+
+/// Starts the session's own sound server, with one output that goes nowhere: the browser
+/// plays into it, and what it plays is taken from there. It takes whoever reaches its
+/// socket, which is who shares the browser's runtime directory.
+fn start_sound_server(pulseaudio: &Path, runtime: &Path, sockets: &Path) -> anyhow::Result<Child> {
+    let socket = sound_socket(sockets);
+    let beside = socket.parent().expect("the socket is in a directory");
+    fs::DirBuilder::new().mode(0o700).create(beside)?;
+    // The server's own files, apart from those of whoever runs the runner.
+    let home = runtime.join("sound");
+    let _ = fs::remove_dir_all(&home);
+    fs::DirBuilder::new().mode(0o700).create(&home)?;
+    let output = live::sound::OUTPUT;
+    let rate = live::sound::RATE;
+    let mut command = Command::new(pulseaudio);
+    command
+        .env_clear()
+        .env("HOME", &home)
+        .env("XDG_RUNTIME_DIR", &home)
+        .env("XDG_CONFIG_HOME", &home)
+        .args([
+            "-n",
+            "--daemonize=no",
+            "--use-pid-file=no",
+            "--log-target=stderr",
+            "--log-level=error",
+        ])
+        .args(["--exit-idle-time=-1", "--disallow-exit"])
+        // The browser is in namespaces of its own, where shared memory does not reach.
+        .args(["--disable-shm=yes", "--enable-memfd=no"])
+        .arg(format!(
+            "--load=module-native-protocol-unix socket={} auth-anonymous=1",
+            socket.display()
+        ))
+        .arg(format!(
+            "--load=module-null-sink sink_name={output} rate={rate} channels=2"
+        ))
+        .stdin(Stdio::null());
+    own(&mut command, libc::SIGKILL);
+    Ok(command.spawn()?)
 }
 
 /// Starts the browser in its sandbox. The browser runs with `--no-sandbox`, so this one is
@@ -375,9 +450,13 @@ fn start_browser(
             }
         }
     }
+    command.arg("--dir").arg(sockets);
+    // The sound server's socket, where there is one.
+    let sound = sound_socket(sockets);
+    if let Some(beside) = sound.parent().filter(|beside| beside.exists()) {
+        command.arg("--bind").arg(beside).arg(beside);
+    }
     command
-        .arg("--dir")
-        .arg(sockets)
         .arg("--bind")
         .arg(display)
         .arg(display)

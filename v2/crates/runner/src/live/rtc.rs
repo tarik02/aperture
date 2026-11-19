@@ -27,6 +27,7 @@ use super::{
     adapt::Reported,
     encode::{Format, Quality},
     net::{Datagram, Sockets},
+    sound,
     stream::{Key, Packet, Streams, Subscription},
 };
 use crate::proto::aperture::live::v1::{self as pb, client_message};
@@ -99,12 +100,14 @@ pub async fn connect(
     ports: Option<PortRange>,
     offer: &str,
     events: mpsc::Sender<FromPeer>,
+    sound: Option<broadcast::Receiver<Arc<sound::Packet>>>,
 ) -> Result<(String, Watch), ConnectError> {
     let mut config = Rtc::builder()
         .set_ice_lite(true)
         .set_stats_interval(Some(STATS_EVERY))
         .clear_codecs();
     let codecs = config.codec_config();
+    codecs.enable_opus(true, false);
     codecs.add_h264(
         H264_PT.into(),
         Some((H264_PT + 1).into()),
@@ -153,6 +156,8 @@ pub async fn connect(
         sockets,
         streams,
         video: None,
+        audio: None,
+        sound,
         connected: false,
         window: None,
         fps: None,
@@ -180,6 +185,10 @@ struct Peer {
     streams: Arc<Streams>,
     /// The client's video track, once it is known.
     video: Option<Mid>,
+    /// The client's audio track, when it takes the session's sound.
+    audio: Option<Mid>,
+    /// The session's sound, when it has any.
+    sound: Option<broadcast::Receiver<Arc<sound::Packet>>>,
     connected: bool,
     window: Option<WindowId>,
     fps: Option<u32>,
@@ -228,6 +237,12 @@ impl Peer {
                     let Some(datagram) = datagram else { return Ok(()) };
                     self.receive(datagram)?;
                 }
+                packet = sound::next(&mut self.sound) => match packet {
+                    Ok(packet) => self.play(&packet)?,
+                    // What was missed is not played late.
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => self.sound = None,
+                },
                 packet = next_packet(&mut self.feed) => match packet {
                     Ok(packet) => self.write(&packet)?,
                     // Frames were missed, and those that follow build on them.
@@ -356,6 +371,9 @@ impl Peer {
                 self.video = Some(media.mid);
                 self.reselect = true;
             }
+            Event::MediaAdded(media) if media.kind == MediaKind::Audio => {
+                self.audio = Some(media.mid);
+            }
             Event::KeyframeRequest(_) => self.request_keyframe(),
             Event::ChannelData(data) => {
                 let message = if data.binary {
@@ -393,6 +411,25 @@ impl Peer {
         if let Some(feed) = &self.feed {
             feed.keyframe();
         }
+    }
+
+    /// Sends a packet of the session's sound, to a client that takes it.
+    fn play(&mut self, packet: &sound::Packet) -> Result<(), RtcError> {
+        if !self.connected {
+            return Ok(());
+        }
+        let Some(writer) = self.audio.and_then(|mid| self.rtc.writer(mid)) else {
+            return Ok(());
+        };
+        let opus = writer
+            .payload_params()
+            .find(|params| params.spec().codec == Codec::Opus)
+            .map(|params| params.pt());
+        let Some(pt) = opus else {
+            return Ok(());
+        };
+        let at = MediaTime::new(packet.at, Frequency::FORTY_EIGHT_KHZ);
+        writer.write(pt, Instant::now(), at, packet.data.clone())
     }
 
     fn write(&mut self, packet: &Packet) -> Result<(), RtcError> {

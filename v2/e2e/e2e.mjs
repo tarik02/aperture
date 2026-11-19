@@ -430,10 +430,10 @@ for (const way of ["frames", "tiles"]) {
     let plays = false;
     for (let i = 0; i < 60 && !plays; i++) {
       await sleep(250);
-      const [said, decoded] = JSON.parse(await evaluate(`peer.getStats().then((stats) => JSON.stringify([status.format, [...stats.values()].filter((s) => s.type === "inbound-rtp").map((s) => [stats.get(s.codecId)?.mimeType, s.framesDecoded])[0]]))`));
+      const [said, decoded] = JSON.parse(await evaluate(`peer.getStats().then((stats) => JSON.stringify([status.format, [...stats.values()].filter((s) => s.type === "inbound-rtp" && s.kind === "video").map((s) => [stats.get(s.codecId)?.mimeType, s.framesDecoded])[0]]))`));
       const before = decoded?.[1] ?? 0;
       await sleep(500);
-      const after = JSON.parse(await evaluate(`peer.getStats().then((stats) => JSON.stringify([...stats.values()].filter((s) => s.type === "inbound-rtp").map((s) => [stats.get(s.codecId)?.mimeType, s.framesDecoded])[0]))`));
+      const after = JSON.parse(await evaluate(`peer.getStats().then((stats) => JSON.stringify([...stats.values()].filter((s) => s.type === "inbound-rtp" && s.kind === "video").map((s) => [stats.get(s.codecId)?.mimeType, s.framesDecoded])[0]))`));
       plays = said === format && after[1] > before && RegExp(format.split("_")[2], "iu").test(after[0]);
       over[format] = [said, after[0], after[1] - before];
     }

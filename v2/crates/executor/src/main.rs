@@ -90,6 +90,10 @@ struct Arguments {
     /// ffmpeg, which makes the edits of recordings. Without it they are left raw.
     #[arg(long, env = "APERTURE_FFMPEG")]
     ffmpeg: Option<PathBuf>,
+    /// PulseAudio, the sound server sessions' browsers play into. Sessions are silent
+    /// without it.
+    #[arg(long, env = "APERTURE_PULSEAUDIO")]
+    pulseaudio: Option<PathBuf>,
     /// `aperture-native-host`. Next to this program by default.
     #[arg(long, env = "APERTURE_NATIVE_HOST")]
     native_host: Option<PathBuf>,
@@ -171,6 +175,11 @@ async fn main() -> anyhow::Result<()> {
                 native_host: executable(&native_host)?,
                 browser_shim: executable(&browser_shim)?,
                 ffmpeg: arguments.ffmpeg.as_deref().map(executable).transpose()?,
+                pulseaudio: arguments
+                    .pulseaudio
+                    .as_deref()
+                    .map(executable)
+                    .transpose()?,
             },
             viewport: VIEWPORT,
             rtc_ports: arguments.rtc_ports,

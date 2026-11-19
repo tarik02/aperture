@@ -1,6 +1,8 @@
 //! One client of the session: the session socket it speaks the live protocol on, the
 //! target it watches, and the way that target's pixels reach it.
 
+use std::sync::Arc;
+
 use aperture_compositor::{Button, Cursor, Form, Forms, Input, Viewport, WindowId, data};
 use axum::extract::ws::{Message as Frame, WebSocket};
 use buffa::Message as _;
@@ -13,6 +15,7 @@ use super::{
     encoders,
     http::Live,
     rtc::{self, FromPeer},
+    sound,
     stream::{Key, Packet, Subscription},
     tiles,
 };
@@ -37,6 +40,7 @@ pub async fn serve(live: Live, socket: WebSocket, identity: Identity) {
         file_requests: live.pages.requests(),
         menus: live.pages.menus(),
         present: live.presence.present(),
+        sound: None,
         member: live.presence.join(identity, false),
         live,
         socket,
@@ -71,6 +75,8 @@ struct Client {
     file_requests: watch::Receiver<Vec<pages::Request>>,
     menus: broadcast::Receiver<pages::Menu>,
     present: watch::Receiver<Present>,
+    /// The session's sound, for a client that takes it on the socket.
+    sound: Option<broadcast::Receiver<Arc<sound::Packet>>>,
     /// The client as one of those in the session.
     member: Membership,
     socket: WebSocket,
@@ -185,6 +191,20 @@ impl Client {
                     }
                     self.send_cursor().await?;
                 }
+                packet = sound::next(&mut self.sound) => match packet {
+                    Ok(packet) => {
+                        let rate = u64::from(sound::RATE);
+                        let frame = pb::AudioFrame {
+                            time_us: packet.at * 1_000_000 / rate,
+                            data: packet.data.clone(),
+                            ..Default::default()
+                        };
+                        self.send(server_message::Message::Audio(Box::new(frame))).await?;
+                    }
+                    // What was missed is not played late.
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => self.sound = None,
+                },
                 changed = self.present.changed() => {
                     if changed.is_err() {
                         return Ok(());
@@ -258,6 +278,12 @@ impl Client {
                     Some(pb::VideoQuality::VIDEO_QUALITY_UNSPECIFIED) | None => None,
                 };
                 self.delivery.pin(self.pinned);
+                self.sound = self
+                    .live
+                    .sound
+                    .as_ref()
+                    .filter(|_| hello.audio)
+                    .map(|sound| sound.listen());
                 self.fps = hello
                     .fps
                     .map(|fps| fps.clamp(*Key::FPS.start(), *Key::FPS.end()));
@@ -499,6 +525,7 @@ impl Client {
             self.live.rtc_ports,
             offer,
             self.from_peer.clone(),
+            self.live.sound.as_ref().map(|sound| sound.listen()),
         );
         match connected.await {
             Ok((sdp, video)) => {

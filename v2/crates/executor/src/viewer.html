@@ -39,6 +39,7 @@
     <span id="people"></span>
     <button id="copied" title="The session copied text. This copies it here." hidden>Copy</button>
     <button id="filed" title="The session's downloads, and the files a page asks for" hidden></button>
+    <button id="sound" title="The session's sound">🔇</button>
     <button id="keyboard" title="Type into the session">⌨</button>
     <span id="state">connecting</span>
   </span>
@@ -125,7 +126,7 @@
     // Left to itself: sharp color where frames are decoded here, what every browser takes over WebRTC.
     const best = ["VIDEO_FORMAT_FULL_CHROMA", "VIDEO_FORMAT_H264"].filter((format) => way === "frames" && decoded.includes(format));
     const formats = controls.codec.value ? [controls.codec.value] : best;
-    send({ hello: { pixels: `PIXELS_${way.toUpperCase()}`, formats, quality: controls.quality.value || undefined, fps: Number(controls.fps.value) || undefined } });
+    send({ hello: { pixels: `PIXELS_${way.toUpperCase()}`, formats, quality: controls.quality.value || undefined, fps: Number(controls.fps.value) || undefined, audio: sounds && way !== "video" } });
   };
   controls.codec.onchange = controls.quality.onchange = controls.fps.onchange = hello;
   controls.pixels.onchange = () => {
@@ -167,9 +168,12 @@
     if (way !== "video") return;
     peer = new RTCPeerConnection();
     peer.addTransceiver("video", { direction: "recvonly" });
+    peer.addTransceiver("audio", { direction: "recvonly" });
     // A move that is lost is not worth waiting for: the next one says where the pointer is.
     pointer = peer.createDataChannel("pointer", { ordered: true, maxRetransmits: 0 });
     peer.ontrack = (event) => {
+      // The sound plays apart from the picture, which would wait for it otherwise.
+      if (event.track.kind === "audio") return void (speaker.srcObject = new MediaStream([event.track]));
       // Frames are shown as they come: one that waits to be smoothed is one seen late.
       event.receiver.jitterBufferTarget = 0;
       event.receiver.playoutDelayHint = 0;
@@ -254,6 +258,7 @@
     if (message.downloads) return showDownloads(message.downloads.downloads ?? []);
     if (message.fileRequests) requests = message.fileRequests.requests ?? [];
     if (message.tile) return void (drawn = drawn.then(() => drawTile(message.tile)));
+    if (message.audio) return void (sounded = sounded.then(() => hear(message.audio)));
     if (message.videoFrame) return void (drawn = drawn.then(() => decodeFrame(message.videoFrame)));
     if (message.targets) targets = message.targets.targets ?? [];
     if (message.selected) selected = message.selected.target;
@@ -422,6 +427,52 @@
       button.onclick = () => send({ lease: { action } });
       return button;
     }));
+  };
+
+  // The session's sound, once it is asked for: a browser plays none before a click. With
+  // a WebRTC connection it comes on a track of that; otherwise as packets on the session
+  // socket, which are decoded and played one after the other.
+  const speaker = new Audio();
+  speaker.autoplay = true;
+  speaker.muted = true;
+  let sounds = false;
+  let sounded = Promise.resolve();
+  let ears;
+  let heard;
+  let playAt = 0;
+  const hear = async (frame) => {
+    if (!sounds || way === "video" || !("AudioDecoder" in window)) return;
+    ears ??= new AudioContext({ sampleRate: 48000, latencyHint: "interactive" });
+    if (heard?.state !== "configured") {
+      heard = new AudioDecoder({
+        output: (audio) => {
+          const buffer = ears.createBuffer(audio.numberOfChannels, audio.numberOfFrames, audio.sampleRate);
+          for (let channel = 0; channel < audio.numberOfChannels; channel++) audio.copyTo(buffer.getChannelData(channel), { planeIndex: channel, format: "f32-planar" });
+          audio.close();
+          const now = ears.currentTime;
+          // What came too late for its turn starts a little ahead of now, and what
+          // would wait too long is left out: the sound stays with the picture.
+          if (playAt < now) playAt = now + 0.06;
+          if (playAt > now + 0.4) return;
+          const source = ears.createBufferSource();
+          source.buffer = buffer;
+          source.connect(ears.destination);
+          source.start(playAt);
+          playAt += buffer.duration;
+        },
+        error: () => {},
+      });
+      heard.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 2 });
+    }
+    heard.decode(new EncodedAudioChunk({ type: "key", timestamp: Number(frame.timeUs ?? 0), data: await bytes(frame.data) }));
+  };
+  document.getElementById("sound").onclick = (event) => {
+    sounds = !sounds;
+    event.currentTarget.textContent = sounds ? "🔊" : "🔇";
+    speaker.muted = !sounds;
+    if (sounds) speaker.play().catch(() => {});
+    if (sounds) ears?.resume();
+    if (way !== "video") hello();
   };
 
   // A page's menu. The session's browser shows none: the session tells what a right click

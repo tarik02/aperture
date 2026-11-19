@@ -13,6 +13,7 @@ mod mcp;
 mod net;
 pub mod record;
 mod rtc;
+pub mod sound;
 pub mod stream;
 mod tiles;
 
