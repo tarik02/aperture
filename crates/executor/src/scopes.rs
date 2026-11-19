@@ -14,6 +14,7 @@ use std::{
 };
 
 use tokio::process::Command;
+use tracing::warn;
 
 use crate::limits::Limits;
 
@@ -154,8 +155,9 @@ impl Scopes {
         if self.user {
             command.arg("--user");
         }
-        // There is no scope to stop when the session left nothing, which is as it should be.
-        let _ = command
+        // There is no scope to stop when the session left nothing, which is as it should
+        // be: only systemctl not running at all is worth a word.
+        let stopped = command
             .args(["stop", "--quiet"])
             .arg(Self::unit(id))
             .stdin(Stdio::null())
@@ -163,5 +165,8 @@ impl Scopes {
             .stderr(Stdio::null())
             .status()
             .await;
+        if let Err(err) = stopped {
+            warn!(session = %id, %err, "failed to run systemctl to end what a session left");
+        }
     }
 }

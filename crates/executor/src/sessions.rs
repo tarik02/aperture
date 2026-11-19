@@ -250,11 +250,16 @@ impl Sessions {
         let config = proxy.clone().unwrap_or_default();
         self.store
             .set_session_proxy(id, proxy.map(checked).transpose()?)?;
-        if let Ok(live) = self.running_live(id) {
-            let body = serde_json::to_vec(&config).expect("a configuration is serializable");
-            aperture_gateway::put(&live.socket, "/proxy", body)
-                .await
-                .map_err(|reason| Error::Proxy(format!("{reason:#}")))?;
+        match self.running_live(id) {
+            Ok(live) => {
+                let body = serde_json::to_vec(&config).expect("a configuration is serializable");
+                aperture_gateway::put(&live.socket, "/proxy", body)
+                    .await
+                    .map_err(|reason| Error::Proxy(format!("{reason:#}")))?;
+            }
+            // It takes the configuration when it next starts.
+            Err(Error::NotRunning(_)) => {}
+            Err(err) => return Err(err),
         }
         info!(session = %id, rules = config.rules.len(), "session proxy set");
         Ok(())
@@ -387,12 +392,7 @@ impl Sessions {
                 State::Failed
             }
         };
-        // One an older executor could write and this one cannot read is as none.
-        let own: Limits = record
-            .limits
-            .clone()
-            .and_then(|limits| serde_json::from_value(limits).ok())
-            .unwrap_or_default();
+        let own = kept_limits(record.limits.clone())?;
         let running = state == State::Running;
         let idle_since_ms = running
             .then(|| {
@@ -432,18 +432,15 @@ impl Sessions {
         }
 
         let paths = self.store.session_paths(id)?;
-        // Checked when it was set; one an older executor could read and this one cannot
-        // must not keep the session from starting.
+        // Checked when it was set. One that is not read keeps the session from starting:
+        // its browser would go out another way than it was told to.
         let record = self.store.session(id)?;
-        let proxy = record
-            .proxy
-            .and_then(|proxy| serde_json::from_value(proxy).ok())
-            .unwrap_or_default();
-        let limits: Limits = record
-            .limits
-            .and_then(|limits| serde_json::from_value(limits).ok())
-            .unwrap_or_default();
-        let limits = limits.over(self.config.limits);
+        let proxy = match record.proxy {
+            Some(proxy) => serde_json::from_value(proxy)
+                .map_err(|err| Error::Proxy(format!("what is kept of it is not read: {err}")))?,
+            None => proxy::Config::default(),
+        };
+        let limits = kept_limits(record.limits)?.over(self.config.limits);
         fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
@@ -652,6 +649,15 @@ fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |since| since.as_millis() as u64)
+}
+
+/// The limits a session's record keeps; none of its own when it keeps none.
+fn kept_limits(kept: Option<serde_json::Value>) -> Result<Limits> {
+    match kept {
+        Some(limits) => serde_json::from_value(limits)
+            .map_err(|err| Error::Limits(format!("what is kept of them is not read: {err}"))),
+        None => Ok(Limits::default()),
+    }
 }
 
 fn remove_file(path: &Path) -> Result<()> {

@@ -1,6 +1,9 @@
 //! One client of the session: the session socket it speaks the live protocol on, the
 //! target it watches, and the way that target's pixels reach it.
 
+mod picture;
+mod tell;
+
 use std::collections::BTreeSet;
 
 use anyhow::{Context as _, bail, ensure};
@@ -11,6 +14,7 @@ use buffa::Message as _;
 use tokio::sync::{broadcast, mpsc, watch};
 use tracing::{debug, warn};
 
+use self::picture::format_from;
 use super::{
     adapt::Delivery,
     encode::{Format, Quality},
@@ -18,13 +22,13 @@ use super::{
     http::Live,
     rtc::{self, FromPeer},
     sound,
-    stream::{Key, Packet, Subscription},
+    stream::{Key, Subscription},
     tiles,
 };
 use crate::{
-    files::{self, Download, Progress},
+    files::{self, Download},
     pages::{self, Along},
-    presence::{Identity, Membership, Present, Role},
+    presence::{Identity, Membership, Present},
     proto::aperture::live::v1::{self as pb, client_message, server_message},
 };
 
@@ -577,56 +581,6 @@ impl Client {
         }
     }
 
-    async fn send_sound(&mut self, packet: &sound::Packet) -> Result<(), axum::Error> {
-        let frame = pb::AudioFrame {
-            time_us: packet.at * 1_000_000 / u64::from(sound::RATE),
-            data: packet.data.clone(),
-            ..Default::default()
-        };
-        self.send(server_message::Message::Audio(Box::new(frame)))
-            .await
-    }
-
-    /// A menu is for whoever asked for it: who drives the page's tab.
-    async fn send_menu(&mut self, menu: pages::Menu) -> Result<(), axum::Error> {
-        let own = self.watches(&menu.target)
-            && self
-                .tab()
-                .is_some_and(|tab| self.live.presence.hold(self.member.id, tab, false));
-        if !own {
-            return Ok(());
-        }
-        let menu = pb::Menu {
-            link: menu.link,
-            image: menu.image,
-            text: menu.text,
-            editable: menu.editable,
-            ..Default::default()
-        };
-        self.send(server_message::Message::Menu(Box::new(menu)))
-            .await
-    }
-
-    /// What is copied is whoever's copied it: who gave input last.
-    async fn send_copied(&mut self) -> Result<(), axum::Error> {
-        let copied = self.clipboard.borrow_and_update().clone();
-        let own = self.live.presence.turn() == Some(self.member.id);
-        let Some(copied) = copied.filter(|_| own && self.grant(Area::Clipboard).read) else {
-            return Ok(());
-        };
-        let forms = copied.iter().map(|form| pb::clipboard::Form {
-            r#type: form.kind.clone(),
-            data: form.data.clone(),
-            ..Default::default()
-        });
-        let clipboard = pb::Clipboard {
-            forms: forms.collect(),
-            ..Default::default()
-        };
-        self.send(server_message::Message::Clipboard(Box::new(clipboard)))
-            .await
-    }
-
     fn watches(&self, target: &str) -> bool {
         self.selected.as_ref().is_some_and(|(id, _)| id == target)
     }
@@ -657,41 +611,6 @@ impl Client {
             .is_some_and(|tab| self.live.presence.hold(self.member.id, tab, true))
     }
 
-    /// Answers the client's offer; the connection it makes replaces the one before it.
-    async fn connect_video(&mut self, offer: &str) -> Result<(), axum::Error> {
-        let connected = rtc::connect(
-            self.live.streams.clone(),
-            self.live.rtc_ports,
-            offer,
-            self.from_peer.clone(),
-            self.grant(Area::Sound)
-                .read
-                .then(|| self.live.sound.listen()),
-        );
-        match connected.await {
-            Ok((sdp, video)) => {
-                self.video = Some(video);
-                self.show().await?;
-                self.send(server_message::Message::RtcAnswer(Box::new(
-                    pb::RtcAnswer {
-                        sdp,
-                        ..Default::default()
-                    },
-                )))
-                .await
-            }
-            Err(err) => {
-                self.send(server_message::Message::RtcRefused(Box::new(
-                    pb::RtcRefused {
-                        reason: err.to_string(),
-                        ..Default::default()
-                    },
-                )))
-                .await
-            }
-        }
-    }
-
     /// Settles which target the client watches: the one it asks for, else the one it has,
     /// else, and always until the client chose one, the newest. A target that moved to
     /// another window is followed there. Tells whether it changed.
@@ -719,170 +638,6 @@ impl Client {
         Ok(true)
     }
 
-    /// Points the client's pixels at the target it watches.
-    async fn show(&mut self) -> Result<(), axum::Error> {
-        if let Some(video) = &self.video {
-            let watched = rtc::Watched {
-                window: self.selected.as_ref().map(|(_, window)| *window),
-                quality: self.pinned,
-                fps: self.fps,
-                formats: self.formats.clone(),
-                heard: self.heard(),
-            };
-            // A connection that ended takes nothing; the client offers another.
-            let _ = video.send(watched).await;
-        }
-        self.next_frames = None;
-        self.delivery.restart();
-        self.frames = self.subscribe().await;
-        self.request_keyframe();
-        if let Some(frames) = &self.frames {
-            self.send_status(frames.key).await?;
-        }
-        let tiles = self
-            .selected
-            .clone()
-            .filter(|_| self.pixels == pb::Pixels::PIXELS_TILES);
-        self.tiles_watch.send_if_modified(|watched| {
-            let changed = *watched != tiles;
-            *watched = tiles;
-            changed
-        });
-        Ok(())
-    }
-
-    /// The watched target's frames at the quality the link carries; none for a client
-    /// that does not take frames.
-    async fn subscribe(&mut self) -> Option<Subscription> {
-        if self.pixels != pb::Pixels::PIXELS_FRAMES {
-            return None;
-        }
-        let (_, window) = self.selected.as_ref()?;
-        let key = Key {
-            window: *window,
-            format: self.format,
-            quality: self.delivery.quality(),
-            fps: self.fps,
-        };
-        match self.live.streams.subscribe(key).await {
-            Ok(frames) => Some(frames),
-            Err(err) => {
-                warn!(%err, "a client gets no frames of the target it watches");
-                None
-            }
-        }
-    }
-
-    /// Changes the quality of the frames. A better one takes over at its first keyframe,
-    /// which is when the client is told; a lower one at once, since what it replaces is what the link does not carry.
-    async fn take_quality(&mut self, quality: Quality) -> Result<(), axum::Error> {
-        let lower = self
-            .frames
-            .as_ref()
-            .is_some_and(|frames| quality < frames.key.quality);
-        let stream = self.subscribe().await;
-        if lower {
-            self.frames = stream;
-            self.next_frames = None;
-            self.awaits_keyframe = true;
-            match &self.frames {
-                Some(frames) => self.send_status(frames.key).await,
-                None => Ok(()),
-            }
-        } else {
-            self.next_frames = stream;
-            Ok(())
-        }
-    }
-
-    fn request_keyframe(&mut self) {
-        if let Some(frames) = &self.frames {
-            self.awaits_keyframe = true;
-            frames.keyframe();
-        }
-    }
-
-    async fn send_frame(&mut self, packet: &Packet) -> Result<(), axum::Error> {
-        let (clogged, lowered) = self.delivery.clogged();
-        if let Some(quality) = lowered {
-            self.take_quality(quality).await?;
-        }
-        if clogged {
-            // The frames after this one build on it: the next one sent is a keyframe,
-            // asked for once there is room for it.
-            self.awaits_keyframe = true;
-            return Ok(());
-        }
-        if self.awaits_keyframe && !packet.keyframe {
-            if let Some(frames) = &self.frames {
-                frames.keyframe();
-            }
-            return Ok(());
-        }
-        self.awaits_keyframe = false;
-        let Some((target, _)) = &self.selected else {
-            return Ok(());
-        };
-        let time_us = packet.time.as_micros() as u64;
-        let frame = pb::VideoFrame {
-            target: target.clone(),
-            keyframe: packet.keyframe,
-            time_us,
-            data: packet.data.clone(),
-            format: format_of(self.format).into(),
-            width: packet.size.0,
-            height: packet.size.1,
-            ..Default::default()
-        };
-        self.delivery.sent(time_us, packet.data.len());
-        self.send(server_message::Message::VideoFrame(Box::new(frame)))
-            .await
-    }
-
-    async fn send_status(&mut self, key: Key) -> Result<(), axum::Error> {
-        let quality = match key.quality {
-            Quality::Low => pb::VideoQuality::VIDEO_QUALITY_LOW,
-            Quality::Medium => pb::VideoQuality::VIDEO_QUALITY_MEDIUM,
-            Quality::Full => pb::VideoQuality::VIDEO_QUALITY_FULL,
-        };
-        let status = pb::VideoStatus {
-            format: format_of(key.format).into(),
-            quality: quality.into(),
-            fps: key.fps(),
-            ..Default::default()
-        };
-        self.send(server_message::Message::VideoStatus(Box::new(status)))
-            .await
-    }
-
-    async fn send_features(&mut self) -> Result<(), axum::Error> {
-        let features = pb::Features {
-            input: buffa::MessageField::some(self.told(Area::Input)),
-            tabs: buffa::MessageField::some(self.told(Area::Tabs)),
-            lease: buffa::MessageField::some(self.told(Area::Lease)),
-            sound: buffa::MessageField::some(self.told(Area::Sound)),
-            clipboard: buffa::MessageField::some(self.told(Area::Clipboard)),
-            uploads: buffa::MessageField::some(self.told(Area::Uploads)),
-            downloads: buffa::MessageField::some(self.told(Area::Downloads)),
-            recordings: buffa::MessageField::some(self.told(Area::Recordings)),
-            mcp: buffa::MessageField::some(self.told(Area::Mcp)),
-            cdp: buffa::MessageField::some(self.told(Area::Cdp)),
-            tunnel: buffa::MessageField::some(self.told(Area::Tunnel)),
-            ..Default::default()
-        };
-        self.send(server_message::Message::Features(Box::new(features)))
-            .await
-    }
-
-    fn told(&self, area: Area) -> pb::Grant {
-        let Grant { read, write } = self.grant(area);
-        pb::Grant {
-            read,
-            write,
-            ..Default::default()
-        }
-    }
-
     /// What the client may do in an area: what whoever let it in gave it, of what the
     /// session offers at all.
     fn grant(&self, area: Area) -> Grant {
@@ -902,32 +657,6 @@ impl Client {
             read: offered && self.access.reads(area),
             write: offered && self.access.writes(area),
         }
-    }
-
-    async fn send_targets(&mut self) -> Result<(), axum::Error> {
-        let sounding = self.sounding.borrow_and_update().clone();
-        let targets = self
-            .live
-            .targets
-            .borrow_and_update()
-            .iter()
-            .map(|target| pb::Target {
-                id: target.id.clone(),
-                tab: target.tab,
-                title: target.title.clone(),
-                url: target.url.clone(),
-                width: target.width,
-                height: target.height,
-                scale: target.scale,
-                sounds: sounding.contains(&target.browser_tab),
-                ..Default::default()
-            })
-            .collect();
-        self.send(server_message::Message::Targets(Box::new(pb::Targets {
-            targets,
-            ..Default::default()
-        })))
-        .await
     }
 
     /// What a client copied or dragged, in the forms that are carried; none when nothing
@@ -967,112 +696,6 @@ impl Client {
         })
     }
 
-    async fn send_presence(&mut self) -> Result<(), axum::Error> {
-        let present = self.present.borrow_and_update().clone();
-        let members = present.members.iter().map(|member| pb::Member {
-            id: member.id,
-            name: member.identity.name.clone(),
-            role: match member.identity.role() {
-                Role::View => pb::Role::ROLE_VIEW,
-                Role::Control => pb::Role::ROLE_CONTROL,
-                Role::Admin => pb::Role::ROLE_ADMIN,
-            }
-            .into(),
-            tab: member.tab,
-            agent: member.agent,
-            ..Default::default()
-        });
-        let held = present.leases.iter().map(|lease| pb::HeldTab {
-            tab: lease.tab,
-            holder: lease.holder,
-            asked_by: lease.asked_by,
-            ..Default::default()
-        });
-        let presence = pb::Presence {
-            you: self.member.id,
-            members: members.collect(),
-            held: held.collect(),
-            ..Default::default()
-        };
-        self.send(server_message::Message::Presence(Box::new(presence)))
-            .await
-    }
-
-    async fn send_file_requests(&mut self) -> Result<(), axum::Error> {
-        // Told to those who may answer.
-        let answers = self.grant(Area::Uploads).write;
-        let requests = self
-            .file_requests
-            .borrow_and_update()
-            .iter()
-            .filter(|_| answers)
-            .map(|request| pb::FileRequest {
-                id: request.id,
-                target: request.target.clone(),
-                multiple: request.multiple,
-                ..Default::default()
-            })
-            .collect();
-        let requests = pb::FileRequests {
-            requests,
-            ..Default::default()
-        };
-        self.send(server_message::Message::FileRequests(Box::new(requests)))
-            .await
-    }
-
-    async fn send_downloads(&mut self) -> Result<(), axum::Error> {
-        let reads = self.grant(Area::Downloads).read;
-        let downloads = self
-            .downloads
-            .borrow_and_update()
-            .iter()
-            .filter(|_| reads)
-            .map(|download| pb::Download {
-                id: download.id.clone(),
-                name: download.name.clone(),
-                url: download.url.clone(),
-                received_bytes: download.received,
-                total_bytes: download.total,
-                state: match download.state {
-                    Progress::Running => pb::DownloadState::DOWNLOAD_STATE_RUNNING,
-                    Progress::Done => pb::DownloadState::DOWNLOAD_STATE_DONE,
-                    Progress::Failed => pb::DownloadState::DOWNLOAD_STATE_FAILED,
-                }
-                .into(),
-                ..Default::default()
-            })
-            .collect();
-        self.send(server_message::Message::Downloads(Box::new(
-            pb::Downloads {
-                downloads,
-                ..Default::default()
-            },
-        )))
-        .await
-    }
-
-    async fn send_selected(&mut self) -> Result<(), axum::Error> {
-        let target = self.selected.as_ref().map(|(id, _)| id.clone());
-        self.send(server_message::Message::Selected(Box::new(pb::Selected {
-            target,
-            ..Default::default()
-        })))
-        .await
-    }
-
-    async fn send_cursor(&mut self) -> Result<(), axum::Error> {
-        let cursor = match &*self.cursor.borrow_and_update() {
-            Cursor::Hidden => pb::cursor::Cursor::Hidden(Box::default()),
-            Cursor::Named(name) => pb::cursor::Cursor::Named((*name).to_owned()),
-        };
-        self.send(server_message::Message::Cursor(Box::new(pb::Cursor {
-            cursor: Some(cursor),
-            ..Default::default()
-        })))
-        .await
-    }
-
     /// Nothing is sent before the client's hello, which tells the encoding it reads; what
     /// it needs to know by then is sent in answer to it.
     async fn send(&mut self, message: server_message::Message) -> Result<(), axum::Error> {
@@ -1095,28 +718,5 @@ impl Client {
             Frame::Binary(envelope.encode_to_vec().into())
         };
         self.socket.send(frame).await
-    }
-}
-
-fn format_of(format: Format) -> pb::VideoFormat {
-    match format {
-        Format::H264 => pb::VideoFormat::VIDEO_FORMAT_H264,
-        Format::FullChroma => pb::VideoFormat::VIDEO_FORMAT_FULL_CHROMA,
-        Format::H265 => pb::VideoFormat::VIDEO_FORMAT_H265,
-        Format::Vp9 => pb::VideoFormat::VIDEO_FORMAT_VP9,
-        Format::Vp9FullChroma => pb::VideoFormat::VIDEO_FORMAT_VP9_FULL_CHROMA,
-        Format::Av1 => pb::VideoFormat::VIDEO_FORMAT_AV1,
-    }
-}
-
-fn format_from(format: pb::VideoFormat) -> Option<Format> {
-    match format {
-        pb::VideoFormat::VIDEO_FORMAT_UNSPECIFIED => None,
-        pb::VideoFormat::VIDEO_FORMAT_H264 => Some(Format::H264),
-        pb::VideoFormat::VIDEO_FORMAT_FULL_CHROMA => Some(Format::FullChroma),
-        pb::VideoFormat::VIDEO_FORMAT_H265 => Some(Format::H265),
-        pb::VideoFormat::VIDEO_FORMAT_VP9 => Some(Format::Vp9),
-        pb::VideoFormat::VIDEO_FORMAT_VP9_FULL_CHROMA => Some(Format::Vp9FullChroma),
-        pb::VideoFormat::VIDEO_FORMAT_AV1 => Some(Format::Av1),
     }
 }

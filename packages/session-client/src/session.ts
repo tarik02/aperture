@@ -511,7 +511,12 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
   const drawTile = Effect.fnUntraced(function* (tile: Tile) {
     const image = yield* Effect.tryPromise(() =>
       createImageBitmap(new Blob([new Uint8Array(tile.png)], { type: "image/png" })),
-    ).pipe(Effect.orElseSucceed(() => undefined));
+    ).pipe(
+      Effect.catch((cause) =>
+        // The part of the picture stays as it was until a tile covers it again.
+        Effect.sync(() => console.warn("A tile of the session's picture was not decoded", cause)),
+      ),
+    );
     if (image === undefined) {
       return;
     }
