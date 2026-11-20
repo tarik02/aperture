@@ -115,6 +115,7 @@ suite(session)("a recording that goes on with another tab", (it) => {
     Effect.gen(function* () {
       const runner = yield* Runner.Runner;
       stopped = yield* SessionHttp.stopRecording(address, recording.id);
+      expect(stopped.failure).toBeNull();
       expect(stopped.state).toBe("finished");
 
       const late = yield* runner.request("POST", `/recordings/${recording.id}/retarget`, {
