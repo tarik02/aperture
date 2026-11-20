@@ -89,7 +89,10 @@ pub(super) async fn record(
         let began = *first.get_or_insert(packet.time);
         // Set by the first frame, and the same after.
         let _ = journal.start.set(began);
-        last = packet.time.saturating_sub(began);
+        // Never back in time: a tab the recording went on with may have drawn the picture
+        // it has before the tab that was left drew its last, and a file takes no frame
+        // that is earlier than the one before it.
+        last = last.max(packet.time.saturating_sub(began));
         let (width, height) = packet.size;
         if segments.last().map(|last| (last.width, last.height)) != Some(packet.size) {
             segments.push(Segment {
@@ -296,7 +299,11 @@ impl Writer {
         );
         match message.as_ref().map(|message| message.view()) {
             Some(gst::MessageView::Eos(_)) => Ok(()),
-            Some(gst::MessageView::Error(err)) => bail!("{}", err.error()),
+            // The error names its kind; why is in what the element said beside it.
+            Some(gst::MessageView::Error(err)) => match err.debug() {
+                Some(why) => bail!("{} ({why})", err.error()),
+                None => bail!("{}", err.error()),
+            },
             _ => bail!("the recording was not written out in time"),
         }
     }
