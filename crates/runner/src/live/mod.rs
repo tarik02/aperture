@@ -15,6 +15,7 @@ pub mod record;
 mod rtc;
 mod shots;
 pub mod sound;
+mod state;
 pub mod stream;
 mod tiles;
 

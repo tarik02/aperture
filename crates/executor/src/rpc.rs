@@ -56,6 +56,7 @@ impl ExecutorService for Executor {
                 proxy,
                 limits,
                 options,
+                request.storage_state.as_deref(),
             )
             .await?;
         Response::ok(pb::CreateSessionResponse {
@@ -393,9 +394,10 @@ impl From<Error> for ConnectError {
             Error::Store(StoreError::SessionNotFound(_) | StoreError::SnapshotNotFound(_)) => {
                 ErrorCode::NotFound
             }
-            Error::Store(StoreError::InvalidId(_)) | Error::Proxy(_) | Error::Limits(_) => {
-                ErrorCode::InvalidArgument
-            }
+            Error::Store(StoreError::InvalidId(_))
+            | Error::Proxy(_)
+            | Error::Limits(_)
+            | Error::State(_) => ErrorCode::InvalidArgument,
             Error::NotRunning(_) | Error::NoCgroups | Error::Options(_) | Error::Held { .. } => {
                 ErrorCode::FailedPrecondition
             }

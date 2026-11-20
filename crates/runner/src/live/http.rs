@@ -12,7 +12,7 @@ use aperture_runner::{Features, PortRange, proxy};
 use axum::{
     Json, Router,
     body::Body,
-    extract::{Path as RoutePath, Query, State, WebSocketUpgrade},
+    extract::{DefaultBodyLimit, Path as RoutePath, Query, State, WebSocketUpgrade},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post, put},
@@ -31,10 +31,12 @@ use super::{
     record::{self, Annotation, EditState, Recording, Recordings},
     shots::{self, Screenshot},
     sound::Sound,
+    state,
     stream::Streams,
 };
 use crate::{
     automation::Automation,
+    cdp,
     egress::Egress,
     files::{self, Download, Progress, UPLOADS},
     pages::Pages,
@@ -42,9 +44,14 @@ use crate::{
     targets::Target,
 };
 
+/// The most a state that is put into the session takes.
+const STATE_BYTES: usize = 64 * 1024 * 1024;
+
 /// What the live endpoints serve.
 #[derive(Clone)]
 pub struct Live {
+    /// The browser, for what is asked of it directly.
+    pub browser: cdp::Client,
     pub compositor: Handle,
     pub streams: Arc<Streams>,
     pub targets: watch::Receiver<Vec<Target>>,
@@ -75,6 +82,12 @@ pub async fn serve(socket: &Path, live: Live, automation: Arc<Automation>) -> st
         .route("/targets/{id}/screenshot.png", get(screenshot))
         .route("/targets/{id}/viewport", put(viewport_set))
         .route("/proxy", put(proxy_update))
+        .route(
+            "/storage-state",
+            post(state_export)
+                .put(state_import)
+                .layer(DefaultBodyLimit::max(STATE_BYTES)),
+        )
         .route("/recordings", get(recordings_list).post(recording_start))
         .route("/recordings/{id}", get(recording_get))
         .route("/recordings/{id}/stop", post(recording_stop))
@@ -436,6 +449,30 @@ async fn proxy_update(
     Json(config): Json<proxy::Config>,
 ) -> Result<StatusCode, Refusal> {
     live.egress.update(&config).map_err(Refusal::bad_request)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// The cookies and the storage of origins, out of the session's browser.
+async fn state_export(
+    State(live): State<Live>,
+    body: Option<Json<state::Asked>>,
+) -> Result<Json<state::State>, Refusal> {
+    let asked = body.map(|Json(asked)| asked).unwrap_or_default();
+    let targets = live.targets.borrow().clone();
+    let exported = state::export(&live.browser, &targets, asked).await;
+    Ok(Json(
+        exported.map_err(|err| Refusal::bad_request(format!("{err:#}")))?,
+    ))
+}
+
+/// Cookies and the storage of origins, into the session's browser.
+async fn state_import(
+    State(live): State<Live>,
+    Json(given): Json<state::State>,
+) -> Result<StatusCode, Refusal> {
+    given.check().map_err(Refusal::bad_request)?;
+    let imported = state::import(&live.browser, &given).await;
+    imported.map_err(|err| Refusal::failed(format_args!("{err:#}")))?;
     Ok(StatusCode::NO_CONTENT)
 }
 

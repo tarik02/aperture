@@ -193,6 +193,13 @@ export interface SessionService {
       id?: string,
     ) => Effect.Effect<void, SessionError>;
   };
+  /** The cookies and local storage of the session's browser, for whoever runs the session. */
+  readonly storageState: {
+    readonly export: (
+      asked?: Http.StorageStateAsked,
+    ) => Effect.Effect<Http.StorageState, SessionError>;
+    readonly import: (state: Http.StorageState) => Effect.Effect<void, SessionError>;
+  };
   readonly screenshots: {
     readonly list: Effect.Effect<Http.Screenshot[], SessionError>;
     /** Takes one of a target, the newest when none is named, and keeps it in the files. */
@@ -974,6 +981,10 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
       stop: (id) => Http.stopRecording(address, id),
       retarget: (id, tab) => Http.retargetRecording(address, id, tab),
       annotate: (annotation, id) => Http.annotateRecording(address, annotation, id),
+    },
+    storageState: {
+      export: (asked) => Http.exportStorageState(address, asked),
+      import: (state) => Http.importStorageState(address, state),
     },
     screenshots: {
       list: Http.listScreenshots(address),

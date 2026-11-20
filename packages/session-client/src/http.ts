@@ -316,6 +316,54 @@ export const annotateRecording = Effect.fn("SessionHttp.annotateRecording")((
   }).pipe(Effect.asVoid);
 });
 
+/** A cookie of the session's browser. */
+export interface StateCookie {
+  readonly name: string;
+  readonly value: string;
+  readonly domain: string;
+  /** It goes to this host alone, not to the hosts below it. */
+  readonly hostOnly?: boolean;
+  readonly path: string;
+  /** Seconds since the epoch; a cookie without it ends with the browser. */
+  readonly expires?: number;
+  readonly httpOnly?: boolean;
+  readonly secure?: boolean;
+  readonly sameSite?: string;
+  readonly partitionKey?: unknown;
+}
+
+/** What the session's browser keeps for the sites it visits: cookies and local storage. */
+export interface StorageState {
+  readonly cookies?: readonly StateCookie[];
+  readonly origins?: readonly {
+    readonly origin: string;
+    readonly localStorage?: readonly { readonly name: string; readonly value: string }[];
+  }[];
+}
+
+/** Which of it an export gives. */
+export interface StorageStateAsked {
+  /** The origins of the pages the tabs show, or the origins named. */
+  readonly origins?: "open-tabs" | readonly string[];
+  /** The cookies the browser would send to those origins, or all it has. */
+  readonly cookies?: "matching" | "all";
+}
+
+/** Takes cookies and the storage of origins out of the session's browser. */
+export const exportStorageState = Effect.fn("SessionHttp.exportStorageState")(
+  (address: Address, asked: StorageStateAsked = {}) =>
+    json<StorageState>(address, "/storage-state", { method: "POST", json: asked }),
+);
+
+/**
+ * Puts cookies and the storage of origins into the session's browser: the cookies beside
+ * those there are, each origin's local storage in place of what the origin had.
+ */
+export const importStorageState = Effect.fn("SessionHttp.importStorageState")(
+  (address: Address, state: StorageState) =>
+    request(address, "/storage-state", { method: "PUT", json: state }).pipe(Effect.asVoid),
+);
+
 export const listScreenshots = Effect.fn("SessionHttp.listScreenshots")((address: Address) =>
   json<Screenshot[]>(address, "/screenshots"),
 );

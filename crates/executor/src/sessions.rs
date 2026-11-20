@@ -54,6 +54,8 @@ pub enum Error {
     Proxy(String),
     #[error("invalid limits: {0}")]
     Limits(String),
+    #[error("the storage state was not taken: {0}")]
+    State(String),
     #[error("{0}")]
     Options(String),
     #[error(
@@ -251,7 +253,17 @@ impl Sessions {
         proxy: Option<proxy::Config>,
         limits: Limits,
         options: Asked,
+        storage_state: Option<&str>,
     ) -> Result<Session> {
+        if let Some(state) = storage_state {
+            if suspended {
+                return Err(Error::State(
+                    "a session that is created suspended has no browser to take it".into(),
+                ));
+            }
+            serde_json::from_str::<serde_json::Value>(state)
+                .map_err(|err| Error::State(format!("it is not JSON: {err}")))?;
+        }
         let proxy = proxy.map(checked).transpose()?;
         options.check(&self.config.setup).map_err(Error::Options)?;
         let options = (options != Asked::default())
@@ -285,6 +297,21 @@ impl Sessions {
             let _busy = self.busy(&record.id).await;
             self.hold(&record.id, false).await?;
             self.start(&record.id).await?;
+            if let Some(state) = storage_state {
+                let live = self.running_live(&record.id)?;
+                let taken = aperture_gateway::put(
+                    &live.socket,
+                    "/storage-state",
+                    state.as_bytes().to_vec(),
+                );
+                if let Err(reason) = taken.await {
+                    // A session without what it was to start with is not the one asked
+                    // for.
+                    drop(_busy);
+                    self.delete(&record.id).await?;
+                    return Err(Error::State(format!("{reason:#}")));
+                }
+            }
         }
         self.get(&record.id)
     }

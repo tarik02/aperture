@@ -370,13 +370,14 @@ impl Session {
         );
         let presence = presence::Presence::new(self.compositor.clone());
         let automation = Arc::new(automation::Automation::new(
-            devtools,
+            devtools.clone(),
             targets(),
             recordings.clone(),
             spec.files_dir.clone(),
             &presence,
         ));
         let served = live::Live {
+            browser: devtools,
             compositor: self.compositor.clone(),
             streams,
             targets: targets(),

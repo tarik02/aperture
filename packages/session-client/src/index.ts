@@ -6,6 +6,8 @@ import type {
   RecordingAnnotation,
   Screenshot,
   StartRecording,
+  StorageState,
+  StorageStateAsked,
   Uploaded,
   UploadProgress,
   ViewportSize,
@@ -39,6 +41,9 @@ export type {
   RecordingOptions,
   Screenshot,
   StartRecording,
+  StateCookie,
+  StorageState,
+  StorageStateAsked,
   Uploaded,
   UploadProgress,
   ViewportSize,
@@ -186,6 +191,11 @@ export interface Session {
     /** Adds an annotation to the recording named, or to the only one that runs. */
     readonly annotate: (annotation: RecordingAnnotation, id?: string) => Promise<void>;
   };
+  /** The cookies and local storage of the session's browser, for whoever runs the session. */
+  readonly storageState: {
+    readonly export: (asked?: StorageStateAsked) => Promise<StorageState>;
+    readonly import: (state: StorageState) => Promise<void>;
+  };
   readonly screenshots: {
     readonly list: () => Promise<Screenshot[]>;
     /** Takes one of a tab, the newest when none is named, and keeps it in the files. */
@@ -246,6 +256,10 @@ export const connect = (options: ConnectOptions): Session => {
       stop: (id) => promised(session.recordings.stop(id)),
       retarget: (id, tab) => promised(session.recordings.retarget(id, tab)),
       annotate: (annotation, id) => promised(session.recordings.annotate(annotation, id)),
+    },
+    storageState: {
+      export: (asked) => promised(session.storageState.export(asked)),
+      import: (state) => promised(session.storageState.import(state)),
     },
     screenshots: {
       list: () => promised(session.screenshots.list),

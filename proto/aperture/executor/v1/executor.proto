@@ -261,6 +261,10 @@ message CreateSessionRequest {
   // The network the session's browser has. What is left unspecified is as the executor
   // has it; `direct` where the executor has it otherwise is refused.
   Network network = 6;
+  // Cookies and the storage of origins for the session's browser to start with, over
+  // what its snapshot has: the JSON a session's `storage-state` route gives. Not for a
+  // session that is created suspended. A session that does not take it is not created.
+  optional string storage_state = 7;
 }
 
 message CreateSessionResponse {
