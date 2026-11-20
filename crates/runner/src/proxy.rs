@@ -1,6 +1,6 @@
-//! A session's proxy configuration: named upstreams and an ordered list of rules, each of
-//! which routes the browser connections its match covers. The first rule that matches a
-//! connection decides; one no rule matches goes direct.
+//! A session's proxy configuration: named upstreams, an ordered list of rules, each of
+//! which routes the browser connections its match covers, and how names are resolved. The
+//! first rule that matches a connection decides; one no rule matches goes direct.
 //!
 //! ```json
 //! {
@@ -12,8 +12,13 @@
 //!     { "match": "*.test",         "via": "operator" },
 //!     { "match": "*.net",          "via": "http://proxy:8080" },
 //!     { "match": "localhost:3000", "via": "local" },
+//!     { "match": "app.test:443",   "via": "local", "to": "localhost:3000", "tls": true },
 //!     { "match": "*.ai",           "via": "refuse" }
-//!   ]
+//!   ],
+//!   "dns": {
+//!     "servers": ["1.1.1.1"],
+//!     "records": [{ "name": "*.internal.test", "addresses": ["203.0.113.7"] }]
+//!   }
 //! }
 //! ```
 //!
@@ -22,20 +27,49 @@
 //! page means for its own machine to a remote one. A rule's `via` is `direct`, `refuse`,
 //! `local` (the tunnel a client attached to the session), the name of an upstream, or a
 //! proxy's URL.
+//!
+//! A rule's `to`, `host` or `host:port`, is where its connections are made instead of where
+//! the browser named. With `tls` the session answers the browser's TLS itself, with a
+//! certificate of its own that the session's browser takes for the name, and passes on
+//! what is inside: a server that speaks no TLS is `https://` to the session's pages.
+//!
+//! `dns` is for the names the session resolves itself: those of connections made from its
+//! node, and those its browser asks for when it has a network of its own. A proxy or a
+//! tunnel resolves what goes through it. A record's name is a host as in a match, and the
+//! first record that covers a name gives its addresses; the other names are asked of
+//! `servers`, or of the node's own resolvers when there are none.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, net::IpAddr};
 
 use serde::{Deserialize, Serialize};
 use url::Url;
 
 const MAX_UPSTREAMS: usize = 32;
 const MAX_RULES: usize = 256;
+const MAX_SERVERS: usize = 8;
+const MAX_RECORDS: usize = 256;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub upstreams: BTreeMap<String, Upstream>,
     pub rules: Vec<Rule>,
+    pub dns: Dns,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Dns {
+    /// The addresses of the resolvers to ask.
+    pub servers: Vec<String>,
+    pub records: Vec<Record>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Record {
+    pub name: String,
+    pub addresses: Vec<String>,
 }
 
 /// A proxy, with its credentials in the URL, or a tunnel, with the secret it is dialed
@@ -54,7 +88,34 @@ pub struct Rule {
     #[serde(rename = "match")]
     pub matches: String,
     pub via: String,
+    #[serde(default)]
+    pub to: Option<String>,
+    #[serde(default)]
+    pub tls: bool,
 }
+
+/// What a rule says of the connections it covers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Way {
+    pub route: Route,
+    /// Where the connection is made, when not where the browser named.
+    pub to: Option<To>,
+    /// Whether the session answers the browser's TLS itself.
+    pub tls: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct To {
+    pub host: String,
+    /// The port the browser named, when none.
+    pub port: Option<u16>,
+}
+
+static DIRECT: Way = Way {
+    route: Route::Direct,
+    to: None,
+    tls: false,
+};
 
 /// Where a connection goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,9 +170,41 @@ struct Pattern {
     port: Option<u16>,
 }
 
+impl Host {
+    fn covers(&self, name: &str) -> bool {
+        match self {
+            Self::Any => name != "localhost" && !name.ends_with(".localhost"),
+            Self::Subdomains(suffix) => name.ends_with(suffix.as_str()),
+            Self::Exact(exact) => name == exact,
+        }
+    }
+}
+
 /// A configuration, checked and ready to route by.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Routes(Vec<(Pattern, Route)>);
+pub struct Routes {
+    rules: Vec<(Pattern, Way)>,
+    pub names: Names,
+}
+
+/// How the session resolves names.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Names {
+    /// The resolvers to ask; the node's own when there are none.
+    pub servers: Vec<IpAddr>,
+    records: Vec<(Host, Vec<IpAddr>)>,
+}
+
+impl Names {
+    /// The addresses a record gives the name, when one covers it.
+    pub fn recorded(&self, name: &str) -> Option<&[IpAddr]> {
+        let name = name.trim_end_matches('.').to_ascii_lowercase();
+        self.records
+            .iter()
+            .find(|(host, _)| host.covers(&name))
+            .map(|(_, addresses)| addresses.as_slice())
+    }
+}
 
 impl Config {
     /// Checks the configuration and makes its routes. What is wrong is said for whoever
@@ -142,7 +235,7 @@ impl Config {
         let mut routes = Vec::new();
         for (index, rule) in self.rules.iter().enumerate() {
             let number = index + 1;
-            let pattern =
+            let covered =
                 pattern(&rule.matches).map_err(|reason| format!("rule {number}: {reason}"))?;
             let route = match rule.via.trim() {
                 "direct" => Route::Direct,
@@ -168,27 +261,86 @@ impl Config {
                     None => return Err(format!("rule {number}: unknown upstream {via:?}")),
                 },
             };
-            routes.push((pattern, route));
+            let to = match rule.to.as_deref().map(str::trim) {
+                None | Some("") => None,
+                Some(to) => {
+                    match pattern(to).map_err(|reason| format!("rule {number}: {reason}"))? {
+                        Pattern {
+                            host: Host::Exact(host),
+                            port,
+                        } => Some(To { host, port }),
+                        _ => return Err(format!("rule {number}: {to:?} is not a host")),
+                    }
+                }
+            };
+            if route == Route::Refuse && (to.is_some() || rule.tls) {
+                return Err(format!(
+                    "rule {number}: a connection that is refused goes nowhere"
+                ));
+            }
+            let way = Way {
+                route,
+                to,
+                tls: rule.tls,
+            };
+            routes.push((covered, way));
         }
-        Ok(Routes(routes))
+        Ok(Routes {
+            rules: routes,
+            names: self.dns.compile()?,
+        })
+    }
+}
+
+impl Dns {
+    fn compile(&self) -> Result<Names, String> {
+        if self.servers.len() > MAX_SERVERS {
+            return Err(format!("at most {MAX_SERVERS} dns servers are allowed"));
+        }
+        if self.records.len() > MAX_RECORDS {
+            return Err(format!("at most {MAX_RECORDS} dns records are allowed"));
+        }
+        let address = |text: &String| {
+            text.trim()
+                .parse::<IpAddr>()
+                .map_err(|_| format!("{text:?} is not an address"))
+        };
+        let servers = self
+            .servers
+            .iter()
+            .map(|server| address(server).map_err(|reason| format!("dns server: {reason}")))
+            .collect::<Result<_, _>>()?;
+        let mut records = Vec::new();
+        for (index, record) in self.records.iter().enumerate() {
+            let said = |reason: String| format!("dns record {}: {reason}", index + 1);
+            let host = match pattern(&record.name).map_err(said)? {
+                Pattern { host, port: None } => host,
+                _ => return Err(said("a name has no port".into())),
+            };
+            if record.addresses.is_empty() {
+                return Err(said("a name needs an address".into()));
+            }
+            let addresses = record
+                .addresses
+                .iter()
+                .map(address)
+                .collect::<Result<_, _>>()
+                .map_err(said)?;
+            records.push((host, addresses));
+        }
+        Ok(Names { servers, records })
     }
 }
 
 impl Routes {
-    pub fn route(&self, host: &str, port: u16) -> &Route {
+    pub fn route(&self, host: &str, port: u16) -> &Way {
         let host = host.trim_end_matches('.').to_ascii_lowercase();
-        let local = host == "localhost" || host.ends_with(".localhost");
-        self.0
+        self.rules
             .iter()
             .find(|(pattern, _)| {
-                pattern.port.is_none_or(|wanted| wanted == port)
-                    && match &pattern.host {
-                        Host::Any => !local,
-                        Host::Subdomains(suffix) => host.ends_with(suffix.as_str()),
-                        Host::Exact(exact) => host == *exact,
-                    }
+                pattern.port.is_none_or(|wanted| wanted == port) && pattern.host.covers(&host)
             })
-            .map_or(&Route::Direct, |(_, route)| route)
+            .map_or(&DIRECT, |(_, way)| way)
     }
 }
 

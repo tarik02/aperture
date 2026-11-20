@@ -78,6 +78,13 @@ How the session's browser reaches the network. It has no network of its own: eve
 **Network**:
 What network the browser has in its sandbox besides its egress, said apart for TCP and for UDP. TCP is _proxied_, the default, or _direct_: pages still go through egress then, but nothing holds the browser to it. UDP, which egress does not carry, is _none_, the default, or _direct_, for WebRTC and whatever else takes it. What is direct is held to no rules and reaches the local network too.
 
+**Names**:
+How the session resolves names, by its own records first and then by its resolvers, which are the node's unless the session names others. The connections egress makes from the node and the questions a browser with a network of its own asks get the same answers. A proxy or a tunnel resolves what goes through it.
+
+**Session certificate**:
+A certificate the session makes for a name whose TLS a rule has it answer itself, so that a server that speaks no TLS is `https://` to the session's pages. All have one key, made when the session starts and kept nowhere; only the session's own browser takes them.
+_Avoid_: Certificate authority, MITM
+
 **Tunnel**:
 A route a client attaches to a session so that connections the rules send `via: local` are made from the client's machine.
 

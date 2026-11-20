@@ -11,6 +11,10 @@
 //! addresses, where other sessions, the executor and the node's neighbours are. The same
 //! goes for where a session's upstreams are, which whoever configures the session names.
 //! What an upstream then reaches is the upstream's own business.
+//!
+//! Names are resolved by the session's own rules for them (see [`names`](crate::names)),
+//! and the browser's own questions, which it has when it has a network of its own, are
+//! answered here by the same rules.
 
 use std::{
     collections::HashMap,
@@ -33,7 +37,7 @@ use fast_socks5::{
 use ipnet::IpNet;
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
-    net::{TcpStream, UnixListener, UnixStream, lookup_host},
+    net::{TcpStream, UnixListener, UnixStream},
     time::timeout,
 };
 use tokio_tungstenite::tungstenite::{
@@ -41,6 +45,8 @@ use tokio_tungstenite::tungstenite::{
     http::{HeaderValue, header},
 };
 use tracing::{debug, info};
+
+use crate::{certificates::Certificates, names::Names};
 
 const CONNECT_WITHIN: Duration = Duration::from_secs(20);
 
@@ -111,9 +117,34 @@ impl Refused {
     }
 }
 
+/// A configuration as the session goes by it.
+struct Rules {
+    routes: Routes,
+    names: Names,
+}
+
+impl Rules {
+    fn new(config: &Config, policy: &Policy) -> Result<Arc<Self>, String> {
+        let routes = config.compile()?;
+        // As with upstreams: whoever configures a session reaches no more of the node's
+        // network through its resolvers than its browser does.
+        if let Some(local) = routes
+            .names
+            .servers
+            .iter()
+            .find(|server| !policy.permits(**server))
+        {
+            return Err(format!("dns server {local} is local to the node"));
+        }
+        let names = Names::new(&routes.names).map_err(|err| format!("{err:#}"))?;
+        Ok(Arc::new(Self { routes, names }))
+    }
+}
+
 pub struct Egress {
     policy: Policy,
-    routes: RwLock<Arc<Routes>>,
+    rules: RwLock<Arc<Rules>>,
+    certificates: Arc<Certificates>,
     /// The tunnels dialed so far, by their upstream's name, each with what it was dialed
     /// with.
     tunnels: tokio::sync::Mutex<HashMap<String, (TunnelRoute, Arc<Tunnel>)>>,
@@ -122,11 +153,16 @@ pub struct Egress {
 }
 
 impl Egress {
-    pub fn new(policy: Policy, config: &Config) -> anyhow::Result<Arc<Self>> {
-        let routes = config.compile().map_err(anyhow::Error::msg)?;
+    pub fn new(
+        policy: Policy,
+        config: &Config,
+        certificates: Arc<Certificates>,
+    ) -> anyhow::Result<Arc<Self>> {
+        let rules = Rules::new(config, &policy).map_err(anyhow::Error::msg)?;
         Ok(Arc::new(Self {
             policy,
-            routes: RwLock::new(Arc::new(routes)),
+            rules: RwLock::new(rules),
+            certificates,
             tunnels: tokio::sync::Mutex::default(),
             local: Mutex::default(),
         }))
@@ -135,9 +171,13 @@ impl Egress {
     /// Takes a new configuration. Connections made from now on go by it; those that are
     /// open stay as they are.
     pub fn update(&self, config: &Config) -> Result<(), String> {
-        let routes = Arc::new(config.compile()?);
-        *self.routes.write().expect("not poisoned") = routes;
+        let rules = Rules::new(config, &self.policy)?;
+        *self.rules.write().expect("not poisoned") = rules;
         Ok(())
+    }
+
+    fn rules(&self) -> Arc<Rules> {
+        self.rules.read().expect("not poisoned").clone()
     }
 
     /// Serves the proxy on `socket` until the listener fails.
@@ -169,6 +209,42 @@ impl Egress {
         }
     }
 
+    /// Answers the names the browser asks for, on `socket`: DNS messages, each after its
+    /// length, as DNS has them over a stream.
+    pub async fn serve_names(self: Arc<Self>, socket: &Path) -> std::io::Result<()> {
+        // As in `serve`.
+        let _ = std::fs::remove_file(socket);
+        let listener = UnixListener::bind(socket)?;
+        loop {
+            let (mut asking, _) = listener.accept().await?;
+            let egress = self.clone();
+            tokio::spawn(async move {
+                // Ends when whoever asks is done.
+                while let Ok(length) = asking.read_u16().await {
+                    let mut asked = vec![0; length.into()];
+                    if asking.read_exact(&mut asked).await.is_err() {
+                        break;
+                    }
+                    let answer = match egress.rules().names.answer(&asked).await {
+                        Ok(answer) => answer,
+                        Err(err) => {
+                            debug!("a question of the browser was not answered: {err:#}");
+                            break;
+                        }
+                    };
+                    let Ok(length) = u16::try_from(answer.len()) else {
+                        break;
+                    };
+                    let mut framed = length.to_be_bytes().to_vec();
+                    framed.extend(answer);
+                    if asking.write_all(&framed).await.is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    }
+
     async fn connect(&self, browser: UnixStream) -> anyhow::Result<()> {
         let (request, command, target) = Socks5ServerProtocol::accept_no_auth(browser)
             .await?
@@ -185,13 +261,12 @@ impl Egress {
             TargetAddr::Ip(address) => (address.ip().to_string(), address.port()),
             TargetAddr::Domain(name, port) => (name.clone(), *port),
         };
-        let route = self
-            .routes
-            .read()
-            .expect("not poisoned")
-            .route(&host, port)
-            .clone();
-        let mut destination = match self.reach(&route, &host, port).await {
+        let way = self.rules().routes.route(&host, port).clone();
+        let (to, to_port) = match &way.to {
+            Some(to) => (to.host.as_str(), to.port.unwrap_or(port)),
+            None => (host.as_str(), port),
+        };
+        let mut destination = match self.reach(&way.route, to, to_port).await {
             Ok(destination) => destination,
             Err(Refused(reply, reason)) => {
                 debug!(host, port, "not connected: {reason:#}");
@@ -201,6 +276,11 @@ impl Egress {
         };
         let unspecified = SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0));
         let mut browser = request.reply_success(unspecified).await?;
+        if way.tls {
+            let mut browser = self.certificates.accept(&host, browser).await?;
+            tokio::io::copy_bidirectional(&mut browser, &mut destination).await?;
+            return Ok(());
+        }
         tokio::io::copy_bidirectional(&mut browser, &mut destination).await?;
         Ok(())
     }
@@ -239,13 +319,14 @@ impl Egress {
 
     /// Connects from here, to an address the node lets its sessions reach.
     async fn dial(&self, host: &str, port: u16) -> Result<TcpStream, Refused> {
-        let resolved: Vec<SocketAddr> = match lookup_host((host, port)).await {
-            Ok(addresses) => addresses.collect(),
-            Err(err) => return Err(Refused::unreachable(err.into())),
+        let resolved = match self.rules().names.addresses(host).await {
+            Ok(addresses) => addresses,
+            Err(err) => return Err(Refused::unreachable(err)),
         };
         let permitted: Vec<SocketAddr> = resolved
             .into_iter()
-            .filter(|address| self.policy.permits(address.ip()))
+            .filter(|address| self.policy.permits(*address))
+            .map(|address| SocketAddr::new(address, port))
             .collect();
         if permitted.is_empty() {
             return Err(Refused(

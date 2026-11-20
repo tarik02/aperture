@@ -42,9 +42,9 @@ const GPU_ROOTS: &[&str] = &["/run/opengl-driver", "/sys/dev/char", "/sys/device
 const PROXY_PORT: u16 = 1080;
 const DEVTOOLS_PORT: u16 = 9222;
 
-/// Where a browser with a network of its own asks for names: an address pasta answers
-/// at, with what the machine's own resolver says.
-const NAMESERVER: &str = "169.254.1.1";
+/// Where a browser with a network of its own asks for names: its own loopback, where the
+/// shim takes its questions to the session.
+const NAMESERVER: &str = "127.0.0.1";
 
 /// The profile, as the browser sees it.
 const PROFILE: &str = "/profile";
@@ -60,6 +60,10 @@ pub struct Given<'a> {
     pub extension: &'a Path,
     /// The browser's one way out.
     pub egress_socket: &'a Path,
+    /// Where the session answers the names a browser with a network of its own asks for.
+    pub names_socket: &'a Path,
+    /// What names the key of the session's own certificates.
+    pub certificate_key: &'a str,
     /// What the sandbox shares with the outside to put its own sockets in.
     pub shared: &'a Path,
     /// The GPU the compositor draws on, for a browser that draws on it too.
@@ -121,6 +125,7 @@ pub fn start(spec: &Spec, given: &Given) -> anyhow::Result<Child> {
         .arg(given.egress_socket)
         .arg(given.devtools_socket())
         .arg(DEVTOOLS_PORT.to_string())
+        .args(spec.network.reaches_out().then_some(given.names_socket))
         .arg("--")
         .arg(&spec.tools.chromium)
         .args(arguments(spec, given))
@@ -135,12 +140,13 @@ pub fn start(spec: &Spec, given: &Given) -> anyhow::Result<Child> {
 /// What runs bwrap: bwrap itself, for a browser with no network but its proxy, which
 /// bwrap leaves it without; or pasta, which gives bwrap and what it runs a network of
 /// their own that reaches out, with TCP, UDP or both. That network takes nothing in, and
-/// the machine's own loopback is not in it.
+/// the machine's own loopback is not in it. pasta makes the user namespace then, and the
+/// shim may listen where names are asked for.
 fn network(spec: &Spec) -> anyhow::Result<Command> {
     let bwrap = &spec.tools.bwrap;
     if !spec.network.reaches_out() {
         let mut command = Command::new(bwrap);
-        command.arg("--unshare-net");
+        command.args(["--unshare-net", "--unshare-user-try"]);
         return Ok(command);
     }
     let pasta = spec.tools.pasta.as_ref();
@@ -156,9 +162,9 @@ fn network(spec: &Spec) -> anyhow::Result<Command> {
     command
         .args(["-t", "none", "-u", "none", "-T", "none", "-U", "none"])
         .args(["--map-host-loopback", "none"])
-        .args(["--dns-forward", NAMESERVER])
         .arg("--")
-        .arg(bwrap);
+        .arg(bwrap)
+        .args(["--cap-add", "CAP_NET_BIND_SERVICE"]);
     Ok(command)
 }
 
@@ -169,14 +175,15 @@ fn sandbox(command: &mut Command, spec: &Spec, given: &Given, home: &Path) -> an
         extension_socket,
         extension,
         egress_socket,
+        names_socket,
         shared,
         render_node,
+        ..
     } = *given;
     let profile = &spec.profile;
     let sockets = display.parent().context("the display has no directory")?;
     command.args([
         "--die-with-parent",
-        "--unshare-user-try",
         "--unshare-uts",
         "--unshare-pid",
         "--unshare-ipc",
@@ -199,7 +206,8 @@ fn sandbox(command: &mut Command, spec: &Spec, given: &Given, home: &Path) -> an
         command.args(["--ro-bind", "/run/systemd/resolve", "/run/systemd/resolve"]);
     }
     if spec.network.reaches_out() {
-        // The machine's resolver is often on its loopback, which is not the browser's.
+        // The machine's resolvers are not the session's, and are often on the machine's
+        // loopback, which is not the browser's.
         let resolver = spec.runtime_dir.join("resolv.conf");
         fs::write(&resolver, format!("nameserver {NAMESERVER}\n"))?;
         let asked = fs::canonicalize("/etc/resolv.conf")
@@ -232,6 +240,9 @@ fn sandbox(command: &mut Command, spec: &Spec, given: &Given, home: &Path) -> an
         .arg("--bind")
         .arg(egress_socket)
         .arg(egress_socket)
+        .arg("--bind")
+        .arg(names_socket)
+        .arg(names_socket)
         .arg("--bind")
         .arg(shared)
         .arg(shared)
@@ -345,6 +356,11 @@ fn arguments(spec: &Spec, given: &Given) -> Vec<String> {
         // An extension may tap a tab only once its user has pointed it at the tab, unless
         // it is named here.
         format!("--allowlisted-extension-id={}", extension::ID),
+        // The session's own certificates are good for any name, here and nowhere else.
+        format!(
+            "--ignore-certificate-errors-spki-list={}",
+            given.certificate_key
+        ),
     ];
     own.into_iter()
         .chain(fixed.map(str::to_owned))

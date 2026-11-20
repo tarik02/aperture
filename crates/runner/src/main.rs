@@ -6,10 +6,12 @@ mod alone;
 mod automation;
 mod browser;
 mod cdp;
+mod certificates;
 mod egress;
 mod extension;
 mod files;
 mod live;
+mod names;
 mod pages;
 mod presence;
 mod targets;
@@ -132,8 +134,9 @@ type Service = JoinHandle<std::io::Result<()>>;
 struct Session {
     compositor: aperture_compositor::Handle,
     egress: Arc<egress::Egress>,
-    /// The browser's way out, and the socket tunnels attach to.
-    ways_out: [Service; 2],
+    /// The browser's way out, where its names are answered, and the socket tunnels
+    /// attach to.
+    ways_out: [Service; 3],
     registry: targets::Registry,
     sound: Arc<live::sound::Sound>,
     /// From when the browser serves DevTools.
@@ -177,11 +180,18 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
     // The browser has no network: this is its one way out.
     let egress_socket = sockets.join("proxy.sock");
     let policy = egress::Policy::new(&spec.egress_allow)?;
-    let egress = egress::Egress::new(policy, &spec.proxy)?;
+    let certificates = certificates::Certificates::new()?;
+    let certificate_key = certificates.key_hash();
+    let egress = egress::Egress::new(policy, &spec.proxy, certificates)?;
+    let names_socket = sockets.join("names.sock");
     let ways_out = [
         tokio::spawn({
             let (egress, socket) = (egress.clone(), egress_socket.clone());
             async move { egress.serve(&socket).await }
+        }),
+        tokio::spawn({
+            let (egress, socket) = (egress.clone(), names_socket.clone());
+            async move { egress.serve_names(&socket).await }
         }),
         tokio::spawn({
             let (egress, socket) = (egress.clone(), tunnel_socket(spec));
@@ -223,6 +233,8 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
         extension_socket: &extension_socket,
         extension: &extension_dir,
         egress_socket: &egress_socket,
+        names_socket: &names_socket,
+        certificate_key: &certificate_key,
         shared: &shared,
         render_node: compositor.render_node(),
     };
@@ -299,9 +311,10 @@ impl Session {
             self.served = Some(front.serve(live, status.cdp.clone()).await?);
         }
 
-        let [way_out, tunnels] = &mut self.ways_out;
+        let [way_out, names, tunnels] = &mut self.ways_out;
         let services = [
             ("the browser's way out", Some(way_out)),
+            ("the browser's names", Some(names)),
             ("the tunnel's socket", Some(tunnels)),
             ("the live endpoints", self.live.as_mut()),
         ];

@@ -49,8 +49,7 @@ pub struct Options {
     network_tcp: Tcp,
     /// Where the UDP of sessions' browsers goes, which a proxy does not carry. `none`:
     /// nowhere, so WebRTC has no way out. `direct`: out, held to nothing, the local
-    /// network included. Takes pasta. Without it a browser resolves no names itself, so
-    /// TCP that goes around the proxy has to name addresses.
+    /// network included. Takes pasta.
     #[arg(long, env = "APERTURE_NETWORK_UDP", value_enum, default_value_t)]
     network_udp: Udp,
     /// pasta, of the passt project, which gives browsers a network of their own.

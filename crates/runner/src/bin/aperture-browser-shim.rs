@@ -1,52 +1,61 @@
-//! Runs the browser inside its sandbox, where there is no network but a loopback of its
-//! own, and stands between it and the two sockets that lead out:
+//! Runs the browser inside its sandbox, where the loopback is its own, and stands between
+//! it and the sockets that lead out:
 //!
 //! - what the browser sends to its proxy, on a loopback port, goes on to the session's
 //!   egress socket, a Unix socket bound into the sandbox;
 //! - what comes to the DevTools socket, a Unix socket the shim makes in a directory shared
-//!   with the outside, goes on to the browser's DevTools port on that loopback.
+//!   with the outside, goes on to the browser's DevTools port on that loopback;
+//! - the names a browser with a network of its own asks for, on the loopback's DNS port,
+//!   go on to the session's socket for them.
 //!
-//! The browser knows nothing of Unix sockets for either; the shim is the adapter.
+//! The browser knows nothing of Unix sockets for any of them; the shim is the adapter.
 
 use std::{
-    io,
-    net::{Shutdown, TcpListener, TcpStream},
+    io::{self, Read, Write},
+    net::{Shutdown, TcpListener, TcpStream, UdpSocket},
     os::unix::{
         net::{UnixListener, UnixStream},
         process::CommandExt,
     },
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, ExitCode},
+    sync::Arc,
 };
 
 const USAGE: &str = "usage: aperture-browser-shim PROXY_PORT EGRESS_SOCKET DEVTOOLS_SOCKET \
-                     DEVTOOLS_PORT -- BROWSER [ARGUMENT...]";
+                     DEVTOOLS_PORT [NAMES_SOCKET] -- BROWSER [ARGUMENT...]";
+
+const DNS_PORT: u16 = 53;
+/// What a DNS message over UDP may be long when whoever asks says nothing of it.
+const DATAGRAM: usize = 512;
+/// A DNS message's header, and where in it the message is said to be cut short.
+const HEADER: usize = 12;
+const TRUNCATED: u8 = 0x02;
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
-    let [
-        proxy_port,
-        egress,
-        devtools,
-        devtools_port,
-        separator,
-        browser @ ..,
-    ] = &arguments[..]
+    let mut halves = arguments.splitn(2, |argument| argument == "--");
+    let (own, browser) = (halves.next().unwrap_or_default(), halves.next());
+    let (
+        [proxy_port, egress, devtools, devtools_port, names @ ..],
+        Some([program, browser_arguments @ ..]),
+    ) = (own, browser)
     else {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
-    let (Ok(proxy_port), Ok(devtools_port), "--", [program, browser_arguments @ ..]) = (
+    let (Ok(proxy_port), Ok(devtools_port), [] | [_]) = (
         proxy_port.parse::<u16>(),
         devtools_port.parse::<u16>(),
-        separator.as_str(),
-        browser,
+        names,
     ) else {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
 
-    if let Err(err) = relay(proxy_port, egress.into(), devtools.into(), devtools_port) {
+    let opened = relay(proxy_port, egress.into(), devtools.into(), devtools_port)
+        .and_then(|()| names.first().map_or(Ok(()), |names| resolve(names.into())));
+    if let Err(err) = opened {
         eprintln!("failed to open the browser's ways out: {err}");
         return ExitCode::FAILURE;
     }
@@ -113,6 +122,76 @@ fn relay(
         }
     });
     Ok(())
+}
+
+/// Takes the names asked for on the loopback to the session's socket for them, which
+/// speaks DNS as it is over a stream: each message after its length. A stream is passed
+/// on as it is, and a datagram becomes a stream of one question.
+fn resolve(names: PathBuf) -> io::Result<()> {
+    let streams = TcpListener::bind(("127.0.0.1", DNS_PORT))?;
+    let datagrams = Arc::new(UdpSocket::bind(("127.0.0.1", DNS_PORT))?);
+    let asked_of = names.clone();
+    std::thread::spawn(move || {
+        for connection in streams.incoming() {
+            let Some(connection) = accepted(connection) else {
+                continue;
+            };
+            let names = asked_of.clone();
+            std::thread::spawn(move || match UnixStream::connect(names) {
+                Ok(session) => join(connection, session),
+                Err(err) => eprintln!("the browser's names have nowhere to go: {err}"),
+            });
+        }
+    });
+    std::thread::spawn(move || {
+        // As long as a DNS message gets.
+        let mut question = [0; u16::MAX as usize];
+        loop {
+            let Some((length, asker)) = accepted(datagrams.recv_from(&mut question)) else {
+                continue;
+            };
+            let question = question[..length].to_vec();
+            let (names, datagrams) = (names.clone(), datagrams.clone());
+            std::thread::spawn(move || match answer(&names, &question) {
+                // Whoever asked may be gone by now, and asks again when not.
+                Ok(answer) => drop(datagrams.send_to(&answer, asker)),
+                Err(err) => eprintln!("a name was not asked for: {err}"),
+            });
+        }
+    });
+    Ok(())
+}
+
+/// The session's answer to one question, as fits a datagram: one that does not is cut
+/// down to its question and says so, and whoever asked asks again over a stream.
+fn answer(names: &Path, question: &[u8]) -> io::Result<Vec<u8>> {
+    let mut session = UnixStream::connect(names)?;
+    let length = u16::try_from(question.len()).map_err(io::Error::other)?;
+    session.write_all(&length.to_be_bytes())?;
+    session.write_all(question)?;
+    let mut length = [0; 2];
+    session.read_exact(&mut length)?;
+    let mut answer = vec![0; u16::from_be_bytes(length).into()];
+    session.read_exact(&mut answer)?;
+    if answer.len() > DATAGRAM {
+        // The question is a name, each of its labels after its length and no label the
+        // last, and four bytes of what is asked of it.
+        let mut end = HEADER;
+        while let Some(&label) = answer.get(end)
+            && label != 0
+        {
+            end += 1 + usize::from(label);
+        }
+        end += 5;
+        if end > answer.len() {
+            return Err(io::Error::other("the answer has no question"));
+        }
+        answer.truncate(end);
+        answer[2] |= TRUNCATED;
+        // No records of any kind are left.
+        answer[6..HEADER].fill(0);
+    }
+    Ok(answer)
 }
 
 /// A connection a listener took; none, and a word of why, for one it failed to take. The

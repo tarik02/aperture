@@ -119,6 +119,24 @@ message ProxyConfig {
   // The upstreams rules can route through, by name.
   map<string, ProxyUpstream> upstreams = 1;
   repeated ProxyRule rules = 2;
+  // How the session resolves names. Left out, it asks the node's own resolvers.
+  optional Dns dns = 3;
+}
+
+// For the names the session resolves itself: those of connections made from its node, and
+// those its browser asks for when it has a network of its own. A proxy or a tunnel
+// resolves what goes through it.
+message Dns {
+  // The addresses of the resolvers to ask; the node's own when there are none.
+  repeated string servers = 1;
+  // The first record that covers a name gives its addresses.
+  repeated DnsRecord records = 2;
+}
+
+message DnsRecord {
+  // A host as in a rule's match: exact, `*.suffix` or `*`.
+  string name = 1;
+  repeated string addresses = 2;
 }
 
 message ProxyUpstream {
@@ -136,6 +154,13 @@ message ProxyRule {
   // `direct`, `refuse`, `local` (the tunnel a client attached), an upstream's name, or a
   // proxy's URL.
   string via = 2;
+  // `host` or `host:port`: where the connections are made instead of where the browser
+  // named.
+  optional string to = 3;
+  // The session answers the browser's TLS itself, with a certificate of its own that the
+  // session's browser takes for the name, and passes on what is inside: a server that
+  // speaks no TLS is `https://` to the session's pages.
+  bool tls = 4;
 }
 
 message Snapshot {

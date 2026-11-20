@@ -254,8 +254,24 @@ fn proxy_config(proxy: &pb::ProxyConfig) -> proxy::Config {
             .map(|rule| proxy::Rule {
                 matches: rule.r#match.clone(),
                 via: rule.via.clone(),
+                to: rule.to.clone(),
+                tls: rule.tls,
             })
             .collect(),
+        dns: proxy
+            .dns
+            .as_option()
+            .map_or_else(Default::default, |dns| proxy::Dns {
+                servers: dns.servers.clone(),
+                records: dns
+                    .records
+                    .iter()
+                    .map(|record| proxy::Record {
+                        name: record.name.clone(),
+                        addresses: record.addresses.clone(),
+                    })
+                    .collect(),
+            }),
     }
 }
 
