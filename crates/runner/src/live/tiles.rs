@@ -194,7 +194,8 @@ fn tile(
     // Pages are opaque, so the alpha is left out.
     let mut rgb = Vec::with_capacity((right - left) * (bottom - top) * 3);
     for row in frame.rgba.chunks_exact(stride).take(bottom).skip(top) {
-        for pixel in row[left * 4..right * 4].chunks_exact(4) {
+        let (pixels, _) = row[left * 4..right * 4].as_chunks::<4>();
+        for pixel in pixels {
             rgb.extend_from_slice(&pixel[..3]);
         }
     }
