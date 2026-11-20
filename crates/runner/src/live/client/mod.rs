@@ -50,6 +50,13 @@ const NOT_ALLOWED: &str = "the session does not let this client do it";
 const POINTED_EVERY: Duration = Duration::from_millis(40);
 const DRAWN_A_SECOND: u32 = 120;
 
+/// How often a client's socket is pinged, and how long one that says nothing is kept. A
+/// socket that carries no picture is silent for as long as nothing changes, and what
+/// stands between the client and the session closes a silent one, or keeps one whose
+/// client is long gone.
+const PINGED_EVERY: Duration = Duration::from_secs(15);
+const SILENT_FOR: Duration = Duration::from_secs(50);
+
 /// What a client's WebRTC connection has to tell that waits for its session socket's turn.
 const CHANNEL_MESSAGES: usize = 256;
 
@@ -159,14 +166,26 @@ impl Client {
         mut tiles: mpsc::Receiver<pb::Tile>,
         mut peer_events: mpsc::Receiver<FromPeer>,
     ) -> Result<(), axum::Error> {
+        let mut ping = tokio::time::interval(PINGED_EVERY);
+        let mut said = Instant::now();
         loop {
             let heard = self.heard();
             tokio::select! {
                 frame = self.socket.recv() => match frame {
                     Some(Ok(Frame::Close(_))) | None => return Ok(()),
-                    Some(Ok(frame)) => self.read(frame).await?,
+                    Some(Ok(frame)) => {
+                        said = Instant::now();
+                        self.read(frame).await?;
+                    }
                     Some(Err(err)) => return Err(err),
                 },
+                _ = ping.tick() => {
+                    if said.elapsed() > SILENT_FOR {
+                        debug!("a client that says nothing is gone");
+                        return Ok(());
+                    }
+                    self.socket.send(Frame::Ping(Default::default())).await?;
+                }
                 Some(event) = peer_events.recv() => match event {
                     FromPeer::Message(message) => self.handle(message).await?,
                     FromPeer::Stream(key) => self.send_status(key).await?,

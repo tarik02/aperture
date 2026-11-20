@@ -316,6 +316,8 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
       update({
         connection: reason === undefined ? { state: "closed" } : { state: "closed", reason },
       });
+      // A picture that comes on a connection of its own would go on without the session.
+      runFork(stop());
     },
   });
   const sound = yield* Sound.make();
@@ -478,15 +480,20 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
     );
   });
 
-  /** Starts the picture the way it is to come, in place of however it came before. */
-  const start: () => Effect.Effect<void> = Effect.fn("Session.start")(function* () {
+  /** Ends however the picture comes. */
+  const stop = Effect.fn("Session.stop")(function* () {
     turns += 1;
-    const turn = turns;
     const before = wayScope;
     wayScope = undefined;
     if (before !== undefined) {
       yield* Scope.close(before, Exit.void);
     }
+  });
+
+  /** Starts the picture the way it is to come, in place of however it came before. */
+  const start: () => Effect.Effect<void> = Effect.fn("Session.start")(function* () {
+    yield* stop();
+    const turn = turns;
     if (closed) {
       return;
     }
