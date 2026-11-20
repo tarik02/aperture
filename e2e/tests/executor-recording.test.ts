@@ -1,0 +1,323 @@
+import { readFileSync } from "node:fs";
+import { expect } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import { Executor } from "../src/executor.ts";
+import * as Mcp from "../src/mcp.ts";
+import * as Node from "../src/node.ts";
+import { suite } from "../src/suite.ts";
+import { type Page, snapshot, Viewer } from "../src/viewer.ts";
+import * as ViewerLive from "../src/viewer.ts";
+import { happens, until } from "../src/wait.ts";
+
+const node = Layer.mergeAll(
+  Node.layer({ features: ["cdp", "mcp", "recordings"] }),
+  ViewerLive.layer,
+);
+
+/** What the journal of a recording says automation did, one entry to a line. */
+interface JournalEntry {
+  readonly kind: string;
+  readonly at_ms: number;
+  readonly end_ms: number;
+  readonly text?: string;
+  readonly follow?: string;
+  readonly ended?: string;
+  readonly rect?: { readonly x: number };
+  readonly button?: string;
+  readonly x?: number;
+  readonly y?: number;
+}
+
+interface Edit {
+  readonly state: string;
+  readonly file: string;
+  readonly timeline: string;
+}
+
+/** A recording as the `recording` tool tells it. */
+interface Recording {
+  readonly id: string;
+  readonly state: string;
+  readonly duration_ms: number;
+  readonly bytes: number;
+  readonly file: string;
+  readonly journal: string;
+  readonly edit?: Edit;
+}
+
+/** How an edit's time maps to the raw recording's. */
+interface Timeline {
+  readonly duration_ms: number;
+  readonly edited_duration_ms: number;
+  readonly map: readonly object[];
+  readonly events: readonly { readonly at_ms: number; readonly edited_at_ms: number }[];
+}
+
+const entriesOf = (journal: string) =>
+  journal
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as JournalEntry);
+
+const MATROSKA_SIGNATURE = "1a45dfa3";
+const TYPED = "typed by the agent, letter by letter";
+/** Where the trial page's button is, and so where a click on it goes. */
+const BUTTON = { left: 100, x: 250, y: 350 };
+
+suite(node)("recordings of a session of a node, made by automation", (it) => {
+  let session: string;
+  let opened: Node.Opened;
+  let watcher: Page;
+  let agent: Mcp.Mcp;
+  let started: Recording;
+  let stopped: Recording;
+  let journal: readonly JournalEntry[];
+  let edit: Edit;
+
+  const title = () => opened.page.evaluate("document.title");
+
+  const recording = (args: object) => agent.call("recording", args);
+
+  /** How many times the wheel turned so far, by the journal as it is written. */
+  const wheelsSoFar = Effect.gen(function* () {
+    const executor = yield* Executor;
+    const written = readFileSync(
+      `${executor.data}/sessions/${session}/files/${started.journal}`,
+      "utf8",
+    );
+    return entriesOf(written).filter((entry) => entry.kind === "wheel").length;
+  });
+
+  /** Waits until the edit of a recording is made, or failed, and gives it. */
+  const edited = (id: string) =>
+    until(
+      "the edit being made",
+      recording({ action: "status", id }).pipe(
+        Effect.map((status) => {
+          const made = (JSON.parse(status) as Recording).edit;
+          return made !== undefined && made.state !== "editing" && made;
+        }),
+      ),
+      60_000,
+    );
+
+  const timelineOf = (made: Edit) =>
+    Effect.gen(function* () {
+      const executor = yield* Executor;
+      const answer = yield* executor.session(session, "GET", `/files/${made.timeline}`);
+      return answer.body as Timeline;
+    });
+
+  // Recording: the target's own stream into a file, with the pointer in the picture.
+  it.effect("the viewer's cursor is hidden while the pointer is recorded", () =>
+    Effect.gen(function* () {
+      const executor = yield* Executor;
+      const viewer = yield* Viewer;
+      session = (yield* executor.client.sessions.create()).id;
+      opened = yield* Node.open(executor, session, Node.TRIAL_PAGE);
+      watcher = yield* Node.watch(viewer, executor, session);
+      yield* happens(snapshot(watcher, `s.selected === ${opened.tab}`));
+      agent = yield* Mcp.connect(`${executor.url}/sessions/${session}`, executor.token);
+
+      started = JSON.parse(
+        yield* recording({ action: "start", tab: opened.id, idle: "cut", ripple: true }),
+      ) as Recording;
+
+      const hidden = yield* happens(snapshot(watcher, "s.cursor === 'none'"), 5000);
+      expect(hidden).toBe(true);
+    }),
+  );
+
+  // Scrolling and filling a field show as they would by hand.
+  it.effect("a field is filled as if typed while recorded", () =>
+    Effect.gen(function* () {
+      // What the journal and the edit are checked for below: the pointer travelling, a
+      // caption, a focus on the button over a click and until it is reset, an attention.
+      for (const [x, y] of [
+        [200, 200],
+        [600, 300],
+        [BUTTON.x, BUTTON.y],
+      ]) {
+        yield* agent.call("hover", { tab: opened.id, x, y });
+        yield* Effect.sleep(250);
+      }
+      yield* recording({ action: "caption", text: "clicking the button", duration_ms: 2500 });
+      yield* recording({ action: "focus", selector: "button", zoom: 2 });
+      yield* Effect.sleep(700);
+      yield* agent.call("click", { tab: opened.id, selector: "button" });
+      yield* Effect.sleep(700);
+      yield* recording({ action: "reset_focus" });
+      yield* recording({ action: "attention", selector: "#i", duration_ms: 600 });
+
+      const before = Date.now();
+      yield* agent.call("fill", { tab: opened.id, selector: "#i", value: TYPED });
+      const took = Date.now() - before;
+
+      expect(took).toBeGreaterThan(900);
+      expect(yield* title()).toBe(`typed:${TYPED}`);
+    }),
+  );
+
+  it.effect("a scroll to an edge travels there while recorded", () =>
+    Effect.gen(function* () {
+      yield* agent.call("scroll", { tab: opened.id, deltaY: 900 });
+      yield* agent.call("scroll", { tab: opened.id, deltaY: -900 });
+
+      const before = yield* wheelsSoFar;
+      const atBottom = yield* agent.call("scroll", { tab: opened.id, to: "bottom" });
+      yield* agent.call("scroll", { tab: opened.id, to: "top" });
+      const after = yield* wheelsSoFar;
+
+      expect(atBottom).toMatch(/"atBottom": true/u);
+      expect(after - before).toBeGreaterThan(20);
+    }),
+  );
+
+  it.effect("a recording finishes with a length", () =>
+    Effect.gen(function* () {
+      // Nothing happens for a while, which the edit cuts.
+      yield* Effect.sleep(2500);
+      stopped = JSON.parse(yield* recording({ action: "stop", id: started.id })) as Recording;
+
+      expect(stopped.state).toBe("finished");
+      expect(stopped.duration_ms).toBeGreaterThan(5000);
+      expect(stopped.bytes).toBeGreaterThan(1000);
+    }),
+  );
+
+  it.effect("stop returns while the edit is made", () =>
+    Effect.sync(() => {
+      expect(stopped.edit?.state).toBe("editing");
+    }),
+  );
+
+  it.effect("the recording is served as a Matroska file", () =>
+    Effect.gen(function* () {
+      const executor = yield* Executor;
+      const file = yield* Node.bytes(executor, session, `/files/${stopped.file}`);
+      expect(file).toHaveLength(stopped.bytes);
+      expect(file.subarray(0, 4).toString("hex")).toBe(MATROSKA_SIGNATURE);
+    }),
+  );
+
+  it.effect("the journal has what the automation did", () =>
+    Effect.gen(function* () {
+      const executor = yield* Executor;
+      const served = yield* Node.bytes(executor, session, `/files/${stopped.journal}`);
+      journal = entriesOf(served.toString());
+
+      const kinds = new Set(journal.map((entry) => entry.kind));
+      expect(Array.from(kinds)).toEqual(
+        expect.arrayContaining(["move", "press", "call", "caption", "focus", "attention"]),
+      );
+      expect(journal.find((entry) => entry.kind === "caption")?.text).toBe("clicking the button");
+    }),
+  );
+
+  it.effect("the focus is on the button, until it was reset", () =>
+    Effect.sync(() => {
+      const focus = journal.find((entry) => entry.kind === "focus")!;
+      expect(focus.follow).toBe("element");
+      expect(focus.ended).toBe("reset");
+      expect(Math.abs(focus.rect!.x - BUTTON.left)).toBeLessThan(2);
+      expect(focus.end_ms - focus.at_ms).toBeGreaterThan(1000);
+    }),
+  );
+
+  it.effect("the edit finishes", () =>
+    Effect.gen(function* () {
+      edit = yield* edited(started.id);
+      expect(edit.state).toBe("finished");
+    }),
+  );
+
+  it.effect("the edited video is an MP4", () =>
+    Effect.gen(function* () {
+      const executor = yield* Executor;
+      const file = yield* Node.bytes(executor, session, `/files/${edit.file}`);
+      expect(file.subarray(4, 8).toString()).toBe("ftyp");
+      expect(file.length).toBeGreaterThan(1000);
+    }),
+  );
+
+  it.effect("the edit cut the idle stretch", () =>
+    Effect.gen(function* () {
+      const timeline = yield* timelineOf(edit);
+      expect(timeline.edited_duration_ms).toBeLessThan(timeline.duration_ms - 1000);
+      expect(timeline.map.length).toBeGreaterThanOrEqual(1);
+      expect(timeline.events.filter((event) => event.edited_at_ms > event.at_ms)).toEqual([]);
+    }),
+  );
+
+  it.effect("journal times are in the video's time", () =>
+    Effect.sync(() => {
+      const outside = journal.filter(
+        (entry) =>
+          entry.at_ms < 0 || entry.at_ms > entry.end_ms || entry.end_ms > stopped.duration_ms + 100,
+      );
+      expect(outside).toEqual([]);
+      expect(journal.some((entry) => entry.at_ms > 500)).toBe(true);
+    }),
+  );
+
+  it.effect("the wheel turns in many small steps while recorded", () =>
+    Effect.sync(() => {
+      expect(journal.filter((entry) => entry.kind === "wheel").length).toBeGreaterThan(20);
+    }),
+  );
+
+  it.effect("the pointer travels to where it acts while recorded", () =>
+    Effect.sync(() => {
+      expect(journal.filter((entry) => entry.kind === "move").length).toBeGreaterThan(30);
+    }),
+  );
+
+  it.effect("the journal's press is where the click went", () =>
+    Effect.sync(() => {
+      const onButton = journal.filter(
+        (entry) =>
+          entry.kind === "press" &&
+          entry.button === "left" &&
+          Math.abs((entry.x ?? 0) - BUTTON.x) < 150 &&
+          Math.abs((entry.y ?? 0) - BUTTON.y) < 50,
+      );
+      expect(onButton.length).toBeGreaterThan(0);
+    }),
+  );
+
+  // A caret blinks in the field all the while. With every change of a pixel counting, only
+  // its steady beat tells it from something happening.
+  it.effect("a blinking caret does not keep a page from being idle", () =>
+    Effect.gen(function* () {
+      yield* agent.call("click", { tab: opened.id, selector: "#i" });
+      const blinking = JSON.parse(
+        yield* recording({
+          action: "start",
+          tab: opened.id,
+          idle: "cut",
+          motion_threshold: 0,
+        }),
+      ) as Recording;
+      yield* agent.call("hover", { tab: opened.id, x: 700, y: 200 });
+      yield* Effect.sleep(4500);
+      yield* recording({ action: "stop", id: blinking.id });
+
+      const timeline = yield* timelineOf(yield* edited(blinking.id));
+      expect(timeline.edited_duration_ms).toBeLessThan(timeline.duration_ms - 1500);
+    }),
+  );
+
+  it.effect("the viewer's cursor is back once nothing is recorded", () =>
+    Effect.gen(function* () {
+      expect(yield* snapshot(watcher, "s.cursor")).not.toBe("none");
+    }),
+  );
+
+  it.effect("the viewer still plays after the recordings", () =>
+    Effect.gen(function* () {
+      expect(yield* snapshot(watcher, "s.picture.rtc")).toBe("connected");
+      expect(yield* watcher.evaluate("window.peers.at(-1)?.connectionState")).toBe("connected");
+    }),
+  );
+});

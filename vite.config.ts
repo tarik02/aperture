@@ -9,13 +9,12 @@ export default defineConfig({
       "*.lock",
       "crates/**",
       "proto/**",
-      "e2e/e2e.mjs",
       "target/**",
       "pnpm-lock.yaml",
     ],
   },
   lint: {
-    ignorePatterns: ["**/dist/**", "**/gen/**", "crates/**", "e2e/e2e.mjs", "target/**"],
+    ignorePatterns: ["**/dist/**", "**/gen/**", "crates/**", "target/**"],
     plugins: ["typescript", "unicorn", "oxc", "import"],
     jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
     rules: {

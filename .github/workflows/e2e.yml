@@ -49,8 +49,5 @@ jobs:
       - name: Build the programs
         run: nix develop --command cargo build --workspace
 
-      - name: The executor, end to end
-        run: nix develop --command node e2e/e2e.mjs "$PWD/target/debug"
-
-      - name: Sessions, as their users drive them
-        run: nix develop --command pnpm --filter @aperture-browser/e2e test
+      - name: Run
+        run: nix develop --command pnpm test:e2e

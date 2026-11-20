@@ -34,22 +34,28 @@ export const run = (
       });
       return { child, said: () => said };
     }),
-    ({ child }) =>
-      Effect.promise(
-        () =>
-          new Promise<void>((ended) => {
-            if (child.exitCode !== null || child.signalCode !== null) {
-              ended();
-              return;
-            }
-            const kill = setTimeout(() => child.kill("SIGKILL"), ENDS_WITHIN_MS);
-            child.once("exit", () => {
-              clearTimeout(kill);
-              ended();
-            });
-            child.kill("SIGTERM");
-          }),
-      ),
+    ({ child }) => ended(child, "SIGTERM", ENDS_WITHIN_MS),
+  );
+
+/**
+ * Asks a program to end with a signal and waits until it has; one that has not ended in
+ * time is killed. A program that ended already is left alone.
+ */
+export const ended = (child: ChildProcess, signal: NodeJS.Signals, withinMs: number) =>
+  Effect.promise(
+    () =>
+      new Promise<void>((gone) => {
+        if (child.exitCode !== null || child.signalCode !== null) {
+          gone();
+          return;
+        }
+        const kill = setTimeout(() => child.kill("SIGKILL"), withinMs);
+        child.once("exit", () => {
+          clearTimeout(kill);
+          gone();
+        });
+        child.kill(signal);
+      }),
   );
 
 /** A port nothing listens on right now. */
@@ -72,5 +78,9 @@ export const freePort = Effect.promise(
 /** A directory of the scope's own, gone when it ends. Its path is short: sockets go below it. */
 export const directory = Effect.acquireRelease(
   Effect.sync(() => mkdtempSync(join(tmpdir(), "ap-e2e-"))),
-  (path) => Effect.sync(() => rmSync(path, { recursive: true, force: true })),
+  // What ran there may still be writing its last as it ends.
+  (path) =>
+    Effect.sync(() =>
+      rmSync(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }),
+    ),
 );
