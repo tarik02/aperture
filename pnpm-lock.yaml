@@ -24,6 +24,9 @@ catalogs:
     '@effect/platform-node':
       specifier: 4.0.0
       version: 4.0.0
+    '@effect/vitest':
+      specifier: 4.0.0
+      version: 4.0.0
     '@fontsource-variable/geist':
       specifier: ^5.2.9
       version: 5.3.0
@@ -96,6 +99,9 @@ catalogs:
     vite-plus:
       specifier: 0.2.4
       version: 0.2.4
+    vitest:
+      specifier: 4.1.10
+      version: 4.1.10
 
 overrides:
   '@effect/platform-node-shared': 4.0.0
@@ -168,6 +174,30 @@ importers:
       vite-plus:
         specifier: 'catalog:'
         version: 0.2.4(@types/node@26.6.6)(@voidzero-dev/vite-plus-core@0.2.4(@types/node@26.6.6)(jiti@2.7.0)(publint@0.3.24)(typescript@6.0.3))(jiti@2.7.0)(publint@0.3.24)(typescript@6.0.3)
+
+  e2e:
+    devDependencies:
+      '@aperture-browser/executor-client':
+        specifier: workspace:*
+        version: link:../packages/executor-client
+      '@aperture-browser/session-client':
+        specifier: workspace:*
+        version: link:../packages/session-client
+      '@effect/vitest':
+        specifier: 'catalog:'
+        version: 4.0.0(effect@4.0.0)(vitest@4.1.10(@types/node@26.6.6)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.4(@types/node@26.6.6)(jiti@2.7.0)(publint@0.3.24)(typescript@6.0.3)))
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.6
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0
+      vite-plus:
+        specifier: 'catalog:'
+        version: 0.2.4(@types/node@26.6.6)(@voidzero-dev/vite-plus-core@0.2.4(@types/node@26.6.6)(jiti@2.7.0)(publint@0.3.24)(typescript@6.0.3))(jiti@2.7.0)(publint@0.3.24)(typescript@6.0.3)
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@26.6.6)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.4(@types/node@26.6.6)(jiti@2.7.0)(publint@0.3.24)(typescript@6.0.3))
 
   packages/executor-client:
     dependencies:
@@ -457,6 +487,12 @@ packages:
     peerDependenciesMeta:
       redis:
         optional: true
+
+  '@effect/vitest@4.0.0':
+    resolution: {integrity: sha512-kGElCPFGtP+CgMCwV/HjJWqtE3zYo6I1+8MSA54l+EI24lPU9p2Efa+TBp1jfkg9j711KKzEqgSAy3VzTsb76Q==}
+    peerDependencies:
+      effect: ^4.0.0
+      vitest: '>=5.0.0 <6.0.0'
 
   '@floating-ui/core@1.8.0':
     resolution: {integrity: sha512-0CIZ5itps/8x7BG8dEIhs53BvCUH2PCoogtakwRTut+Arm58sJooJ0AuZhLw2HJYIR5cMLNPBSS728sPho2khQ==}
@@ -1785,6 +1821,11 @@ snapshots:
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
+
+  '@effect/vitest@4.0.0(effect@4.0.0)(vitest@4.1.10(@types/node@26.6.6)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.4(@types/node@26.6.6)(jiti@2.7.0)(publint@0.3.24)(typescript@6.0.3)))':
+    dependencies:
+      effect: 4.0.0
+      vitest: 4.1.10(@types/node@26.6.6)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.4(@types/node@26.6.6)(jiti@2.7.0)(publint@0.3.24)(typescript@6.0.3))
 
   '@floating-ui/core@1.8.0':
     dependencies:

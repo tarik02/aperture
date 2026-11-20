@@ -1,0 +1,20 @@
+{
+  "name": "@aperture-browser/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Real sessions end to end: the programs this repository builds, driven as their users drive them.",
+  "type": "module",
+  "scripts": {
+    "test": "vp test run",
+    "typecheck": "tsgo --noEmit"
+  },
+  "devDependencies": {
+    "@aperture-browser/executor-client": "workspace:*",
+    "@aperture-browser/session-client": "workspace:*",
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "effect": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  }
+}

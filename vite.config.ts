@@ -9,13 +9,13 @@ export default defineConfig({
       "*.lock",
       "crates/**",
       "proto/**",
-      "e2e/**",
+      "e2e/e2e.mjs",
       "target/**",
       "pnpm-lock.yaml",
     ],
   },
   lint: {
-    ignorePatterns: ["**/dist/**", "**/gen/**", "crates/**", "e2e/**", "target/**"],
+    ignorePatterns: ["**/dist/**", "**/gen/**", "crates/**", "e2e/e2e.mjs", "target/**"],
     plugins: ["typescript", "unicorn", "oxc", "import"],
     jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
     rules: {
@@ -38,6 +38,11 @@ export default defineConfig({
     overrides: [
       {
         files: ["**/vite.config.ts"],
+        rules: { "import/no-nodejs-modules": "off", "no-restricted-globals": "off" },
+      },
+      {
+        // The checks run in Node, beside the programs they start.
+        files: ["e2e/**"],
         rules: { "import/no-nodejs-modules": "off", "no-restricted-globals": "off" },
       },
     ],

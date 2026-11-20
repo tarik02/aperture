@@ -188,6 +188,8 @@
             ./proto
             ./apps
             ./packages
+            # A member of the workspace, so the lockfile names it; its checks are not built.
+            ./e2e/package.json
             ./package.json
             ./pnpm-lock.yaml
             ./pnpm-workspace.yaml
@@ -201,7 +203,7 @@
           inherit version src;
           pnpm = pnpmLatest;
           fetcherVersion = 4;
-          hash = "sha256-8F/K9BKNLSj7MGFtLa+QLzGG2VIQB7CAqR3melxjQj0=";
+          hash = "sha256-6JuuhmhLCspBQhZGmGzuosRCq15B4l85vkPVuFdSJe4=";
         };
 
         # The page that shows a session: one HTML file with everything it needs in it, which the
