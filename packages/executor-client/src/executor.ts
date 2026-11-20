@@ -47,9 +47,12 @@ export const make = (address: Address) => ({
       call(address, methods.suspendSession, { id }).pipe(
         Effect.flatMap((response) => sent(response.session, "session")),
       ),
-    /** Starts the browser of a suspended or failed session on the profile it left. */
-    resume: (id: string) =>
-      call(address, methods.resumeSession, { id }).pipe(
+    /**
+     * Starts the browser of a suspended or failed session on the profile it left. As a
+     * takeover, also when another node says it has the session.
+     */
+    resume: (id: string, options: { readonly takeover?: boolean } = {}) =>
+      call(address, methods.resumeSession, { id, takeover: options.takeover ?? false }).pipe(
         Effect.flatMap((response) => sent(response.session, "session")),
       ),
     /**

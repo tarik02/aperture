@@ -103,7 +103,7 @@ impl ExecutorService for Executor {
         request: ServiceRequest<'_, pb::ResumeSessionRequest>,
     ) -> ServiceResult<pb::ResumeSessionResponse> {
         Response::ok(pb::ResumeSessionResponse {
-            session: MessageField::some(self.0.resume(request.id).await?.into()),
+            session: MessageField::some(self.0.resume(request.id, request.takeover).await?.into()),
             ..Default::default()
         })
     }
@@ -396,7 +396,7 @@ impl From<Error> for ConnectError {
             Error::Store(StoreError::InvalidId(_)) | Error::Proxy(_) | Error::Limits(_) => {
                 ErrorCode::InvalidArgument
             }
-            Error::NotRunning(_) | Error::NoCgroups | Error::Options(_) => {
+            Error::NotRunning(_) | Error::NoCgroups | Error::Options(_) | Error::Held { .. } => {
                 ErrorCode::FailedPrecondition
             }
             Error::Store(_) | Error::Start { .. } | Error::Stop(_) | Error::Io(..) => {

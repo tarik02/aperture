@@ -291,6 +291,10 @@ message SuspendSessionResponse {
 
 message ResumeSessionRequest {
   string id = 1;
+  // Resume the session although another node says it has it, for a node that died with
+  // the session on it: the session is as it was last suspended. Only executors that say
+  // which sessions they have refuse one for that.
+  bool takeover = 2;
 }
 
 message ResumeSessionResponse {

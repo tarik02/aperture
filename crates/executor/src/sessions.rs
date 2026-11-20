@@ -61,6 +61,8 @@ pub enum Error {
         --session-scopes"
     )]
     NoCgroups,
+    #[error("session {id} is on node {node}; it is resumed here only as a takeover")]
+    Held { id: String, node: String },
     #[error("{0}: {1}")]
     Io(PathBuf, std::io::Error),
 }
@@ -82,6 +84,12 @@ pub struct Config {
     pub snapshots: Option<Remote>,
     /// Where sessions are put when they are suspended, for other nodes to resume them.
     pub shared_sessions: Option<Remote>,
+    /// The name this node says it has sessions under, where nodes share them; it says
+    /// nothing, and takes no other node's word, without one.
+    pub holds_as: Option<String>,
+    /// How many snapshots and sessions are on their way to or from those stores at a
+    /// time.
+    pub transfers: usize,
 }
 
 impl Config {
@@ -146,18 +154,24 @@ pub struct Sessions {
     busy: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Of the sessions something reached since this executor started.
     activity: Mutex<HashMap<String, Activity>>,
-    /// One thing at a time between this node's snapshots and the store nodes share.
-    sharing: tokio::sync::Mutex<()>,
+    /// What is on its way to or from the stores nodes share, no more at a time than the
+    /// executor is set up for.
+    transfers: tokio::sync::Semaphore,
+    /// Held by whoever brings a snapshot to this node or puts one of its own where nodes
+    /// share them, and wholly by whoever drops the snapshots that are gone from there:
+    /// one on its way is not there yet.
+    arriving: tokio::sync::RwLock<()>,
 }
 
 impl Sessions {
     pub fn new(store: Store, config: Config) -> Self {
         Self {
+            transfers: tokio::sync::Semaphore::new(config.transfers),
             store,
             config,
             busy: Mutex::default(),
             activity: Mutex::default(),
-            sharing: tokio::sync::Mutex::default(),
+            arriving: tokio::sync::RwLock::default(),
         }
     }
 
@@ -249,7 +263,8 @@ impl Sessions {
         let limits = (limits != Limits::default())
             .then(|| serde_json::to_value(limits).expect("limits are serializable"));
         if let (Some(remote), Some(id)) = (&self.config.snapshots, snapshot_id) {
-            let _sharing = self.sharing.lock().await;
+            let _transfer = self.transfer().await;
+            let _arriving = self.arriving.read().await;
             let snapshot = remote.snapshot(id).await?;
             remote.pull(&self.store, &snapshot).await?;
         }
@@ -259,7 +274,7 @@ impl Sessions {
         if let (Some(shared), Some(layers)) =
             (&self.config.shared_sessions, self.config.shared_layers())
         {
-            let _sharing = self.sharing.lock().await;
+            let _transfer = self.transfer().await;
             layers
                 .push_layers(&self.store, record.base_layer.as_deref())
                 .await?;
@@ -268,6 +283,7 @@ impl Sessions {
         info!(session = %record.id, ?snapshot_id, "session created");
         if !suspended {
             let _busy = self.busy(&record.id).await;
+            self.hold(&record.id, false).await?;
             self.start(&record.id).await?;
         }
         self.get(&record.id)
@@ -315,8 +331,9 @@ impl Sessions {
         Ok(())
     }
 
-    pub async fn resume(&self, id: &str) -> Result<Session> {
+    pub async fn resume(&self, id: &str, takeover: bool) -> Result<Session> {
         let _busy = self.busy(id).await;
+        self.hold(id, takeover).await?;
         self.bring(id).await?;
         self.store.session(id)?;
         self.start(id).await?;
@@ -333,6 +350,30 @@ impl Sessions {
         self.get(id)
     }
 
+    /// Says where nodes share sessions that this node has the session, when it is set up
+    /// to. Refused while another node says it has it, unless this is a takeover.
+    async fn hold(&self, id: &str, takeover: bool) -> Result<()> {
+        let (Some(shared), Some(node)) = (&self.config.shared_sessions, &self.config.holds_as)
+        else {
+            return Ok(());
+        };
+        match shared.hold(id, node, takeover).await? {
+            None => Ok(()),
+            Some(node) => Err(Error::Held {
+                id: id.to_owned(),
+                node,
+            }),
+        }
+    }
+
+    /// Up to as many at a time as the executor is set up for.
+    async fn transfer(&self) -> tokio::sync::SemaphorePermit<'_> {
+        self.transfers
+            .acquire()
+            .await
+            .expect("the semaphore is never closed")
+    }
+
     /// Brings the session from where nodes share sessions, when this node has none of it
     /// or another state than was last put there. A session that runs here is left alone.
     async fn bring(&self, id: &str) -> Result<()> {
@@ -345,7 +386,7 @@ impl Sessions {
         if is_alive(&runtime).map_err(|err| Error::Io(runtime, err))? {
             return Ok(());
         }
-        let _sharing = self.sharing.lock().await;
+        let _transfer = self.transfer().await;
         // One that was never put there is this node's alone, if it is anyone's.
         let Some(theirs) = shared.session(id).await? else {
             return Ok(());
@@ -374,12 +415,17 @@ impl Sessions {
         else {
             return Ok(());
         };
-        let _sharing = self.sharing.lock().await;
+        let _transfer = self.transfer().await;
         let base = self.store.session(id)?.base_layer;
         layers.push_layers(&self.store, base.as_deref()).await?;
         let revision = shared.push_state(&self.store, id).await?;
         self.store.set_session_revision(id, &revision)?;
-        Ok(shared.put_session(&self.store.session(id)?).await?)
+        shared.put_session(&self.store.session(id)?).await?;
+        // Once it is all there: another node may have it from now on.
+        match &self.config.holds_as {
+            Some(node) => Ok(shared.release(id, node).await?),
+            None => Ok(()),
+        }
     }
 
     /// Suspends a session that sat idle, until someone reaches it.
@@ -401,6 +447,8 @@ impl Sessions {
         // Someone else may have been here first.
         if self.store.session(id)?.asleep {
             info!(session = %id, "someone reached a session that sat idle; resuming it");
+            self.hold(id, false).await?;
+            self.bring(id).await?;
             self.start(id).await?;
         }
         Ok(())
@@ -424,7 +472,6 @@ impl Sessions {
             remove_dir_all(&self.runtime_dir(id))?;
         }
         if let Some(shared) = shared {
-            let _sharing = self.sharing.lock().await;
             shared.delete_session(id).await?;
             // The session is gone either way; what it leaves is collected the next time
             // too.
@@ -453,7 +500,8 @@ impl Sessions {
         }
         let snapshot = snapshot?;
         if let Some(remote) = &self.config.snapshots {
-            let _sharing = self.sharing.lock().await;
+            let _transfer = self.transfer().await;
+            let _arriving = self.arriving.read().await;
             if let Err(err) = remote.push(&self.store, &snapshot).await {
                 // A snapshot the other nodes do not have is none.
                 self.store.delete_snapshot(&snapshot.id)?;
@@ -468,12 +516,15 @@ impl Sessions {
         let Some(remote) = &self.config.snapshots else {
             return Ok(self.store.snapshots()?);
         };
-        let _sharing = self.sharing.lock().await;
+        // Not while a snapshot is on its way: the next time, then.
+        let settled = self.arriving.try_write();
         let shared = remote.snapshots().await?;
-        // What this node still has of snapshots that were deleted elsewhere.
-        for gone in self.store.snapshots()? {
-            if !shared.iter().any(|snapshot| snapshot.id == gone.id) {
-                self.store.delete_snapshot(&gone.id)?;
+        if settled.is_ok() {
+            // What this node still has of snapshots that were deleted elsewhere.
+            for gone in self.store.snapshots()? {
+                if !shared.iter().any(|snapshot| snapshot.id == gone.id) {
+                    self.store.delete_snapshot(&gone.id)?;
+                }
             }
         }
         Ok(shared)
@@ -490,7 +541,6 @@ impl Sessions {
         let Some(remote) = &self.config.snapshots else {
             return Ok(self.store.delete_snapshot(id)?);
         };
-        let _sharing = self.sharing.lock().await;
         remote.delete(id).await?;
         match self.store.delete_snapshot(id) {
             // It was never brought here.

@@ -4,12 +4,13 @@
 //! ```text
 //! <prefix>/snapshots/<id>.json
 //! <prefix>/layers/<id>/{fs.tar.zst,layer.json}
-//! <prefix>/sessions/<id>/{session.json,state.tar.zst}
+//! <prefix>/sessions/<id>/{session.json,state.tar.zst,held.json}
 //! ```
 //!
 //! A session's record is as it was last suspended, and its state is what its profile had
-//! above its layers then, with its files. Nothing here says which node has a session:
-//! whoever tells the nodes what to do sees to it that one of them runs it at a time.
+//! above its layers then, with its files. Which node runs a session is for whoever tells
+//! the nodes what to do; nodes that are asked to say so here as well, with `held.json`,
+//! and then refuse a session another node says it has.
 //!
 //! A layer is there once its record is, which is written after its files. A snapshot's
 //! record is written after its layers, so whoever finds a snapshot finds all of it. A node
@@ -25,9 +26,9 @@ use std::{
 
 use futures_util::TryStreamExt;
 use object_store::{
-    ObjectStore, ObjectStoreExt, PutPayload, buffered::BufWriter, path::Path as Key,
+    ObjectStore, ObjectStoreExt, PutMode, PutPayload, buffered::BufWriter, path::Path as Key,
 };
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::{io::AsyncWriteExt, process::Command};
 
 use crate::{
@@ -41,6 +42,12 @@ const KEPT_UNUSED: Duration = Duration::from_secs(60 * 60);
 
 /// What of a session's directory is its state: the rest is made anew wherever it runs.
 const STATE: [&str; 3] = ["upper", "files", "state"];
+
+/// Which node says it has a session.
+#[derive(Serialize, Deserialize)]
+struct Held {
+    node: String,
+}
 
 /// The programs layers are packed and unpacked with.
 #[derive(Debug, Clone)]
@@ -215,11 +222,59 @@ impl Remote {
         Ok(staged)
     }
 
+    /// Says that `node` has the session, unless another node says it has it: then that
+    /// node's name is given, and with `takeover` its word is taken for this node's.
+    pub async fn hold(&self, id: &str, node: &str, takeover: bool) -> Result<Option<String>> {
+        check_id(id)?;
+        let key = self.held_key(id);
+        let ours = serde_json::to_vec(&Held {
+            node: node.to_owned(),
+        })
+        .expect("a name is serializable");
+        loop {
+            match self.read::<Held>(&key).await? {
+                Some(held) if held.node == node => return Ok(None),
+                Some(held) if !takeover => return Ok(Some(held.node)),
+                Some(_) => {
+                    self.objects
+                        .put(&key, PutPayload::from(ours))
+                        .await
+                        .map_err(failed(format!("writing {key}")))?;
+                    return Ok(None);
+                }
+                None => {}
+            }
+            let created = self
+                .objects
+                .put_opts(&key, PutPayload::from(ours.clone()), PutMode::Create.into())
+                .await;
+            match created {
+                Ok(_) => return Ok(None),
+                // Another node was first: it is read again to say which.
+                Err(object_store::Error::AlreadyExists { .. }) => {}
+                Err(err) => return Err(failed(format!("writing {key}"))(err)),
+            }
+        }
+    }
+
+    /// Takes back what `node` said of having the session.
+    pub async fn release(&self, id: &str, node: &str) -> Result<()> {
+        check_id(id)?;
+        let key = self.held_key(id);
+        match self.read::<Held>(&key).await? {
+            Some(held) if held.node == node => match self.objects.delete(&key).await {
+                Ok(()) | Err(object_store::Error::NotFound { .. }) => Ok(()),
+                Err(err) => Err(failed(format!("removing {key}"))(err)),
+            },
+            _ => Ok(()),
+        }
+    }
+
     /// Removes what is here of the session. The record first: without it the rest is no
     /// session.
     pub async fn delete_session(&self, id: &str) -> Result<()> {
         check_id(id)?;
-        for key in [self.session_key(id), self.state_key(id)] {
+        for key in [self.session_key(id), self.state_key(id), self.held_key(id)] {
             match self.objects.delete(&key).await {
                 Ok(()) | Err(object_store::Error::NotFound { .. }) => {}
                 Err(err) => return Err(failed(format!("removing {key}"))(err)),
@@ -320,6 +375,11 @@ impl Remote {
     fn session_key(&self, id: &str) -> Key {
         let session = self.prefix.clone().join("sessions").join(id);
         session.join("session.json")
+    }
+
+    fn held_key(&self, id: &str) -> Key {
+        let session = self.prefix.clone().join("sessions").join(id);
+        session.join("held.json")
     }
 
     fn state_key(&self, id: &str) -> Key {

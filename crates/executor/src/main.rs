@@ -11,7 +11,7 @@ mod proto {
     connectrpc::include_generated!();
 }
 
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{fs, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::Context;
 use aperture_gateway::{Listen, Origin, auth::Keys};
@@ -57,6 +57,17 @@ struct Arguments {
     /// tells the nodes what to do sees to that. Without it sessions are this node's alone.
     #[arg(long, env = "APERTURE_SESSION_STORE")]
     session_store: Option<String>,
+    /// Say in the sessions' store which sessions this node has, and refuse to resume one
+    /// another node says it has, unless asked to take it over. Takes a store that writes
+    /// a file only if there is none, as S3 does.
+    #[arg(long, env = "APERTURE_SESSION_LOCKS", requires = "session_store")]
+    session_locks: bool,
+    /// This node's name among those that share its stores. The machine's by default.
+    #[arg(long, env = "APERTURE_NODE")]
+    node: Option<String>,
+    /// How many snapshots and sessions are on their way to or from the stores at a time.
+    #[arg(long, env = "APERTURE_TRANSFERS", default_value_t = 4, value_parser = clap::value_parser!(u8).range(1..))]
+    transfers: u8,
     /// tar and zstd, which pack what goes to those stores.
     #[arg(long, env = "APERTURE_TAR", default_value = "tar")]
     tar: PathBuf,
@@ -202,6 +213,17 @@ async fn main() -> anyhow::Result<()> {
         Config {
             snapshots,
             shared_sessions,
+            holds_as: match arguments.session_locks {
+                true => Some(match arguments.node {
+                    Some(node) => node,
+                    None => fs::read_to_string("/proc/sys/kernel/hostname")
+                        .context("failed to read the machine's name")?
+                        .trim()
+                        .to_owned(),
+                }),
+                false => None,
+            },
+            transfers: arguments.transfers.into(),
             runtime_root,
             runner: options::executable(&runner)?,
             setup: arguments.options.setup()?,
