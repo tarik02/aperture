@@ -243,6 +243,11 @@ impl Sessions {
         self.get(&record.id)
     }
 
+    /// How this executor is set up.
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+
     pub fn get(&self, id: &str) -> Result<Session> {
         self.observe(self.store.session(id)?)
     }

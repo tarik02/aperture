@@ -8,6 +8,9 @@ import "google/protobuf/timestamp.proto";
 // What one node does on request: browser sessions and the snapshots taken of them, on the
 // node's own storage.
 service ExecutorService {
+  // What this executor is and what its sessions may have.
+  rpc GetExecutor(GetExecutorRequest) returns (GetExecutorResponse);
+
   // Creates a session, from a snapshot or empty, and starts its browser unless asked not to.
   rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
   rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
@@ -40,6 +43,25 @@ enum SessionState {
   SESSION_STATE_SUSPENDING = 4;
   // The browser ended without being asked to; `failure` says how. The profile is kept.
   SESSION_STATE_FAILED = 5;
+}
+
+message Executor {
+  string version = 1;
+  // What its sessions offer unless they say otherwise, and the most one may offer.
+  repeated Feature features = 2;
+  // The network its sessions' browsers have unless they say otherwise, and the most one
+  // may have.
+  Network network = 3;
+  // The limits of a session that has none of its own.
+  Limits limits = 4;
+  // Whether it holds sessions to limits on what they use, and counts what they use.
+  bool holds_resources = 5;
+}
+
+message GetExecutorRequest {}
+
+message GetExecutorResponse {
+  Executor executor = 1;
 }
 
 // Something a session offers besides its picture and input.

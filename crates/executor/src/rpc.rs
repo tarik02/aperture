@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use aperture_runner::{Feature, Tcp, Udp, proxy};
+use aperture_runner::{Feature, Features, Network, Tcp, Udp, proxy};
 use aperture_store::{SnapshotRecord, StoreError};
 use buffa::{EnumValue, MessageField};
 use buffa_types::google::protobuf::{Duration, Timestamp};
@@ -20,6 +20,25 @@ use crate::{
 pub struct Executor(pub Arc<Sessions>);
 
 impl ExecutorService for Executor {
+    async fn get_executor(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, pb::GetExecutorRequest>,
+    ) -> ServiceResult<pb::GetExecutorResponse> {
+        let config = self.0.config();
+        Response::ok(pb::GetExecutorResponse {
+            executor: MessageField::some(pb::Executor {
+                version: env!("CARGO_PKG_VERSION").to_owned(),
+                features: features_message(config.setup.features()),
+                network: MessageField::some(network_message(config.setup.network())),
+                limits: MessageField::some(limits_message(config.limits)),
+                holds_resources: config.scopes.is_some(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+    }
+
     async fn create_session(
         &self,
         _ctx: RequestContext,
@@ -190,14 +209,7 @@ impl From<Session> for pb::Session {
                 State::Failed => status.and_then(|status| status.failure),
                 _ => None,
             },
-            limits: MessageField::some(pb::Limits {
-                memory_bytes: session.limits.memory,
-                swap_bytes: session.limits.swap,
-                cpus: session.limits.cpus,
-                tasks: session.limits.tasks,
-                suspend_idle_after: session.limits.idle().map(duration).into(),
-                ..Default::default()
-            }),
+            limits: MessageField::some(limits_message(session.limits)),
             usage: session
                 .usage
                 .map(|usage| pb::Usage {
@@ -210,22 +222,8 @@ impl From<Session> for pb::Session {
                 })
                 .into(),
             idle_since: session.idle_since_ms.map(timestamp).into(),
-            features: FEATURES
-                .into_iter()
-                .filter(|(_, feature)| session.features.has(*feature))
-                .map(|(feature, _)| EnumValue::from(feature))
-                .collect(),
-            network: MessageField::some(pb::Network {
-                tcp: EnumValue::from(match session.network.tcp {
-                    Tcp::Proxied => pb::NetworkTcp::NETWORK_TCP_PROXIED,
-                    Tcp::Direct => pb::NetworkTcp::NETWORK_TCP_DIRECT,
-                }),
-                udp: EnumValue::from(match session.network.udp {
-                    Udp::None => pb::NetworkUdp::NETWORK_UDP_NONE,
-                    Udp::Direct => pb::NetworkUdp::NETWORK_UDP_DIRECT,
-                }),
-                ..Default::default()
-            }),
+            features: features_message(session.features),
+            network: MessageField::some(network_message(session.network)),
             asleep: session.record.asleep && session.state == State::Suspended,
             id: session.record.id,
             ..Default::default()
@@ -243,6 +241,39 @@ const FEATURES: [(pb::Feature, Feature); 8] = [
     (pb::Feature::FEATURE_CDP, Feature::Cdp),
     (pb::Feature::FEATURE_TUNNEL, Feature::Tunnel),
 ];
+
+fn features_message(features: Features) -> Vec<EnumValue<pb::Feature>> {
+    FEATURES
+        .into_iter()
+        .filter(|(_, feature)| features.has(*feature))
+        .map(|(feature, _)| EnumValue::from(feature))
+        .collect()
+}
+
+fn network_message(network: Network) -> pb::Network {
+    pb::Network {
+        tcp: EnumValue::from(match network.tcp {
+            Tcp::Proxied => pb::NetworkTcp::NETWORK_TCP_PROXIED,
+            Tcp::Direct => pb::NetworkTcp::NETWORK_TCP_DIRECT,
+        }),
+        udp: EnumValue::from(match network.udp {
+            Udp::None => pb::NetworkUdp::NETWORK_UDP_NONE,
+            Udp::Direct => pb::NetworkUdp::NETWORK_UDP_DIRECT,
+        }),
+        ..Default::default()
+    }
+}
+
+fn limits_message(limits: Limits) -> pb::Limits {
+    pb::Limits {
+        memory_bytes: limits.memory,
+        swap_bytes: limits.swap,
+        cpus: limits.cpus,
+        tasks: limits.tasks,
+        suspend_idle_after: limits.idle().map(duration).into(),
+        ..Default::default()
+    }
+}
 
 /// What a request says of the session's own options.
 fn options(request: &pb::CreateSessionRequest) -> Result<Asked, ConnectError> {
