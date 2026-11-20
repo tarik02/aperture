@@ -98,6 +98,46 @@ pub enum Udp {
     Direct,
 }
 
+/// One of the things a session offers besides its picture and input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Feature {
+    Sound,
+    Uploads,
+    Downloads,
+    Recordings,
+    Clipboard,
+    Mcp,
+    Cdp,
+    Tunnel,
+}
+
+impl Feature {
+    pub const ALL: [Self; 8] = [
+        Self::Sound,
+        Self::Uploads,
+        Self::Downloads,
+        Self::Recordings,
+        Self::Clipboard,
+        Self::Mcp,
+        Self::Cdp,
+        Self::Tunnel,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Sound => "sound",
+            Self::Uploads => "uploads",
+            Self::Downloads => "downloads",
+            Self::Recordings => "recordings",
+            Self::Clipboard => "clipboard",
+            Self::Mcp => "mcp",
+            Self::Cdp => "cdp",
+            Self::Tunnel => "tunnel",
+        }
+    }
+}
+
 /// What a session offers besides its picture and input. Each is off unless whoever starts
 /// the session turns it on.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -126,6 +166,34 @@ pub struct Features {
     /// Clients attach tunnels, for the connections its rules send through them.
     #[serde(default)]
     pub tunnel: bool,
+}
+
+impl Features {
+    pub fn has(&self, feature: Feature) -> bool {
+        match feature {
+            Feature::Sound => self.sound,
+            Feature::Uploads => self.uploads,
+            Feature::Downloads => self.downloads,
+            Feature::Recordings => self.recordings,
+            Feature::Clipboard => self.clipboard,
+            Feature::Mcp => self.mcp,
+            Feature::Cdp => self.cdp,
+            Feature::Tunnel => self.tunnel,
+        }
+    }
+
+    pub fn set(&mut self, feature: Feature, on: bool) {
+        *match feature {
+            Feature::Sound => &mut self.sound,
+            Feature::Uploads => &mut self.uploads,
+            Feature::Downloads => &mut self.downloads,
+            Feature::Recordings => &mut self.recordings,
+            Feature::Clipboard => &mut self.clipboard,
+            Feature::Mcp => &mut self.mcp,
+            Feature::Cdp => &mut self.cdp,
+            Feature::Tunnel => &mut self.tunnel,
+        } = on;
+    }
 }
 
 /// The size browser windows fill, in logical pixels, until one is given another.

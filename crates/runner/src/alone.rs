@@ -112,11 +112,14 @@ impl Serve {
             files: within("files"),
             state: within("state"),
         };
-        let spec = self.options.setup()?.spec(
+        let setup = self.options.setup()?;
+        let spec = setup.spec(
             self.id.as_deref().unwrap_or("own"),
             runtime_dir.canonicalize()?,
             directories,
             proxy::Config::default(),
+            setup.features(),
+            setup.network(),
         );
         Ok((
             spec,

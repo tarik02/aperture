@@ -42,6 +42,55 @@ enum SessionState {
   SESSION_STATE_FAILED = 5;
 }
 
+// Something a session offers besides its picture and input.
+enum Feature {
+  FEATURE_UNSPECIFIED = 0;
+  // Its tabs are heard.
+  FEATURE_SOUND = 1;
+  // Clients put files into it, for pages that ask for some.
+  FEATURE_UPLOADS = 2;
+  // Its browser downloads files.
+  FEATURE_DOWNLOADS = 3;
+  // Its tabs are recorded and screenshots kept.
+  FEATURE_RECORDINGS = 4;
+  // What is copied passes between it and its clients.
+  FEATURE_CLIPBOARD = 5;
+  // Its automation endpoint is served.
+  FEATURE_MCP = 6;
+  // Its browser's DevTools endpoint is served.
+  FEATURE_CDP = 7;
+  // Clients attach tunnels.
+  FEATURE_TUNNEL = 8;
+}
+
+message Features {
+  repeated Feature on = 1;
+}
+
+// Where the TCP of a session's browser goes.
+enum NetworkTcp {
+  NETWORK_TCP_UNSPECIFIED = 0;
+  // Nowhere but through the session's proxy, which holds it to the session's rules.
+  NETWORK_TCP_PROXIED = 1;
+  // Out as well: pages still load through the proxy, but nothing holds the browser to it,
+  // and what goes around it reaches the node's network too.
+  NETWORK_TCP_DIRECT = 2;
+}
+
+// Where the UDP of a session's browser goes, which a proxy does not carry.
+enum NetworkUdp {
+  NETWORK_UDP_UNSPECIFIED = 0;
+  // Nowhere: WebRTC has no way out.
+  NETWORK_UDP_NONE = 1;
+  // Out, held to nothing, the node's network included.
+  NETWORK_UDP_DIRECT = 2;
+}
+
+message Network {
+  NetworkTcp tcp = 1;
+  NetworkUdp udp = 2;
+}
+
 message Session {
   string id = 1;
   SessionState state = 2;
@@ -63,6 +112,10 @@ message Session {
   // on any of its endpoints, which answer once it runs. A session that was suspended on
   // request is not.
   bool asleep = 10;
+  // What the session offers when it runs.
+  repeated Feature features = 11;
+  // The network its browser has when it runs.
+  Network network = 12;
 }
 
 // What a session may use, and how long it may sit idle. Resources are held only by an
@@ -179,6 +232,12 @@ message CreateSessionRequest {
   // The session's own limits. One that is left out is the executor's; zero is none, also
   // where the executor has one.
   Limits limits = 4;
+  // What the session offers: these and nothing else. Left out, all that the executor
+  // lets sessions offer. One the executor does not let sessions offer is refused.
+  optional Features features = 5;
+  // The network the session's browser has. What is left unspecified is as the executor
+  // has it; `direct` where the executor has it otherwise is refused.
+  Network network = 6;
 }
 
 message CreateSessionResponse {

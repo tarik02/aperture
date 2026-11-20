@@ -70,6 +70,10 @@ pub struct SessionRecord {
     /// reads it.
     #[serde(default)]
     pub limits: Option<serde_json::Value>,
+    /// What the session offers and what network its browser has, where it says so itself,
+    /// as whoever runs the session reads it.
+    #[serde(default)]
+    pub options: Option<serde_json::Value>,
     /// It was suspended for sitting idle, and is to be resumed when someone reaches it.
     #[serde(default)]
     pub asleep: bool,
@@ -138,6 +142,7 @@ impl Store {
         snapshot_id: Option<&str>,
         proxy: Option<serde_json::Value>,
         limits: Option<serde_json::Value>,
+        options: Option<serde_json::Value>,
     ) -> Result<SessionRecord> {
         let base_layer = match snapshot_id {
             Some(id) => self.snapshot(id)?.layer,
@@ -151,6 +156,7 @@ impl Store {
             freezing: None,
             proxy,
             limits,
+            options,
             asleep: false,
         };
         // Built aside and renamed into place, so the session appears with its record.

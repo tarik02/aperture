@@ -1,6 +1,7 @@
 // Service impls return concrete message types where the generated traits declare `impl Encodable`.
 #![allow(refining_impl_trait_internal, refining_impl_trait_reachable)]
 
+mod asked;
 mod limits;
 mod rpc;
 mod scopes;

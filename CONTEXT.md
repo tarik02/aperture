@@ -69,7 +69,7 @@ _Avoid_: Post-processing, render
 The session's extension taking one tab's sound apart from the others, so each listener hears the tab they watch. A tapped tab plays into its tap and nowhere else.
 
 **Feature**:
-Something a session offers only where whoever starts it turns it on: `sound`, `uploads`, `downloads`, `recordings`, `clipboard`, `mcp`, `cdp`, `tunnel`. A session tells its clients which it has; what is off is refused, and a client does not show it.
+Something a session offers only where whoever starts it turns it on: `sound`, `uploads`, `downloads`, `recordings`, `clipboard`, `mcp`, `cdp`, `tunnel`. A session tells its clients which it has; what is off is refused, and a client does not show it. On an executor a session offers what the executor does unless it says itself which, and never more than the executor does; the same goes for its network.
 _Avoid_: Capability, permission
 
 **Egress**:

@@ -17,7 +17,7 @@ use std::{
 
 use aperture_gateway::Refused;
 use aperture_runner::{
-    Cdp, Live, Phase, Profile, Status, is_alive,
+    Cdp, Features, Live, Network, Phase, Profile, Status, is_alive,
     options::{Directories, Setup},
     proxy, read_status,
 };
@@ -28,6 +28,7 @@ use tokio::time::{Instant, sleep};
 use tracing::{info, warn};
 
 use crate::{
+    asked::Asked,
     limits::Limits,
     scopes::{Scopes, Usage},
 };
@@ -53,6 +54,8 @@ pub enum Error {
     Proxy(String),
     #[error("invalid limits: {0}")]
     Limits(String),
+    #[error("{0}")]
+    Options(String),
     #[error(
         "this executor cannot hold a session to limits on what it uses: it runs without \
         --session-scopes"
@@ -92,6 +95,9 @@ pub struct Session {
     pub status: Option<Status>,
     /// The limits it is held to.
     pub limits: Limits,
+    /// What it offers and the network its browser has, when it runs.
+    pub features: Features,
+    pub network: Network,
     pub usage: Option<Usage>,
     /// Since when nobody uses it, in milliseconds since the epoch, while it runs and
     /// nobody does.
@@ -214,15 +220,21 @@ impl Sessions {
         suspended: bool,
         proxy: Option<proxy::Config>,
         limits: Limits,
+        options: Asked,
     ) -> Result<Session> {
         let proxy = proxy.map(checked).transpose()?;
+        options.check(&self.config.setup).map_err(Error::Options)?;
+        let options = (options != Asked::default())
+            .then(|| serde_json::to_value(options).expect("options are serializable"));
         limits.check().map_err(Error::Limits)?;
         if limits.over(Limits::default()).on_resources() && self.config.scopes.is_none() {
             return Err(Error::NoCgroups);
         }
         let limits = (limits != Limits::default())
             .then(|| serde_json::to_value(limits).expect("limits are serializable"));
-        let record = self.store.create_session(snapshot_id, proxy, limits)?;
+        let record = self
+            .store
+            .create_session(snapshot_id, proxy, limits, options)?;
         info!(session = %record.id, ?snapshot_id, "session created");
         if !suspended {
             let _busy = self.busy(&record.id).await;
@@ -393,6 +405,7 @@ impl Sessions {
             }
         };
         let own = kept_limits(record.limits.clone())?;
+        let (features, network) = kept_options(record.options.clone())?.within(&self.config.setup);
         let running = state == State::Running;
         let idle_since_ms = running
             .then(|| {
@@ -412,6 +425,8 @@ impl Sessions {
         };
         Ok(Session {
             limits: own.over(self.config.limits),
+            features,
+            network,
             usage,
             idle_since_ms,
             record,
@@ -441,6 +456,7 @@ impl Sessions {
             None => proxy::Config::default(),
         };
         let limits = kept_limits(record.limits)?.over(self.config.limits);
+        let (features, network) = kept_options(record.options)?.within(&self.config.setup);
         fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
@@ -457,10 +473,10 @@ impl Sessions {
             files: paths.files,
             state: paths.state,
         };
-        let spec = self
-            .config
-            .setup
-            .spec(id, runtime.clone(), directories, proxy);
+        let spec =
+            self.config
+                .setup
+                .spec(id, runtime.clone(), directories, proxy, features, network);
         fs::write(
             aperture_runner::spec_path(&runtime),
             serde_json::to_vec_pretty(&spec).expect("a spec is serializable"),
@@ -657,6 +673,16 @@ fn kept_limits(kept: Option<serde_json::Value>) -> Result<Limits> {
         Some(limits) => serde_json::from_value(limits)
             .map_err(|err| Error::Limits(format!("what is kept of them is not read: {err}"))),
         None => Ok(Limits::default()),
+    }
+}
+
+/// The options a session's record keeps; none of its own when it keeps none.
+fn kept_options(kept: Option<serde_json::Value>) -> Result<Asked> {
+    match kept {
+        Some(options) => serde_json::from_value(options).map_err(|err| {
+            Error::Options(format!("what is kept of its options is not read: {err}"))
+        }),
+        None => Ok(Asked::default()),
     }
 }
 

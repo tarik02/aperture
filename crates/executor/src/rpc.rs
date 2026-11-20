@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use aperture_runner::proxy;
+use aperture_runner::{Feature, Tcp, Udp, proxy};
 use aperture_store::{SnapshotRecord, StoreError};
 use buffa::{EnumValue, MessageField};
 use buffa_types::google::protobuf::{Duration, Timestamp};
@@ -11,6 +11,7 @@ use connectrpc::{
 };
 
 use crate::{
+    asked::Asked,
     limits::Limits,
     proto::aperture::executor::v1::{self as pb, ExecutorService},
     sessions::{self, Error, Session, Sessions, State},
@@ -27,6 +28,7 @@ impl ExecutorService for Executor {
         let request = request.to_owned_message();
         let proxy = request.proxy.as_option().map(proxy_config);
         let limits = request.limits.as_option().map(limits).unwrap_or_default();
+        let options = options(&request)?;
         let session = self
             .0
             .create(
@@ -34,6 +36,7 @@ impl ExecutorService for Executor {
                 request.suspended,
                 proxy,
                 limits,
+                options,
             )
             .await?;
         Response::ok(pb::CreateSessionResponse {
@@ -207,11 +210,70 @@ impl From<Session> for pb::Session {
                 })
                 .into(),
             idle_since: session.idle_since_ms.map(timestamp).into(),
+            features: FEATURES
+                .into_iter()
+                .filter(|(_, feature)| session.features.has(*feature))
+                .map(|(feature, _)| EnumValue::from(feature))
+                .collect(),
+            network: MessageField::some(pb::Network {
+                tcp: EnumValue::from(match session.network.tcp {
+                    Tcp::Proxied => pb::NetworkTcp::NETWORK_TCP_PROXIED,
+                    Tcp::Direct => pb::NetworkTcp::NETWORK_TCP_DIRECT,
+                }),
+                udp: EnumValue::from(match session.network.udp {
+                    Udp::None => pb::NetworkUdp::NETWORK_UDP_NONE,
+                    Udp::Direct => pb::NetworkUdp::NETWORK_UDP_DIRECT,
+                }),
+                ..Default::default()
+            }),
             asleep: session.record.asleep && session.state == State::Suspended,
             id: session.record.id,
             ..Default::default()
         }
     }
+}
+
+const FEATURES: [(pb::Feature, Feature); 8] = [
+    (pb::Feature::FEATURE_SOUND, Feature::Sound),
+    (pb::Feature::FEATURE_UPLOADS, Feature::Uploads),
+    (pb::Feature::FEATURE_DOWNLOADS, Feature::Downloads),
+    (pb::Feature::FEATURE_RECORDINGS, Feature::Recordings),
+    (pb::Feature::FEATURE_CLIPBOARD, Feature::Clipboard),
+    (pb::Feature::FEATURE_MCP, Feature::Mcp),
+    (pb::Feature::FEATURE_CDP, Feature::Cdp),
+    (pb::Feature::FEATURE_TUNNEL, Feature::Tunnel),
+];
+
+/// What a request says of the session's own options.
+fn options(request: &pb::CreateSessionRequest) -> Result<Asked, ConnectError> {
+    let unknown = |what: &str| ConnectError::new(ErrorCode::InvalidArgument, what.to_owned());
+    let features = match request.features.as_option() {
+        Some(features) => {
+            let known = features.on.iter().map(|asked| {
+                let named = FEATURES
+                    .into_iter()
+                    .find(|(feature, _)| asked.as_known() == Some(*feature));
+                named.map(|(_, feature)| feature)
+            });
+            let known: Option<Vec<Feature>> = known.collect();
+            Some(known.ok_or_else(|| unknown("a feature that is none"))?)
+        }
+        None => None,
+    };
+    let network = request.network.as_option();
+    let tcp = match network.map(|network| network.tcp.as_known()) {
+        None | Some(Some(pb::NetworkTcp::NETWORK_TCP_UNSPECIFIED)) => None,
+        Some(Some(pb::NetworkTcp::NETWORK_TCP_PROXIED)) => Some(Tcp::Proxied),
+        Some(Some(pb::NetworkTcp::NETWORK_TCP_DIRECT)) => Some(Tcp::Direct),
+        Some(None) => return Err(unknown("a network for TCP that is none")),
+    };
+    let udp = match network.map(|network| network.udp.as_known()) {
+        None | Some(Some(pb::NetworkUdp::NETWORK_UDP_UNSPECIFIED)) => None,
+        Some(Some(pb::NetworkUdp::NETWORK_UDP_NONE)) => Some(Udp::None),
+        Some(Some(pb::NetworkUdp::NETWORK_UDP_DIRECT)) => Some(Udp::Direct),
+        Some(None) => return Err(unknown("a network for UDP that is none")),
+    };
+    Ok(Asked { features, tcp, udp })
 }
 
 fn limits(limits: &pb::Limits) -> Limits {
@@ -302,7 +364,9 @@ impl From<Error> for ConnectError {
             Error::Store(StoreError::InvalidId(_)) | Error::Proxy(_) | Error::Limits(_) => {
                 ErrorCode::InvalidArgument
             }
-            Error::NotRunning(_) | Error::NoCgroups => ErrorCode::FailedPrecondition,
+            Error::NotRunning(_) | Error::NoCgroups | Error::Options(_) => {
+                ErrorCode::FailedPrecondition
+            }
             Error::Store(_) | Error::Start { .. } | Error::Stop(_) | Error::Io(..) => {
                 ErrorCode::Internal
             }

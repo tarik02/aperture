@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
-use crate::{Features, Network, PortRange, Profile, Spec, Tcp, Tools, Udp, Viewport, proxy};
+use crate::{
+    Feature, Features, Network, PortRange, Profile, Spec, Tcp, Tools, Udp, Viewport, proxy,
+};
 
 /// What a session's windows fill until a client asks for another size.
 const VIEWPORT: Viewport = Viewport {
@@ -135,16 +137,7 @@ impl Options {
             features: self.features.into_iter().fold(
                 Features::default(),
                 |mut features, (feature, on)| {
-                    match feature {
-                        Feature::Sound => features.sound = on,
-                        Feature::Uploads => features.uploads = on,
-                        Feature::Downloads => features.downloads = on,
-                        Feature::Recordings => features.recordings = on,
-                        Feature::Clipboard => features.clipboard = on,
-                        Feature::Mcp => features.mcp = on,
-                        Feature::Cdp => features.cdp = on,
-                        Feature::Tunnel => features.tunnel = on,
-                    }
+                    features.set(feature, on);
                     features
                 },
             ),
@@ -153,6 +146,16 @@ impl Options {
 }
 
 impl Setup {
+    /// What sessions offer, and no session more.
+    pub fn features(&self) -> Features {
+        self.features
+    }
+
+    /// The network sessions' browsers have, and no session's more.
+    pub fn network(&self) -> Network {
+        self.network
+    }
+
     /// The spec of a session that runs with these options.
     pub fn spec(
         &self,
@@ -160,6 +163,8 @@ impl Setup {
         runtime_dir: PathBuf,
         directories: Directories,
         proxy: proxy::Config,
+        features: Features,
+        network: Network,
     ) -> Spec {
         Spec {
             session_id: session_id.to_owned(),
@@ -175,9 +180,9 @@ impl Setup {
             gpu: self.gpu,
             egress_allow: self.egress_allow.clone(),
             proxy,
-            network: self.network,
+            network,
             browser_args: self.browser_args.clone(),
-            features: self.features,
+            features,
         }
     }
 }
@@ -216,40 +221,19 @@ fn named(program: &Path) -> anyhow::Result<PathBuf> {
     Ok(path)
 }
 
-#[derive(Clone, Copy)]
-enum Feature {
-    Sound,
-    Uploads,
-    Downloads,
-    Recordings,
-    Clipboard,
-    Mcp,
-    Cdp,
-    Tunnel,
-}
-
 fn feature(said: &str) -> Result<(Feature, bool), String> {
     let said = said.trim();
     let (name, on) = match said.strip_prefix('-') {
         Some(name) => (name, false),
         None => (said.strip_prefix('+').unwrap_or(said), true),
     };
-    let feature = match name {
-        "sound" => Feature::Sound,
-        "uploads" => Feature::Uploads,
-        "downloads" => Feature::Downloads,
-        "recordings" => Feature::Recordings,
-        "clipboard" => Feature::Clipboard,
-        "mcp" => Feature::Mcp,
-        "cdp" => Feature::Cdp,
-        "tunnel" => Feature::Tunnel,
-        _ => {
-            return Err(format!(
-                "{name:?} is none of sound, uploads, downloads, recordings, clipboard, mcp, \
-                 cdp, tunnel"
-            ));
-        }
-    };
+    let known = Feature::ALL
+        .into_iter()
+        .find(|feature| feature.name() == name);
+    let feature = known.ok_or_else(|| {
+        let names = Feature::ALL.map(Feature::name).join(", ");
+        format!("{name:?} is none of {names}")
+    })?;
     Ok((feature, on))
 }
 
