@@ -210,7 +210,7 @@ impl Segment {
     /// Where its picture goes in the video's frame: in the middle, on even pixels, as the
     /// frame's colours are halved.
     pub fn placed(&self, video: Video) -> (u32, u32) {
-        let middle = |whole: u32, part: u32| whole.saturating_sub(part) / 2 & !1;
+        let middle = |whole: u32, part: u32| (whole.saturating_sub(part) / 2) & !1;
         (
             middle(video.width, self.width),
             middle(video.height, self.height),

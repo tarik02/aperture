@@ -33,7 +33,7 @@ const sent = <A>(value: A | undefined, what: string) =>
     : Effect.succeed(value);
 
 const asked = <A>(call: (signal: AbortSignal) => Promise<A>) =>
-  Effect.tryPromise({ try: call, catch: ExecutorError.from });
+  Effect.tryPromise({ try: call, catch: (cause) => ExecutorError.from(cause) });
 
 /** One executor's client. */
 export const make = (address: Address) => {
