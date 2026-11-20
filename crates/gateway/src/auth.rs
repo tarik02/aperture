@@ -72,6 +72,10 @@ pub struct Keys {
     pub tickets: Option<DecodingKey>,
     /// Where the session a ticket names is reached, when it is one of those served here.
     pub place: Place,
+    /// Whether the operator says what to be called, with `name` beside the token. That is
+    /// for a session served on its own; where someone signs tickets, names are theirs to
+    /// give.
+    pub names: bool,
 }
 
 /// The path of a session by its id; none for a session that is not served.
@@ -108,6 +112,7 @@ impl Keys {
             token: Arc::from(read),
             tickets,
             place,
+            names: false,
         })
     }
 }
@@ -143,8 +148,8 @@ fn caller(keys: &Keys, request: &Request) -> Result<Caller, Refused> {
         .or(asked("token"))
         .ok_or_else(|| refused(StatusCode::UNAUTHORIZED, "no token or ticket was given"))?;
     if bool::from(given.as_bytes().ct_eq(keys.token.as_bytes())) {
-        // The operator says what to be called: there is nobody to say otherwise.
         let name = asked("name")
+            .filter(|_| keys.names)
             // A form writes a space as a plus.
             .map(|name| name.replace('+', " "))
             .map(|name| percent_decode_str(&name).decode_utf8_lossy().into_owned())

@@ -89,7 +89,7 @@ impl Serve {
             },
         };
         private(&runtime_dir)?;
-        let keys = Keys::read(
+        let mut keys = Keys::read(
             &self.token_file.unwrap_or_else(|| within("token")),
             self.ticket_key.as_deref(),
             // At the root, for a ticket that names it, or any ticket when it has no name.
@@ -102,6 +102,8 @@ impl Serve {
                 }
             }),
         )?;
+        // Nobody else is there to say what the operator is called.
+        keys.names = true;
         let directories = Directories {
             profile: Profile {
                 lowers: Vec::new(),
