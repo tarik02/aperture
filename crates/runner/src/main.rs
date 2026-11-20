@@ -211,6 +211,17 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
             }
         }),
     ];
+    // The sandbox is given these sockets as it starts: they have to be there by then.
+    for socket in [&egress_socket, &names_socket] {
+        let bound = async {
+            while !socket.exists() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(5), bound)
+            .await
+            .with_context(|| format!("{} was not bound in time", socket.display()))?;
+    }
     let shared = sockets.join("shared");
     fs::DirBuilder::new().mode(0o700).create(&shared)?;
 
