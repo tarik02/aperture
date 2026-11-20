@@ -218,6 +218,16 @@ impl Writer {
             )
             .build();
         let parse = gst::ElementFactory::make("h264parse").build()?;
+        // With its parameters in the stream itself, not beside it: only such a video may
+        // change its size once the file's header is written.
+        let framed = gst::ElementFactory::make("capsfilter")
+            .property(
+                "caps",
+                gst::Caps::builder("video/x-h264")
+                    .field("stream-format", "avc3")
+                    .build(),
+            )
+            .build()?;
         let mux = gst::ElementFactory::make("matroskamux").build()?;
         let sink = gst::ElementFactory::make("filesink")
             .property("location", path.to_str().context("the path is not UTF-8")?)
@@ -234,8 +244,15 @@ impl Writer {
                     .build(),
             )
             .build();
-        pipeline.add_many([src.upcast_ref(), &parse, &mux, &sink, sound.upcast_ref()])?;
-        gst::Element::link_many([src.upcast_ref(), &parse, &mux, &sink])?;
+        pipeline.add_many([
+            src.upcast_ref(),
+            &parse,
+            &framed,
+            &mux,
+            &sink,
+            sound.upcast_ref(),
+        ])?;
+        gst::Element::link_many([src.upcast_ref(), &parse, &framed, &mux, &sink])?;
         // By name: left to choose, the muxer takes it for another picture.
         let into = mux
             .request_pad_simple("audio_%u")
