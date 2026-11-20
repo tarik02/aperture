@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 
 pub use access::{Access, Area};
-pub use live::{ask, put, viewer};
+pub use live::{ask, ask_as, put, viewer};
 
 /// Who a request to a session comes from, as whoever passed it on says: the subject and
 /// the name to show, both percent-encoded, and what they may do (see [`Access`]).

@@ -6,7 +6,6 @@ use anyhow::Context;
 use aperture_runner::{Cdp, DEVTOOLS_AUTHORITY, Spec, Tcp, Udp};
 use futures_util::SinkExt;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
     process::{Child, Command},
     time::{Instant, sleep, timeout},
 };
@@ -375,7 +374,8 @@ pub async fn endpoint(socket: &Path) -> anyhow::Result<Cdp> {
     let deadline = Instant::now() + READY_WITHIN;
     loop {
         // Refused until the browser listens.
-        let refused = match devtools_version(socket).await {
+        let said = aperture_gateway::ask_as(socket, DEVTOOLS_AUTHORITY, "/json/version");
+        let refused = match said.await {
             Ok(version) => {
                 let url = version["webSocketDebuggerUrl"].as_str();
                 if let Some((url, at)) = url.and_then(|url| Some((url, url.find("/devtools/")?))) {
@@ -392,39 +392,6 @@ pub async fn endpoint(socket: &Path) -> anyhow::Result<Cdp> {
             return Err(refused.context("the browser did not open its DevTools endpoint in time"));
         }
         sleep(POLL).await;
-    }
-}
-
-/// What the browser says of itself at `/json/version`.
-async fn devtools_version(socket: &Path) -> anyhow::Result<serde_json::Value> {
-    let mut stream = tokio::net::UnixStream::connect(socket).await?;
-    let request = format!(
-        "GET /json/version HTTP/1.1\r\nHost: {DEVTOOLS_AUTHORITY}\r\nConnection: close\r\n\r\n"
-    );
-    stream.write_all(request.as_bytes()).await?;
-    // The browser keeps the connection open, so the answer is read by its length.
-    let mut response = Vec::new();
-    let mut chunk = [0; 4096];
-    loop {
-        let read = stream.read(&mut chunk).await?;
-        anyhow::ensure!(read > 0, "the browser's answer was cut short");
-        response.extend_from_slice(&chunk[..read]);
-        let Some(end) = response.windows(4).position(|window| window == b"\r\n\r\n") else {
-            continue;
-        };
-        let head = std::str::from_utf8(&response[..end])?;
-        anyhow::ensure!(head.starts_with("HTTP/1.1 200"), "the browser refused");
-        let length: usize = head
-            .lines()
-            .filter_map(|line| line.split_once(':'))
-            .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
-            .context("the browser's answer has no length")?
-            .1
-            .trim()
-            .parse()?;
-        if let Some(body) = response.get(end + 4..end + 4 + length) {
-            return Ok(serde_json::from_slice(body)?);
-        }
     }
 }
 

@@ -57,37 +57,17 @@ impl Limits {
     }
 }
 
-/// A size in bytes, as `512M`, `4G`, `1.5G` or a number of bytes.
+/// A size in bytes, as `512M`, `4G`, `1.5G` or a number of bytes. A unit is a power of
+/// 1024, as memory is counted.
 pub fn size(text: &str) -> Result<u64, String> {
-    let text = text.trim();
-    let (number, unit) = match text.char_indices().last() {
-        Some((at, 'K' | 'k')) => (&text[..at], 1u64 << 10),
-        Some((at, 'M' | 'm')) => (&text[..at], 1 << 20),
-        Some((at, 'G' | 'g')) => (&text[..at], 1 << 30),
-        Some((at, 'T' | 't')) => (&text[..at], 1 << 40),
-        _ => (text, 1),
-    };
-    number
-        .parse::<f64>()
-        .ok()
-        .filter(|number| number.is_finite() && *number >= 0.0)
-        .map(|number| (number * unit as f64) as u64)
-        .ok_or_else(|| format!("{text:?} is not a size like 512M or 4G"))
+    parse_size::Config::new()
+        .with_binary()
+        .parse_size(text.trim())
+        .map_err(|err| format!("{text:?} is not a size like 512M or 4G: {err}"))
 }
 
-/// A stretch of time, as `90s`, `15m`, `2h` or a number of seconds.
+/// A stretch of time, as `90s`, `15m`, `2h` or `1h 30m`.
 pub fn stretch(text: &str) -> Result<Duration, String> {
-    let text = text.trim();
-    let (number, unit) = match text.char_indices().last() {
-        Some((at, 's')) => (&text[..at], 1.0),
-        Some((at, 'm')) => (&text[..at], 60.0),
-        Some((at, 'h')) => (&text[..at], 3600.0),
-        _ => (text, 1.0),
-    };
-    number
-        .parse::<f64>()
-        .ok()
-        .filter(|number| number.is_finite() && *number >= 0.0)
-        .map(|number| Duration::from_secs_f64(number * unit))
-        .ok_or_else(|| format!("{text:?} is not a time like 90s, 15m or 2h"))
+    humantime::parse_duration(text.trim())
+        .map_err(|err| format!("{text:?} is not a time like 90s, 15m or 2h: {err}"))
 }

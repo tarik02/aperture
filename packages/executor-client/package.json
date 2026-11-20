@@ -33,7 +33,9 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "@bufbuild/protobuf": "catalog:"
+    "@bufbuild/protobuf": "catalog:",
+    "@connectrpc/connect": "catalog:",
+    "@connectrpc/connect-web": "catalog:"
   },
   "devDependencies": {
     "@bufbuild/protoc-gen-es": "catalog:",

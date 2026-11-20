@@ -15,6 +15,12 @@ catalogs:
     '@bufbuild/protoc-gen-es':
       specifier: 2.17.0
       version: 2.17.0
+    '@connectrpc/connect':
+      specifier: 2.3.0
+      version: 2.3.0
+    '@connectrpc/connect-web':
+      specifier: 2.3.0
+      version: 2.3.0
     '@effect/platform-node':
       specifier: 4.0.0
       version: 4.0.0
@@ -168,6 +174,12 @@ importers:
       '@bufbuild/protobuf':
         specifier: 'catalog:'
         version: 2.17.0
+      '@connectrpc/connect':
+        specifier: 'catalog:'
+        version: 2.3.0(@bufbuild/protobuf@2.17.0)
+      '@connectrpc/connect-web':
+        specifier: 'catalog:'
+        version: 2.3.0(@bufbuild/protobuf@2.17.0)(@connectrpc/connect@2.3.0(@bufbuild/protobuf@2.17.0))
     devDependencies:
       '@bufbuild/protoc-gen-es':
         specifier: 'catalog:'
@@ -418,6 +430,17 @@ packages:
 
   '@bufbuild/protoplugin@2.17.0':
     resolution: {integrity: sha512-4ExU8AGygKkwIx3U8D5kyBOn9rcCM1qnj4wCP95RbP1CRe73QvVGHQ/lOp6IQiyvQMh9BGrYGht+ZDa8gwC2fg==}
+
+  '@connectrpc/connect-web@2.3.0':
+    resolution: {integrity: sha512-JPXOiWaVsj+ZwaXOQjwvhc0ORnkl0a1w36Qyl3j1WTuak6/VYyuWGl1Aq8I60gQfQRjsjLLFGr64tO0sjwstcg==}
+    peerDependencies:
+      '@bufbuild/protobuf': ^2.7.0
+      '@connectrpc/connect': 2.3.0
+
+  '@connectrpc/connect@2.3.0':
+    resolution: {integrity: sha512-rjAn8L9KbAZrkwiB8m1qzDsLs74hkYmwwM2iSWuxTPVOTRm/EZw31smKbQqPU50AXqJC5eKKpEnA6Uf/swQOgQ==}
+    peerDependencies:
+      '@bufbuild/protobuf': ^2.7.0
 
   '@effect/platform-node-shared@4.0.0':
     resolution: {integrity: sha512-VBXHJU9UXVZPdQGGDRjGXpo+TpOzRwZuMrdKAtIxi1qwcRftmacZ1zTgIrzBa0Z2RA2KVkoOecQUsTlt/nJZhw==}
@@ -1735,6 +1758,15 @@ snapshots:
       typescript: 5.4.5
     transitivePeerDependencies:
       - supports-color
+
+  '@connectrpc/connect-web@2.3.0(@bufbuild/protobuf@2.17.0)(@connectrpc/connect@2.3.0(@bufbuild/protobuf@2.17.0))':
+    dependencies:
+      '@bufbuild/protobuf': 2.17.0
+      '@connectrpc/connect': 2.3.0(@bufbuild/protobuf@2.17.0)
+
+  '@connectrpc/connect@2.3.0(@bufbuild/protobuf@2.17.0)':
+    dependencies:
+      '@bufbuild/protobuf': 2.17.0
 
   '@effect/platform-node-shared@4.0.0(effect@4.0.0)':
     dependencies:

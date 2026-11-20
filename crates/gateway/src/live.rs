@@ -252,13 +252,23 @@ async fn tunnel(
 
 /// Asks the session's runner for something it says as JSON.
 pub async fn ask(socket: &std::path::Path, path: &str) -> anyhow::Result<serde_json::Value> {
+    ask_as(socket, "runner", path).await
+}
+
+/// Asks whoever serves HTTP on `socket` for something it says as JSON, as the host it
+/// takes requests for.
+pub async fn ask_as(
+    socket: &std::path::Path,
+    host: &str,
+    path: &str,
+) -> anyhow::Result<serde_json::Value> {
     let stream = UnixStream::connect(socket).await?;
     let (mut sender, connection) =
         hyper::client::conn::http1::handshake(TokioIo::new(stream)).await?;
     tokio::spawn(connection);
     let request = axum::http::Request::builder()
         .uri(path)
-        .header(header::HOST, "runner")
+        .header(header::HOST, host)
         .body(Body::empty())?;
     let response = sender.send_request(request).await?;
     let status = response.status();

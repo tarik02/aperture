@@ -15,7 +15,9 @@ buffa-types = { version = "0.9", features = ["json"] }
 clap = { version = "4", features = ["derive", "env"] }
 connectrpc = { version = "0.9", features = ["axum"] }
 futures-util.workspace = true
+humantime = "2.4.0"
 libc.workspace = true
+parse-size = "1.1.0"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

@@ -10,6 +10,7 @@
 //!
 //! The browser knows nothing of Unix sockets for any of them; the shim is the adapter.
 
+use hickory_resolver::proto::op::Message;
 use std::{
     io::{self, Read, Write},
     net::{Shutdown, TcpListener, TcpStream, UdpSocket},
@@ -28,9 +29,6 @@ const USAGE: &str = "usage: aperture-browser-shim PROXY_PORT EGRESS_SOCKET DEVTO
 const DNS_PORT: u16 = 53;
 /// What a DNS message over UDP may be long when whoever asks says nothing of it.
 const DATAGRAM: usize = 512;
-/// A DNS message's header, and where in it the message is said to be cut short.
-const HEADER: usize = 12;
-const TRUNCATED: u8 = 0x02;
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
@@ -174,22 +172,8 @@ fn answer(names: &Path, question: &[u8]) -> io::Result<Vec<u8>> {
     let mut answer = vec![0; u16::from_be_bytes(length).into()];
     session.read_exact(&mut answer)?;
     if answer.len() > DATAGRAM {
-        // The question is a name, each of its labels after its length and no label the
-        // last, and four bytes of what is asked of it.
-        let mut end = HEADER;
-        while let Some(&label) = answer.get(end)
-            && label != 0
-        {
-            end += 1 + usize::from(label);
-        }
-        end += 5;
-        if end > answer.len() {
-            return Err(io::Error::other("the answer has no question"));
-        }
-        answer.truncate(end);
-        answer[2] |= TRUNCATED;
-        // No records of any kind are left.
-        answer[6..HEADER].fill(0);
+        let whole = Message::from_vec(&answer).map_err(io::Error::other)?;
+        answer = whole.truncate().to_vec().map_err(io::Error::other)?;
     }
     Ok(answer)
 }
