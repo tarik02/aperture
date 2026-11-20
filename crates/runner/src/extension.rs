@@ -32,30 +32,24 @@ pub fn unpack(dir: &Path, sound: bool, video: Option<(u32, u32)>) -> std::io::Re
         Err(err) => return Err(err),
     }
     std::fs::create_dir_all(dir)?;
-    // The browser keeps the worker's script by its name, whatever is written there since:
-    // a worker that is written differently has another name.
+    // SPIKE: the browser keeps the worker's script of a version it has seen. Another
+    // version for what is written differently is meant to have it read again; whether
+    // that is enough for a profile that has run an older one is not settled.
     let written: u32 = FILES
         .iter()
         .flat_map(|(_, content)| content.bytes())
         .fold(17, |sum, byte| {
             sum.wrapping_mul(31).wrapping_add(byte.into())
         });
-    let worker = format!("worker.{written:08x}.js");
     for (name, content) in FILES {
-        match name {
-            "manifest.json" => std::fs::write(
-                dir.join(name),
-                content
-                    .replace("\"worker.js\"", &format!("\"{worker}\""))
-                    // Under another version, or the browser looks for the worker it knew.
-                    .replace(
-                        "\"version\": \"1.0.0\"",
-                        &format!("\"version\": \"1.0.{}\"", written % 60000),
-                    ),
-            )?,
-            "worker.js" => std::fs::write(dir.join(&worker), content)?,
-            _ => std::fs::write(dir.join(name), content)?,
-        }
+        let content = match name {
+            "manifest.json" => content.replace(
+                "\"version\": \"1.0.0\"",
+                &format!("\"version\": \"1.0.{}\"", written % 60000),
+            ),
+            _ => content.to_owned(),
+        };
+        std::fs::write(dir.join(name), content)?;
     }
     std::fs::write(
         dir.join("options.json"),
