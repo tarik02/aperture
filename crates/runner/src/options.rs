@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
-use crate::{Features, Network, PortRange, Profile, Spec, Tools, Viewport, proxy};
+use crate::{Features, Network, PortRange, Profile, Spec, Tcp, Tools, Udp, Viewport, proxy};
 
 /// What a session's windows fill until a client asks for another size.
 const VIEWPORT: Viewport = Viewport {
@@ -41,14 +41,18 @@ pub struct Options {
         value_delimiter = ','
     )]
     egress_allow: Vec<String>,
-    /// What network sessions' browsers have. `proxied`: none but the session's proxy, so
-    /// that everything a browser sends is held to the session's rules; what is not TCP,
-    /// such as WebRTC, has no way out. `split`: one of its own for UDP alone, which is held
-    /// to nothing and reaches the local network as well; TCP still has no way out but
-    /// the proxy. `direct`: one of its own for TCP too; pages still load through the
-    /// proxy, but nothing holds a browser to it. `split` and `direct` take pasta.
-    #[arg(long, env = "APERTURE_NETWORK", value_enum, default_value_t)]
-    network: Network,
+    /// Where the TCP of sessions' browsers goes. `proxied`: nowhere but through the
+    /// session's proxy, which holds it to the session's rules. `direct`: out as well;
+    /// pages still load through the proxy, but nothing holds a browser to it, and what
+    /// goes around it reaches the local network too. Takes pasta.
+    #[arg(long, env = "APERTURE_NETWORK_TCP", value_enum, default_value_t)]
+    network_tcp: Tcp,
+    /// Where the UDP of sessions' browsers goes, which a proxy does not carry. `none`:
+    /// nowhere, so WebRTC has no way out. `direct`: out, held to nothing, the local
+    /// network included. Takes pasta. Without it a browser resolves no names itself, so
+    /// TCP that goes around the proxy has to name addresses.
+    #[arg(long, env = "APERTURE_NETWORK_UDP", value_enum, default_value_t)]
+    network_udp: Udp,
     /// pasta, of the passt project, which gives browsers a network of their own.
     #[arg(long, env = "APERTURE_PASTA", default_value = "pasta")]
     pasta: PathBuf,
@@ -107,6 +111,10 @@ impl Options {
             Some(program) => executable(&program),
             None => executable(&own_sibling(name)?),
         };
+        let network = Network {
+            tcp: self.network_tcp,
+            udp: self.network_udp,
+        };
         Ok(Setup {
             tools: Tools {
                 bwrap: executable(&self.bwrap)?,
@@ -114,12 +122,12 @@ impl Options {
                 native_host: beside(self.native_host, "aperture-native-host")?,
                 browser_shim: beside(self.browser_shim, "aperture-browser-shim")?,
                 ffmpeg: self.ffmpeg.as_deref().map(executable).transpose()?,
-                pasta: match self.network {
-                    Network::Proxied => None,
-                    Network::Split | Network::Direct => Some(named(&self.pasta)?),
+                pasta: match network.reaches_out() {
+                    true => Some(named(&self.pasta)?),
+                    false => None,
                 },
             },
-            network: self.network,
+            network,
             rtc_ports: self.rtc_ports,
             cursor_theme: self.cursor_theme,
             gpu: !self.no_gpu,

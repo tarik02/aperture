@@ -3,7 +3,7 @@
 use std::{fs, path::Path, process::Stdio, time::Duration};
 
 use anyhow::Context;
-use aperture_runner::{Cdp, DEVTOOLS_AUTHORITY, Network, Spec};
+use aperture_runner::{Cdp, DEVTOOLS_AUTHORITY, Spec, Tcp, Udp};
 use futures_util::SinkExt;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -134,33 +134,32 @@ pub fn start(spec: &Spec, given: &Given) -> anyhow::Result<Child> {
 
 /// What runs bwrap: bwrap itself, for a browser with no network but its proxy, which
 /// bwrap leaves it without; or pasta, which gives bwrap and what it runs a network of
-/// their own that reaches out, with TCP or without. That network takes nothing in, and
+/// their own that reaches out, with TCP, UDP or both. That network takes nothing in, and
 /// the machine's own loopback is not in it.
 fn network(spec: &Spec) -> anyhow::Result<Command> {
     let bwrap = &spec.tools.bwrap;
-    match spec.network {
-        Network::Proxied => {
-            let mut command = Command::new(bwrap);
-            command.arg("--unshare-net");
-            Ok(command)
-        }
-        Network::Split | Network::Direct => {
-            let pasta = spec.tools.pasta.as_ref();
-            let mut command = Command::new(pasta.context("a network of its own takes pasta")?);
-            command.args(["--quiet", "--config-net"]);
-            if spec.network == Network::Split {
-                // The proxy is reached over a socket, so it takes none of this.
-                command.arg("--no-tcp");
-            }
-            command
-                .args(["-t", "none", "-u", "none", "-T", "none", "-U", "none"])
-                .args(["--map-host-loopback", "none"])
-                .args(["--dns-forward", NAMESERVER])
-                .arg("--")
-                .arg(bwrap);
-            Ok(command)
-        }
+    if !spec.network.reaches_out() {
+        let mut command = Command::new(bwrap);
+        command.arg("--unshare-net");
+        return Ok(command);
     }
+    let pasta = spec.tools.pasta.as_ref();
+    let mut command = Command::new(pasta.context("a network of its own takes pasta")?);
+    command.args(["--quiet", "--config-net"]);
+    // The proxy is reached over a socket, so it takes none of this.
+    if spec.network.tcp == Tcp::Proxied {
+        command.arg("--no-tcp");
+    }
+    if spec.network.udp == Udp::None {
+        command.arg("--no-udp");
+    }
+    command
+        .args(["-t", "none", "-u", "none", "-T", "none", "-U", "none"])
+        .args(["--map-host-loopback", "none"])
+        .args(["--dns-forward", NAMESERVER])
+        .arg("--")
+        .arg(bwrap);
+    Ok(command)
 }
 
 /// bwrap's arguments, up to the command it runs in the sandbox.
@@ -199,7 +198,7 @@ fn sandbox(command: &mut Command, spec: &Spec, given: &Given, home: &Path) -> an
     if Path::new("/run/systemd/resolve").exists() {
         command.args(["--ro-bind", "/run/systemd/resolve", "/run/systemd/resolve"]);
     }
-    if spec.network != Network::Proxied {
+    if spec.network.reaches_out() {
         // The machine's resolver is often on its loopback, which is not the browser's.
         let resolver = spec.runtime_dir.join("resolv.conf");
         fs::write(&resolver, format!("nameserver {NAMESERVER}\n"))?;

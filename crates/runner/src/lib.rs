@@ -57,20 +57,44 @@ pub struct Spec {
     pub features: Features,
 }
 
-/// What network the browser has in its sandbox.
+/// What network the browser has in its sandbox, besides its proxy, which is the session's
+/// and holds what goes through it to the session's rules.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Network {
+    #[serde(default)]
+    pub tcp: Tcp,
+    #[serde(default)]
+    pub udp: Udp,
+}
+
+impl Network {
+    /// Whether the browser has a network of its own that reaches out, rather than none
+    /// but its proxy.
+    pub fn reaches_out(self) -> bool {
+        self != Self::default()
+    }
+}
+
+/// Where the browser's TCP goes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
-pub enum Network {
-    /// None but its proxy, which is the session's: everything the browser sends is held
-    /// to the session's rules, and what is not TCP has no way out.
+pub enum Tcp {
+    /// Nowhere but through the proxy.
     #[default]
     Proxied,
-    /// One of its own that carries no TCP, for what a proxy does not carry: WebRTC and
-    /// whatever else goes over UDP. TCP still has no way out but the proxy; what goes
-    /// over UDP is held to nothing, and reaches the local network too.
-    Split,
-    /// One of its own that reaches out, TCP as well. Pages still load through the proxy,
-    /// but nothing holds the browser to it.
+    /// Out as well. Pages still load through the proxy, but nothing holds the browser to
+    /// it: what goes around it reaches the local network too.
+    Direct,
+}
+
+/// Where the browser's UDP goes. A proxy carries none.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "snake_case")]
+pub enum Udp {
+    /// Nowhere: WebRTC and whatever else takes UDP has no way out.
+    #[default]
+    None,
+    /// Out, held to nothing: it reaches the local network too.
     Direct,
 }
 
