@@ -269,6 +269,9 @@ impl Headless {
     async fn give(self: Arc<Self>, mut taken: mpsc::UnboundedReceiver<Input>) {
         let mut hands = Hands::default();
         let mut waiting: std::collections::VecDeque<Input> = std::collections::VecDeque::new();
+        let mut scroll: Option<Rolling> = None;
+        let mut tick = tokio::time::interval(Duration::from_millis(16));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             // A page answers each event once it has taken it, which is slower than a
             // pointer moves: of the moves that wait, only where the pointer is now counts.
@@ -285,25 +288,104 @@ impl Headless {
                 }
                 waiting.push_back(more);
             }
+            // A turn of the wheel is scrolled over a few frames, as a browser does for a
+            // wheel it has itself: all at once, the page jumps.
+            let rolling = scroll.is_some_and(|rolling| rolling.left());
             let input = match waiting.pop_front() {
                 Some(input) => input,
+                None if rolling => {
+                    tokio::select! {
+                        input = taken.recv() => match input {
+                            Some(input) => input,
+                            None => return,
+                        },
+                        _ = tick.tick() => {
+                            let rolling = scroll.as_mut().expect("it rolls");
+                            let (dx, dy) = rolling.step();
+                            let step = Input::PointerScroll {
+                                window: rolling.window,
+                                x: rolling.x,
+                                y: rolling.y,
+                                dx,
+                                dy,
+                            };
+                            self.send(&mut hands, step).await;
+                            continue;
+                        }
+                    }
+                }
                 None => match taken.recv().await {
                     Some(input) => input,
                     None => return,
                 },
             };
-            let Some((window, method, params)) = hands.say(input) else {
+            if let Input::PointerScroll {
+                window,
+                x,
+                y,
+                dx,
+                dy,
+            } = input
+            {
+                let before = scroll.filter(|rolling| rolling.window == window);
+                let (left_x, left_y) =
+                    before.map_or((0.0, 0.0), |rolling| (rolling.dx, rolling.dy));
+                scroll = Some(Rolling {
+                    window,
+                    x,
+                    y,
+                    dx: left_x + dx,
+                    dy: left_y + dy,
+                });
                 continue;
-            };
-            let Some((browser, session)) = self.session(window).await else {
-                continue;
-            };
-            if let Err(err) = browser.call_in(Some(&session), method, params).await {
-                debug!("a page did not take input: {err}");
-                // The page may be another one by now.
-                self.sessions.lock().await.clear();
             }
+            self.send(&mut hands, input).await;
         }
+    }
+
+    async fn send(&self, hands: &mut Hands, input: Input) {
+        let Some((window, method, params)) = hands.say(input) else {
+            return;
+        };
+        let Some((browser, session)) = self.session(window).await else {
+            return;
+        };
+        if let Err(err) = browser.call_in(Some(&session), method, params).await {
+            debug!("a page did not take input: {err}");
+            // The page may be another one by now.
+            self.sessions.lock().await.clear();
+        }
+    }
+}
+
+/// What is left to scroll of the wheel's turns, in notches.
+#[derive(Clone, Copy)]
+struct Rolling {
+    window: WindowId,
+    x: f64,
+    y: f64,
+    dx: f64,
+    dy: f64,
+}
+
+impl Rolling {
+    /// Less than a pixel is nothing.
+    fn left(&self) -> bool {
+        self.dx.abs() * NOTCH >= 1.0 || self.dy.abs() * NOTCH >= 1.0
+    }
+
+    /// The part of it that is scrolled now: a share of what is left, and all of a rest.
+    fn step(&mut self) -> (f64, f64) {
+        let part = |left: &mut f64| {
+            let now = if left.abs() * NOTCH < 4.0 {
+                *left
+            } else {
+                *left * 0.3
+            };
+            *left -= now;
+            now
+        };
+        (part(&mut self.dx), part(&mut self.dy))
     }
 }
 
