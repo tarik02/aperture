@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { Maximize2 } from "lucide-react";
+import { Maximize2, MousePointer2 } from "lucide-react";
 import type {
   Picture,
   PictureWay,
@@ -18,7 +18,9 @@ import {
   DropdownMenuSubContent,
 } from "@aperture-browser/ui/components/dropdown-menu";
 import { Input } from "@aperture-browser/ui/components/input";
+import { useShownPointers } from "../hooks/use-pointers.ts";
 import { useSession, useSessionSnapshot } from "../session.tsx";
+import { useWorkbench } from "../workbench/context.tsx";
 import { Described, SettingSubTrigger } from "./menu-parts.tsx";
 
 const AUTO = "auto";
@@ -252,6 +254,22 @@ export function PictureItems() {
         </DropdownMenuSubContent>
       </DropdownMenuSub>
     </>
+  );
+}
+
+/** Whether the other members' pointers are shown over the picture. */
+export function PointersItem() {
+  const { features } = useWorkbench();
+  const [shown, show] = useShownPointers();
+
+  if (!features.presence) {
+    return null;
+  }
+  return (
+    <DropdownMenuCheckboxItem checked={shown} closeOnClick={false} onCheckedChange={show}>
+      <MousePointer2 />
+      Show the others' pointers
+    </DropdownMenuCheckboxItem>
   );
 }
 

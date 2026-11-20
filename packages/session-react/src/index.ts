@@ -8,7 +8,12 @@ export * from "./components/menu-parts.tsx";
 export * from "./components/browser-viewport.tsx";
 export * from "./components/kept-gallery.tsx";
 export * from "./components/page-menu.tsx";
-export { PictureItems, ViewportItems, pictureStatus } from "./components/picture-menu.tsx";
+export {
+  PictureItems,
+  PointersItem,
+  ViewportItems,
+  pictureStatus,
+} from "./components/picture-menu.tsx";
 export {
   KeptFacts,
   KeptItems,

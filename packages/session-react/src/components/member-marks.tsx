@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { MousePointer2 } from "lucide-react";
 import type { Member, Target } from "@aperture-browser/session-client";
 import { useSession, useSessionSnapshot } from "../session.tsx";
+import { useShownPointers } from "../hooks/use-pointers.ts";
 import { useWorkbench } from "../workbench/context.tsx";
 import { memberColor } from "./session-presence.tsx";
 import { pictureBox } from "./session-viewport.tsx";
@@ -13,6 +14,8 @@ const STROKE_WIDTH = 4;
 const STROKE_POINTS = 2048;
 /** The others are told where a stroke goes this often at most. */
 const DRAW_EVERY_MS = 24;
+/** And where the pointer that draws is. */
+const POINT_EVERY_MS = 40;
 /** Of a member who left, or whose colour is not known yet. */
 const UNKNOWN_COLOR = "oklch(0.55 0.02 260)";
 
@@ -36,13 +39,16 @@ interface Size {
 
 /**
  * What the session's members show each other over the watched tab: where their pointers
- * are, and the strokes they draw. Drawing is this member's while the workbench is told to
- * draw; the picture then takes no input from it.
+ * are, unless this browser was told not to show them, and the strokes they draw. Drawing
+ * is this member's while the workbench is told to draw; the picture then takes no input
+ * from it, and the others still see where its pointer is.
  */
 export function MemberMarks() {
   const session = useSession();
   const snapshot = useSessionSnapshot();
   const { drawing } = useWorkbench();
+  const [shownPointers] = useShownPointers();
+  const pointed = useRef(0);
   const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [frame, setFrame] = useState<Size>({ width: 0, height: 0 });
@@ -250,13 +256,19 @@ export function MemberMarks() {
           draw("start", at(event));
         }}
         onPointerMove={(event) => {
+          const now = performance.now();
+          if (now - pointed.current >= POINT_EVERY_MS) {
+            pointed.current = now;
+            session.point(at(event));
+          }
           const mine = own.current;
-          if (mine === undefined || performance.now() - mine.told < DRAW_EVERY_MS) {
+          if (mine === undefined || now - mine.told < DRAW_EVERY_MS) {
             return;
           }
-          mine.told = performance.now();
+          mine.told = now;
           draw("move", at(event));
         }}
+        onPointerLeave={() => session.point()}
         onPointerUp={end}
         onPointerCancel={end}
       >
@@ -266,7 +278,7 @@ export function MemberMarks() {
           height={Math.round(box.height * window.devicePixelRatio)}
           className="aperture:absolute aperture:inset-0 aperture:size-full"
         />
-        {[...pointers].map(([id, point]) => {
+        {(shownPointers ? [...pointers] : []).map(([id, point]) => {
           const member = presence.members.find((one) => one.id === id);
           if (member === undefined) {
             return null;

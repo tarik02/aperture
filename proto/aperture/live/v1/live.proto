@@ -49,6 +49,7 @@ message ClientMessage {
     Close close = 18;
     Follow follow = 19;
     Draw draw = 20;
+    Pointing pointing = 21;
   }
 }
 
@@ -370,6 +371,13 @@ message Pointer {
 message Point {
   double x = 1;
   double y = 2;
+}
+
+// Where the client's pointer is over the tab it watches while what it does there is no
+// input, as while it draws: the others see it as they see a pointer that gives input.
+message Pointing {
+  // None once the pointer left the tab's picture.
+  optional Point at = 1;
 }
 
 // A point of a stroke the client draws over the tab it watches, in the tab's logical

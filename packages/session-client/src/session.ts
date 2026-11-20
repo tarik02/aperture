@@ -119,6 +119,11 @@ export interface SessionService {
     phase: StrokePhase,
     at: { readonly x: number; readonly y: number },
   ) => Effect.Effect<void>;
+  /**
+   * Shows the others where this client's pointer is over the watched tab while it gives
+   * the tab no input, as while it draws; nowhere when left out.
+   */
+  readonly point: (at?: { readonly x: number; readonly y: number }) => Effect.Effect<void>;
 
   readonly select: (tab: number) => Effect.Effect<void>;
   readonly go: (to: Destination, options?: GoOptions) => Effect.Effect<void>;
@@ -907,6 +912,8 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
       Effect.sync(() =>
         send({ case: "draw", value: { stroke, phase: STROKE_PHASE[phase], x: at.x, y: at.y } }),
       ),
+    point: (at) =>
+      Effect.sync(() => send({ case: "pointing", value: at === undefined ? {} : { at } })),
 
     select: (tab) => Effect.sync(() => send({ case: "select", value: { tab } })),
     go: (to, { newTab = false } = {}) =>

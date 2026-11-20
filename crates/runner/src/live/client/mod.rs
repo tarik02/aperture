@@ -355,6 +355,10 @@ impl Client {
                 self.draw(&draw);
                 Ok(())
             }
+            Message::Pointing(pointing) => {
+                self.point(pointing.at.as_option().map(|at| (at.x, at.y)));
+                Ok(())
+            }
             Message::FilesChosen(chosen) => {
                 let answered = self.choose_files(&chosen).await;
                 self.answer(pb::Asked::ASKED_FILES_CHOSEN, answered).await
@@ -366,7 +370,11 @@ impl Client {
             | Message::Key(_)
             | Message::Text(_)
             | Message::Drop(_) => {
-                self.point(&message);
+                match &message {
+                    Message::PointerMotion(motion) => self.point(Some((motion.x, motion.y))),
+                    Message::PointerLeave(_) => self.point(None),
+                    _ => {}
+                }
                 self.input(message);
                 Ok(())
             }
@@ -564,13 +572,7 @@ impl Client {
 
     /// Shows the others who watch the tab where the client's pointer is, as often as they
     /// take it.
-    fn point(&mut self, message: &client_message::Message) {
-        use client_message::Message;
-        let at = match message {
-            Message::PointerMotion(motion) => Some((motion.x, motion.y)),
-            Message::PointerLeave(_) => None,
-            _ => return,
-        };
+    fn point(&mut self, at: Option<(f64, f64)>) {
         let Some(tab) = self.tab() else {
             return;
         };
@@ -690,6 +692,7 @@ impl Client {
             | Message::Close(_)
             | Message::Follow(_)
             | Message::Draw(_)
+            | Message::Pointing(_)
             | Message::FilesChosen(_) => return,
         };
         if let Some(tab) = self.tab() {

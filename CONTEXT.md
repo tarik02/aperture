@@ -69,10 +69,10 @@ _Avoid_: Browser state, capsule
 A file under the session's files directory: downloads, uploads and recordings. Session files are not part of the profile and never enter a snapshot.
 
 **Recording**:
-A target's video and sound from start to stop, written as it is encoded for those who watch, with a journal of what automation did meanwhile. That is the raw recording.
+A target's video and sound from start to stop, written as it is encoded for those who watch, with a journal of what automation did meanwhile. That is the raw recording. It may go on with another tab, and its picture changes size as the tab's does.
 
 **Recording edit**:
-What is made of a raw recording once it stops: a second video with the cuts, speed-ups, captions, zooms and click ripples the recording asked for, and a timeline that maps one to the other. The raw recording stays.
+What is made of a raw recording once it stops: a second video with the cuts, speed-ups, captions, zooms and click ripples the recording asked for, and a timeline that maps one to the other. Its frame is the smallest every size of the raw picture fits in, each in the middle of it. The raw recording stays.
 _Avoid_: Post-processing, render
 
 **Tap**:
@@ -99,7 +99,7 @@ _Avoid_: Certificate authority, MITM
 A member watching whichever tab another member watches, until it selects a tab itself or the other leaves. It gives no input and takes no lease. Nobody is followed around a circle of followers.
 
 **Mark**:
-Something a member shows the others who watch the same tab, and nothing the session keeps: where its pointer is, and the strokes it draws over the picture, which fade once they end. Anyone in the session makes marks, also who may only watch. A mark is no input to the page.
+Something a member shows the others who watch the same tab, and nothing the session keeps: where its pointer is, also while it draws, and the strokes it draws over the picture, which fade once they end. Pointers are shown unless whoever watches chose not to see them. Anyone in the session makes marks, also who may only watch. A mark is no input to the page.
 _Avoid_: Annotation, cursor (the browser's own)
 
 **Tunnel**:

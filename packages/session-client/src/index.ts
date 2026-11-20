@@ -154,6 +154,8 @@ export interface Session {
     phase: StrokePhase,
     at: { readonly x: number; readonly y: number },
   ) => void;
+  /** Shows the others where this pointer is while it gives no input; nowhere when left out. */
+  readonly point: (at?: { readonly x: number; readonly y: number }) => void;
   /**
    * Pastes into the session: the forms given, or what this browser's clipboard has where
    * a page may read it. False when there was nothing to paste.
@@ -239,6 +241,7 @@ export const connect = (options: ConnectOptions): Session => {
     onStroke: session.onStroke,
     follow: (member) => Effect.runSync(session.follow(member)),
     draw: (stroke, phase, at) => Effect.runSync(session.draw(stroke, phase, at)),
+    point: (at) => Effect.runSync(session.point(at)),
     paste: (forms) => promised(session.paste(forms)),
     copySelection: () => Effect.runSync(session.copySelection),
     selectAll: () => Effect.runSync(session.selectAll),

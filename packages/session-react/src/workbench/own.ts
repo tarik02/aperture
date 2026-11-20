@@ -4,7 +4,7 @@ import {
   PagePictureItems,
   PageTextItems,
 } from "../components/page-menu.tsx";
-import { PictureItems, ViewportItems } from "../components/picture-menu.tsx";
+import { PictureItems, PointersItem, ViewportItems } from "../components/picture-menu.tsx";
 import {
   KeptItems,
   RecordingSettingsItems,
@@ -113,6 +113,13 @@ export const workbenchContributions: readonly WorkbenchContribution[] = [
     group: "viewport",
     order: 200,
     component: ViewportItems,
+  },
+  {
+    id: "picture.pointers",
+    slot: "menu.picture",
+    group: "picture",
+    order: 150,
+    component: PointersItem,
   },
 
   {
