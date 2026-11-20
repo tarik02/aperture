@@ -10,13 +10,20 @@
 //! <root>/layers/<id>/{layer.json,fs/}
 //! <root>/snapshots/<id>.json
 //! <root>/sessions/<id>/{session.json,upper/,work/,cache/,files/,logs/,state/}
+//! <root>/staging/
 //! ```
+//!
+//! Snapshots can be kept somewhere nodes share as well (see [`remote`]): the node's own
+//! storage then holds the layers its sessions are built on, brought in when first needed.
+
+pub mod remote;
 
 use std::{
     collections::HashSet,
     fs, io,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
+    sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -46,6 +53,13 @@ pub enum StoreError {
         path: PathBuf,
         source: serde_json::Error,
     },
+    #[error("the snapshots' store: {what}: {source}")]
+    Remote {
+        what: String,
+        source: object_store::Error,
+    },
+    #[error("{0}")]
+    Archive(String),
 }
 
 type Result<T> = std::result::Result<T, StoreError>;
@@ -89,7 +103,7 @@ pub struct SnapshotRecord {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct LayerRecord {
+pub(crate) struct LayerRecord {
     parent: Option<String>,
 }
 
@@ -109,12 +123,34 @@ pub struct SessionPaths {
 
 pub struct Store {
     root: PathBuf,
+    /// Layers that are being brought in: nothing is built on them yet, and they stay.
+    arriving: Mutex<HashSet<String>>,
+}
+
+/// Layers that stay, whatever is built on them, for as long as this is kept.
+pub struct Arriving<'a> {
+    store: &'a Store,
+    layers: Vec<String>,
+}
+
+impl Drop for Arriving<'_> {
+    fn drop(&mut self) {
+        let mut arriving = self.store.arriving.lock().expect("not poisoned");
+        for layer in &self.layers {
+            arriving.remove(layer);
+        }
+    }
 }
 
 impl Store {
     pub fn open(root: impl Into<PathBuf>) -> Result<Self> {
-        let store = Self { root: root.into() };
-        for dir in ["layers", "snapshots", "sessions"] {
+        let store = Self {
+            root: root.into(),
+            arriving: Mutex::default(),
+        };
+        // What was on its way in or out when the node last stopped.
+        remove_dir_all(&store.staging())?;
+        for dir in ["layers", "snapshots", "sessions", "staging"] {
             create_dir_all(&store.root.join(dir))?;
         }
         // A directory without its record is a session a crash left half created or half
@@ -292,6 +328,68 @@ impl Store {
         self.collect_layers()
     }
 
+    /// The layer and those below it, the top one first, each with its parent.
+    pub fn layer_chain(&self, top: Option<&str>) -> Result<Vec<(String, Option<String>)>> {
+        let mut chain = Vec::new();
+        let mut layer = top.map(str::to_owned);
+        while let Some(id) = layer {
+            layer = self.layer(&id)?.parent;
+            chain.push((id, layer.clone()));
+        }
+        Ok(chain)
+    }
+
+    pub fn has_layer(&self, id: &str) -> bool {
+        self.layer_dir(id).join("layer.json").exists()
+    }
+
+    /// The files of a layer, which never change.
+    pub fn layer_files(&self, id: &str) -> PathBuf {
+        self.layer_dir(id).join("fs")
+    }
+
+    /// Where what is on its way into the store or out of it is put together, on the
+    /// store's own filesystem.
+    pub fn staging(&self) -> PathBuf {
+        self.root.join("staging")
+    }
+
+    /// Keeps the layers, also while nothing is built on them yet.
+    pub fn arriving(&self, layers: Vec<String>) -> Arriving<'_> {
+        let mut arriving = self.arriving.lock().expect("not poisoned");
+        arriving.extend(layers.iter().cloned());
+        Arriving {
+            store: self,
+            layers,
+        }
+    }
+
+    /// Takes `files`, a directory on the store's filesystem, as the layer's. One that is
+    /// here already stays as it is.
+    pub fn import_layer(&self, id: &str, parent: Option<&str>, files: &Path) -> Result<()> {
+        check_id(id)?;
+        if self.has_layer(id) {
+            return remove_dir_all(files);
+        }
+        let dir = self.layer_dir(id);
+        // What an attempt that did not finish left.
+        remove_dir_all(&dir)?;
+        create_dir_all(&dir)?;
+        rename(files, &dir.join("fs"))?;
+        write_record(
+            &dir.join("layer.json"),
+            &LayerRecord {
+                parent: parent.map(str::to_owned),
+            },
+        )
+    }
+
+    /// Takes a snapshot taken elsewhere, whose layers are here.
+    pub fn import_snapshot(&self, snapshot: &SnapshotRecord) -> Result<()> {
+        check_id(&snapshot.id)?;
+        write_record(&self.snapshot_path(&snapshot.id), snapshot)
+    }
+
     /// Moves the upper directory into the layer named by `freezing` and puts the session on
     /// top of it, from wherever an earlier attempt stopped.
     fn settle_freeze(&self, mut session: SessionRecord) -> Result<()> {
@@ -327,7 +425,7 @@ impl Store {
 
     /// Removes the layers no session and no snapshot is built on.
     fn collect_layers(&self) -> Result<()> {
-        let mut used = HashSet::new();
+        let mut used = self.arriving.lock().expect("not poisoned").clone();
         let tops = self
             .sessions()?
             .into_iter()

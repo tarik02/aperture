@@ -16,7 +16,10 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use anyhow::Context;
 use aperture_gateway::{Listen, Origin, auth::Keys};
 use aperture_runner::options::{self, Options};
-use aperture_store::Store;
+use aperture_store::{
+    Store,
+    remote::{Remote, Tools},
+};
 use axum::{Router, routing::get};
 use clap::Parser;
 use tracing::info;
@@ -40,6 +43,18 @@ struct Arguments {
     /// Sessions and snapshots are kept here. `$XDG_STATE_HOME/aperture` by default.
     #[arg(long, env = "APERTURE_DATA_DIR")]
     data_dir: Option<PathBuf>,
+    /// Where snapshots are kept for every node that names the same place: an S3 bucket
+    /// as `s3://bucket/prefix`, with its region, endpoint and credentials in the usual
+    /// `AWS_*` variables, or a directory the nodes share as `file:///directory`. A session
+    /// is created from any snapshot there, and its layers are brought to this node when
+    /// first needed. Without it snapshots are this node's alone.
+    #[arg(long, env = "APERTURE_SNAPSHOT_STORE")]
+    snapshot_store: Option<String>,
+    /// tar and zstd, which pack what goes to the snapshots' store.
+    #[arg(long, env = "APERTURE_TAR", default_value = "tar")]
+    tar: PathBuf,
+    #[arg(long, env = "APERTURE_ZSTD", default_value = "zstd")]
+    zstd: PathBuf,
     /// Sockets and the state of running sessions. `$XDG_RUNTIME_DIR/aperture` by default.
     #[arg(long, env = "APERTURE_RUNTIME_DIR")]
     runtime_dir: Option<PathBuf>,
@@ -157,9 +172,20 @@ async fn main() -> anyhow::Result<()> {
         );
         None
     };
+    let snapshots = match &arguments.snapshot_store {
+        Some(url) => {
+            let tools = Tools {
+                tar: options::executable(&arguments.tar)?,
+                zstd: options::executable(&arguments.zstd)?,
+            };
+            Some(Remote::open(url, tools).context("failed to open the snapshots' store")?)
+        }
+        None => None,
+    };
     let sessions = Arc::new(Sessions::new(
         store,
         Config {
+            snapshots,
             runtime_root,
             runner: options::executable(&runner)?,
             setup: arguments.options.setup()?,

@@ -146,7 +146,7 @@ impl ExecutorService for Executor {
         request: ServiceRequest<'_, pb::GetSnapshotRequest>,
     ) -> ServiceResult<pb::GetSnapshotResponse> {
         Response::ok(pb::GetSnapshotResponse {
-            snapshot: MessageField::some(snapshot_message(self.0.get_snapshot(request.id)?)),
+            snapshot: MessageField::some(snapshot_message(self.0.get_snapshot(request.id).await?)),
             ..Default::default()
         })
     }
@@ -159,7 +159,8 @@ impl ExecutorService for Executor {
         Response::ok(pb::ListSnapshotsResponse {
             snapshots: self
                 .0
-                .snapshots()?
+                .snapshots()
+                .await?
                 .into_iter()
                 .map(snapshot_message)
                 .collect(),
@@ -172,7 +173,7 @@ impl ExecutorService for Executor {
         _ctx: RequestContext,
         request: ServiceRequest<'_, pb::DeleteSnapshotRequest>,
     ) -> ServiceResult<pb::DeleteSnapshotResponse> {
-        self.0.delete_snapshot(request.id)?;
+        self.0.delete_snapshot(request.id).await?;
         Response::ok(pb::DeleteSnapshotResponse::default())
     }
 }

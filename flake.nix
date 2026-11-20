@@ -280,6 +280,8 @@
                 makeWrapper ${apertureUnwrapped}/bin/$program $out/bin/$program \
                   --set-default APERTURE_BWRAP ${lib.getExe pkgs.bubblewrap} \
                   --set-default APERTURE_PASTA ${lib.getExe' pkgs.passt "pasta"} \
+                  --set-default APERTURE_TAR ${lib.getExe pkgs.gnutar} \
+                  --set-default APERTURE_ZSTD ${lib.getExe pkgs.zstd} \
                   --set-default APERTURE_CHROMIUM ${lib.getExe' runtimeChromium "chromium"} \
                   --set-default APERTURE_FFMPEG ${lib.getExe' runtimeFfmpeg "ffmpeg"} \
                   --set-default APERTURE_CURSOR_THEME ${browserCursorPath}/default \
@@ -348,6 +350,8 @@
           ];
           APERTURE_BWRAP = lib.getExe pkgs.bubblewrap;
           APERTURE_PASTA = lib.getExe' pkgs.passt "pasta";
+          APERTURE_TAR = lib.getExe pkgs.gnutar;
+          APERTURE_ZSTD = lib.getExe pkgs.zstd;
           APERTURE_CHROMIUM = lib.getExe' runtimeChromium "chromium";
           APERTURE_FFMPEG = lib.getExe' runtimeFfmpeg "ffmpeg";
           APERTURE_CURSOR_THEME = "${browserCursorPath}/default";

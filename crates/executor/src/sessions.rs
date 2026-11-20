@@ -21,7 +21,7 @@ use aperture_runner::{
     options::{Directories, Setup},
     proxy, read_status,
 };
-use aperture_store::{SessionRecord, SnapshotRecord, Store, StoreError};
+use aperture_store::{SessionRecord, SnapshotRecord, Store, StoreError, remote::Remote};
 use axum::http::StatusCode;
 use futures_util::future::BoxFuture;
 use tokio::time::{Instant, sleep};
@@ -77,6 +77,9 @@ pub struct Config {
     pub limits: Limits,
     /// What holds sessions to their limits; without it they are not.
     pub scopes: Option<Scopes>,
+    /// Where snapshots are kept for more nodes than this one; this node's own store
+    /// without it.
+    pub snapshots: Option<Remote>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,6 +136,8 @@ pub struct Sessions {
     busy: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Of the sessions something reached since this executor started.
     activity: Mutex<HashMap<String, Activity>>,
+    /// One thing at a time between this node's snapshots and the store nodes share.
+    sharing: tokio::sync::Mutex<()>,
 }
 
 impl Sessions {
@@ -142,6 +147,7 @@ impl Sessions {
             config,
             busy: Mutex::default(),
             activity: Mutex::default(),
+            sharing: tokio::sync::Mutex::default(),
         }
     }
 
@@ -232,6 +238,11 @@ impl Sessions {
         }
         let limits = (limits != Limits::default())
             .then(|| serde_json::to_value(limits).expect("limits are serializable"));
+        if let (Some(remote), Some(id)) = (&self.config.snapshots, snapshot_id) {
+            let _sharing = self.sharing.lock().await;
+            let snapshot = remote.snapshot(id).await?;
+            remote.pull(&self.store, &snapshot).await?;
+        }
         let record = self
             .store
             .create_session(snapshot_id, proxy, limits, options)?;
@@ -347,20 +358,56 @@ impl Sessions {
             self.start(session_id).await?;
         }
         let snapshot = snapshot?;
+        if let Some(remote) = &self.config.snapshots {
+            let _sharing = self.sharing.lock().await;
+            if let Err(err) = remote.push(&self.store, &snapshot).await {
+                // A snapshot the other nodes do not have is none.
+                self.store.delete_snapshot(&snapshot.id)?;
+                return Err(err.into());
+            }
+        }
         info!(session = %session_id, snapshot = %snapshot.id, "snapshot taken");
         Ok(snapshot)
     }
 
-    pub fn snapshots(&self) -> Result<Vec<SnapshotRecord>> {
-        Ok(self.store.snapshots()?)
+    pub async fn snapshots(&self) -> Result<Vec<SnapshotRecord>> {
+        let Some(remote) = &self.config.snapshots else {
+            return Ok(self.store.snapshots()?);
+        };
+        let _sharing = self.sharing.lock().await;
+        let shared = remote.snapshots().await?;
+        // What this node still has of snapshots that were deleted elsewhere.
+        for gone in self.store.snapshots()? {
+            if !shared.iter().any(|snapshot| snapshot.id == gone.id) {
+                self.store.delete_snapshot(&gone.id)?;
+            }
+        }
+        Ok(shared)
     }
 
-    pub fn get_snapshot(&self, id: &str) -> Result<SnapshotRecord> {
-        Ok(self.store.snapshot(id)?)
+    pub async fn get_snapshot(&self, id: &str) -> Result<SnapshotRecord> {
+        match &self.config.snapshots {
+            Some(remote) => Ok(remote.snapshot(id).await?),
+            None => Ok(self.store.snapshot(id)?),
+        }
     }
 
-    pub fn delete_snapshot(&self, id: &str) -> Result<()> {
-        Ok(self.store.delete_snapshot(id)?)
+    pub async fn delete_snapshot(&self, id: &str) -> Result<()> {
+        let Some(remote) = &self.config.snapshots else {
+            return Ok(self.store.delete_snapshot(id)?);
+        };
+        let _sharing = self.sharing.lock().await;
+        remote.delete(id).await?;
+        match self.store.delete_snapshot(id) {
+            // It was never brought here.
+            Err(StoreError::SnapshotNotFound(_)) => {}
+            deleted => deleted?,
+        }
+        // The snapshot is gone either way; what it leaves is collected the next time too.
+        if let Err(err) = remote.collect().await {
+            warn!("failed to collect the layers no snapshot is built on: {err}");
+        }
+        Ok(())
     }
 
     /// The DevTools endpoint of a running session, for someone who reaches it.

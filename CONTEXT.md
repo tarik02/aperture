@@ -55,6 +55,9 @@ _Avoid_: Role, permission, scope
 **Snapshot**:
 A session's profile as it was at one moment, kept as a read-only layer. A session created from a snapshot starts with that profile and writes its own changes above it. Snapshots are the executor's; a runner that serves itself has a plain profile directory.
 
+**Snapshot store**:
+Where executors keep snapshots together, so that a session is created on one node from a snapshot taken on another: an S3 bucket, or a directory the nodes share. A node brings a snapshot's layers to its own storage when it first builds a session on them. Without one, snapshots are their node's alone.
+
 **Session file**:
 A file under the session's files directory: downloads, uploads and recordings. Session files are not part of the profile and never enter a snapshot.
 
