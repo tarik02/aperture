@@ -46,17 +46,18 @@ use std::{
 };
 
 use anyhow::Context;
-use aperture_compositor::{Frame, Handle};
+use aperture_compositor::{Frame, Handle, Viewport};
 use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::{
-    sync::{oneshot, watch},
+    sync::{mpsc, oneshot, watch},
     task::JoinHandle,
 };
 use tracing::{info, warn};
 
-pub use self::annotate::{Place, Rect, Subject};
-use self::capture::{Heard, Raw, Writer};
+pub use self::annotate::Annotation;
+use self::annotate::Rect;
+use self::capture::{Heard, Moved, Raw, Writer};
 use super::{
     edit::{
         self,
@@ -71,6 +72,8 @@ use crate::{cdp, targets::Target};
 
 /// Where recordings go, below the session's files.
 const DIRECTORY: &str = "recordings";
+/// How long a tab gets to take the size of the recording that goes on with it.
+const RESIZED_WITHIN: Duration = Duration::from_secs(3);
 /// What a journal may grow to, which only a runaway recording reaches.
 const JOURNAL_BUDGET: usize = 8 * 1024 * 1024;
 
@@ -85,6 +88,9 @@ pub enum Error {
     NoRecording,
     #[error("{0}")]
     Options(String),
+    /// The recording is not one that this is done to.
+    #[error("{0}")]
+    State(String),
     #[error(transparent)]
     Failed(#[from] anyhow::Error),
 }
@@ -211,6 +217,8 @@ struct Entry {
     journal: Arc<Journal>,
     /// Present while it runs.
     running: Option<(oneshot::Sender<()>, JoinHandle<()>)>,
+    /// Takes another tab for the recording to go on with, while it runs.
+    moves: mpsc::UnboundedSender<Moved>,
     focus: Option<OpenFocus>,
     focuses: u64,
     /// Where automation last put the pointer.
@@ -333,7 +341,6 @@ impl Recordings {
         };
         let heard = Heard {
             packets: inner.sound.listen(),
-            tab: target.browser_tab,
             clock: inner.sound.clone(),
             compositor: inner.compositor.clone(),
         };
@@ -359,16 +366,20 @@ impl Recordings {
         };
         let threshold = recording.options.motion_threshold;
         let (stop, stopped) = oneshot::channel();
+        let (moves, moved) = mpsc::unbounded_channel();
+        let tab = target.browser_tab;
         let task = tokio::spawn({
             let recordings = self.clone();
             let id = id.clone();
             let journal = journal.clone();
             async move {
-                let made =
-                    capture::record(subscription, heard, writer, stopped, journal, threshold);
-                let outcome = finished(made).await;
-                drop(pixels);
-                recordings.ended(&id, outcome);
+                let on = Moved {
+                    subscription,
+                    pixels,
+                    tab,
+                };
+                let made = capture::record(on, heard, writer, stopped, moved, journal, threshold);
+                recordings.ended(&id, finished(made).await);
             }
         });
         {
@@ -379,6 +390,7 @@ impl Recordings {
                     recording: recording.clone(),
                     journal,
                     running: Some((stop, task)),
+                    moves,
                     focus: None,
                     focuses: 0,
                     pointer: None,
@@ -405,6 +417,125 @@ impl Recordings {
             Err(err) => {
                 warn!(recording = %id, "a recording has no preview: {err:#}");
                 None
+            }
+        }
+    }
+
+    /// Has a running recording go on with another tab: the video goes on in the same
+    /// file, with the tab's picture from its next frame and its sound. The tab is given
+    /// the size the video has, where it has another.
+    pub async fn retarget(&self, id: &str, target: &str) -> Result<Recording, Error> {
+        let inner = &self.0;
+        let (from, to) = {
+            let recordings = inner.recordings.lock().expect("not poisoned");
+            let entry = recordings.get(id).ok_or(Error::NoRecording)?;
+            if entry.recording.state != State::Recording || entry.running.is_none() {
+                return Err(Error::State("the recording does not run".into()));
+            }
+            let targets = inner.targets.borrow();
+            let to = crate::targets::named(&targets, target).ok_or(Error::NoTarget)?;
+            if to.id.eq_ignore_ascii_case(&entry.recording.target) {
+                return Ok(entry.recording.clone());
+            }
+            let from = targets
+                .iter()
+                .find(|shown| shown.id.eq_ignore_ascii_case(&entry.recording.target));
+            (from.cloned(), to.clone())
+        };
+        let to = match from {
+            Some(from) => self.sized_as(&from, to).await?,
+            None => to,
+        };
+        let moved = Moved {
+            pixels: inner
+                .compositor
+                .pixels(to.window)
+                .await
+                .map_err(anyhow::Error::from)?,
+            subscription: inner
+                .streams
+                .subscribe(Key {
+                    window: to.window,
+                    format: Format::H264,
+                    quality: Quality::Full,
+                    fps: None,
+                })
+                .await
+                .map_err(anyhow::Error::from)?,
+            tab: to.browser_tab,
+        };
+        let now = self.now();
+        let mut recordings = inner.recordings.lock().expect("not poisoned");
+        let entry = recordings.get_mut(id).ok_or(Error::NoRecording)?;
+        // It may have stopped meanwhile.
+        if entry.moves.send(moved).is_err() {
+            return Err(Error::State("the recording does not run".into()));
+        }
+        // A focus is on something of the tab that is left.
+        self.close_focus(entry, None, "retargeted");
+        entry.pointer = None;
+        entry.recording.target = to.id.clone();
+        entry.recording.tab = to.tab;
+        entry
+            .journal
+            .add("retarget", now, now, json!({ "tab": to.tab }));
+        kept::keep(&inner.files, &entry.recording);
+        info!(recording = %id, target = %to.id, "recording retargeted");
+        Ok(entry.recording.clone())
+    }
+
+    /// Gives `to` the size `from` has, and waits until it has it: a video has one size.
+    async fn sized_as(&self, from: &Target, to: Target) -> Result<Target, Error> {
+        let size = |target: &Target| (target.width, target.height, target.scale.to_bits());
+        if size(from) == size(&to) {
+            return Ok(to);
+        }
+        self.0.compositor.set_viewport(
+            to.window,
+            Viewport {
+                width: from.width,
+                height: from.height,
+                scale: from.scale,
+            },
+        );
+        let mut targets = self.0.targets.clone();
+        let wanted = size(from);
+        let sized = targets.wait_for(|targets| {
+            let shown = targets.iter().find(|shown| shown.id == to.id);
+            shown.is_none_or(|shown| size(shown) == wanted)
+        });
+        match tokio::time::timeout(RESIZED_WITHIN, sized).await {
+            Ok(Ok(targets)) => targets
+                .iter()
+                .find(|shown| shown.id == to.id)
+                .cloned()
+                .ok_or(Error::NoTarget),
+            _ => Err(Error::State(
+                "the tab did not take the size the recording has".into(),
+            )),
+        }
+    }
+
+    /// Has the recordings that keep only what automation does go on with the tab it is
+    /// about to act on.
+    pub async fn follow(&self, tab: u32) {
+        if self.0.running.load(Ordering::Relaxed) == 0 {
+            return;
+        }
+        let elsewhere: Vec<String> = {
+            let recordings = self.0.recordings.lock().expect("not poisoned");
+            recordings
+                .values()
+                .map(|entry| &entry.recording)
+                .filter(|recording| recording.state == State::Recording)
+                .filter(|recording| recording.options.capture == super::edit::plan::Capture::Bursts)
+                .filter(|recording| recording.tab != tab)
+                .map(|recording| recording.id.clone())
+                .collect()
+        };
+        for id in elsewhere {
+            if let Err(err) = self.retarget(&id, &tab.to_string()).await {
+                warn!(recording = %id, tab, "a recording does not follow automation: {err:#}");
             }
         }
     }

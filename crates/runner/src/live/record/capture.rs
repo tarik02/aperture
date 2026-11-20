@@ -4,11 +4,11 @@
 use std::{path::Path, sync::Arc, time::Duration};
 
 use anyhow::{Context, bail};
-use aperture_compositor::Handle;
+use aperture_compositor::{Handle, Pixels};
 use gstreamer::{self as gst, prelude::*};
 use gstreamer_app as gst_app;
 use tokio::{
-    sync::{broadcast, oneshot},
+    sync::{broadcast, mpsc, oneshot},
     time::timeout,
 };
 
@@ -34,10 +34,17 @@ pub(super) struct Raw {
 /// The sound of the tab a recording is of.
 pub(super) struct Heard {
     pub packets: sound::Listener,
-    pub tab: i64,
     /// What the packets are stamped by, and what the video's are.
     pub clock: Arc<Sound>,
     pub compositor: Handle,
+}
+
+/// A tab for a recording to be of, or to go on with.
+pub(super) struct Moved {
+    pub subscription: Subscription,
+    /// What counts how much of the tab's picture changes, for as long as it is kept.
+    pub pixels: Pixels,
+    pub tab: i64,
 }
 
 /// An Opus packet that plays as silence.
@@ -49,15 +56,22 @@ const SOUND_BEHIND: Duration = Duration::from_millis(200);
 const SOUND_FILL_EVERY: Duration = Duration::from_millis(200);
 
 /// Writes the stream from its next keyframe until told to stop, or until the target's
-/// window closes. The journal is told when the video starts.
+/// window closes. The journal is told when the video starts. A tab that comes on `moved`
+/// is what is written from its next keyframe on: its picture has the size the video has.
 pub(super) async fn record(
-    mut subscription: Subscription,
+    on: Moved,
     mut heard: Heard,
     writer: Writer,
     mut stopped: oneshot::Receiver<()>,
+    mut moved: mpsc::UnboundedReceiver<Moved>,
     journal: Arc<Journal>,
     motion_threshold: f64,
 ) -> anyhow::Result<Raw> {
+    let Moved {
+        mut subscription,
+        mut pixels,
+        mut tab,
+    } = on;
     let mut first = None;
     let mut last = Duration::ZERO;
     let mut changed_at_ms = Vec::new();
@@ -116,7 +130,14 @@ pub(super) async fn record(
                 }
                 Err(broadcast::error::RecvError::Closed) => break,
             },
-            packet = heard.packets.next(Some(heard.tab)) => {
+            Some(to) = moved.recv() => {
+                subscription = to.subscription;
+                pixels = to.pixels;
+                tab = to.tab;
+                decodable = false;
+                subscription.keyframe();
+            }
+            packet = heard.packets.next(Some(tab)) => {
                 // What was missed is silence; what came before the video is left out.
                 let at = packet.ok().zip(sound_start).and_then(|(packet, start)| {
                     Some((packet.at.checked_sub(start)?, packet))
@@ -157,6 +178,7 @@ pub(super) async fn record(
         bail!("the target showed nothing while it was recorded");
     }
     silence_until(in_samples(last), &mut sound_end)?;
+    drop(pixels);
     tokio::task::spawn_blocking(move || writer.finish()).await??;
     Ok(Raw {
         duration: last,

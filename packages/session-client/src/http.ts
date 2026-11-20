@@ -266,6 +266,56 @@ export const stopRecording = Effect.fn("SessionHttp.stopRecording")(
     json<Recording>(address, `/recordings/${encodeURIComponent(id)}/stop`, { method: "POST" }),
 );
 
+/** Has a running recording go on with another tab, in the same video. */
+export const retargetRecording = Effect.fn("SessionHttp.retargetRecording")(
+  (address: Address, id: string, tab: number) =>
+    json<Recording>(address, `/recordings/${encodeURIComponent(id)}/retarget`, {
+      method: "POST",
+      json: { tab },
+    }),
+);
+
+/** What a running recording's edit is told to show. */
+export type RecordingAnnotation =
+  | { readonly kind: "caption"; readonly text: string; readonly duration_ms?: number }
+  | {
+      readonly kind: "focus";
+      readonly zoom: number;
+      readonly rect?: {
+        readonly x: number;
+        readonly y: number;
+        readonly width: number;
+        readonly height: number;
+      };
+      readonly selector?: string;
+      readonly pointer?: boolean;
+      /** Zooms out after this long; until `reset_focus` when left out. */
+      readonly duration_ms?: number;
+    }
+  | { readonly kind: "reset_focus" }
+  | {
+      readonly kind: "attention";
+      readonly x?: number;
+      readonly y?: number;
+      readonly selector?: string;
+      readonly radius?: number;
+      readonly loops?: number;
+      readonly duration_ms?: number;
+    };
+
+/** Adds an annotation to a running recording: the one named, or the only one that runs. */
+export const annotateRecording = Effect.fn("SessionHttp.annotateRecording")((
+  address: Address,
+  annotation: RecordingAnnotation,
+  id?: string,
+) => {
+  const { kind, ...given } = annotation;
+  return request(address, `/recordings/annotations/${kind}`, {
+    method: "POST",
+    json: id === undefined ? given : { ...given, id },
+  }).pipe(Effect.asVoid);
+});
+
 export const listScreenshots = Effect.fn("SessionHttp.listScreenshots")((address: Address) =>
   json<Screenshot[]>(address, "/screenshots"),
 );

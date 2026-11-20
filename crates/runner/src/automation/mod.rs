@@ -183,8 +183,12 @@ impl Automation {
                 Err(err) => return ToolOutput::error(format!("{err:#}")),
             }
         }
-        let started = self.recordings.now();
         let tab = arguments.get("tab").cloned();
+        let acted_on = tab.as_ref().and_then(Value::as_u64);
+        if let Some(tab) = acted_on.filter(|_| !READS_ONLY.contains(&name)) {
+            self.recordings.follow(tab as u32).await;
+        }
+        let started = self.recordings.now();
         if name == "scroll"
             && let Some(travel) = self.travel_to_edge(&arguments).await
         {

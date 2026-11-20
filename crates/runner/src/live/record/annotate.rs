@@ -52,7 +52,64 @@ pub enum Place {
     Selector(String),
 }
 
+/// What an annotation is given, whichever it is.
+#[derive(serde::Deserialize, Default)]
+pub struct Annotation {
+    /// The recording, where more than one runs.
+    pub id: Option<String>,
+    pub duration_ms: Option<u64>,
+    pub text: Option<String>,
+    pub rect: Option<Rect>,
+    pub selector: Option<String>,
+    pub pointer: Option<bool>,
+    pub zoom: Option<f64>,
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    pub radius: Option<f64>,
+    pub loops: Option<u64>,
+}
+
 impl Recordings {
+    /// Adds the annotation of `kind` to a running recording: `caption`, `focus`,
+    /// `reset_focus` or `attention`. Says what it did.
+    pub async fn annotate(&self, kind: &str, asked: Annotation) -> anyhow::Result<&'static str> {
+        let id = asked.id.as_deref();
+        match kind {
+            "caption" => {
+                let text = asked.text.context("pass the caption's `text`")?;
+                self.caption(id, &text, asked.duration_ms)?;
+                Ok("captioned")
+            }
+            "focus" => {
+                let pointer = asked.pointer.unwrap_or(false);
+                let subject = match (asked.rect, asked.selector, pointer) {
+                    (Some(rect), None, false) => Subject::Rect(rect),
+                    (None, Some(selector), false) => Subject::Selector(selector),
+                    (None, None, true) => Subject::Pointer,
+                    _ => bail!("pass exactly one of `rect`, `selector` and `pointer`"),
+                };
+                let zoom = asked.zoom.context("pass the `zoom` factor")?;
+                self.focus(id, subject, zoom, asked.duration_ms).await?;
+                Ok("focused")
+            }
+            "reset_focus" => {
+                self.reset_focus(id)?;
+                Ok("zoomed out")
+            }
+            "attention" => {
+                let place = match (asked.x.zip(asked.y), asked.selector) {
+                    (Some((x, y)), None) => Place::Point { x, y },
+                    (None, Some(selector)) => Place::Selector(selector),
+                    _ => bail!("pass `x` and `y`, or a `selector`, not both"),
+                };
+                self.attention(id, place, asked.radius, asked.loops, asked.duration_ms)
+                    .await?;
+                Ok("done")
+            }
+            other => bail!("{other:?} is none of caption, focus, reset_focus and attention"),
+        }
+    }
+
     /// Shows a text in a recording's edit from now on, for `duration_ms`.
     pub fn caption(
         &self,

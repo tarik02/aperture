@@ -161,6 +161,13 @@ export interface SessionService {
     readonly get: (id: string) => Effect.Effect<Http.Recording, SessionError>;
     readonly start: (options?: Http.StartRecording) => Effect.Effect<Http.Recording, SessionError>;
     readonly stop: (id: string) => Effect.Effect<Http.Recording, SessionError>;
+    /** Has a running recording go on with another tab. */
+    readonly retarget: (id: string, tab: number) => Effect.Effect<Http.Recording, SessionError>;
+    /** Adds an annotation to the recording named, or to the only one that runs. */
+    readonly annotate: (
+      annotation: Http.RecordingAnnotation,
+      id?: string,
+    ) => Effect.Effect<void, SessionError>;
   };
   readonly screenshots: {
     readonly list: Effect.Effect<Http.Screenshot[], SessionError>;
@@ -902,6 +909,8 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
       get: (id) => Http.getRecording(address, id),
       start: (started) => Http.startRecording(address, started),
       stop: (id) => Http.stopRecording(address, id),
+      retarget: (id, tab) => Http.retargetRecording(address, id, tab),
+      annotate: (annotation, id) => Http.annotateRecording(address, annotation, id),
     },
     screenshots: {
       list: Http.listScreenshots(address),

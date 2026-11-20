@@ -6,7 +6,7 @@ use browse_core::{TabInfo, TabOptions, Tool, ToolContext, ToolOutput, ToolSpec};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::live::record::{Place, Recordings, Rect, Subject};
+use crate::live::record::Recordings;
 
 /// The session's tabs: which there are, opening one, closing one.
 pub(super) struct TabsTool;
@@ -81,7 +81,9 @@ impl Tool for RecordingTool {
                 `idle`, `ripple` and `burst` say how the edit is cut. While it runs: `caption` \
                 shows `text`; `focus` zooms on a `rect`, a `selector`'s element or the \
                 `pointer` until `reset_focus`; `attention` circles the pointer around `x`,`y` \
-                or a `selector`. `stop` ends recording `id` and returns its raw video and \
+                or a `selector`; `retarget` has recording `id` go on with another `tab`, which \
+                a recording that captures `bursts` does by itself for the tab a tool acts \
+                on. `stop` ends recording `id` and returns its raw video and \
                 journal at once; the edit is made after, and `status` tells when its `edit` is \
                 `finished` and where the edited video is. `list` gives every recording. \
                 Annotations name the recording by `id` when several run."
@@ -92,7 +94,8 @@ impl Tool for RecordingTool {
                     "action": {
                         "type": "string",
                         "enum": [
-                            "start", "caption", "focus", "reset_focus", "attention", "stop",
+                            "start", "caption", "focus", "reset_focus", "attention", "retarget",
+                            "stop",
                             "status", "list",
                         ],
                     },
@@ -151,22 +154,13 @@ impl Tool for RecordingTool {
     }
 
     async fn call(&self, ctx: ToolContext, args: Value) -> anyhow::Result<ToolOutput> {
-        /// What the actions take, but for how a recording is started.
+        /// What the actions take, but for how a recording is started and what its
+        /// annotations are given.
         #[derive(Deserialize)]
         struct Asked {
             #[serde(default)]
             action: String,
             id: Option<String>,
-            duration_ms: Option<u64>,
-            text: Option<String>,
-            rect: Option<Rect>,
-            selector: Option<String>,
-            pointer: Option<bool>,
-            zoom: Option<f64>,
-            x: Option<f64>,
-            y: Option<f64>,
-            radius: Option<f64>,
-            loops: Option<u64>,
         }
         let asked: Asked = serde_json::from_value(args.clone()).context("invalid arguments")?;
         let id = asked.id.as_deref();
@@ -199,37 +193,14 @@ impl Tool for RecordingTool {
                     .context("invalid capture, idle, ripple, burst, pace or motion_threshold")?;
                 shown(&self.0.start(target.as_deref(), options).await?)
             }
-            "caption" => {
-                let text = asked.text.context("pass the caption's `text`")?;
-                self.0.caption(id, &text, asked.duration_ms)?;
-                Ok(ToolOutput::text("captioned"))
+            kind @ ("caption" | "focus" | "reset_focus" | "attention") => {
+                let annotation = serde_json::from_value(args).context("invalid arguments")?;
+                Ok(ToolOutput::text(self.0.annotate(kind, annotation).await?))
             }
-            "focus" => {
-                let pointer = asked.pointer.unwrap_or(false);
-                let subject = match (asked.rect, asked.selector, pointer) {
-                    (Some(rect), None, false) => Subject::Rect(rect),
-                    (None, Some(selector), false) => Subject::Selector(selector),
-                    (None, None, true) => Subject::Pointer,
-                    _ => bail!("pass exactly one of `rect`, `selector` and `pointer`"),
-                };
-                let zoom = asked.zoom.context("pass the `zoom` factor")?;
-                self.0.focus(id, subject, zoom, asked.duration_ms).await?;
-                Ok(ToolOutput::text("focused"))
-            }
-            "reset_focus" => {
-                self.0.reset_focus(id)?;
-                Ok(ToolOutput::text("zoomed out"))
-            }
-            "attention" => {
-                let place = match (asked.x.zip(asked.y), asked.selector) {
-                    (Some((x, y)), None) => Place::Point { x, y },
-                    (None, Some(selector)) => Place::Selector(selector),
-                    _ => bail!("pass `x` and `y`, or a `selector`, not both"),
-                };
-                self.0
-                    .attention(id, place, asked.radius, asked.loops, asked.duration_ms)
-                    .await?;
-                Ok(ToolOutput::text("done"))
+            "retarget" => {
+                let tab = args.get("tab").context("pass the `tab` to go on with")?;
+                let tab = ctx.browser.resolve_tab(tab)?;
+                shown(&self.0.retarget(named()?, &tab.to_string()).await?)
             }
             "stop" => shown(&self.0.stop(named()?).await?),
             "status" => shown(&self.0.get(named()?)?),

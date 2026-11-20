@@ -28,7 +28,7 @@ use super::{
     client,
     edit::plan::Options,
     mcp,
-    record::{self, EditState, Recording, Recordings},
+    record::{self, Annotation, EditState, Recording, Recordings},
     shots::{self, Screenshot},
     sound::Sound,
     stream::Streams,
@@ -78,6 +78,8 @@ pub async fn serve(socket: &Path, live: Live, automation: Arc<Automation>) -> st
         .route("/recordings", get(recordings_list).post(recording_start))
         .route("/recordings/{id}", get(recording_get))
         .route("/recordings/{id}/stop", post(recording_stop))
+        .route("/recordings/{id}/retarget", post(recording_retarget))
+        .route("/recordings/annotations/{kind}", post(recording_annotate))
         .route("/downloads", get(downloads_list))
         .route("/busy", get(busy))
         .nest_service("/files", ServeDir::new(&live.files));
@@ -194,7 +196,7 @@ impl From<aperture_compositor::Error> for Refusal {
 impl From<record::Error> for Refusal {
     fn from(err: record::Error) -> Self {
         let status = match err {
-            record::Error::Off => StatusCode::CONFLICT,
+            record::Error::Off | record::Error::State(_) => StatusCode::CONFLICT,
             record::Error::NoTarget | record::Error::NoRecording => StatusCode::NOT_FOUND,
             record::Error::Options(_) => StatusCode::BAD_REQUEST,
             record::Error::Failed(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -516,6 +518,37 @@ async fn recording_stop(
     RoutePath(id): RoutePath<String>,
 ) -> Result<Json<Recording>, Refusal> {
     Ok(Json(live.recordings.stop(&id).await?))
+}
+
+#[derive(Deserialize)]
+struct Retarget {
+    /// The tab the recording goes on with.
+    #[serde(deserialize_with = "named")]
+    tab: Option<String>,
+}
+
+async fn recording_retarget(
+    State(live): State<Live>,
+    RoutePath(id): RoutePath<String>,
+    Json(to): Json<Retarget>,
+) -> Result<Json<Recording>, Refusal> {
+    let tab = to
+        .tab
+        .ok_or_else(|| Refusal::bad_request("pass the `tab`"))?;
+    Ok(Json(live.recordings.retarget(&id, &tab).await?))
+}
+
+/// Adds a caption, a focus or the pointer's circling to a running recording, or ends
+/// its focus.
+async fn recording_annotate(
+    State(live): State<Live>,
+    RoutePath(kind): RoutePath<String>,
+    body: Option<Json<Annotation>>,
+) -> Result<StatusCode, Refusal> {
+    let annotation = body.map(|Json(annotation)| annotation).unwrap_or_default();
+    let annotated = live.recordings.annotate(&kind, annotation).await;
+    annotated.map_err(|err| Refusal::bad_request(format!("{err:#}")))?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn recordings_list(State(live): State<Live>) -> Json<Vec<Recording>> {
