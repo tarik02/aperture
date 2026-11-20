@@ -202,12 +202,24 @@ pub async fn export(
     asked: Asked,
 ) -> anyhow::Result<State> {
     let mut origins: Vec<String> = match asked.origins {
-        Origins::OpenTabs => targets
-            .iter()
-            .filter_map(|target| {
-                origin_of(&Url::parse(&target.url).ok()?.origin().ascii_serialization()).ok()
-            })
-            .collect(),
+        Origins::OpenTabs => {
+            // As the browser says now: what the session knows of a tab's address is a
+            // moment behind a page that has just opened.
+            let told = browser.call("Target.getTargets", json!({})).await?;
+            let told = told["targetInfos"].as_array().cloned().unwrap_or_default();
+            targets
+                .iter()
+                .filter_map(|target| {
+                    let now = told
+                        .iter()
+                        .find(|info| info["targetId"] == target.id.as_str());
+                    let url = now
+                        .and_then(|info| info["url"].as_str())
+                        .unwrap_or(&target.url);
+                    origin_of(&Url::parse(url).ok()?.origin().ascii_serialization()).ok()
+                })
+                .collect()
+        }
         Origins::Named(named) => named
             .iter()
             .map(|origin| origin_of(origin).map_err(anyhow::Error::msg))
