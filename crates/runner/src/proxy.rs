@@ -31,7 +31,8 @@
 //! A rule's `to`, `host` or `host:port`, is where its connections are made instead of where
 //! the browser named. With `tls` the session answers the browser's TLS itself, with a
 //! certificate of its own that the session's browser takes for the name, and passes on
-//! what is inside: a server that speaks no TLS is `https://` to the session's pages.
+//! what is inside: a server that speaks no TLS is `https://` to the session's pages. Such a
+//! rule is for port 443 unless its match names another.
 //!
 //! `dns` is for the names the session resolves itself: those of connections made from its
 //! node, and those its browser asks for when it has a network of its own. A proxy or a
@@ -47,6 +48,7 @@ use url::Url;
 const MAX_UPSTREAMS: usize = 32;
 const MAX_RULES: usize = 256;
 const MAX_SERVERS: usize = 8;
+const HTTPS_PORT: u16 = 443;
 const MAX_RECORDS: usize = 256;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -278,6 +280,12 @@ impl Config {
                     "rule {number}: a connection that is refused goes nowhere"
                 ));
             }
+            // What is not TLS is not answered as TLS: a rule that names no port is for
+            // the port HTTPS has.
+            let covered = Pattern {
+                port: covered.port.or(rule.tls.then_some(HTTPS_PORT)),
+                ..covered
+            };
             let way = Way {
                 route,
                 to,

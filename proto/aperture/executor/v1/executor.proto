@@ -212,7 +212,8 @@ message ProxyRule {
   optional string to = 3;
   // The session answers the browser's TLS itself, with a certificate of its own that the
   // session's browser takes for the name, and passes on what is inside: a server that
-  // speaks no TLS is `https://` to the session's pages.
+  // speaks no TLS is `https://` to the session's pages. Such a rule is for port 443 unless
+  // its match names another.
   bool tls = 4;
 }
 
