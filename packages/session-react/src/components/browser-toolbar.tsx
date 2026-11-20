@@ -104,8 +104,10 @@ export function WorkbenchToolbar({ children }: { readonly children?: ReactNode }
 /** Back, forward and reload of the watched tab. */
 export function NavigationButtons() {
   const session = useSession();
-  const { gives } = useInputState();
+  const input = useInputState();
   const snapshot = useSessionSnapshot();
+  // Where a tab goes is no input to its page: it takes no lease.
+  const gives = input.changes && snapshot.selected !== undefined;
   const watched = snapshot.targets.find((target) => target.tab === snapshot.selected);
 
   return (

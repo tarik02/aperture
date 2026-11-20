@@ -35,7 +35,7 @@ The messages a client and a session exchange on the session socket (`aperture.li
 _Avoid_: Collaboration protocol, transport
 
 **Lease**:
-The right to give a tab input, held by one person or agent at a time. A person takes it from an agent at once; equals ask and wait for an answer. Watching needs none.
+The right to give a tab input, held by one person or agent at a time. A person takes it from an agent at once; equals ask and wait for an answer. Watching needs none, and neither does saying where a tab goes: opening and closing tabs, reloading, going to an address or along the history.
 _Avoid_: Lock, control, focus
 
 **Presence**:

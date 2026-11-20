@@ -504,10 +504,17 @@ impl Client {
         leases.any(|lease| Some(lease.tab) == tab && lease.holder == self.member.id)
     }
 
-    fn held(&self) -> anyhow::Result<String> {
+    /// The target the client watches.
+    fn watched(&self) -> anyhow::Result<String> {
         let (target, _) = self.selected.as_ref().context("no tab is watched")?;
-        ensure!(self.holds(), "someone else holds the tab");
         Ok(target.clone())
+    }
+
+    /// The target the client watches, when the client is the one that gives it input.
+    fn held(&self) -> anyhow::Result<String> {
+        let target = self.watched()?;
+        ensure!(self.holds(), "someone else holds the tab");
+        Ok(target)
     }
 
     async fn go(&mut self, go: pb::Go) -> anyhow::Result<()> {
@@ -523,7 +530,8 @@ impl Client {
             self.opened = Some(pages.open_tab(&url).await?);
             return Ok(());
         }
-        let target = self.held()?;
+        // Where a tab goes is no input to its page: it takes no lease.
+        let target = self.watched()?;
         match go.to {
             Some(pb::go::To::Url(url)) => pages.open(&target, &url).await,
             Some(pb::go::To::Along(along)) => {
@@ -550,17 +558,13 @@ impl Client {
         let Some(target) = target else {
             return Ok(());
         };
-        ensure!(
-            self.live.presence.hold(self.member.id, tab, true),
-            "someone else holds the tab"
-        );
         self.live.pages.close(&target).await
     }
 
     /// A picture the watched page shows, as what the session copied.
     async fn picture(&mut self, url: &str) -> anyhow::Result<pb::Clipboard> {
         ensure!(self.grant(Area::Clipboard).read, NOT_ALLOWED);
-        let target = self.held()?;
+        let target = self.watched()?;
         let (kind, data) = self.live.pages.picture(&target, url).await?;
         let form = pb::clipboard::Form {
             r#type: kind.to_owned(),
