@@ -8,7 +8,7 @@ use crate::{
     files::Progress,
     live::sound,
     pages,
-    presence::Role,
+    presence::{Mark, Phase, Role, Shown},
     proto::aperture::live::v1::{self as pb, server_message},
 };
 
@@ -117,6 +117,45 @@ impl Client {
         .await
     }
 
+    /// Tells the client what another member shows on the tab the client watches.
+    pub(super) async fn send_mark(&mut self, mark: Mark) -> Result<(), axum::Error> {
+        if mark.member == self.member.id || self.tab() != Some(mark.tab) {
+            return Ok(());
+        }
+        let message = match mark.what {
+            Shown::Pointer(at) => server_message::Message::Pointer(Box::new(pb::Pointer {
+                member: mark.member,
+                at: at
+                    .map(|(x, y)| pb::Point {
+                        x,
+                        y,
+                        ..Default::default()
+                    })
+                    .into(),
+                ..Default::default()
+            })),
+            Shown::Stroke {
+                stroke,
+                phase,
+                x,
+                y,
+            } => server_message::Message::Stroke(Box::new(pb::Stroke {
+                member: mark.member,
+                stroke,
+                phase: match phase {
+                    Phase::Start => pb::StrokePhase::STROKE_PHASE_START,
+                    Phase::Move => pb::StrokePhase::STROKE_PHASE_MOVE,
+                    Phase::End => pb::StrokePhase::STROKE_PHASE_END,
+                }
+                .into(),
+                x,
+                y,
+                ..Default::default()
+            })),
+        };
+        self.send(message).await
+    }
+
     pub(super) async fn send_presence(&mut self) -> Result<(), axum::Error> {
         let present = self.present.borrow_and_update().clone();
         let members = present.members.iter().map(|member| pb::Member {
@@ -130,6 +169,7 @@ impl Client {
             .into(),
             tab: member.tab,
             agent: member.agent,
+            follows: member.follows,
             ..Default::default()
         });
         let held = present.leases.iter().map(|lease| pb::HeldTab {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Bot, Hand, Hourglass, Radio } from "lucide-react";
-import type { Member, Presence, Target } from "@aperture-browser/session-client";
+import type { Member, Presence } from "@aperture-browser/session-client";
 import { Avatar, AvatarBadge, AvatarFallback } from "@aperture-browser/ui/components/avatar";
 import { Button } from "@aperture-browser/ui/components/button";
 import {
@@ -24,7 +24,7 @@ const ROLES = { view: "may watch", control: "may give input", admin: "admin" } a
 export function SessionPresence() {
   const session = useSession();
   const snapshot = useSessionSnapshot();
-  const { presence, targets } = snapshot;
+  const { presence } = snapshot;
   if (presence === undefined || presence.members.length === 0) {
     return null;
   }
@@ -44,17 +44,9 @@ export function SessionPresence() {
   });
   const visible = members.slice(0, VISIBLE_MEMBERS);
   const overflow = members.length - visible.length;
-  const watchedTab = targets.find((target) => target.tab === snapshot.selected)?.tab;
 
   const button = (member: Member) => (
-    <MemberButton
-      key={member.id}
-      member={member}
-      presence={presence}
-      targets={targets}
-      watchedTab={watchedTab}
-      onWatch={session.select}
-    />
+    <MemberButton key={member.id} member={member} presence={presence} onFollow={session.follow} />
   );
 
   return (
@@ -110,46 +102,48 @@ export function SessionPresence() {
 function MemberButton({
   member,
   presence,
-  targets,
-  watchedTab,
-  onWatch,
+  onFollow,
 }: {
   member: Member;
   presence: Presence;
-  targets: readonly Target[];
-  watchedTab: number | undefined;
-  onWatch: (tab: number) => void;
+  onFollow: (member?: number) => void;
 }) {
   const you = member.id === presence.you;
-  const theirs = targets.find((target) => target.tab === member.tab);
+  const followed = presence.members.find((one) => one.id === presence.you)?.follows === member.id;
+  const follower = member.follows === presence.you;
   const held = presence.held.filter((one) => one.holder === member.id);
-  const elsewhere = !you && theirs !== undefined && theirs.tab !== watchedTab;
 
   const details = [
     you ? `${member.name} (you)` : member.name,
     member.agent ? "automation" : member.role === undefined ? undefined : ROLES[member.role],
     member.tab === undefined ? undefined : `watches tab ${member.tab}`,
     held.length === 0 ? undefined : `holds tab ${held.map((one) => one.tab).join(", ")}`,
-    elsewhere ? "click to watch their tab" : undefined,
+    follower ? "follows you" : undefined,
+    followed ? "you follow them · click to stop" : undefined,
+    !you && !followed ? "click to follow them" : undefined,
   ].filter((part) => part !== undefined);
   const label = details.join(" · ");
 
-  const trigger = elsewhere ? (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon-sm"
-      className="aperture:shrink-0 aperture:rounded-full aperture:p-0"
-      aria-label={label}
-      onClick={() => onWatch(theirs.tab)}
-    />
-  ) : (
+  const trigger = you ? (
     <span
       className="aperture:inline-flex aperture:size-7 aperture:shrink-0 aperture:items-center aperture:justify-center aperture:rounded-full"
       aria-label={label}
     />
+  ) : (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      className={cn(
+        "aperture:shrink-0 aperture:rounded-full aperture:p-0",
+        followed && "aperture:ring-2 aperture:ring-primary",
+      )}
+      aria-label={label}
+      aria-pressed={followed}
+      data-member-follow={member.id}
+      onClick={() => onFollow(followed ? undefined : member.id)}
+    />
   );
-
   return (
     <Tooltip>
       <TooltipTrigger render={trigger}>
@@ -336,7 +330,7 @@ function LeaseRequest({
 // None near the green that marks who holds a lease.
 const MEMBER_HUES = [12, 38, 70, 200, 230, 260, 290, 320, 350];
 
-function memberColor(member: Member): string {
+export function memberColor(member: Member): string {
   if (member.agent) {
     return "oklch(0.45 0.02 260)";
   }

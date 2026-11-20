@@ -3,6 +3,7 @@ import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
 import type {
   Recording,
+  RecordingAnnotation,
   Screenshot,
   StartRecording,
   Uploaded,
@@ -10,7 +11,16 @@ import type {
   ViewportSize,
 } from "./http.ts";
 import type { Surfaces } from "./input.ts";
-import type { ClipboardEvent, ClipboardForm, Failure, LeaseAction, Snapshot } from "./model.ts";
+import type {
+  ClipboardEvent,
+  ClipboardForm,
+  Failure,
+  LeaseAction,
+  PointerMark,
+  Snapshot,
+  StrokePhase,
+  StrokePoint,
+} from "./model.ts";
 import {
   type ConnectOptions,
   type Destination,
@@ -23,6 +33,7 @@ import {
 export { SessionError } from "./errors.ts";
 export type {
   Recording,
+  RecordingAnnotation,
   RecordingBurst,
   RecordingEdit,
   RecordingOptions,
@@ -46,6 +57,9 @@ export type {
   FileRequest,
   HeldTab,
   LeaseAction,
+  PointerMark,
+  StrokePhase,
+  StrokePoint,
   Member,
   Menu,
   Picture,
@@ -123,6 +137,18 @@ export interface Session {
    * the session did not do, with the reason.
    */
   readonly onFailure: (listener: (failure: Failure) => void) => () => void;
+  /** Where the other members' pointers are on the watched tab, as they move. */
+  readonly onPointer: (listener: (pointer: PointerMark) => void) => () => void;
+  /** The strokes the other members draw over the watched tab, point by point. */
+  readonly onStroke: (listener: (point: StrokePoint) => void) => () => void;
+  /** Follows a member to whichever tab it watches; nobody when left out. */
+  readonly follow: (member?: number) => void;
+  /** Shows the others a point of a stroke over the watched tab, in its logical pixels. */
+  readonly draw: (
+    stroke: number,
+    phase: StrokePhase,
+    at: { readonly x: number; readonly y: number },
+  ) => void;
   /**
    * Pastes into the session: the forms given, or what this browser's clipboard has where
    * a page may read it. False when there was nothing to paste.
@@ -155,6 +181,10 @@ export interface Session {
     readonly get: (id: string) => Promise<Recording>;
     readonly start: (options?: StartRecording) => Promise<Recording>;
     readonly stop: (id: string) => Promise<Recording>;
+    /** Has a running recording go on with another tab. */
+    readonly retarget: (id: string, tab: number) => Promise<Recording>;
+    /** Adds an annotation to the recording named, or to the only one that runs. */
+    readonly annotate: (annotation: RecordingAnnotation, id?: string) => Promise<void>;
   };
   readonly screenshots: {
     readonly list: () => Promise<Screenshot[]>;
@@ -195,6 +225,10 @@ export const connect = (options: ConnectOptions): Session => {
     writeClipboard: (forms) => Effect.runSync(session.writeClipboard(forms)),
     onClipboard: session.onClipboard,
     onFailure: session.onFailure,
+    onPointer: session.onPointer,
+    onStroke: session.onStroke,
+    follow: (member) => Effect.runSync(session.follow(member)),
+    draw: (stroke, phase, at) => Effect.runSync(session.draw(stroke, phase, at)),
     paste: (forms) => promised(session.paste(forms)),
     copySelection: () => Effect.runSync(session.copySelection),
     selectAll: () => Effect.runSync(session.selectAll),
@@ -210,6 +244,8 @@ export const connect = (options: ConnectOptions): Session => {
       get: (id) => promised(session.recordings.get(id)),
       start: (started) => promised(session.recordings.start(started)),
       stop: (id) => promised(session.recordings.stop(id)),
+      retarget: (id, tab) => promised(session.recordings.retarget(id, tab)),
+      annotate: (annotation, id) => promised(session.recordings.annotate(annotation, id)),
     },
     screenshots: {
       list: () => promised(session.screenshots.list),

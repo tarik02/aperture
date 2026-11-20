@@ -32,6 +32,12 @@ import {
   menuOf,
   type Picture,
   type PictureSettings,
+  type PointerMark,
+  pointerOf,
+  STROKE_PHASE,
+  type StrokePhase,
+  type StrokePoint,
+  strokeOf,
   type PictureWay,
   PIXELS,
   featuresOf,
@@ -95,6 +101,24 @@ export interface SessionService {
   /** What this client asked for and the session did not do. */
   readonly failures: Stream.Stream<Failure>;
   readonly onFailure: (listener: (failure: Failure) => void) => () => void;
+  /** Where the other members' pointers are on the watched tab, as they move. */
+  readonly onPointer: (listener: (pointer: PointerMark) => void) => () => void;
+  /** The strokes the other members draw over the watched tab, point by point. */
+  readonly onStroke: (listener: (point: StrokePoint) => void) => () => void;
+  /**
+   * Follows a member to whichever tab it watches, until this client selects a tab itself;
+   * nobody when left out.
+   */
+  readonly follow: (member?: number) => Effect.Effect<void>;
+  /**
+   * Shows the others a point of a stroke over the watched tab, in the tab's logical
+   * pixels. The client numbers its strokes.
+   */
+  readonly draw: (
+    stroke: number,
+    phase: StrokePhase,
+    at: { readonly x: number; readonly y: number },
+  ) => Effect.Effect<void>;
 
   readonly select: (tab: number) => Effect.Effect<void>;
   readonly go: (to: Destination, options?: GoOptions) => Effect.Effect<void>;
@@ -258,6 +282,16 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
       failureListeners.delete(listener);
     };
   };
+  const pointerListeners = new Set<(pointer: PointerMark) => void>();
+  const strokeListeners = new Set<(point: StrokePoint) => void>();
+  const listening =
+    <A>(listeners: Set<(value: A) => void>) =>
+    (listener: (value: A) => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    };
   const watched = () => snapshot.targets.find((target) => target.tab === snapshot.selected);
 
   const socket = yield* Socket.open(socketUrl(address), {
@@ -603,6 +637,22 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
         }
         break;
       }
+      case "pointer": {
+        const pointer = pointerOf(message.value);
+        for (const listener of pointerListeners) {
+          listener(pointer);
+        }
+        break;
+      }
+      case "stroke": {
+        const point = strokeOf(message.value);
+        if (point !== undefined) {
+          for (const listener of strokeListeners) {
+            listener(point);
+          }
+        }
+        break;
+      }
       case "features": {
         update({ features: featuresOf(message.value) });
         break;
@@ -837,6 +887,19 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
       ),
     ),
     onFailure,
+    onPointer: listening(pointerListeners),
+    onStroke: listening(strokeListeners),
+    follow: (member) =>
+      Effect.sync(() =>
+        send({
+          case: "follow",
+          value: member === undefined ? {} : { member: BigInt(member) },
+        }),
+      ),
+    draw: (stroke, phase, at) =>
+      Effect.sync(() =>
+        send({ case: "draw", value: { stroke, phase: STROKE_PHASE[phase], x: at.x, y: at.y } }),
+      ),
 
     select: (tab) => Effect.sync(() => send({ case: "select", value: { tab } })),
     go: (to, { newTab = false } = {}) =>

@@ -4,7 +4,10 @@
 mod picture;
 mod tell;
 
-use std::collections::BTreeSet;
+use std::{
+    collections::BTreeSet,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context as _, bail, ensure};
 use aperture_compositor::{Button, Cursor, Form, Forms, Input, Viewport, WindowId, data};
@@ -28,7 +31,7 @@ use super::{
 use crate::{
     files::{self, Download},
     pages::{self, Along},
-    presence::{Identity, Membership, Present},
+    presence::{Identity, Mark, Membership, Phase, Present, Shown},
     proto::aperture::live::v1::{self as pb, client_message, server_message},
 };
 
@@ -41,6 +44,11 @@ struct Grant {
 
 /// Why a client that may not do what it asked for is told it was not done.
 const NOT_ALLOWED: &str = "the session does not let this client do it";
+
+/// How often the others are told where a client's pointer is, and how many points of
+/// its strokes they are shown in a second.
+const POINTED_EVERY: Duration = Duration::from_millis(40);
+const DRAWN_A_SECOND: u32 = 120;
 
 /// What a client's WebRTC connection has to tell that waits for its session socket's turn.
 const CHANNEL_MESSAGES: usize = 256;
@@ -57,6 +65,9 @@ pub async fn serve(live: Live, socket: WebSocket, identity: Identity) {
         file_requests: live.pages.requests(),
         menus: live.pages.menus(),
         present: live.presence.present(),
+        marks: live.presence.marks(),
+        pointed: Instant::now(),
+        drawn: (Instant::now(), 0),
         sounding: live.sound.sounding(),
         sound: None,
         access,
@@ -94,6 +105,12 @@ struct Client {
     file_requests: watch::Receiver<Vec<pages::Request>>,
     menus: broadcast::Receiver<pages::Menu>,
     present: watch::Receiver<Present>,
+    /// What the members show each other.
+    marks: broadcast::Receiver<Mark>,
+    /// When the others were last told where the client's pointer is.
+    pointed: Instant,
+    /// Since when the points of the client's strokes are counted, and how many came.
+    drawn: (Instant, u32),
     /// What the client may do, as whoever let it in says.
     access: Access,
     /// The session's sound, for a client that takes it on the socket.
@@ -219,7 +236,14 @@ impl Client {
                         return Ok(());
                     }
                     self.send_presence().await?;
+                    self.keep_up().await?;
                 }
+                mark = self.marks.recv() => match mark {
+                    Ok(mark) => self.send_mark(mark).await?,
+                    // What was missed is not shown late.
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => return Ok(()),
+                },
                 changed = self.file_requests.changed() => {
                     if changed.is_err() {
                         return Ok(());
@@ -274,6 +298,10 @@ impl Client {
         match message {
             Message::Hello(hello) => self.greet(&hello).await,
             Message::Select(select) => {
+                // Whoever goes somewhere itself follows nobody there.
+                if let Err(reason) = self.live.presence.follow(self.member.id, None) {
+                    debug!(reason, "a client still follows");
+                }
                 self.chosen = true;
                 if self.select(Some(select.tab)).await? {
                     self.send_selected().await?;
@@ -317,6 +345,16 @@ impl Client {
                 }
                 Err(err) => self.answer(pb::Asked::ASKED_COPY_PICTURE, Err(err)).await,
             },
+            Message::Follow(follow) => {
+                let followed = self.live.presence.follow(self.member.id, follow.member);
+                let followed = followed.map_err(anyhow::Error::msg);
+                self.answer(pb::Asked::ASKED_FOLLOW, followed).await?;
+                self.keep_up().await
+            }
+            Message::Draw(draw) => {
+                self.draw(&draw);
+                Ok(())
+            }
             Message::FilesChosen(chosen) => {
                 let answered = self.choose_files(&chosen).await;
                 self.answer(pb::Asked::ASKED_FILES_CHOSEN, answered).await
@@ -328,6 +366,7 @@ impl Client {
             | Message::Key(_)
             | Message::Text(_)
             | Message::Drop(_) => {
+                self.point(&message);
                 self.input(message);
                 Ok(())
             }
@@ -505,6 +544,81 @@ impl Client {
             .await
     }
 
+    /// Goes to the tab the member the client follows watches, where that is another.
+    async fn keep_up(&mut self) -> Result<(), axum::Error> {
+        let ahead = {
+            let present = self.present.borrow();
+            let member = |id| present.members.iter().find(|member| member.id == id);
+            let followed = member(self.member.id).and_then(|own| own.follows);
+            followed.and_then(member).and_then(|followed| followed.tab)
+        };
+        let Some(tab) = ahead.filter(|tab| self.tab() != Some(*tab)) else {
+            return Ok(());
+        };
+        self.chosen = true;
+        if self.select(Some(tab)).await? {
+            self.send_selected().await?;
+        }
+        Ok(())
+    }
+
+    /// Shows the others who watch the tab where the client's pointer is, as often as they
+    /// take it.
+    fn point(&mut self, message: &client_message::Message) {
+        use client_message::Message;
+        let at = match message {
+            Message::PointerMotion(motion) => Some((motion.x, motion.y)),
+            Message::PointerLeave(_) => None,
+            _ => return,
+        };
+        let Some(tab) = self.tab() else {
+            return;
+        };
+        // That it left is always told; where it is, when the last word is old enough.
+        if at.is_some() {
+            if self.pointed.elapsed() < POINTED_EVERY {
+                return;
+            }
+            self.pointed = Instant::now();
+        }
+        self.live.presence.show(Mark {
+            member: self.member.id,
+            tab,
+            what: Shown::Pointer(at),
+        });
+    }
+
+    /// Shows the others who watch the tab a point of a stroke the client draws.
+    fn draw(&mut self, draw: &pb::Draw) {
+        let phase = match draw.phase.as_known() {
+            Some(pb::StrokePhase::STROKE_PHASE_START) => Phase::Start,
+            Some(pb::StrokePhase::STROKE_PHASE_MOVE) => Phase::Move,
+            Some(pb::StrokePhase::STROKE_PHASE_END) => Phase::End,
+            Some(pb::StrokePhase::STROKE_PHASE_UNSPECIFIED) | None => return,
+        };
+        let Some(tab) = self.tab() else {
+            return;
+        };
+        if self.drawn.0.elapsed() >= Duration::from_secs(1) {
+            self.drawn = (Instant::now(), 0);
+        }
+        self.drawn.1 += 1;
+        // A stroke that ends always does: the others would keep it open otherwise.
+        if self.drawn.1 > DRAWN_A_SECOND && phase != Phase::End {
+            return;
+        }
+        self.live.presence.show(Mark {
+            member: self.member.id,
+            tab,
+            what: Shown::Stroke {
+                stroke: draw.stroke,
+                phase,
+                x: draw.x,
+                y: draw.y,
+            },
+        });
+    }
+
     /// Gives the watched tab what the client's pointer and keys do, if the tab takes it of
     /// this client.
     fn input(&self, message: client_message::Message) {
@@ -574,6 +688,8 @@ impl Client {
             | Message::Go(_)
             | Message::CopyPicture(_)
             | Message::Close(_)
+            | Message::Follow(_)
+            | Message::Draw(_)
             | Message::FilesChosen(_) => return,
         };
         if let Some(tab) = self.tab() {

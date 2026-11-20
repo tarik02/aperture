@@ -14,6 +14,7 @@ import { cn } from "@aperture-browser/ui/utils";
 import { useLease, useReconnect, useSession, useSessionSnapshot } from "../session.tsx";
 import { useWorkbench } from "../workbench/context.tsx";
 import { WorkbenchSlot } from "../workbench/slot.tsx";
+import { MemberMarks } from "./member-marks.tsx";
 import { LeaseOverlay } from "./session-presence.tsx";
 import { SessionViewport } from "./session-viewport.tsx";
 
@@ -96,6 +97,7 @@ export function BrowserViewport({ className }: BrowserViewportProps) {
           Waiting for a tab
         </Placeholder>
       ) : null}
+      {open && showLease ? <MemberMarks /> : null}
       {open && showLease ? <LeaseOverlay /> : null}
       {open && showLease && lease.state === "view-only" ? (
         <div className="aperture:pointer-events-none aperture:absolute aperture:bottom-2 aperture:left-2 aperture:z-10">

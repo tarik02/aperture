@@ -111,6 +111,27 @@ export interface Member {
   readonly tab: number | undefined;
   /** The session's automation rather than a person. */
   readonly agent: boolean;
+  /** The member this one follows: it watches the tab that member watches. */
+  readonly follows: number | undefined;
+}
+
+/** Where another member's pointer is on the watched tab, in the tab's logical pixels. */
+export interface PointerMark {
+  readonly member: number;
+  /** None once the pointer left the tab's picture. */
+  readonly at: { readonly x: number; readonly y: number } | undefined;
+}
+
+export type StrokePhase = "start" | "move" | "end";
+
+/** A point of a stroke another member draws over the watched tab. */
+export interface StrokePoint {
+  readonly member: number;
+  /** Which of the member's strokes the point is of. */
+  readonly stroke: number;
+  readonly phase: StrokePhase;
+  readonly x: number;
+  readonly y: number;
 }
 
 export interface HeldTab {
@@ -173,7 +194,7 @@ export interface ClipboardEvent {
 
 /** Something this client asked for over the session socket was not done. */
 export interface Failure {
-  readonly asked: "go" | "close" | "copyPicture" | "chooseFiles" | undefined;
+  readonly asked: "go" | "close" | "copyPicture" | "chooseFiles" | "follow" | undefined;
   /** Why, as the session says it. */
   readonly reason: string;
 }
@@ -275,6 +296,32 @@ const ASKED: Partial<Record<pb.Asked, NonNullable<Failure["asked"]>>> = {
   [pb.Asked.CLOSE]: "close",
   [pb.Asked.COPY_PICTURE]: "copyPicture",
   [pb.Asked.FILES_CHOSEN]: "chooseFiles",
+  [pb.Asked.FOLLOW]: "follow",
+};
+
+const STROKE_PHASES: Partial<Record<pb.StrokePhase, StrokePhase>> = {
+  [pb.StrokePhase.START]: "start",
+  [pb.StrokePhase.MOVE]: "move",
+  [pb.StrokePhase.END]: "end",
+};
+
+export const STROKE_PHASE: Record<StrokePhase, pb.StrokePhase> = {
+  start: pb.StrokePhase.START,
+  move: pb.StrokePhase.MOVE,
+  end: pb.StrokePhase.END,
+};
+
+export const pointerOf = (pointer: pb.Pointer): PointerMark => ({
+  member: Number(pointer.member),
+  at: pointer.at === undefined ? undefined : { x: pointer.at.x, y: pointer.at.y },
+});
+
+/** None for a point of a phase this client does not know. */
+export const strokeOf = (stroke: pb.Stroke): StrokePoint | undefined => {
+  const phase = STROKE_PHASES[stroke.phase];
+  return phase === undefined
+    ? undefined
+    : { member: Number(stroke.member), stroke: stroke.stroke, phase, x: stroke.x, y: stroke.y };
 };
 
 export const failureOf = (failed: pb.Failed): Failure => ({
@@ -319,6 +366,7 @@ export const presenceOf = (presence: pb.Presence): Presence => ({
     role: ROLES[member.role],
     tab: member.tab,
     agent: member.agent,
+    follows: count(member.follows),
   })),
   held: presence.held.map((held) => ({
     tab: held.tab,

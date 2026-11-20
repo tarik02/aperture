@@ -91,6 +91,13 @@ How the session resolves names, by its own records first and then by its resolve
 A certificate the session makes for a name whose TLS a rule has it answer itself, so that a server that speaks no TLS is `https://` to the session's pages. All have one key, made when the session starts and kept nowhere; only the session's own browser takes them.
 _Avoid_: Certificate authority, MITM
 
+**Follow**:
+A member watching whichever tab another member watches, until it selects a tab itself or the other leaves. It gives no input and takes no lease. Nobody is followed around a circle of followers.
+
+**Mark**:
+Something a member shows the others who watch the same tab, and nothing the session keeps: where its pointer is, and the strokes it draws over the picture, which fade once they end. Anyone in the session makes marks, also who may only watch. A mark is no input to the page.
+_Avoid_: Annotation, cursor (the browser's own)
+
 **Tunnel**:
 A route a client attaches to a session so that connections the rules send `via: local` are made from the client's machine.
 

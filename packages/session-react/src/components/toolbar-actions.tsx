@@ -9,6 +9,7 @@ import {
   Link2,
   Monitor,
   MoreVertical,
+  Pencil,
   RotateCcw,
   SunMoon,
   TextSelect,
@@ -63,6 +64,28 @@ export function KeyboardAction() {
       onClick={() => session.focus()}
     >
       <Keyboard />
+    </ToolbarButton>
+  );
+}
+
+/** Draws over the picture for the others to see, instead of giving it input. */
+export function DrawAction() {
+  const { features, drawing, setDrawing } = useWorkbench();
+  const members = useSessionSnapshot().presence?.members.length ?? 0;
+
+  // Nobody to draw for but oneself.
+  if (!features.presence || (members < 2 && !drawing)) {
+    return null;
+  }
+  return (
+    <ToolbarButton
+      label={drawing ? "Stop drawing" : "Draw over the page for the others"}
+      variant={drawing ? "secondary" : "ghost"}
+      aria-pressed={drawing}
+      data-workbench-draw=""
+      onClick={() => setDrawing(!drawing)}
+    >
+      <Pencil />
     </ToolbarButton>
   );
 }

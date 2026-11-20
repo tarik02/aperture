@@ -39,6 +39,9 @@ export interface Workbench {
   /** The id of the recording or screenshot the gallery shows; none while it is closed. */
   readonly viewed: string | undefined;
   readonly view: (id: string | undefined) => void;
+  /** Whether this member draws over the picture, which then takes no input from it. */
+  readonly drawing: boolean;
+  readonly setDrawing: (drawing: boolean) => void;
   readonly appearance: Appearance | undefined;
   readonly targetFaviconUrl: ((target: Target) => string | undefined) | undefined;
 }
@@ -85,10 +88,21 @@ export function WorkbenchProvider({
   useRememberedFit(fit);
 
   const [viewed, view] = useState<string | undefined>(undefined);
+  const [drawing, setDrawing] = useState(false);
 
   const value = useMemo(
-    () => ({ features, recordings, contributions, viewed, view, appearance, targetFaviconUrl }),
-    [features, recordings, contributions, viewed, appearance, targetFaviconUrl],
+    () => ({
+      features,
+      recordings,
+      contributions,
+      viewed,
+      view,
+      drawing,
+      setDrawing,
+      appearance,
+      targetFaviconUrl,
+    }),
+    [features, recordings, contributions, viewed, drawing, appearance, targetFaviconUrl],
   );
   return <WorkbenchContext.Provider value={value}>{children}</WorkbenchContext.Provider>;
 }
@@ -137,6 +151,7 @@ const NOT_DONE = {
   close: "The tab was not closed",
   copyPicture: "The picture was not copied",
   chooseFiles: "The page did not get the files",
+  follow: "That member is not followed",
 } as const;
 
 function useFailureNotices() {

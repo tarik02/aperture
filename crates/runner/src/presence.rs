@@ -13,7 +13,10 @@ use std::{
 
 use aperture_compositor::{Button, Handle, Input, WindowId};
 use aperture_runner::{Access, Area};
-use tokio::{sync::watch, time::Instant};
+use tokio::{
+    sync::{broadcast, watch},
+    time::Instant,
+};
 
 /// A tab is its holder's until they gave it no input for this long.
 const HELD_FOR: Duration = Duration::from_secs(5);
@@ -73,7 +76,40 @@ pub struct Member {
     pub agent: bool,
     /// The tab the member watches.
     pub tab: Option<u32>,
+    /// The member this one follows.
+    pub follows: Option<MemberId>,
 }
+
+/// Something a member shows the others who watch its tab: nothing of it is kept.
+#[derive(Debug, Clone, Copy)]
+pub struct Mark {
+    pub member: MemberId,
+    pub tab: u32,
+    pub what: Shown,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Shown {
+    /// Where the member's pointer is; none once it left.
+    Pointer(Option<(f64, f64)>),
+    /// A point of the stroke of that number the member draws.
+    Stroke {
+        stroke: u32,
+        phase: Phase,
+        x: f64,
+        y: f64,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase {
+    Start,
+    Move,
+    End,
+}
+
+/// Marks waiting for a client that falls behind; it then misses the oldest.
+const MARKS: usize = 512;
 
 /// A tab that is held.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,6 +160,7 @@ pub struct Presence {
     compositor: Handle,
     state: Mutex<State>,
     told: watch::Sender<Present>,
+    marks: broadcast::Sender<Mark>,
 }
 
 /// A member, for as long as it is held.
@@ -144,6 +181,7 @@ impl Presence {
             compositor,
             state: Mutex::default(),
             told: watch::Sender::new(Present::default()),
+            marks: broadcast::Sender::new(MARKS),
         });
         let settled = Arc::downgrade(&presence);
         tokio::spawn(async move {
@@ -171,6 +209,7 @@ impl Presence {
             identity,
             agent,
             tab: None,
+            follows: None,
         });
         self.tell(&state);
         Membership {
@@ -187,6 +226,9 @@ impl Presence {
             state.turn = None;
         }
         state.members.retain(|member| member.id != id);
+        for member in &mut state.members {
+            member.follows = member.follows.filter(|followed| *followed != id);
+        }
         state.leases.retain(|_, held| held.holder != id);
         for held in state.leases.values_mut() {
             held.asked = held.asked.filter(|(asker, _)| *asker != id);
@@ -201,6 +243,44 @@ impl Presence {
             member.tab = tab;
         }
         self.tell(&state);
+    }
+
+    /// The member follows `whom` from now on, or nobody.
+    pub fn follow(&self, id: MemberId, whom: Option<MemberId>) -> Result<(), &'static str> {
+        let mut state = self.state.lock().expect("not poisoned");
+        if let Some(whom) = whom {
+            let follows = |member: MemberId| {
+                let found = state.members.iter().find(|other| other.id == member);
+                found.and_then(|other| other.follows)
+            };
+            if !state.members.iter().any(|member| member.id == whom) {
+                return Err("no such member is in the session");
+            }
+            // Whoever `whom` follows, and so on, must not come back to this member.
+            let mut ahead = Some(whom);
+            while let Some(member) = ahead {
+                if member == id {
+                    return Err("a member is not followed around a circle");
+                }
+                ahead = follows(member);
+            }
+        }
+        if let Some(member) = state.members.iter_mut().find(|member| member.id == id) {
+            member.follows = whom;
+        }
+        self.tell(&state);
+        Ok(())
+    }
+
+    /// What members show each other from now on.
+    pub fn marks(&self) -> broadcast::Receiver<Mark> {
+        self.marks.subscribe()
+    }
+
+    /// Shows the others who watch the tab something of the member's.
+    pub fn show(&self, mark: Mark) {
+        // Nobody else may be there to see it.
+        let _ = self.marks.send(mark);
     }
 
     /// Whose turn at the keyboard and the pointer it is: who gave input last.

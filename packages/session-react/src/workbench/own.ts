@@ -25,6 +25,7 @@ import {
 import {
   AppearanceItem,
   BrowserMenuAction,
+  DrawAction,
   CopyItem,
   CopyUrlItem,
   KeyboardAction,
@@ -47,6 +48,7 @@ import type { WorkbenchContribution } from "./contributions.ts";
 export const workbenchContributions: readonly WorkbenchContribution[] = [
   { id: "action.keyboard", slot: "toolbar.actions", order: 100, component: KeyboardAction },
   { id: "action.files", slot: "toolbar.actions", order: 200, component: SessionFilesButton },
+  { id: "action.draw", slot: "toolbar.actions", order: 250, component: DrawAction },
   { id: "action.recording", slot: "toolbar.actions", order: 300, component: RecordingAction },
   { id: "action.picture", slot: "toolbar.actions", order: 400, component: PictureAction },
   { id: "action.menu", slot: "toolbar.actions", order: 500, component: BrowserMenuAction },

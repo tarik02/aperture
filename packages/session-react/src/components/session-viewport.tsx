@@ -200,7 +200,8 @@ function sameShape(one: Size, other: Size): boolean {
   return Math.abs(ratio - 1) < 0.01;
 }
 
-function pictureBox(stage: Size, target: Size): Size {
+/** The place the picture of a target has in a stage: its own size, or smaller to fit. */
+export function pictureBox(stage: Size, target: Size): Size {
   if (target.width <= 0 || target.height <= 0) {
     return { width: 0, height: 0 };
   }
