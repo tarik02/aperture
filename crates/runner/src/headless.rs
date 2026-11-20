@@ -42,6 +42,8 @@ pub struct Headless {
     pushes: broadcast::Sender<Value>,
     /// The video of each tab, by the browser's id of it.
     video: Mutex<HashMap<i64, Arc<Shared>>>,
+    /// How far this clock is ahead of the one each tab's frames are stamped by.
+    ahead: Mutex<HashMap<i64, i64>>,
     input: mpsc::UnboundedSender<Input>,
     attached: OnceLock<(cdp::Client, watch::Receiver<Vec<Target>>)>,
     /// The DevTools session of each page input goes to.
@@ -58,6 +60,7 @@ impl Headless {
             viewport,
             pushes: broadcast::Sender::new(64),
             video: Mutex::default(),
+            ahead: Mutex::default(),
             input,
             attached: OnceLock::new(),
             sessions: tokio::sync::Mutex::default(),
@@ -212,9 +215,20 @@ impl Headless {
                 let tab = message["tabId"].as_i64().context("a packet of no tab")?;
                 let data = STANDARD.decode(message["data"].as_str().unwrap_or_default())?;
                 let size = |side: &str| message[side].as_u64().unwrap_or(0) as u32;
+                // When the browser took the frame, not when word of it came here: frames
+                // come in bursts, and are shown as far apart as they were taken.
+                let now = self.started.elapsed().as_micros() as i64;
+                let taken = message["at"].as_i64().unwrap_or(now);
+                let time = {
+                    let mut ahead = self.ahead.lock().expect("not poisoned");
+                    let ahead = ahead.entry(tab).or_insert(now - taken);
+                    // The least the two clocks were ever apart is how far apart they are.
+                    *ahead = (*ahead).min(now - taken);
+                    Duration::from_micros((taken + *ahead).max(0) as u64)
+                };
                 let packet = Packet {
                     data,
-                    time: self.started.elapsed(),
+                    time,
                     keyframe: message["key"].as_bool().unwrap_or(false),
                     changed: 0,
                     size: (size("width"), size("height")),

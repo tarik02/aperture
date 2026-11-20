@@ -21,6 +21,8 @@ const tell = (message) => {
 // access units. The tab's size is the picture's; a keyframe comes when one is asked for.
 let hardwareFails = false;
 const keyframes = new Set();
+// SPIKE: what became of the frames, for whoever measures.
+globalThis.counted = { frames: 0, early: 0, busy: 0, encoded: 0 };
 // What each tab's video is to spend, as the session last said.
 const qualities = new Map();
 const base64 = (bytes) => {
@@ -40,7 +42,7 @@ const watch = async (track, tab) => {
       output: (chunk) => {
         const bytes = new Uint8Array(chunk.byteLength);
         chunk.copyTo(bytes);
-        tell({ type: "video.packet", tabId: tab, key: chunk.type === "key", width, height, data: base64(bytes) });
+        tell({ type: "video.packet", tabId: tab, key: chunk.type === "key", width, height, at: chunk.timestamp, data: base64(bytes) });
       },
       error: (error) => {
         // An encoder on the GPU that does not work here is not tried again.
@@ -68,7 +70,10 @@ const watch = async (track, tab) => {
     const height = frame.displayHeight & ~1;
     const { bitrate = 2_500_000, fps = 30 } = qualities.get(tab) ?? {};
     // No more frames than asked for: each has more of the bitrate.
-    if (frame.timestamp - last < 1_000_000 / fps - 3000) {
+    counted.frames++;
+    // Frames come a little off the beat: one that is early by less than half a beat is on it.
+    if (fps < 60 && frame.timestamp - last < 500_000 / fps) {
+      counted.early++;
       frame.close();
       continue;
     }
@@ -84,6 +89,9 @@ const watch = async (track, tab) => {
     // Frames the encoder has no time for are left out, down to the latest.
     if (encoder.state === "configured" && encoder.encodeQueueSize < 2) {
       encoder.encode(frame, { keyFrame: keyframes.delete(tab) });
+      counted.encoded++;
+    } else {
+      counted.busy++;
     }
     frame.close();
   }
