@@ -196,6 +196,15 @@ impl Headless {
             .clone()
     }
 
+    /// Has a tab's video spend what a taker's link carries. One video goes to all who
+    /// watch the tab, so the last word counts.
+    pub fn want(&self, tab: i64, kbits: Option<u32>, fps: u32) {
+        let bitrate = kbits.unwrap_or(6000) * 1000;
+        let wanted =
+            json!({ "type": "video.quality", "tabId": tab, "bitrate": bitrate, "fps": fps });
+        let _ = self.pushes.send(wanted);
+    }
+
     /// Takes what the extension tells of a tab's video.
     pub fn told(&self, message: &Value) -> anyhow::Result<()> {
         match message["type"].as_str() {
@@ -245,7 +254,30 @@ impl Headless {
 
     async fn give(self: Arc<Self>, mut taken: mpsc::UnboundedReceiver<Input>) {
         let mut hands = Hands::default();
-        while let Some(input) = taken.recv().await {
+        let mut waiting: std::collections::VecDeque<Input> = std::collections::VecDeque::new();
+        loop {
+            // A page answers each event once it has taken it, which is slower than a
+            // pointer moves: of the moves that wait, only where the pointer is now counts.
+            while let Ok(more) = taken.try_recv() {
+                let both = matches!(
+                    (waiting.back(), &more),
+                    (
+                        Some(Input::PointerMotion { .. }),
+                        Input::PointerMotion { .. }
+                    )
+                );
+                if both {
+                    waiting.pop_back();
+                }
+                waiting.push_back(more);
+            }
+            let input = match waiting.pop_front() {
+                Some(input) => input,
+                None => match taken.recv().await {
+                    Some(input) => input,
+                    None => return,
+                },
+            };
             let Some((window, method, params)) = hands.say(input) else {
                 continue;
             };

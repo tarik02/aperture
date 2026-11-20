@@ -19,17 +19,22 @@ const tell = (message) => {
 
 // SPIKE: the picture of a tab of a headless browser, encoded here and sent on as Annex B
 // access units. The tab's size is the picture's; a keyframe comes when one is asked for.
+let hardwareFails = false;
 const keyframes = new Set();
+// What each tab's video is to spend, as the session last said.
+const qualities = new Map();
 const base64 = (bytes) => {
   let text = "";
   for (let at = 0; at < bytes.length; at += 0x8000) text += String.fromCharCode.apply(null, bytes.subarray(at, at + 0x8000));
   return btoa(text);
 };
 const watch = async (track, tab) => {
-  const frames = new MediaStreamTrackProcessor({ track }).readable.getReader();
+  // Only the latest frame waits: an older one is of a moment that has passed.
+  const frames = new MediaStreamTrackProcessor({ track, maxBufferSize: 1 }).readable.getReader();
   let encoder = null;
   let size = "";
-  let said = false;
+  let spends = "";
+  let last = -Infinity;
   const make = async (width, height) => {
     const made = new VideoEncoder({
       output: (chunk) => {
@@ -37,12 +42,21 @@ const watch = async (track, tab) => {
         chunk.copyTo(bytes);
         tell({ type: "video.packet", tabId: tab, key: chunk.type === "key", width, height, data: base64(bytes) });
       },
-      error: (error) => tell({ type: "video.failed", tabId: tab, error: String(error?.message ?? error) }),
+      error: (error) => {
+        // An encoder on the GPU that does not work here is not tried again.
+        if (made.how === "hardware") {
+          hardwareFails = true;
+          size = "";
+          return;
+        }
+        tell({ type: "video.failed", tabId: tab, error: String(error?.message ?? error) });
+      },
     });
-    const config = { codec: "avc1.640033", width, height, bitrate: 8_000_000, framerate: 60, latencyMode: "realtime", avc: { format: "annexb" } };
+    const { bitrate = 2_500_000, fps = 30 } = qualities.get(tab) ?? {};
+    const config = { codec: "avc1.640033", width, height, bitrate, framerate: fps, latencyMode: "realtime", avc: { format: "annexb" } };
     // On the GPU where the browser encodes there, and else as it can.
     const hardware = { ...config, hardwareAcceleration: "prefer-hardware" };
-    const on = (await VideoEncoder.isConfigSupported(hardware).catch(() => null))?.supported === true;
+    const on = !hardwareFails && (await VideoEncoder.isConfigSupported(hardware).catch(() => null))?.supported === true;
     made.configure(on ? hardware : config);
     made.how = on ? "hardware" : "software";
     return made;
@@ -52,13 +66,20 @@ const watch = async (track, tab) => {
     if (done) break;
     const width = frame.displayWidth & ~1;
     const height = frame.displayHeight & ~1;
-    if (`${width}x${height}` !== size) {
+    const { bitrate = 2_500_000, fps = 30 } = qualities.get(tab) ?? {};
+    // No more frames than asked for: each has more of the bitrate.
+    if (frame.timestamp - last < 1_000_000 / fps - 3000) {
+      frame.close();
+      continue;
+    }
+    last = frame.timestamp;
+    if (`${width}x${height}` !== size || `${bitrate}@${fps}` !== spends) {
+      spends = `${bitrate}@${fps}`;
       if (encoder !== null && encoder.state !== "closed") encoder.close();
       encoder = await make(width, height);
       size = `${width}x${height}`;
       keyframes.add(tab);
-      if (!said) tell({ type: "video.started", tabId: tab, encoder: `${size} ${encoder.how}` });
-      said = true;
+      tell({ type: "video.started", tabId: tab, encoder: `${size} ${encoder.how} ${spends}` });
     }
     // Frames the encoder has no time for are left out, down to the latest.
     if (encoder.state === "configured" && encoder.encodeQueueSize < 2) {
@@ -141,6 +162,7 @@ const tap = async (stream, tab, sound, video) => {
 
 chrome.runtime.onMessage.addListener((message, _from, answer) => {
   if (message.keyframe !== undefined) keyframes.add(message.keyframe);
+  if (message.quality !== undefined) qualities.set(message.quality, { bitrate: message.bitrate, fps: message.fps });
   if (message.untap !== undefined) for (const track of held.get(message.untap)?.getTracks() ?? []) track.stop();
   if (message.tap === undefined) return false;
   tap(message.tap, message.tab, message.sound ?? true, message.video ?? false).then(

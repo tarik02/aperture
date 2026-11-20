@@ -136,6 +136,7 @@ impl Streams {
                 format: Format::H264,
                 ..key
             };
+            headless.want(tab, key.quality.bitrate(), key.fps());
             return Ok(take(key, &headless.video(tab)));
         }
         if let Some(subscription) = self.join(key) {

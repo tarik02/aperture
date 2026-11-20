@@ -14,6 +14,10 @@ const connected = () => {
       chrome.runtime.sendMessage({ keyframe: answer.tabId }).catch(() => {});
       return;
     }
+    if (answer?.type === "video.quality") {
+      chrome.runtime.sendMessage({ quality: answer.tabId, bitrate: answer.bitrate, fps: answer.fps }).catch(() => {});
+      return;
+    }
     if (answer?.type === "video.size") {
       options.then(({ video }) => {
         const was = sizes.get(answer.tabId) ?? video;
