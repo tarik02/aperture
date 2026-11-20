@@ -317,7 +317,8 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
         motion_threshold: 0,
       }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Started)));
       yield* agent.call("hover", { tab: opened.id, x: 700, y: 200 });
-      yield* Effect.sleep("4500 millis");
+      // Long enough that what is cut of it is told from how long the hover took.
+      yield* Effect.sleep("7 seconds");
       yield* recording({ action: "stop", id: blinking.id });
 
       const timeline = yield* timelineOf(yield* edited(blinking.id));

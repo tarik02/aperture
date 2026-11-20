@@ -135,12 +135,9 @@ suite(session)("the workbench, for browsing", (it) => {
       expect(keyboard).toBe(true);
 
       yield* page.type("hello workbench");
-      const landed = yield* happens(
-        inTab(mcp, form, "document.getElementById('field').value").pipe(
-          Effect.map((value) => value === "hello workbench"),
-        ),
-      );
-      expect(landed).toBe(true);
+      const typed = inTab(mcp, form, "document.getElementById('field').value");
+      yield* happens(typed.pipe(Effect.map((value) => value === "hello workbench")));
+      expect(yield* typed).toBe("hello workbench");
     }),
   );
 

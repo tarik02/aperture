@@ -1,4 +1,5 @@
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
+import * as Config from "effect/Config";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -44,11 +45,23 @@ export const run = Effect.fn("run")(function* (
     forceKillAfter: ENDS_WITHIN,
   });
   let said = "";
+  // All of it, where whoever runs the checks asked for it: for looking into a check that
+  // fails once in many runs, after the run.
+  const fs = yield* FileSystem.FileSystem;
+  const logs = yield* Config.String("APERTURE_E2E_LOGS").pipe(
+    Config.withDefault(""),
+    Effect.orElseSucceed(() => ""),
+  );
+  const name = program.split("/").at(-1) ?? "program";
+  const log = logs === "" ? undefined : `${logs}/${name}-${handle.pid}.log`;
   yield* handle.stderr.pipe(
     Stream.decodeText(),
     Stream.runForEach((chunk) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         said = (said + chunk).slice(-SAID_MOST);
+        if (log !== undefined) {
+          yield* Effect.ignore(fs.writeFileString(log, chunk, { flag: "a" }));
+        }
       }),
     ),
     Effect.ignore,

@@ -105,7 +105,13 @@ suite(node)("automation of a session of a node, over MCP", (it) => {
       const executor = yield* Executor;
       agentTab = yield* openByAutomation(agent, AGENT_PAGE);
 
-      const all = yield* Node.targets(executor, session);
+      // A page's title is told a moment after the page is.
+      const all = yield* Node.targetsOnce(
+        executor,
+        session,
+        "the agent's tab having its title",
+        (all) => all.some((target) => target.title === "agent tab"),
+      );
       expect(all).toHaveLength(3);
       expect(all.find((target) => target.title === "agent tab")?.tab).toBe(agentTab);
     }),
