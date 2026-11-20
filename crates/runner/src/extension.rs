@@ -32,8 +32,33 @@ pub fn unpack(dir: &Path, sound: bool) -> std::io::Result<()> {
         Err(err) => return Err(err),
     }
     std::fs::create_dir_all(dir)?;
+    // The browser keeps a worker's script with the profile, by the extension's version
+    // and the script's name, and runs what it kept whatever is written here since: a
+    // session resumed by a later runner would have the worker of an earlier one beside
+    // everything else of this one. So a worker that is written differently has another
+    // name, under another version.
+    let written = FILES
+        .iter()
+        .flat_map(|(_, content)| content.bytes())
+        .fold(17_u32, |sum, byte| {
+            sum.wrapping_mul(31).wrapping_add(byte.into())
+        });
+    let worker = format!("worker.{written:08x}.js");
     for (name, content) in FILES {
-        std::fs::write(dir.join(name), content)?;
+        match name {
+            "manifest.json" => {
+                let manifest = content
+                    .replace("\"worker.js\"", &format!("\"{worker}\""))
+                    .replace(
+                        "\"version\": \"1.0.0\"",
+                        // Each part of a version is at most 65535.
+                        &format!("\"version\": \"1.{}.{}\"", written >> 16, written & 0xffff),
+                    );
+                std::fs::write(dir.join(name), manifest)?;
+            }
+            "worker.js" => std::fs::write(dir.join(&worker), content)?,
+            _ => std::fs::write(dir.join(name), content)?,
+        }
     }
     std::fs::write(
         dir.join("options.json"),
