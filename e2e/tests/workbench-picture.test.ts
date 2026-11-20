@@ -1,6 +1,7 @@
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import * as Mcp from "../src/mcp.ts";
 import * as Runner from "../src/runner.ts";
 import { suite } from "../src/suite.ts";
@@ -38,7 +39,7 @@ const FORM = dataPage(`
 const CANVAS = "document.querySelector('[data-aperture-surface=canvas]')";
 
 /** The canvas's width, and how many of the pixels where the form's field is are not light. */
-const drawnOnCanvas = (page: Page): Effect.Effect<{ width: number; dark: number }, Error> =>
+const drawnOnCanvas = (page: Page) =>
   page.evaluate(
     `(() => {
       const canvas = ${CANVAS};
@@ -52,6 +53,7 @@ const drawnOnCanvas = (page: Page): Effect.Effect<{ width: number; dark: number 
       }
       return { width: canvas.width, dark };
     })()`,
+    Schema.Struct({ width: Schema.Number, dark: Schema.Number }),
   );
 
 const status = (page: Page) => page.text("[data-picture-status]");
@@ -121,7 +123,7 @@ suite(session)("the workbench's picture and viewport", (it) => {
     Effect.gen(function* () {
       yield* clickItem(page, "Tiles");
       expect(yield* comes(page, "s.picture.way === 'tiles'")).toBe(true);
-      const window: number = yield* page.evaluate("innerWidth");
+      const window = yield* page.evaluate("innerWidth", Schema.Number);
       const drawn = yield* happens(
         drawnOnCanvas(page).pipe(Effect.map(({ width, dark }) => width === window && dark > 0)),
       );
@@ -166,7 +168,7 @@ suite(session)("the workbench's picture and viewport", (it) => {
       expect(again).toBe(true);
       // Leaves the submenu, and the menu open.
       yield* escape(page);
-      yield* Effect.sleep(200);
+      yield* Effect.sleep("200 millis");
     }),
   );
 
@@ -184,7 +186,7 @@ suite(session)("the workbench's picture and viewport", (it) => {
       yield* clickItem(page, "1x");
       expect(yield* comes(page, `${sizeOf(form)}.scale === 1`)).toBe(true);
       yield* escape(page);
-      yield* Effect.sleep(200);
+      yield* Effect.sleep("200 millis");
     }),
   );
 

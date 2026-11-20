@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import * as Executor from "../src/executor.ts";
 import type { ExecutorService } from "../src/executor.ts";
+import { refusal } from "../src/http.ts";
 import { cookiesLeft, leaveCookie } from "../src/profile.ts";
 import { Nodes } from "../src/store.ts";
 import * as Store from "../src/store.ts";
@@ -97,11 +98,11 @@ suite(nodes)("what whoever runs several nodes asks of each", (it) => {
     Effect.gen(function* () {
       const running = yield* b.rpc("EvictSession", { id: session.id });
       expect(running.status).toBe(400);
-      expect(running.body.code).toBe("failed_precondition");
+      expect((yield* refusal(running)).code).toBe("failed_precondition");
 
       const absent = yield* a.rpc("EvictSession", { id: session.id });
       expect(absent.status).toBe(404);
-      expect(absent.body.code).toBe("not_found");
+      expect((yield* refusal(absent)).code).toBe("not_found");
     }),
   );
 
@@ -111,9 +112,9 @@ suite(nodes)("what whoever runs several nodes asks of each", (it) => {
       const own = yield* alone.client.sessions.create({ suspended: true });
 
       const evicted = yield* alone.rpc("EvictSession", { id: own.id });
-      expect(evicted.body.code).toBe("failed_precondition");
+      expect((yield* refusal(evicted)).code).toBe("failed_precondition");
       const listed = yield* alone.rpc("ListStoredSessions");
-      expect(listed.body.code).toBe("failed_precondition");
+      expect((yield* refusal(listed)).code).toBe("failed_precondition");
     }),
   );
 });

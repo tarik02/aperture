@@ -1,13 +1,17 @@
-import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
-import { connect, createServer as createTcpServer, type Server, type Socket } from "node:net";
+import * as NodeSocket from "@effect/platform-node/NodeSocket";
+import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import { expect } from "@effect/vitest";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Layer from "effect/Layer";
+import type * as Scope from "effect/Scope";
+import * as Socket from "effect/socket/Socket";
 import { Executor } from "../src/executor.ts";
+import { refusal } from "../src/http.ts";
 import * as Node from "../src/node.ts";
-import { freePort, run } from "../src/process.ts";
-import { programs } from "../src/programs.ts";
+import { freePort, type Program, run } from "../src/process.ts";
+import { program } from "../src/programs.ts";
 import * as Site from "../src/site.ts";
 import { suite } from "../src/suite.ts";
 import { happens, until } from "../src/wait.ts";
@@ -18,20 +22,19 @@ const ALLOWED = "127.0.0.2";
 const DEVTOOLS_PORT = 9222;
 const TUNNEL_SECRET = "s3cret";
 
-/** Listens on a port of its own on the allowed address until the scope ends. */
-const listening = <S extends Server | HttpServer>(server: S) =>
-  Effect.acquireRelease(
-    Effect.promise(
-      () =>
-        new Promise<number>((listens) => {
-          server.listen(0, ALLOWED, () => {
-            const address = server.address();
-            listens(typeof address === "object" && address !== null ? address.port : 0);
-          });
-        }),
-    ),
-    () => Effect.sync(() => server.close()),
-  );
+/**
+ * Takes connections on a port of its own on the allowed address until the scope ends;
+ * each is `taken`'s for as long as it lasts.
+ */
+const listening = Effect.fn("listening")(function* (
+  taken: (socket: Socket.Socket) => Effect.Effect<void, Socket.SocketError, Scope.Scope>,
+) {
+  const server = yield* NodeSocketServer.make({ port: 0, host: ALLOWED });
+  yield* server
+    .run((socket) => taken(socket).pipe(Effect.scoped, Effect.ignore))
+    .pipe(Effect.ignore, Effect.forkScoped);
+  return server.address._tag === "UnixPathAddress" ? 0 : server.address.port;
+});
 
 /** A page on the allowed address for sessions' browsers to fetch. */
 class Reachable extends Context.Service<Reachable, { readonly port: number }>()(
@@ -42,11 +45,10 @@ class Reachable extends Context.Service<Reachable, { readonly port: number }>()(
 // and rules decide for new connections only.
 const reachable = Layer.effect(
   Reachable,
-  listening(
-    createHttpServer((_, response) => {
-      response.setHeader("Connection", "close").end("reachable");
-    }),
-  ).pipe(Effect.map((port) => ({ port }))),
+  Site.serve(
+    Effect.succeed(HttpServerResponse.text("reachable", { headers: { connection: "close" } })),
+    ALLOWED,
+  ).pipe(Effect.map(({ port }) => ({ port }))),
 );
 
 const node = Layer.mergeAll(
@@ -54,56 +56,69 @@ const node = Layer.mergeAll(
   reachable,
 );
 
-/** Passes everything a proxy is given on to the reachable page, wherever it was asked to. */
-const relay = (socket: Socket, port: number) => {
-  const upstream = connect(port, ALLOWED);
-  socket.pipe(upstream).pipe(socket);
-  upstream.on("error", () => socket.destroy());
-  socket.on("error", () => upstream.destroy());
-};
+/** Passes on what comes one way for as long as it comes. */
+const carry = (from: Socket.Reader, to: Socket.Writer) =>
+  from.pull.pipe(
+    Effect.flatMap((chunks) => to.writeAll(chunks)),
+    Effect.forever,
+  );
 
-const SOCKS_NO_AUTHENTICATION = Buffer.from([5, 0]);
-const SOCKS_GRANTED = Buffer.from([5, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
+/** Passes everything a proxy is given on to the reachable page, wherever it was asked to. */
+const relay = Effect.fn("relay")(function* (
+  asks: Socket.Reader,
+  answers: Socket.Writer,
+  port: number,
+) {
+  const upstream = yield* NodeSocket.makeNet({ host: ALLOWED, port });
+  // Either side that ends, or fails, ends the other with it.
+  yield* Effect.raceFirst(
+    carry(asks, yield* upstream.writer),
+    carry(yield* upstream.reader, answers),
+  );
+});
+
+const bytesOf = (chunk: Uint8Array | string) =>
+  typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
+
+const SOCKS_NO_AUTHENTICATION = new Uint8Array([5, 0]);
+const SOCKS_GRANTED = new Uint8Array([5, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
 /** Where a SOCKS5 request for a name has the name's length; the name follows it. */
 const SOCKS_NAME_LENGTH_AT = 4;
 
 /** A SOCKS5 proxy that notes the names it is asked for. */
 const socksProxy = (asked: string[], port: number) =>
-  createTcpServer((socket) => {
-    socket.once("data", () => {
-      socket.write(SOCKS_NO_AUTHENTICATION);
-      socket.once("data", (request: Buffer) => {
-        const from = SOCKS_NAME_LENGTH_AT + 1;
-        const name = request.subarray(from, from + request[SOCKS_NAME_LENGTH_AT]!);
-        asked.push(`socks ${name.toString()}`);
-        socket.write(SOCKS_GRANTED);
-        relay(socket, port);
-      });
-    });
+  Effect.fn("socksProxy")(function* (socket: Socket.Socket) {
+    const reader = yield* socket.reader;
+    const writer = yield* socket.writer;
+    yield* reader.pull;
+    yield* writer.write(SOCKS_NO_AUTHENTICATION);
+    const request = bytesOf((yield* reader.pull)[0]);
+    const from = SOCKS_NAME_LENGTH_AT + 1;
+    const name = request.subarray(from, from + request[SOCKS_NAME_LENGTH_AT]!);
+    asked.push(`socks ${new TextDecoder().decode(name)}`);
+    yield* writer.write(SOCKS_GRANTED);
+    yield* relay(reader, writer, port);
   });
 
 /** An HTTP proxy that notes what it is asked to connect to. */
 const httpProxy = (asked: string[], port: number) =>
-  createHttpServer().on("connect", (request, socket: Socket) => {
-    asked.push(`http ${request.url}`);
-    socket.write("HTTP/1.1 200 OK\r\n\r\n");
-    relay(socket, port);
+  Effect.fn("httpProxy")(function* (socket: Socket.Socket) {
+    const reader = yield* socket.reader;
+    const writer = yield* socket.writer;
+    const request = new TextDecoder().decode(bytesOf((yield* reader.pull)[0]));
+    asked.push(`http ${/^CONNECT (\S+)/u.exec(request)?.[1]}`);
+    yield* writer.write("HTTP/1.1 200 OK\r\n\r\n");
+    yield* relay(reader, writer, port);
   });
 
 /** Waits until something takes connections at an address. */
 const accepting = (host: string, port: number) =>
   until(
     `${host}:${port} taking connections`,
-    Effect.promise(
-      () =>
-        new Promise<boolean>((answered) => {
-          const socket = connect(port, host);
-          socket.once("connect", () => {
-            socket.destroy();
-            answered(true);
-          });
-          socket.once("error", () => answered(false));
-        }),
+    NodeSocket.makeNet({ host, port }).pipe(
+      Effect.flatMap((socket) => socket.reader),
+      Effect.as(true),
+      Effect.scoped,
     ),
   );
 
@@ -114,7 +129,7 @@ suite(node)("what a session's browser reaches from a node", (it) => {
   let allowed: string;
   let operatorPort: number;
   let dev: Site.Site;
-  let attached: { readonly pid: number | undefined };
+  let attached: Program;
 
   /** Whether a page of the session gets an answer from an address. */
   const reaches = (url: string) =>
@@ -196,7 +211,7 @@ suite(node)("what a session's browser reaches from a node", (it) => {
         id: session,
         proxy: { rules: [{ match: "*", via: "nowhere" }] },
       });
-      expect(answer.body.code).toBe("invalid_argument");
+      expect((yield* refusal(answer)).code).toBe("invalid_argument");
     }),
   );
 
@@ -242,7 +257,7 @@ suite(node)("what a session's browser reaches from a node", (it) => {
     Effect.gen(function* () {
       operatorPort = yield* freePort;
       yield* Node.lasting(
-        run(`${programs}/aperture-tunnel`, [
+        run(yield* program("aperture-tunnel"), [
           "listen",
           `${ALLOWED}:${operatorPort}`,
           "--auth",
@@ -286,18 +301,16 @@ suite(node)("what a session's browser reaches from a node", (it) => {
   it.effect("a local route reaches the client's own localhost", () =>
     Effect.gen(function* () {
       const executor = yield* Executor;
-      const client = yield* Node.lasting(
-        run(`${programs}/aperture-tunnel`, [
+      attached = yield* Node.lasting(
+        run(yield* program("aperture-tunnel"), [
           "attach",
           `${executor.url.replace(/^http/u, "ws")}${tunnelPath}`,
           "--token",
           executor.token,
         ]),
       );
-      attached = { pid: client.child.pid };
-
       const devPort = new URL(dev.url).port;
-      const reached = yield* happens(reaches(`http://localhost:${devPort}/`), 10_000);
+      const reached = yield* happens(reaches(`http://localhost:${devPort}/`), "10 seconds");
       expect(reached).toBe(true);
     }),
   );
@@ -305,12 +318,12 @@ suite(node)("what a session's browser reaches from a node", (it) => {
   it.effect("the local route fails again once the client is gone", () =>
     Effect.gen(function* () {
       expect(attached.pid).toBeDefined();
-      process.kill(attached.pid!, "SIGKILL");
+      yield* attached.ends("SIGKILL");
 
       const devPort = new URL(dev.url).port;
       const fails = yield* happens(
         reaches(`http://localhost:${devPort}/`).pipe(Effect.map((reached) => !reached)),
-        10_000,
+        "10 seconds",
       );
       expect(fails).toBe(true);
     }),

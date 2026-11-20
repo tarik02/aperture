@@ -2,6 +2,7 @@ import { proto } from "@aperture-browser/executor-client";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import type { ExecutorService } from "../src/executor.ts";
+import { refusal } from "../src/http.ts";
 import { cookiesLeft, leaveCookie } from "../src/profile.ts";
 import { Nodes } from "../src/store.ts";
 import * as Store from "../src/store.ts";
@@ -59,8 +60,8 @@ suite(nodes)("nodes that say in the store which sessions they have", (it) => {
     Effect.gen(function* () {
       const refused = yield* b.rpc("ResumeSession", { id: held.id });
       expect(refused.status).toBe(400);
-      expect(refused.body.code).toBe("failed_precondition");
-      expect(refused.body.message).toContain("node a");
+      expect((yield* refusal(refused)).code).toBe("failed_precondition");
+      expect((yield* refusal(refused)).message).toContain("node a");
     }),
   );
 
@@ -71,7 +72,7 @@ suite(nodes)("nodes that say in the store which sessions they have", (it) => {
       yield* a.dies;
 
       const refused = yield* b.rpc("ResumeSession", { id: held.id });
-      expect(refused.body.code).toBe("failed_precondition");
+      expect((yield* refusal(refused)).code).toBe("failed_precondition");
     }),
   );
 
@@ -113,7 +114,7 @@ suite(nodes)("nodes that say in the store which sessions they have", (it) => {
       const d = yield* store.start(named("d"));
       const refused = yield* d.rpc("ResumeSession", { id: held.id });
       expect(refused.status).toBe(404);
-      expect(refused.body.code).toBe("not_found");
+      expect((yield* refusal(refused)).code).toBe("not_found");
     }),
   );
 });

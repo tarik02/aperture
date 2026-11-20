@@ -78,7 +78,7 @@ suite(node)("watching a session of a node", (it) => {
   it.effect("keys in the viewer reach the session's page", () =>
     Effect.gen(function* () {
       yield* Node.clickInPicture(watcher, "video", FIELD);
-      yield* Effect.sleep(300);
+      yield* Effect.sleep("300 millis");
       yield* watcher.type("hi");
       yield* titleBecomes("typed:hi");
       expect(yield* title()).toBe("typed:hi");

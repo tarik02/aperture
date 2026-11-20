@@ -1,25 +1,22 @@
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import {
   aroundProxy,
   firstTab,
   iceCandidates,
-  noOwnNetwork,
+  lacksOwnNetwork,
   reachesAroundProxy,
   STUN,
 } from "../src/network.ts";
 import * as Runner from "../src/runner.ts";
-import { suite } from "../src/suite.ts";
+import { platform, suite } from "../src/suite.ts";
 
 /** A session whose browser has the network these arguments say. */
 const sessionWith = (network: readonly string[]) =>
   Runner.layer({ features: ["cdp"], args: [...network, aroundProxy] });
 
-const unmet = noOwnNetwork();
-if (unmet !== undefined) {
-  console.warn(`Checks of a browser with a network of its own are skipped: ${unmet}.`);
-}
-const withoutOwnNetwork = unmet !== undefined;
+const withoutOwnNetwork = await Effect.runPromise(lacksOwnNetwork.pipe(Effect.provide(platform)));
 
 /** The title of a page that came through the session's proxy. */
 const pageLoads = Effect.gen(function* () {
@@ -30,13 +27,13 @@ const pageLoads = Effect.gen(function* () {
 /** The kinds of ICE candidates the page gathers; `srflx` where a STUN server answered. */
 const candidates = Effect.gen(function* () {
   const tab = yield* firstTab(yield* Runner.Runner);
-  return (yield* tab.evaluate(iceCandidates(STUN))) as string;
+  return yield* tab.evaluate(iceCandidates(STUN), Schema.String);
 });
 
 /** Whether the page reaches a site its browser was told not to ask the proxy for. */
 const aroundTheProxy = Effect.gen(function* () {
   const tab = yield* firstTab(yield* Runner.Runner);
-  return (yield* tab.evaluate(reachesAroundProxy)) as string;
+  return yield* tab.evaluate(reachesAroundProxy, Schema.String);
 });
 
 suite(sessionWith([]))("a browser with proxied TCP and no UDP, as sessions have it", (it) => {

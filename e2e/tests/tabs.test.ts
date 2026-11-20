@@ -1,6 +1,7 @@
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import * as Runner from "../src/runner.ts";
 import { suite } from "../src/suite.ts";
 import { type Page, ready, snapshot, Viewer } from "../src/viewer.ts";
@@ -22,7 +23,10 @@ const listen = (page: Page) =>
 
 /** Waits until the watched tab shows an address with `part` in it, and `also` holds for it. */
 const shows = (page: Page, part: string, also = "true") =>
-  happens(snapshot(page, `watched?.url.includes(${JSON.stringify(part)}) && (${also})`), 20_000);
+  happens(
+    snapshot(page, `watched?.url.includes(${JSON.stringify(part)}) && (${also})`),
+    "20 seconds",
+  );
 
 suite(session)("tabs, with two people in the session", (it) => {
   let ada: Page;
@@ -38,7 +42,7 @@ suite(session)("tabs, with two people in the session", (it) => {
       bob = yield* viewer.open(runner.page({ name: "Bob", fit: "0" }));
       yield* ready(ada, 2);
       yield* ready(bob, 2);
-      first = yield* snapshot(ada, "s.selected");
+      first = yield* snapshot(ada, "s.selected", Schema.Number);
       yield* bob.evaluate(`apertureSession.select(${first})`);
       yield* listen(ada);
       yield* listen(bob);
@@ -59,7 +63,7 @@ suite(session)("tabs, with two people in the session", (it) => {
   it.effect("a tab someone else holds is reloaded all the same", () =>
     Effect.gen(function* () {
       yield* bob.evaluate("apertureSession.go({ along: 'reload' })");
-      yield* Effect.sleep(800);
+      yield* Effect.sleep("800 millis");
       expect(yield* failures(bob)).toBe("[]");
       expect(yield* disabled(bob, "Reload")).toBe(false);
       const still = yield* snapshot(
@@ -78,9 +82,9 @@ suite(session)("tabs, with two people in the session", (it) => {
       );
       expect(went).toBe(true);
       expect(yield* failures(bob)).toBe("[]");
-      yield* Effect.sleep(600);
+      yield* Effect.sleep("600 millis");
       expect(yield* snapshot(ada, "s.selected")).toBe(first);
-      second = yield* snapshot(bob, "s.selected");
+      second = yield* snapshot(bob, "s.selected", Schema.Number);
     }),
   );
 
@@ -114,7 +118,7 @@ suite(session)("tabs, with two people in the session", (it) => {
       yield* bob.evaluate(`apertureSession.select(${first})`);
       yield* ada.evaluate("apertureSession.go({ url: 'https://example.org/?first' })");
       yield* shows(ada, "?first");
-      yield* Effect.sleep(800);
+      yield* Effect.sleep("800 millis");
 
       const opener = (yield* runner.targets).find((target) => target.tab === first);
       const cdp = yield* runner.cdp;
@@ -122,14 +126,14 @@ suite(session)("tabs, with two people in the session", (it) => {
       // Away from the page's one link, which a click would follow.
       const picture = yield* ada.box("[data-aperture-surface=video]");
       yield* ada.clickAt(picture.x + 300, picture.y + 200);
-      yield* Effect.sleep(400);
+      yield* Effect.sleep("400 millis");
       yield* page.evaluate("window.open('https://example.net/', '_blank') && 1");
 
       const went = yield* happens(
         ada.evaluate(`![${first}, ${second}].includes(apertureSession.getSnapshot().selected)`),
       );
       expect(went).toBe(true);
-      yield* Effect.sleep(600);
+      yield* Effect.sleep("600 millis");
       expect(yield* snapshot(bob, "s.selected")).toBe(first);
     }),
   );

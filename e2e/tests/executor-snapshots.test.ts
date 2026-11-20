@@ -1,6 +1,6 @@
-import { readdirSync } from "node:fs";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import { Executor } from "../src/executor.ts";
 import * as Node from "../src/node.ts";
 import { cookiesLeft, leaveCookie } from "../src/profile.ts";
@@ -93,7 +93,8 @@ suite(node)("snapshots, and the sessions of a node over its executor's restart",
     Effect.gen(function* () {
       const executor = yield* Executor;
       yield* executor.client.snapshots.delete(snapshot);
-      expect(readdirSync(`${executor.data}/layers`)).toHaveLength(1);
+      const fs = yield* FileSystem.FileSystem;
+      expect(yield* fs.readDirectory(`${executor.data}/layers`)).toHaveLength(1);
     }),
   );
 
@@ -111,14 +112,16 @@ suite(node)("snapshots, and the sessions of a node over its executor's restart",
       const executor = yield* Executor;
       yield* executor.client.sessions.delete(original);
       yield* executor.client.sessions.delete(copy);
-      expect(readdirSync(`${executor.data}/layers`)).toEqual([]);
+      const fs = yield* FileSystem.FileSystem;
+      expect(yield* fs.readDirectory(`${executor.data}/layers`)).toEqual([]);
     }),
   );
 
   it.effect("deleted sessions leave nothing in the node's data", () =>
     Effect.gen(function* () {
       const executor = yield* Executor;
-      expect(readdirSync(`${executor.data}/sessions`)).toEqual([]);
+      const fs = yield* FileSystem.FileSystem;
+      expect(yield* fs.readDirectory(`${executor.data}/sessions`)).toEqual([]);
     }),
   );
 
@@ -126,10 +129,10 @@ suite(node)("snapshots, and the sessions of a node over its executor's restart",
     Effect.gen(function* () {
       const executor = yield* Executor;
       const gone = yield* happens(
-        Effect.sync(() => Node.processes(executor).length === 0),
-        5000,
+        Node.processes(executor).pipe(Effect.map((left) => left.length === 0)),
+        "5 seconds",
       );
-      expect(Node.processes(executor)).toEqual([]);
+      expect(yield* Node.processes(executor)).toEqual([]);
       expect(gone).toBe(true);
     }),
   );

@@ -183,6 +183,9 @@ importers:
       '@aperture-browser/session-client':
         specifier: workspace:*
         version: link:../packages/session-client
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.0.0(effect@4.0.0)
       '@effect/vitest':
         specifier: 'catalog:'
         version: 4.0.0(effect@4.0.0)(vitest@4.1.10(@types/node@26.6.6)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.4(@types/node@26.6.6)(jiti@2.7.0)(publint@0.3.24)(typescript@6.0.3)))

@@ -3,11 +3,12 @@ import { expect } from "@effect/vitest";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import type { Attached } from "../src/cdp.ts";
+import * as Schema from "effect/Schema";
+import type { Attached, CdpError } from "../src/cdp.ts";
 import * as Runner from "../src/runner.ts";
 import * as Site from "../src/site.ts";
 import { suite } from "../src/suite.ts";
-import { until } from "../src/wait.ts";
+import { type TimedOut, until } from "../src/wait.ts";
 
 // A page without an icon is asked for one some time after it loaded, which would count
 // as the site being asked for something.
@@ -110,22 +111,34 @@ const STORE_A_FILE = `(() => {
   };
 })()`;
 
-/** A database as a state tells it. */
-interface StateDatabase {
-  readonly name: string;
-  readonly version: number;
-  readonly stores: readonly {
-    readonly name: string;
-    readonly keyPath?: unknown;
-    readonly autoIncrement: boolean;
-    readonly indexes: readonly { readonly name: string }[];
-    readonly records: readonly {
-      readonly key?: unknown;
-      readonly value?: unknown;
-      readonly valueEncoded?: unknown;
-    }[];
-  }[];
-}
+/** A database as a state tells it; a record whole, with whatever it has. */
+const StateDatabase = Schema.Struct({
+  name: Schema.String,
+  version: Schema.Number,
+  stores: Schema.Array(
+    Schema.Struct({
+      name: Schema.String,
+      keyPath: Schema.optional(Schema.Unknown),
+      autoIncrement: Schema.Boolean,
+      indexes: Schema.Array(Schema.Struct({ name: Schema.String })),
+      records: Schema.Array(Schema.Record(Schema.String, Schema.Unknown)),
+    }),
+  ),
+});
+
+const databasesOf = Schema.decodeUnknownEffect(Schema.Array(StateDatabase));
+
+/** What `READ_DATABASE` tells, each part as the checks compare it. */
+const Found = Schema.Struct({
+  version: Schema.Unknown,
+  stores: Schema.Unknown,
+  indexes: Schema.Unknown,
+  rich: Schema.Unknown,
+  byIndex: Schema.Unknown,
+  token: Schema.Unknown,
+  buffer: Schema.Unknown,
+  counted: Schema.Unknown,
+});
 
 /** A session with its one tab attached. */
 interface Browsing {
@@ -133,7 +146,7 @@ interface Browsing {
   readonly address: Address;
   readonly page: Attached;
   /** Goes to a page of the site and waits until its title is `titled` and the session knows of it. */
-  readonly open: (url: string, titled: string) => Effect.Effect<void, Error>;
+  readonly open: (url: string, titled: string) => Effect.Effect<void, CdpError | TimedOut>;
 }
 
 interface StageService {
@@ -178,9 +191,9 @@ const browsing = Effect.gen(function* () {
 const stage = Layer.effect(
   Stage,
   Effect.gen(function* () {
-    const site = yield* Site.serve((request, response) => {
-      Site.html(request.url === "/set" ? STORING_PAGE : READING_PAGE)(request, response);
-    });
+    const site = yield* Site.serve(
+      Site.by((request) => Site.html(request.url === "/set" ? STORING_PAGE : READING_PAGE)),
+    );
     const [source, plain, withDatabases] = yield* Effect.all([browsing, browsing, browsing], {
       concurrency: "unbounded",
     });
@@ -266,7 +279,7 @@ suite(stage)("storage state, taken out of one session and put into others", (it)
       stateWithDatabases = yield* SessionHttp.exportStorageState(source.address, {
         indexed_db: true,
       });
-      const databases = ofSite(stateWithDatabases, site)?.indexedDB as StateDatabase[];
+      const databases = yield* databasesOf(ofSite(stateWithDatabases, site)?.indexedDB);
       expect(databases).toHaveLength(1);
       const database = databases[0]!;
       expect(database).toMatchObject({ name: "auth", version: 3 });
@@ -283,7 +296,7 @@ suite(stage)("storage state, taken out of one session and put into others", (it)
   it.effect("a record JSON holds goes as it is, and one it does not goes encoded", () =>
     Effect.gen(function* () {
       const { site } = yield* Stage;
-      const databases = ofSite(stateWithDatabases, site)?.indexedDB as StateDatabase[];
+      const databases = yield* databasesOf(ofSite(stateWithDatabases, site)?.indexedDB);
       const records = databases[0]!.stores.find((store) => store.name === "kept")!.records;
       const [rich, plain] = records;
 
@@ -291,8 +304,8 @@ suite(stage)("storage state, taken out of one session and put into others", (it)
         key: 2,
         value: { id: 2, by: "b", plain: [1, "two", { three: 3 }] },
       });
-      expect(rich?.value).toBeUndefined();
-      expect(JSON.stringify(rich?.valueEncoded)).toContain('"d":"1970-01-02T00:00:00.000Z"');
+      expect(rich?.["value"]).toBeUndefined();
+      expect(JSON.stringify(rich?.["valueEncoded"])).toContain('"d":"1970-01-02T00:00:00.000Z"');
     }),
   );
 
@@ -335,7 +348,7 @@ suite(stage)("storage state, taken out of one session and put into others", (it)
       yield* SessionHttp.importStorageState(withDatabases.address, stateWithDatabases);
       yield* withDatabases.open(`${site.url}/read`, "read");
 
-      const found = yield* withDatabases.page.evaluate(READ_DATABASE);
+      const found = yield* withDatabases.page.evaluate(READ_DATABASE, Found);
       expect(found).toMatchObject({ version: 3, stores: ["counted", "kept", "loose"] });
       expect(found.indexes).toEqual(["by"]);
       // What JSON does not hold: a date, bytes, a big integer, undefined, a cycle.

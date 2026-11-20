@@ -2,6 +2,7 @@ import { proto } from "@aperture-browser/executor-client";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import type { ExecutorService } from "../src/executor.ts";
+import { refusal } from "../src/http.ts";
 import { cookiesLeft, leaveCookie } from "../src/profile.ts";
 import { layersOn, Nodes } from "../src/store.ts";
 import * as Store from "../src/store.ts";
@@ -39,8 +40,8 @@ suite(nodes)("snapshots in a store that nodes share", (it) => {
   );
 
   it.effect("a node has none of a snapshot's layers before it builds a session on it", () =>
-    Effect.sync(() => {
-      expect(layersOn(b)).toBe(0);
+    Effect.gen(function* () {
+      expect(yield* layersOn(b)).toBe(0);
     }),
   );
 
@@ -78,7 +79,7 @@ suite(nodes)("snapshots in a store that nodes share", (it) => {
     Effect.gen(function* () {
       const refused = yield* b.rpc("CreateSession", { snapshotId: first.id });
       expect(refused.status).toBe(404);
-      expect(refused.body.code).toBe("not_found");
+      expect((yield* refusal(refused)).code).toBe("not_found");
     }),
   );
 
@@ -91,7 +92,7 @@ suite(nodes)("snapshots in a store that nodes share", (it) => {
       expect(session.state).toBe(proto.SessionState.RUNNING);
       expect(yield* cookiesLeft(c, session.id)).toEqual(["one", "two"]);
       // The snapshot that was deleted is still a layer of the one built above it.
-      expect(layersOn(c)).toBe(2);
+      expect(yield* layersOn(c)).toBe(2);
     }),
   );
 
@@ -109,7 +110,7 @@ suite(nodes)("snapshots in a store that nodes share", (it) => {
       for (const node of [a, b, c]) {
         yield* node.client.snapshots.list;
       }
-      expect([layersOn(a), layersOn(b), layersOn(c)]).toEqual([0, 0, 0]);
+      expect([yield* layersOn(a), yield* layersOn(b), yield* layersOn(c)]).toEqual([0, 0, 0]);
     }),
   );
 });

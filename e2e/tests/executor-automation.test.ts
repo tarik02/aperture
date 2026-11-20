@@ -1,13 +1,14 @@
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import { Executor, type ExecutorService } from "../src/executor.ts";
+import { Executor } from "../src/executor.ts";
 import * as Mcp from "../src/mcp.ts";
 import * as Node from "../src/node.ts";
 import { suite } from "../src/suite.ts";
 import { type Page, snapshot, Viewer } from "../src/viewer.ts";
 import * as ViewerLive from "../src/viewer.ts";
 import { happens } from "../src/wait.ts";
+import { openByAutomation, tabsOfAutomation } from "../src/workbench.ts";
 
 const node = Layer.mergeAll(
   Node.layer({ features: ["cdp", "mcp", "recordings"] }),
@@ -16,51 +17,6 @@ const node = Layer.mergeAll(
 
 const AGENT_PAGE =
   "data:text/html,<title>agent tab</title><h1>opened by the agent</h1><input id=q autofocus>";
-
-interface Content {
-  readonly type: string;
-  readonly data?: string;
-}
-
-/**
- * What a tool answers with besides text, which the shared client does not give: a
- * conversation with the automation endpoint of its own, for the one call.
- */
-const contentOf = (executor: ExecutorService, session: string, tool: string, args: object) =>
-  Effect.promise(async () => {
-    let conversation: string | undefined;
-    const send = async (id: number | undefined, method: string, params: object) => {
-      const answered = await fetch(`${executor.url}/sessions/${session}/mcp`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${executor.token}`,
-          "Content-Type": "application/json",
-          Accept: "application/json, text/event-stream",
-          ...(conversation === undefined ? {} : { "Mcp-Session-Id": conversation }),
-        },
-        body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
-      });
-      conversation ??= answered.headers.get("mcp-session-id") ?? undefined;
-      return answered.text();
-    };
-    await send(1, "initialize", {
-      protocolVersion: "2025-06-18",
-      capabilities: {},
-      clientInfo: { name: "e2e", version: "0" },
-    });
-    await send(undefined, "notifications/initialized", {});
-    const body = await send(2, "tools/call", { name: tool, arguments: args });
-    // The answer is JSON, or the last event of a stream of them.
-    const answer = body.startsWith("{")
-      ? body
-      : (body
-          .split("\n")
-          .filter((line) => line.startsWith("data: {"))
-          .at(-1)
-          ?.slice("data: ".length) ?? "{}");
-    const parsed = JSON.parse(answer) as { result?: { content?: readonly Content[] } };
-    return parsed.result?.content ?? [];
-  });
 
 suite(node)("automation of a session of a node, over MCP", (it) => {
   let session: string;
@@ -91,7 +47,7 @@ suite(node)("automation of a session of a node, over MCP", (it) => {
 
   it.effect("tabs lists the session's targets", () =>
     Effect.gen(function* () {
-      const listed = JSON.parse(yield* agent.call("tabs")) as readonly { target: string }[];
+      const listed = yield* tabsOfAutomation(agent);
       expect(listed).toHaveLength(2);
       expect(listed.map((tab) => tab.target)).toContain(opened.id);
     }),
@@ -108,7 +64,7 @@ suite(node)("automation of a session of a node, over MCP", (it) => {
     Effect.gen(function* () {
       yield* opened.page.evaluate("document.querySelector('button').style.cursor = 'pointer'");
       yield* agent.call("hover", { tab: opened.id, selector: "button" });
-      const seen = yield* happens(snapshot(watcher, "s.cursor === 'pointer'"), 5000);
+      const seen = yield* happens(snapshot(watcher, "s.cursor === 'pointer'"), "5 seconds");
       expect(seen).toBe(true);
     }),
   );
@@ -138,8 +94,7 @@ suite(node)("automation of a session of a node, over MCP", (it) => {
 
   it.effect("screenshot returns an image", () =>
     Effect.gen(function* () {
-      const executor = yield* Executor;
-      const content = yield* contentOf(executor, session, "screenshot", { tab: opened.id });
+      const content = yield* agent.content("screenshot", { tab: opened.id });
       const image = content.find((item) => item.type === "image");
       expect(image?.data?.length ?? 0).toBeGreaterThan(1000);
     }),
@@ -148,10 +103,7 @@ suite(node)("automation of a session of a node, over MCP", (it) => {
   it.effect("navigate without a tab opens a target", () =>
     Effect.gen(function* () {
       const executor = yield* Executor;
-      const navigated = JSON.parse(yield* agent.call("navigate", { url: AGENT_PAGE })) as {
-        tab: number;
-      };
-      agentTab = navigated.tab;
+      agentTab = yield* openByAutomation(agent, AGENT_PAGE);
 
       const all = yield* Node.targets(executor, session);
       expect(all).toHaveLength(3);

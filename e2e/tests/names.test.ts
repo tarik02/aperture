@@ -1,19 +1,19 @@
-import { lookup } from "node:dns/promises";
 import { expect } from "@effect/vitest";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import {
+  addressOf,
   aroundProxy,
   firstTab,
   iceCandidates,
-  noOwnNetwork,
+  lacksOwnNetwork,
   reachesAroundProxy,
   STUN,
 } from "../src/network.ts";
 import * as Runner from "../src/runner.ts";
 import * as Site from "../src/site.ts";
-import { suite } from "../src/suite.ts";
+import { platform, suite } from "../src/suite.ts";
 
 /** A server on this machine that speaks no TLS, as a developer runs one. */
 interface DevServerService {
@@ -33,11 +33,13 @@ const devServer = Layer.effect(
   Effect.gen(function* () {
     const hosts: string[] = [];
     const page = Site.html(`<title>${DEV_SERVER_TITLE}</title>hello`);
-    const site = yield* Site.serve((request, response) => {
-      hosts.push(request.headers.host ?? "");
-      page(request, response);
-    });
-    return { port: Number(new URL(site.url).port), hosts: () => hosts };
+    const site = yield* Site.serve(
+      Site.by((request) => {
+        hosts.push(request.headers["host"] ?? "");
+        return page;
+      }),
+    );
+    return { port: site.port, hosts: () => hosts };
   }),
 );
 
@@ -57,13 +59,13 @@ const sessionWith = (network: readonly string[]) =>
  */
 const configuration = Effect.gen(function* () {
   const server = yield* DevServer;
-  const stun = yield* Effect.promise(() => lookup(STUN, { family: 4 }));
+  const stun = yield* addressOf(STUN);
   return {
     rules: [{ match: "secure.test", via: "direct", to: `127.0.0.1:${server.port}`, tls: true }],
     dns: {
       records: [
         { name: "app.test", addresses: ["127.0.0.1"] },
-        { name: "*.stun.test", addresses: [stun.address] },
+        { name: "*.stun.test", addresses: [stun] },
       ],
     },
   };
@@ -90,11 +92,7 @@ const inPage = (expression: string) =>
     return yield* tab.evaluate(expression);
   });
 
-const unmet = noOwnNetwork();
-if (unmet !== undefined) {
-  console.warn(`Checks of a browser with a network of its own are skipped: ${unmet}.`);
-}
-const withoutOwnNetwork = unmet !== undefined;
+const withoutOwnNetwork = await Effect.runPromise(lacksOwnNetwork.pipe(Effect.provide(platform)));
 
 suite(sessionWith([]))("names, records and TLS the session answers", (it) => {
   it.effect("a configuration with records and a rule that answers TLS is taken", () =>

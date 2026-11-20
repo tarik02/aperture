@@ -1,6 +1,8 @@
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
+import { read } from "../src/http.ts";
 import * as Mcp from "../src/mcp.ts";
 import * as Runner from "../src/runner.ts";
 import { suite } from "../src/suite.ts";
@@ -51,16 +53,14 @@ const openRecordingMenu = (page: Page) =>
       yield* page.click("[data-workbench-recording]");
     }
     yield* page.until(`!!(${menuItem("Screenshot")})`);
-    yield* Effect.sleep(300);
+    yield* Effect.sleep("300 millis");
   });
 
-interface Sizes {
-  readonly dialog: readonly [number, number];
-  readonly shown: readonly [number, number];
-}
+const Size = Schema.Tuple([Schema.Number, Schema.Number]);
+const Sizes = Schema.Struct({ dialog: Size, shown: Size });
 
 /** The sizes of the gallery's dialog and of what it shows. */
-const gallerySizes = (page: Page): Effect.Effect<Sizes, Error> =>
+const gallerySizes = (page: Page) =>
   page.evaluate(
     `(() => {
       const size = (selector) => {
@@ -69,6 +69,7 @@ const gallerySizes = (page: Page): Effect.Effect<Sizes, Error> =>
       };
       return { dialog: size("${GALLERY}"), shown: size("[data-kept-shown]") };
     })()`,
+    Sizes,
   );
 
 /** Whether the bars over the gallery's video are all in this state. */
@@ -117,7 +118,7 @@ suite(session)("the workbench's recordings and what it keeps", (it) => {
       expect(started).toBe(true);
 
       // A recording is of some length.
-      yield* Effect.sleep(2500);
+      yield* Effect.sleep("2500 millis");
       yield* openRecordingMenu(page);
       expect(yield* hasItem(page, "Stop recording")).toBe(true);
     }),
@@ -132,7 +133,7 @@ suite(session)("the workbench's recordings and what it keeps", (it) => {
       expect(stopped).toBe(true);
       yield* happens(
         recordings(page, "all.every((one) => one.edit === null || one.edit.state !== 'editing')"),
-        60_000,
+        "1 minute",
       );
 
       yield* openRecordingMenu(page);
@@ -144,10 +145,11 @@ suite(session)("the workbench's recordings and what it keeps", (it) => {
     Effect.gen(function* () {
       yield* page.click("[data-kept=recording]");
       expect(yield* appears(page, `${GALLERY} video`)).toBe(true);
-      expect(yield* happens(page.evaluate(`${VIDEO}.readyState >= 1`), 10_000)).toBe(true);
+      expect(yield* happens(page.evaluate(`${VIDEO}.readyState >= 1`), "10 seconds")).toBe(true);
 
-      const link: string = yield* page.evaluate(
+      const link = yield* page.evaluate(
         `[...document.querySelectorAll("${GALLERY} a")].find((one) => one.getAttribute("aria-label") === "Download").href`,
+        Schema.String,
       );
       const status = yield* page.evaluate(
         `fetch(${JSON.stringify(link)}).then((answer) => answer.status)`,
@@ -175,24 +177,24 @@ suite(session)("the workbench's recordings and what it keeps", (it) => {
         idle: "speed",
         ripple: true,
       });
-      withAutomation = started.body.id;
+      withAutomation = (yield* read(started, Schema.Struct({ id: Schema.String }))).id;
       // What automation does is some way into the recording, and apart.
-      yield* Effect.sleep(1000);
+      yield* Effect.sleep("1 second");
       yield* mcp.call("click", { tab: form, selector: "#field" });
       yield* mcp.call("type", { tab: form, text: "hello from automation" });
-      yield* Effect.sleep(4000);
+      yield* Effect.sleep("4 seconds");
       yield* mcp.call("click", { tab: form, selector: "#send" });
-      yield* Effect.sleep(1000);
+      yield* Effect.sleep("1 second");
       yield* runner.request("POST", `/recordings/${withAutomation}/stop`);
 
       yield* openRecordingMenu(page);
       const kept = `[data-kept-id="${withAutomation}"]`;
       yield* page.until(
         `document.querySelector('${kept} [data-recording-state]')?.dataset.recordingState === 'Finished'`,
-        60_000,
+        "1 minute",
       );
       yield* page.click(kept);
-      expect(yield* happens(page.evaluate(`${VIDEO}?.readyState >= 1`), 10_000)).toBe(true);
+      expect(yield* happens(page.evaluate(`${VIDEO}?.readyState >= 1`), "10 seconds")).toBe(true);
       expect(yield* appears(page, "[data-kept-call]")).toBe(true);
       expect(yield* has(page, "[data-kept-run]")).toBe(true);
     }),
@@ -202,7 +204,7 @@ suite(session)("the workbench's recordings and what it keeps", (it) => {
     Effect.gen(function* () {
       const { dialog, shown } = yield* gallerySizes(page);
       expect(dialog).toEqual(shown);
-      const shape: number = yield* snapshot(page, "watched.width / watched.height");
+      const shape = yield* snapshot(page, "watched.width / watched.height", Schema.Number);
       expect(Math.abs(shown[0] / shown[1] - shape)).toBeLessThan(0.02);
       expect(yield* closeIsInHeader(page)).toBe(true);
     }),
@@ -213,8 +215,9 @@ suite(session)("the workbench's recordings and what it keeps", (it) => {
       const call = yield* page.box("[data-kept-call]");
       yield* page.mouse("mouseMoved", call.x, call.y + 8);
       expect(yield* appears(page, "[data-kept-track-tip]")).toBe(true);
-      const tip: string = yield* page.evaluate(
+      const tip = yield* page.evaluate(
         "document.querySelector('[data-kept-track-tip]').innerText",
+        Schema.String,
       );
       expect(tip).toMatch(/click|type/u);
     }),
@@ -225,16 +228,19 @@ suite(session)("the workbench's recordings and what it keeps", (it) => {
       const track = yield* page.box("[data-kept-track]");
       const part = 0.12;
       yield* page.clickAt(track.left + track.width * part, track.y);
-      const duration: number = yield* page.evaluate(`${VIDEO}.duration`);
+      const duration = yield* page.evaluate(`${VIDEO}.duration`, Schema.Number);
       const sought = yield* happens(
         page.evaluate(`Math.abs(${VIDEO}.currentTime - ${duration * part}) < 0.3`),
-        3000,
+        "3 seconds",
       );
       expect(sought, String(yield* page.evaluate(`${VIDEO}.currentTime`))).toBe(true);
-      soughtTo = yield* page.evaluate(`${VIDEO}.currentTime`);
+      soughtTo = yield* page.evaluate(`${VIDEO}.currentTime`, Schema.Number);
 
       yield* page.click(`${GALLERY} [aria-label=Play]`);
-      const plays = yield* happens(page.evaluate(`${VIDEO}.currentTime > ${soughtTo + 0.3}`), 5000);
+      const plays = yield* happens(
+        page.evaluate(`${VIDEO}.currentTime > ${soughtTo + 0.3}`),
+        "5 seconds",
+      );
       expect(plays).toBe(true);
     }),
   );
@@ -245,10 +251,10 @@ suite(session)("the workbench's recordings and what it keeps", (it) => {
       Effect.gen(function* () {
         yield* page.evaluate(`(${VIDEO}.currentTime = 0, true)`);
         yield* page.mouse("mouseMoved", 640, 300);
-        expect(yield* happens(barsAre(page, "hidden"), 6000)).toBe(true);
+        expect(yield* happens(barsAre(page, "hidden"), "6 seconds")).toBe(true);
 
         yield* page.mouse("mouseMoved", 650, 310);
-        expect(yield* happens(barsAre(page, "shown"), 3000)).toBe(true);
+        expect(yield* happens(barsAre(page, "shown"), "3 seconds")).toBe(true);
         yield* page.evaluate(`${VIDEO}.pause()`);
       }),
   );
@@ -263,7 +269,7 @@ suite(session)("the workbench's recordings and what it keeps", (it) => {
         gallerySizes(page).pipe(
           Effect.map(({ dialog, shown }) => dialog[0] === shown[0] && dialog[1] === shown[1]),
         ),
-        3000,
+        "3 seconds",
       );
       expect(sized, JSON.stringify(yield* gallerySizes(page))).toBe(true);
       expect(yield* has(page, "[data-kept-list]")).toBe(false);

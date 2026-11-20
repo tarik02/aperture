@@ -1,6 +1,6 @@
-import { readdirSync } from "node:fs";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import * as Executor from "./executor.ts";
@@ -12,7 +12,7 @@ export interface NodesService {
   /** The store the nodes share, as `APERTURE_SNAPSHOT_STORE` and `APERTURE_SESSION_STORE` take it. */
   readonly store: string;
   /** Starts one more node on the store, there until the suite ends. */
-  readonly start: (env?: Record<string, string>) => Effect.Effect<Node, Error>;
+  readonly start: (env?: Record<string, string>) => Effect.Effect<Node, Executor.StartError>;
 }
 
 /** Nodes that share a store: a directory, which is to them what a bucket is. */
@@ -26,23 +26,23 @@ export const layer = (options: (store: string) => Executor.ExecutorOptions) =>
       // Before any node, so that it outlasts them all.
       const shared = yield* directory;
       const store = `file://${shared}`;
-      const suite = yield* Effect.scope;
+      const suite = yield* Effect.context<
+        Scope.Scope | Effect.Services<ReturnType<typeof Executor.start>>
+      >();
       const withStore = (env: Record<string, string>): Executor.ExecutorOptions => {
         const all = options(store);
         return { ...all, env: { ...all.env, ...env } };
       };
       return {
         store,
-        start: (env = {}) => Executor.start(withStore(env)).pipe(Scope.provide(suite)),
+        start: (env = {}) => Executor.start(withStore(env)).pipe(Effect.provide(suite)),
       } satisfies NodesService;
     }),
   );
 
 /** How many layers the node has on its own storage. */
-export const layersOn = (node: Node) => {
-  try {
-    return readdirSync(`${node.data}/layers`).length;
-  } catch {
-    return 0;
-  }
-};
+export const layersOn = (node: Node) =>
+  FileSystem.FileSystem.use((fs) => fs.readDirectory(`${node.data}/layers`)).pipe(
+    Effect.map((layers) => layers.length),
+    Effect.orElseSucceed(() => 0),
+  );

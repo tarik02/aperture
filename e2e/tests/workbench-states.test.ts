@@ -1,7 +1,8 @@
-import { createServer, type Socket } from "node:net";
+import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import * as Mcp from "../src/mcp.ts";
 import * as Runner from "../src/runner.ts";
 import { suite } from "../src/suite.ts";
@@ -71,7 +72,7 @@ const fitsWindow = (page: Page, selector: string) =>
   );
 
 /** What a member who only watches finds turned off, each by its name. */
-const turnedOff = (page: Page): Effect.Effect<Record<string, boolean>, Error> =>
+const turnedOff = (page: Page) =>
   page.evaluate(
     `(() => {
       const off = {};
@@ -82,6 +83,7 @@ const turnedOff = (page: Page): Effect.Effect<Record<string, boolean>, Error> =>
       off["Close tab"] = [...document.querySelectorAll('[aria-label="Close tab"]')].every((button) => button.disabled);
       return off;
     })()`,
+    Schema.Record(Schema.String, Schema.Boolean),
   );
 
 const tabsAreSelected = (page: Page) =>
@@ -96,7 +98,7 @@ const reloadWith = (page: Page, script: string) =>
       source: `${script}; window.__reloaded = true;`,
     });
     yield* page.cdp.call("Page.reload", {});
-    yield* page.until("window.__reloaded === true", 30_000);
+    yield* page.until("window.__reloaded === true", "30 seconds");
   });
 
 /** Has the page reach for its session at an address instead, whatever it asked for. */
@@ -138,28 +140,10 @@ const closeWith = (page: Page, reason: string) =>
   );
 
 /** Something that takes connections and never answers them, until the scope ends. */
-const silence = Effect.acquireRelease(
-  Effect.promise(
-    () =>
-      new Promise<{ port: number; close: () => void }>((listening) => {
-        const taken: Socket[] = [];
-        const server = createServer((socket) => taken.push(socket));
-        server.listen(0, "127.0.0.1", () => {
-          const address = server.address();
-          listening({
-            port: typeof address === "object" && address !== null ? address.port : 0,
-            close: () => {
-              for (const socket of taken) {
-                socket.destroy();
-              }
-              server.close();
-            },
-          });
-        });
-      }),
-  ),
-  ({ close }) => Effect.sync(close),
-).pipe(Effect.map(({ port }) => `ws://127.0.0.1:${port}/ws`));
+const silence = NodeSocketServer.make({ port: 0, host: "127.0.0.1" }).pipe(
+  Effect.map(({ address }) => (address._tag === "UnixPathAddress" ? 0 : address.port)),
+  Effect.map((port) => `ws://127.0.0.1:${port}/ws`),
+);
 
 suite(session)("the states the workbench shows", (it) => {
   let ada: Page;
@@ -174,7 +158,7 @@ suite(session)("the states the workbench shows", (it) => {
       const runner = yield* Runner.Runner;
       const tickets = yield* Tickets.Tickets;
       const viewer = yield* Viewer;
-      const ticket = tickets.ticket(access, { sub: name.toLowerCase(), name });
+      const ticket = yield* tickets.ticket(access, { sub: name.toLowerCase(), name });
       return yield* viewer.open(runner.page({ token: ticket, fit: "0" }));
     });
 
@@ -184,7 +168,7 @@ suite(session)("the states the workbench shows", (it) => {
       bob = yield* asThe(GIVES_INPUT, "Bob");
       yield* ready(ada, 2);
       yield* ready(bob, 2);
-      tab = yield* snapshot(ada, "s.selected");
+      tab = yield* snapshot(ada, "s.selected", Schema.Number);
       expect(yield* snapshot(bob, "s.selected")).toBe(tab);
 
       const picture = yield* pictureBox(ada);
@@ -334,9 +318,10 @@ suite(session)("the states the workbench shows", (it) => {
 
   it.effect("a session with no tabs says so, and offers to open one", () =>
     Effect.gen(function* () {
-      const open: readonly number[] = yield* snapshot(
+      const open = yield* snapshot(
         operator,
         "s.targets.map((target) => target.tab)",
+        Schema.Array(Schema.Number),
       );
       for (const one of open) {
         yield* operator.evaluate(`apertureSession.closeTab(${one})`);

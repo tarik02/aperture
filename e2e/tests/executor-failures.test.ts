@@ -2,6 +2,7 @@ import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { Executor } from "../src/executor.ts";
 import * as Node from "../src/node.ts";
+import { kill } from "../src/process.ts";
 import { cookiesLeft, leaveCookie } from "../src/profile.ts";
 import { suite } from "../src/suite.ts";
 import { happens } from "../src/wait.ts";
@@ -9,7 +10,7 @@ import { happens } from "../src/wait.ts";
 const node = Node.layer({ features: ["cdp"] });
 
 /** How long the processes of a session that failed get to be gone. */
-const GONE_WITHIN_MS = 5000;
+const GONE_WITHIN = "5 seconds";
 
 suite(node)("a session whose processes die", (it) => {
   let session: string;
@@ -18,8 +19,8 @@ suite(node)("a session whose processes die", (it) => {
   const leftNoProcess = Effect.gen(function* () {
     const executor = yield* Executor;
     return yield* happens(
-      Effect.sync(() => Node.processesOf(executor, session).length === 0),
-      GONE_WITHIN_MS,
+      Node.processesOf(executor, session).pipe(Effect.map((left) => left.length === 0)),
+      GONE_WITHIN,
     );
   });
 
@@ -33,9 +34,9 @@ suite(node)("a session whose processes die", (it) => {
       yield* executor.client.sessions.suspend(session);
       yield* executor.client.sessions.resume(session);
 
-      const browser = Node.browserOf(executor, session);
+      const browser = yield* Node.browserOf(executor, session);
       expect(browser).toBeDefined();
-      process.kill(browser!.pid, "SIGKILL");
+      yield* kill(browser!.pid);
 
       const failed = yield* Node.inState(executor, session, Node.SessionState.FAILED);
       expect(failed.failure).toMatch(/browser exited/u);
@@ -59,7 +60,7 @@ suite(node)("a session whose processes die", (it) => {
   it.effect("a runner that is killed leaves the session failed", () =>
     Effect.gen(function* () {
       const executor = yield* Executor;
-      process.kill(Node.runnerOf(executor, session), "SIGKILL");
+      yield* kill(yield* Node.runnerOf(executor, session));
 
       const failed = yield* Node.inState(executor, session, Node.SessionState.FAILED);
       expect(failed.state).toBe(Node.SessionState.FAILED);

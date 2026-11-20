@@ -1,12 +1,14 @@
-import { writeFileSync } from "node:fs";
-import type { IncomingMessage, ServerResponse } from "node:http";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import * as Mcp from "../src/mcp.ts";
 import { directory } from "../src/process.ts";
 import * as Runner from "../src/runner.ts";
-import { serve } from "../src/site.ts";
+import * as Site from "../src/site.ts";
 import { suite } from "../src/suite.ts";
 import { type Page, ready, Viewer } from "../src/viewer.ts";
 import * as ViewerLive from "../src/viewer.ts";
@@ -56,46 +58,55 @@ const download = (name: string) => `[data-session-download="${name}"]`;
 const HALTED_AT = 380;
 const HALTED_OF = 1000;
 
+const attached = (name: string, bytes: number) => ({
+  contentType: "application/octet-stream",
+  contentLength: bytes,
+  headers: { "Content-Disposition": `attachment; filename="${name}"` },
+});
+
+const sent = (text: string) => Stream.make(new TextEncoder().encode(text));
+
 /**
  * A site of three files to download: one that comes whole, one that halts on the way for
- * as long as the check lasts, and one whose connection breaks.
+ * as long as the site lasts, and one whose connection breaks.
  */
-const downloads =
-  (halted: ServerResponse[]) => (request: IncomingMessage, response: ServerResponse) => {
-    const attach = (name: string, bytes: number) => {
-      response.setHeader("Content-Type", "application/octet-stream");
-      response.setHeader("Content-Disposition", `attachment; filename="${name}"`);
-      response.setHeader("Content-Length", String(bytes));
-    };
-    switch (request.url) {
-      case "/whole": {
-        attach("invoice.txt", "paid\n".length);
-        response.end("paid\n");
-        return;
-      }
-      case "/halting": {
-        attach("export.csv", HALTED_OF);
-        response.write("x".repeat(HALTED_AT));
-        halted.push(response);
-        return;
-      }
-      case "/breaking": {
-        attach("broken.zip", HALTED_OF);
-        response.write("x".repeat(10), () => response.destroy());
-        return;
-      }
-      default: {
-        response.statusCode = 404;
-        response.end();
-      }
+const downloads = Site.by((request) => {
+  switch (request.url) {
+    case "/whole": {
+      return Effect.succeed(
+        HttpServerResponse.stream(sent("paid\n"), attached("invoice.txt", "paid\n".length)),
+      );
     }
-  };
+    case "/halting": {
+      return Effect.succeed(
+        HttpServerResponse.stream(
+          Stream.concat(sent("x".repeat(HALTED_AT)), Stream.never),
+          attached("export.csv", HALTED_OF),
+        ),
+      );
+    }
+    case "/breaking": {
+      // The answer ends short of the length it told, and its connection with it.
+      const broken = attached("broken.zip", HALTED_OF);
+      return Effect.succeed(
+        HttpServerResponse.stream(sent("x".repeat(10)), {
+          ...broken,
+          headers: { ...broken.headers, Connection: "close" },
+        }),
+      );
+    }
+    default: {
+      return Effect.succeed(HttpServerResponse.empty({ status: 404 }));
+    }
+  }
+});
 
 /** Puts a file of this machine into the session through the panel's own input. */
 const uploadThroughPanel = (page: Page, name: string, content: string) =>
   Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
     const dir = yield* directory;
-    writeFileSync(`${dir}/${name}`, content);
+    yield* fs.writeFileString(`${dir}/${name}`, content);
     yield* chooseFiles(page, "[data-session-file-input]", [`${dir}/${name}`]);
     return yield* appears(page, upload(name));
   });
@@ -121,7 +132,7 @@ const openPanel = (page: Page) =>
       yield* page.click("[data-session-files-button]");
     }
     yield* page.until(`!!document.querySelector("${PANEL}")`);
-    yield* Effect.sleep(300);
+    yield* Effect.sleep("300 millis");
   });
 
 const namesGiven = (mcp: Mcp.Mcp, tab: number, input: string) =>
@@ -163,7 +174,7 @@ suite(session)("the workbench's files", (it) => {
         true,
       );
       expect(yield* appears(page, REQUEST)).toBe(true);
-      yield* Effect.sleep(300);
+      yield* Effect.sleep("300 millis");
 
       yield* page.click(upload("passport.txt"));
       yield* clickElement(page, buttonWithin(REQUEST, "Give the file"));
@@ -186,7 +197,7 @@ suite(session)("the workbench's files", (it) => {
         true,
       );
       yield* page.until(`!!document.querySelector("${REQUEST}")`);
-      yield* Effect.sleep(300);
+      yield* Effect.sleep("300 millis");
       yield* clickElement(page, buttonWithin(REQUEST, "Cancel"));
       expect(yield* comes(page, "s.fileRequests.length === 0")).toBe(true);
     }),
@@ -201,7 +212,7 @@ suite(session)("the workbench's files", (it) => {
 
       yield* clickPicture(page, ASKS_FOR_SEVERAL.x, ASKS_FOR_SEVERAL.y);
       expect(yield* appears(page, REQUEST)).toBe(true);
-      yield* Effect.sleep(300);
+      yield* Effect.sleep("300 millis");
       yield* page.click(upload("passport.txt"));
       yield* page.click(upload("notes.txt"));
       yield* clickElement(page, buttonWithin(REQUEST, "Give 2 files"));
@@ -242,15 +253,7 @@ suite(session)("the workbench's files", (it) => {
 
   it.effect("downloads are told as they go: done as a link, how far, and failed", () =>
     Effect.gen(function* () {
-      const halted: ServerResponse[] = [];
-      const site = yield* serve(downloads(halted));
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => {
-          for (const response of halted) {
-            response.destroy();
-          }
-        }),
-      );
+      const site = yield* Site.serve(downloads);
       for (const path of ["/whole", "/halting", "/breaking"]) {
         yield* page.evaluate(`apertureSession.go({ url: "${site.url}${path}" })`);
         yield* happens(Effect.sync(() => site.asked().includes(path)));
@@ -260,6 +263,7 @@ suite(session)("the workbench's files", (it) => {
 
       const link = yield* page.evaluate(
         `document.querySelector('${download("invoice.txt")} a').href`,
+        Schema.String,
       );
       expect(new URL(link).pathname).toBe("/files/downloads/invoice.txt");
       const served = yield* page.evaluate(

@@ -39,11 +39,6 @@ export default defineConfig({
         files: ["**/vite.config.ts"],
         rules: { "import/no-nodejs-modules": "off", "no-restricted-globals": "off" },
       },
-      {
-        // The checks run in Node, beside the programs they start.
-        files: ["e2e/**"],
-        rules: { "import/no-nodejs-modules": "off", "no-restricted-globals": "off" },
-      },
     ],
     options: { typeAware: true, typeCheck: true },
   },

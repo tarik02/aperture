@@ -1,7 +1,9 @@
-import { readFileSync } from "node:fs";
 import { type Address, SessionHttp } from "@aperture-browser/session-client/effect";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import * as Files from "../src/files.ts";
+import { read } from "../src/http.ts";
 import * as Runner from "../src/runner.ts";
 import { suite } from "../src/suite.ts";
 import { colourAt } from "../src/video.ts";
@@ -13,10 +15,10 @@ const session = Runner.layer({ features: ["cdp", "recordings"] });
 const coloured = (colour: string) =>
   `data:text/html,<title>${colour}</title><body style="margin:0;background:${colour}">`;
 
-interface JournalEntry {
-  readonly kind: string;
-  readonly tab?: number;
-}
+const JournalEntry = Schema.Struct({
+  kind: Schema.String,
+  tab: Schema.optional(Schema.Number),
+});
 
 suite(session)("a recording that goes on with another tab", (it) => {
   let address: Address;
@@ -60,7 +62,7 @@ suite(session)("a recording that goes on with another tab", (it) => {
       expect(recording.tab).toBe(first.tab);
       expect(recording.state).toBe("recording");
       // The first tab's part of the video needs some length to be looked into.
-      yield* Effect.sleep(2000);
+      yield* Effect.sleep("2 seconds");
     }),
   );
 
@@ -105,9 +107,10 @@ suite(session)("a recording that goes on with another tab", (it) => {
         tab: second.tab,
       });
       expect(again.status).toBe(200);
-      expect(again.body.tab).toBe(second.tab);
+      const told = yield* read(again, Schema.Struct({ tab: Schema.Number }));
+      expect(told.tab).toBe(second.tab);
       // The second tab's part of the video needs some length too.
-      yield* Effect.sleep(2500);
+      yield* Effect.sleep("2500 millis");
     }),
   );
 
@@ -143,7 +146,7 @@ suite(session)("a recording that goes on with another tab", (it) => {
         SessionHttp.getRecording(address, recording.id).pipe(
           Effect.map(({ edit }) => (edit === null || edit.state === "editing" ? undefined : edit)),
         ),
-        60_000,
+        "1 minute",
       );
       expect(edit).toMatchObject({ state: "finished", failure: null });
 
@@ -157,10 +160,7 @@ suite(session)("a recording that goes on with another tab", (it) => {
   it.effect("the journal says when it went on with the second tab", () =>
     Effect.gen(function* () {
       const runner = yield* Runner.Runner;
-      const journal = readFileSync(`${runner.files}/${stopped.journal}`, "utf8")
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line) as JournalEntry);
+      const journal = yield* Files.journal(`${runner.files}/${stopped.journal}`, JournalEntry);
       const retargets = journal.filter((entry) => entry.kind === "retarget");
       expect(retargets.map((entry) => entry.tab)).toEqual([second.tab]);
       expect(journal.some((entry) => entry.kind === "caption")).toBe(true);

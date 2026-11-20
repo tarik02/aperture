@@ -1,7 +1,8 @@
-import { readFileSync } from "node:fs";
 import { type Address, SessionHttp } from "@aperture-browser/session-client/effect";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import * as Files from "../src/files.ts";
 import * as Runner from "../src/runner.ts";
 import { suite } from "../src/suite.ts";
 import { colourAt, frameSizes } from "../src/video.ts";
@@ -19,28 +20,29 @@ const coloured = (colour: string, mark = "") =>
 const mark = `<div style="position:fixed;left:${MARK.x}px;top:${MARK.y}px;width:${MARK.width}px;height:${MARK.height}px;background:lime"></div>`;
 
 /** What the timeline says of a stretch in which the raw picture has one size. */
-interface Segment {
-  readonly raw_start_ms: number;
-  readonly width: number;
-  readonly height: number;
+const Segment = Schema.Struct({
+  raw_start_ms: Schema.Number,
+  width: Schema.Number,
+  height: Schema.Number,
   /** Where its picture is in the edit's frame. */
-  readonly x: number;
-  readonly y: number;
-}
+  x: Schema.Number,
+  y: Schema.Number,
+});
 
-interface TimelineEvent {
-  readonly kind: string;
-  readonly edited_at_ms: number;
-  readonly edited_end_ms: number;
-}
+const TimelineEvent = Schema.Struct({
+  kind: Schema.String,
+  edited_at_ms: Schema.Number,
+  edited_end_ms: Schema.Number,
+});
 
-interface Timeline {
-  readonly width: number;
-  readonly height: number;
-  readonly edited_duration_ms: number;
-  readonly segments: readonly Segment[];
-  readonly events: readonly TimelineEvent[];
-}
+const Timeline = Schema.Struct({
+  width: Schema.Number,
+  height: Schema.Number,
+  edited_duration_ms: Schema.Number,
+  segments: Schema.Array(Segment),
+  events: Schema.Array(TimelineEvent),
+});
+type Timeline = typeof Timeline.Type;
 
 suite(session)("a recording whose picture changes size", (it) => {
   let address: Address;
@@ -87,7 +89,7 @@ suite(session)("a recording whose picture changes size", (it) => {
       yield* resize(first, 1000, 700);
       yield* resize(second, 640, 900);
       // The recording is to begin with a picture of the size the tab now has.
-      yield* Effect.sleep(1000);
+      yield* Effect.sleep("1 second");
     }),
   );
 
@@ -95,9 +97,9 @@ suite(session)("a recording whose picture changes size", (it) => {
     Effect.gen(function* () {
       recording = yield* SessionHttp.startRecording(address, { tab: first.tab });
       // Every size's part of the video needs some length to be looked into.
-      yield* Effect.sleep(2000);
+      yield* Effect.sleep("2 seconds");
       yield* resize(first, 800, 600);
-      yield* Effect.sleep(1500);
+      yield* Effect.sleep("1500 millis");
       const still = yield* SessionHttp.getRecording(address, recording.id);
       expect(still.state).toBe("recording");
     }),
@@ -112,7 +114,7 @@ suite(session)("a recording whose picture changes size", (it) => {
         duration_ms: 1500,
       });
       // The picture is to be seen zoomed out again before it changes.
-      yield* Effect.sleep(700);
+      yield* Effect.sleep("700 millis");
     }),
   );
 
@@ -124,7 +126,7 @@ suite(session)("a recording whose picture changes size", (it) => {
       const kept = (yield* runner.targets).find((target) => target.id === second.id);
       expect(kept).toMatchObject({ width: 640, height: 900 });
       // The second tab's part of the video needs some length too.
-      yield* Effect.sleep(2000);
+      yield* Effect.sleep("2 seconds");
     }),
   );
 
@@ -152,11 +154,11 @@ suite(session)("a recording whose picture changes size", (it) => {
         SessionHttp.getRecording(address, recording.id).pipe(
           Effect.map(({ edit }) => (edit === null || edit.state === "editing" ? undefined : edit)),
         ),
-        60_000,
+        "1 minute",
       );
       expect(edit).toMatchObject({ state: "finished", failure: null });
       edited = `${runner.files}/${edit.file}`;
-      timeline = JSON.parse(readFileSync(`${runner.files}/${edit.timeline}`, "utf8")) as Timeline;
+      timeline = yield* Files.json(`${runner.files}/${edit.timeline}`, Timeline);
       expect(yield* frameSizes(edited)).toEqual(["1000x900"]);
     }),
   );

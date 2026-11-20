@@ -1,9 +1,17 @@
-import { readFileSync } from "node:fs";
 import { proto } from "@aperture-browser/executor-client";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import * as Executor from "../src/executor.ts";
+import * as Files from "../src/files.ts";
+import { refusal } from "../src/http.ts";
 import { suite } from "../src/suite.ts";
+
+/** What a runner is started with, as the executor writes it for the runner to read. */
+const Spec = Schema.Struct({
+  features: Schema.Record(Schema.String, Schema.Boolean),
+  network: Schema.Struct({ udp: Schema.String }),
+});
 
 const oneNode = Executor.layer({
   features: ["sound", "cdp", "mcp"],
@@ -56,11 +64,8 @@ suite(oneNode)("what a session asks for itself, within what its executor has", (
   );
 
   it.effect("its runner is started with those and nothing else", () =>
-    Effect.sync(() => {
-      const spec = JSON.parse(readFileSync(`${node.runtime}/${few.id}/spec.json`, "utf8")) as {
-        readonly features: Record<string, boolean>;
-        readonly network: { readonly udp: string };
-      };
+    Effect.gen(function* () {
+      const spec = yield* Files.json(`${node.runtime}/${few.id}/spec.json`, Spec);
       expect(spec.features["sound"]).toBe(true);
       expect(spec.features["cdp"]).toBe(false);
       expect(spec.network.udp).toBe("none");
@@ -78,7 +83,7 @@ suite(oneNode)("what a session asks for itself, within what its executor has", (
     Effect.gen(function* () {
       const refused = yield* node.rpc("CreateSession", { features: { on: ["FEATURE_TUNNEL"] } });
       expect(refused.status).toBe(400);
-      expect(refused.body.code).toBe("failed_precondition");
+      expect((yield* refusal(refused)).code).toBe("failed_precondition");
     }),
   );
 
@@ -86,7 +91,7 @@ suite(oneNode)("what a session asks for itself, within what its executor has", (
     Effect.gen(function* () {
       const refused = yield* node.rpc("CreateSession", { network: { tcp: "NETWORK_TCP_DIRECT" } });
       expect(refused.status).toBe(400);
-      expect(refused.body.code).toBe("failed_precondition");
+      expect((yield* refusal(refused)).code).toBe("failed_precondition");
     }),
   );
 

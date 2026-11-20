@@ -1,14 +1,17 @@
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { proto } from "@aperture-browser/executor-client";
 import * as Context from "effect/Context";
+import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Cdp from "./cdp.ts";
 import * as Executor from "./executor.ts";
-import type { Target } from "./runner.ts";
+import * as Http from "./http.ts";
+import { output } from "./process.ts";
+import { type Target, targetsIn } from "./runner.ts";
 import type { Page, ViewerService } from "./viewer.ts";
 import { until } from "./wait.ts";
 
@@ -49,59 +52,69 @@ export interface Process {
  * sandboxes, browsers and desktops. The executor is told where its data is by its
  * environment, and so is not among them.
  */
-export const processes = (executor: Executor.ExecutorService): readonly Process[] => {
-  const below = `${dirname(executor.data)}/`;
-  return execFileSync("ps", ["-eo", "pid=,args="], { encoding: "utf8" })
+export const processes = Effect.fn("Node.processes")(function* (
+  executor: Executor.ExecutorService,
+) {
+  const path = yield* Path.Path;
+  const below = `${path.dirname(executor.data)}/`;
+  const told = yield* output("ps", ["-eo", "pid=,args="]);
+  return told
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.includes(below))
-    .map((line) => {
+    .map((line): Process => {
       const [pid = "", ...command] = line.split(" ");
       return { pid: Number(pid), command: command.join(" ") };
     });
-};
+});
 
 /** The processes of one session of the node. */
 export const processesOf = (executor: Executor.ExecutorService, sessionId: string) =>
-  processes(executor).filter((process) => process.command.includes(sessionId));
+  processes(executor).pipe(
+    Effect.map((all) => all.filter((process) => process.command.includes(sessionId))),
+  );
 
 /** The sandbox a session's browser runs in, which takes the browser with it when it dies. */
 export const browserOf = (executor: Executor.ExecutorService, sessionId: string) => {
   const profile = `${executor.data}/sessions/${sessionId}/`;
-  return processes(executor).find(
-    (process) => /(^|\/)bwrap /u.test(process.command) && process.command.includes(profile),
+  return processes(executor).pipe(
+    Effect.map((all) =>
+      all.find(
+        (process) => /(^|\/)bwrap /u.test(process.command) && process.command.includes(profile),
+      ),
+    ),
   );
 };
 
 /** The process that runs a session, as the runner itself says in its runtime directory. */
-export const runnerOf = (executor: Executor.ExecutorService, sessionId: string): number => {
-  const status = join(executor.runtime, sessionId, "status.json");
-  return (JSON.parse(readFileSync(status, "utf8")) as { pid: number }).pid;
-};
+export const runnerOf = Effect.fn("Node.runnerOf")(function* (
+  executor: Executor.ExecutorService,
+  sessionId: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const status = yield* fs.readFileString(path.join(executor.runtime, sessionId, "status.json"));
+  return (yield* Schema.decodeUnknownEffect(Executor.RunnerStatus)(status)).pid;
+});
 
 /** Waits until a session is in a state, and gives the session as it is then. */
 export const inState = (
   executor: Executor.ExecutorService,
   sessionId: string,
   state: proto.SessionState,
-  withinMs = 30_000,
+  within: Duration.Input = "30 seconds",
 ) =>
   until(
     `session ${sessionId} being ${proto.SessionState[state]}`,
     executor.client.sessions
       .get(sessionId)
       .pipe(Effect.map((session) => session.state === state && session)),
-    withinMs,
+    within,
   );
 
 /** A session's targets, as its `targets` route tells them. */
-export const targets = (
-  executor: Executor.ExecutorService,
-  sessionId: string,
-): Effect.Effect<readonly Target[]> =>
-  executor
-    .session(sessionId, "GET", "/targets")
-    .pipe(Effect.map((answer) => (Array.isArray(answer.body) ? (answer.body as Target[]) : [])));
+export const targets = (executor: Executor.ExecutorService, sessionId: string) =>
+  executor.session(sessionId, "GET", "/targets").pipe(Effect.flatMap(targetsIn));
 
 /** Waits until the session's targets are as `wanted` says, and gives them. */
 export const targetsOnce = (
@@ -110,16 +123,15 @@ export const targetsOnce = (
   what: string,
   wanted: (all: readonly Target[]) => boolean,
 ) =>
-  until(what, targets(executor, sessionId).pipe(Effect.map((all) => wanted(all) && all)), 20_000);
+  until(
+    what,
+    targets(executor, sessionId).pipe(Effect.map((all) => wanted(all) && all)),
+    "20 seconds",
+  );
 
 /** What a session route answers with as bytes: a picture, a recording. */
 export const bytes = (executor: Executor.ExecutorService, sessionId: string, path: string) =>
-  Effect.promise(async () => {
-    const answered = await fetch(`${executor.url}/sessions/${sessionId}${path}`, {
-      headers: { Authorization: `Bearer ${executor.token}` },
-    });
-    return Buffer.from(await answered.arrayBuffer());
-  });
+  Http.bytes(`${executor.url}/sessions/${sessionId}${path}`, executor.token);
 
 /**
  * A page to do things to: a heading, a button at (100, 300) and a field at (100, 450), on
@@ -146,11 +158,13 @@ export interface Opened {
   readonly cdp: Cdp.Cdp;
 }
 
+const Created = Schema.Struct({ targetId: Schema.String });
+
 /** Opens a page in a session and waits until it is a target of the session. */
 export const open = (executor: Executor.ExecutorService, sessionId: string, url: string) =>
   Effect.gen(function* () {
     const cdp = yield* lasting(executor.cdp(sessionId));
-    const created = (yield* cdp.call("Target.createTarget", { url })) as { targetId: string };
+    const created = yield* cdp.call("Target.createTarget", { url }, Created);
     const page = yield* cdp.attach(created.targetId);
     const all = yield* targetsOnce(executor, sessionId, "the opened page being a target", (all) =>
       all.some((target) => target.id === created.targetId),
@@ -208,7 +222,8 @@ export const pictureSize = (page: Page, surface: "video" | "canvas") =>
     surface === "video"
       ? "(() => { const v = document.querySelector('[data-aperture-surface=video]'); return v ? v.videoWidth + 'x' + v.videoHeight : '' })()"
       : "(() => { const c = document.querySelector('[data-aperture-surface=canvas]'); return c ? c.width + 'x' + c.height : '' })()",
-  ) as Effect.Effect<string, Cdp.CdpError>;
+    Schema.String,
+  );
 
 /**
  * Clicks in a workbench where a point of the target's page is shown. The target is

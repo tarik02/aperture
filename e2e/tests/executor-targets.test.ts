@@ -12,7 +12,15 @@ const PNG_SIGNATURE = "PNG";
 const PNG_WIDTH_AT = 16;
 const PNG_HEIGHT_AT = 20;
 
-const isPng = (picture: Buffer) => picture.subarray(1, 4).toString() === PNG_SIGNATURE;
+const isPng = (picture: Uint8Array) =>
+  new TextDecoder().decode(picture.subarray(1, 4)) === PNG_SIGNATURE;
+
+const same = (one: Uint8Array, other: Uint8Array) =>
+  one.length === other.length && one.every((byte, at) => byte === other[at]);
+
+/** The number a PNG has at a place, which it writes highest byte first. */
+const numberAt = (picture: Uint8Array, at: number) =>
+  new DataView(picture.buffer, picture.byteOffset, picture.byteLength).getUint32(at);
 
 interface Viewport {
   readonly width: number;
@@ -30,7 +38,7 @@ suite(node)("the targets of a session on a node", (it) => {
   let session: string;
   let opened: Node.Opened;
   let firstTab: Target;
-  let openedPicture: Buffer;
+  let openedPicture: Uint8Array;
 
   const screenshot = (target: string) =>
     Effect.gen(function* () {
@@ -87,7 +95,7 @@ suite(node)("the targets of a session on a node", (it) => {
     Effect.gen(function* () {
       const firstPicture = yield* screenshot(firstTab.id);
       expect(isPng(firstPicture)).toBe(true);
-      expect(firstPicture.equals(openedPicture)).toBe(false);
+      expect(same(firstPicture, openedPicture)).toBe(false);
     }),
   );
 
@@ -112,8 +120,8 @@ suite(node)("the targets of a session on a node", (it) => {
   it.effect("its picture has the pixels", () =>
     Effect.gen(function* () {
       const picture = yield* screenshot(opened.id);
-      expect(picture.readUInt32BE(PNG_WIDTH_AT)).toBe(1600);
-      expect(picture.readUInt32BE(PNG_HEIGHT_AT)).toBe(1200);
+      expect(numberAt(picture, PNG_WIDTH_AT)).toBe(1600);
+      expect(numberAt(picture, PNG_HEIGHT_AT)).toBe(1200);
     }),
   );
 

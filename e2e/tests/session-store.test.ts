@@ -2,6 +2,7 @@ import { proto } from "@aperture-browser/executor-client";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import type { ExecutorService } from "../src/executor.ts";
+import { refusal } from "../src/http.ts";
 import { cookiesLeft, leaveCookie } from "../src/profile.ts";
 import { Nodes } from "../src/store.ts";
 import * as Store from "../src/store.ts";
@@ -90,7 +91,7 @@ suite(nodes)("sessions in a store that nodes share", (it) => {
       const d = yield* store.start();
       const refused = yield* d.rpc("ResumeSession", { id: moved.id });
       expect(refused.status).toBe(404);
-      expect(refused.body.code).toBe("not_found");
+      expect((yield* refusal(refused)).code).toBe("not_found");
     }),
   );
 });

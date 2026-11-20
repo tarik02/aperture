@@ -1,8 +1,12 @@
-import { readFileSync } from "node:fs";
 import { expect } from "@effect/vitest";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Hex from "effect/encoding/Hex";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import { Executor } from "../src/executor.ts";
+import * as Files from "../src/files.ts";
+import { read } from "../src/http.ts";
 import * as Mcp from "../src/mcp.ts";
 import * as Node from "../src/node.ts";
 import { suite } from "../src/suite.ts";
@@ -16,49 +20,59 @@ const node = Layer.mergeAll(
 );
 
 /** What the journal of a recording says automation did, one entry to a line. */
-interface JournalEntry {
-  readonly kind: string;
-  readonly at_ms: number;
-  readonly end_ms: number;
-  readonly text?: string;
-  readonly follow?: string;
-  readonly ended?: string;
-  readonly rect?: { readonly x: number };
-  readonly button?: string;
-  readonly x?: number;
-  readonly y?: number;
-}
+const JournalEntry = Schema.Struct({
+  kind: Schema.String,
+  at_ms: Schema.Number,
+  end_ms: Schema.Number,
+  text: Schema.optional(Schema.String),
+  follow: Schema.optional(Schema.String),
+  ended: Schema.optional(Schema.String),
+  rect: Schema.optional(Schema.Struct({ x: Schema.Number })),
+  button: Schema.optional(Schema.String),
+  x: Schema.optional(Schema.Number),
+  y: Schema.optional(Schema.Number),
+});
+type JournalEntry = typeof JournalEntry.Type;
 
-interface Edit {
-  readonly state: string;
-  readonly file: string;
-  readonly timeline: string;
-}
+/** An edit as the `recording` tool tells it; it has no file until it is made. */
+const Edit = Schema.Struct({
+  state: Schema.String,
+  file: Schema.NullishOr(Schema.String),
+  timeline: Schema.NullishOr(Schema.String),
+});
+type Edit = typeof Edit.Type;
 
-/** A recording as the `recording` tool tells it. */
-interface Recording {
-  readonly id: string;
-  readonly state: string;
-  readonly duration_ms: number;
-  readonly bytes: number;
-  readonly file: string;
-  readonly journal: string;
-  readonly edit?: Edit;
-}
+/** A recording as the `recording` tool tells it while it goes on. */
+const Started = Schema.fromJsonString(
+  Schema.Struct({
+    id: Schema.String,
+    journal: Schema.String,
+    edit: Schema.NullishOr(Edit),
+  }),
+);
+type Started = typeof Started.Type;
+
+/** A recording as the `recording` tool tells it once it stopped. */
+const Recording = Schema.fromJsonString(
+  Schema.Struct({
+    id: Schema.String,
+    state: Schema.String,
+    duration_ms: Schema.Number,
+    bytes: Schema.Number,
+    file: Schema.String,
+    journal: Schema.String,
+    edit: Schema.NullishOr(Edit),
+  }),
+);
+type Recording = typeof Recording.Type;
 
 /** How an edit's time maps to the raw recording's. */
-interface Timeline {
-  readonly duration_ms: number;
-  readonly edited_duration_ms: number;
-  readonly map: readonly object[];
-  readonly events: readonly { readonly at_ms: number; readonly edited_at_ms: number }[];
-}
-
-const entriesOf = (journal: string) =>
-  journal
-    .trim()
-    .split("\n")
-    .map((line) => JSON.parse(line) as JournalEntry);
+const Timeline = Schema.Struct({
+  duration_ms: Schema.Number,
+  edited_duration_ms: Schema.Number,
+  map: Schema.Array(Schema.Unknown),
+  events: Schema.Array(Schema.Struct({ at_ms: Schema.Number, edited_at_ms: Schema.Number })),
+});
 
 const MATROSKA_SIGNATURE = "1a45dfa3";
 const TYPED = "typed by the agent, letter by letter";
@@ -70,7 +84,7 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
   let opened: Node.Opened;
   let watcher: Page;
   let agent: Mcp.Mcp;
-  let started: Recording;
+  let started: Started;
   let stopped: Recording;
   let journal: readonly JournalEntry[];
   let edit: Edit;
@@ -82,11 +96,11 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
   /** How many times the wheel turned so far, by the journal as it is written. */
   const wheelsSoFar = Effect.gen(function* () {
     const executor = yield* Executor;
-    const written = readFileSync(
+    const written = yield* Files.journal(
       `${executor.data}/sessions/${session}/files/${started.journal}`,
-      "utf8",
+      JournalEntry,
     );
-    return entriesOf(written).filter((entry) => entry.kind === "wheel").length;
+    return written.filter((entry) => entry.kind === "wheel").length;
   });
 
   /** Waits until the edit of a recording is made, or failed, and gives it. */
@@ -94,19 +108,19 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
     until(
       "the edit being made",
       recording({ action: "status", id }).pipe(
-        Effect.map((status) => {
-          const made = (JSON.parse(status) as Recording).edit;
-          return made !== undefined && made.state !== "editing" && made;
+        Effect.flatMap(Schema.decodeUnknownEffect(Started)),
+        Effect.map(({ edit: made }) => {
+          return made !== undefined && made !== null && made.state !== "editing" && made;
         }),
       ),
-      60_000,
+      "1 minute",
     );
 
   const timelineOf = (made: Edit) =>
     Effect.gen(function* () {
       const executor = yield* Executor;
       const answer = yield* executor.session(session, "GET", `/files/${made.timeline}`);
-      return answer.body as Timeline;
+      return yield* read(answer, Timeline);
     });
 
   // Recording: the target's own stream into a file, with the pointer in the picture.
@@ -120,11 +134,14 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
       yield* happens(snapshot(watcher, `s.selected === ${opened.tab}`));
       agent = yield* Mcp.connect(`${executor.url}/sessions/${session}`, executor.token);
 
-      started = JSON.parse(
-        yield* recording({ action: "start", tab: opened.id, idle: "cut", ripple: true }),
-      ) as Recording;
+      started = yield* recording({
+        action: "start",
+        tab: opened.id,
+        idle: "cut",
+        ripple: true,
+      }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Started)));
 
-      const hidden = yield* happens(snapshot(watcher, "s.cursor === 'none'"), 5000);
+      const hidden = yield* happens(snapshot(watcher, "s.cursor === 'none'"), "5 seconds");
       expect(hidden).toBe(true);
     }),
   );
@@ -140,21 +157,21 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
         [BUTTON.x, BUTTON.y],
       ]) {
         yield* agent.call("hover", { tab: opened.id, x, y });
-        yield* Effect.sleep(250);
+        yield* Effect.sleep("250 millis");
       }
       yield* recording({ action: "caption", text: "clicking the button", duration_ms: 2500 });
       yield* recording({ action: "focus", selector: "button", zoom: 2 });
-      yield* Effect.sleep(700);
+      yield* Effect.sleep("700 millis");
       yield* agent.call("click", { tab: opened.id, selector: "button" });
-      yield* Effect.sleep(700);
+      yield* Effect.sleep("700 millis");
       yield* recording({ action: "reset_focus" });
       yield* recording({ action: "attention", selector: "#i", duration_ms: 600 });
 
-      const before = Date.now();
-      yield* agent.call("fill", { tab: opened.id, selector: "#i", value: TYPED });
-      const took = Date.now() - before;
+      const [took] = yield* Effect.timed(
+        agent.call("fill", { tab: opened.id, selector: "#i", value: TYPED }),
+      );
 
-      expect(took).toBeGreaterThan(900);
+      expect(Duration.toMillis(took)).toBeGreaterThan(900);
       expect(yield* title()).toBe(`typed:${TYPED}`);
     }),
   );
@@ -177,8 +194,10 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
   it.effect("a recording finishes with a length", () =>
     Effect.gen(function* () {
       // Nothing happens for a while, which the edit cuts.
-      yield* Effect.sleep(2500);
-      stopped = JSON.parse(yield* recording({ action: "stop", id: started.id })) as Recording;
+      yield* Effect.sleep("2500 millis");
+      stopped = yield* recording({ action: "stop", id: started.id }).pipe(
+        Effect.flatMap(Schema.decodeUnknownEffect(Recording)),
+      );
 
       expect(stopped.state).toBe("finished");
       expect(stopped.duration_ms).toBeGreaterThan(5000);
@@ -197,7 +216,7 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
       const executor = yield* Executor;
       const file = yield* Node.bytes(executor, session, `/files/${stopped.file}`);
       expect(file).toHaveLength(stopped.bytes);
-      expect(file.subarray(0, 4).toString("hex")).toBe(MATROSKA_SIGNATURE);
+      expect(Hex.encode(file.subarray(0, 4))).toBe(MATROSKA_SIGNATURE);
     }),
   );
 
@@ -205,7 +224,7 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
     Effect.gen(function* () {
       const executor = yield* Executor;
       const served = yield* Node.bytes(executor, session, `/files/${stopped.journal}`);
-      journal = entriesOf(served.toString());
+      journal = yield* Files.entries(new TextDecoder().decode(served), JournalEntry);
 
       const kinds = new Set(journal.map((entry) => entry.kind));
       expect(Array.from(kinds)).toEqual(
@@ -236,7 +255,7 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
     Effect.gen(function* () {
       const executor = yield* Executor;
       const file = yield* Node.bytes(executor, session, `/files/${edit.file}`);
-      expect(file.subarray(4, 8).toString()).toBe("ftyp");
+      expect(new TextDecoder().decode(file.subarray(4, 8))).toBe("ftyp");
       expect(file.length).toBeGreaterThan(1000);
     }),
   );
@@ -291,16 +310,14 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
   it.effect("a blinking caret does not keep a page from being idle", () =>
     Effect.gen(function* () {
       yield* agent.call("click", { tab: opened.id, selector: "#i" });
-      const blinking = JSON.parse(
-        yield* recording({
-          action: "start",
-          tab: opened.id,
-          idle: "cut",
-          motion_threshold: 0,
-        }),
-      ) as Recording;
+      const blinking = yield* recording({
+        action: "start",
+        tab: opened.id,
+        idle: "cut",
+        motion_threshold: 0,
+      }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Started)));
       yield* agent.call("hover", { tab: opened.id, x: 700, y: 200 });
-      yield* Effect.sleep(4500);
+      yield* Effect.sleep("4500 millis");
       yield* recording({ action: "stop", id: blinking.id });
 
       const timeline = yield* timelineOf(yield* edited(blinking.id));

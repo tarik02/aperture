@@ -1,5 +1,7 @@
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import type { HttpMethod } from "effect/http/HttpMethod";
+import * as Schema from "effect/Schema";
 import { request } from "../src/http.ts";
 import * as Runner from "../src/runner.ts";
 import { suite } from "../src/suite.ts";
@@ -11,7 +13,7 @@ const session = Tickets.layer({
 });
 
 /** A request and the status it is to be answered with. */
-type Answered = readonly [method: string, path: string, status: number, body?: unknown];
+type Answered = readonly [method: HttpMethod, path: string, status: number, body?: unknown];
 
 /** Asks each with the token, and expects each answered as said. */
 const answers = (token: string, all: readonly Answered[]) =>
@@ -30,7 +32,7 @@ suite(session)("tickets into a session served on its own", (it) => {
   it.effect("a ticket with no access watches, and does nothing else", () =>
     Effect.gen(function* () {
       const tickets = yield* Tickets.Tickets;
-      yield* answers(tickets.ticket({}), [
+      yield* answers(yield* tickets.ticket({}), [
         ["GET", "/targets", 200],
         ["GET", "/", 200],
         ["GET", "/recordings", 403],
@@ -50,7 +52,7 @@ suite(session)("tickets into a session served on its own", (it) => {
   it.effect("a ticket that reads an area lists what is there, and changes nothing", () =>
     Effect.gen(function* () {
       const tickets = yield* Tickets.Tickets;
-      const reader = tickets.ticket({ recordings: "r", uploads: "r", downloads: "r" });
+      const reader = yield* tickets.ticket({ recordings: "r", uploads: "r", downloads: "r" });
       yield* answers(reader, [
         ["GET", "/recordings", 200],
         ["GET", "/screenshots", 200],
@@ -66,7 +68,7 @@ suite(session)("tickets into a session served on its own", (it) => {
   it.effect("a ticket that writes an area changes it, and reads it only if it says so", () =>
     Effect.gen(function* () {
       const tickets = yield* Tickets.Tickets;
-      const writer = tickets.ticket({ recordings: "rw", uploads: "w", cdp: "w", mcp: "w" });
+      const writer = yield* tickets.ticket({ recordings: "rw", uploads: "w", cdp: "w", mcp: "w" });
       yield* answers(writer, [
         ["POST", "/screenshots", 201],
         ["PUT", "/uploads/a.txt", 200, "x"],
@@ -81,7 +83,7 @@ suite(session)("tickets into a session served on its own", (it) => {
   it.effect("a ticket for another session is refused", () =>
     Effect.gen(function* () {
       const tickets = yield* Tickets.Tickets;
-      const elsewhere = tickets.ticket({ recordings: "rw" }, { sid: "other" });
+      const elsewhere = yield* tickets.ticket({ recordings: "rw" }, { sid: "other" });
       yield* answers(elsewhere, [["GET", "/targets", 403]]);
     }),
   );
@@ -89,7 +91,7 @@ suite(session)("tickets into a session served on its own", (it) => {
   it.effect("a ticket that ran out is refused", () =>
     Effect.gen(function* () {
       const tickets = yield* Tickets.Tickets;
-      const ranOut = tickets.ticket({}, { exp: Tickets.fromNow(-600) });
+      const ranOut = yield* tickets.ticket({}, { exp: yield* Tickets.fromNow(-600) });
       yield* answers(ranOut, [["GET", "/targets", 401]]);
     }),
   );
@@ -108,10 +110,10 @@ suite(session)("tickets into a session served on its own", (it) => {
     Effect.gen(function* () {
       const runner = yield* Runner.Runner;
       const tickets = yield* Tickets.Tickets;
-      const ticket = tickets.ticket({ sound: "r", tabs: "w", input: "w" });
+      const ticket = yield* tickets.ticket({ sound: "r", tabs: "w", input: "w" });
       const member = yield* Tickets.join(runner, ticket);
 
-      const features = member.seen["features"];
+      const features = yield* Schema.decodeUnknownEffect(Tickets.Features)(member.seen["features"]);
       expect(features.sound?.read).toBe(true);
       expect(features.tabs?.write).toBe(true);
       expect(features.input?.write).toBe(true);
@@ -126,10 +128,10 @@ suite(session)("tickets into a session served on its own", (it) => {
       const runner = yield* Runner.Runner;
       const tickets = yield* Tickets.Tickets;
 
-      const named = yield* Tickets.join(runner, tickets.ticket({}));
+      const named = yield* Tickets.join(runner, yield* tickets.ticket({}));
       expect((yield* named.self).name).toBe("Ada");
 
-      const unnamed = yield* Tickets.join(runner, tickets.ticket({}, { name: undefined }));
+      const unnamed = yield* Tickets.join(runner, yield* tickets.ticket({}, { name: undefined }));
       expect((yield* unnamed.self).name).toBe("ada");
     }),
   );
@@ -139,7 +141,8 @@ suite(session)("tickets into a session served on its own", (it) => {
       const runner = yield* Runner.Runner;
       const tickets = yield* Tickets.Tickets;
       const roleWith = (access: Tickets.Access) =>
-        Tickets.join(runner, tickets.ticket(access)).pipe(
+        tickets.ticket(access).pipe(
+          Effect.flatMap((ticket) => Tickets.join(runner, ticket)),
           Effect.flatMap((member) => member.self),
           Effect.map((self) => self.role),
         );
@@ -154,10 +157,10 @@ suite(session)("tickets into a session served on its own", (it) => {
     Effect.gen(function* () {
       const runner = yield* Runner.Runner;
       const tickets = yield* Tickets.Tickets;
-      const member = yield* Tickets.join(runner, tickets.ticket({ tabs: "w", input: "w" }));
+      const member = yield* Tickets.join(runner, yield* tickets.ticket({ tabs: "w", input: "w" }));
       const before = (yield* runner.targets).length;
 
-      member.send(newTab);
+      yield* member.send(newTab);
       const opened = yield* happens(
         runner.targets.pipe(Effect.map((targets) => targets.length === before + 1)),
       );
@@ -170,9 +173,9 @@ suite(session)("tickets into a session served on its own", (it) => {
     Effect.gen(function* () {
       const runner = yield* Runner.Runner;
       const tickets = yield* Tickets.Tickets;
-      const member = yield* Tickets.join(runner, tickets.ticket({ tabs: "w", input: "w" }));
+      const member = yield* Tickets.join(runner, yield* tickets.ticket({ tabs: "w", input: "w" }));
 
-      member.send({ go: { url: "about:blank" } });
+      yield* member.send({ go: { url: "about:blank" } });
       const failure = yield* until(
         "the session answering",
         Effect.sync(() => member.failures[0]),
@@ -186,9 +189,9 @@ suite(session)("tickets into a session served on its own", (it) => {
     Effect.gen(function* () {
       const runner = yield* Runner.Runner;
       const tickets = yield* Tickets.Tickets;
-      const member = yield* Tickets.join(runner, tickets.ticket({ tabs: "w", input: "w" }));
+      const member = yield* Tickets.join(runner, yield* tickets.ticket({ tabs: "w", input: "w" }));
 
-      member.send({ filesChosen: { id: 1, files: ["nothing.txt"] } });
+      yield* member.send({ filesChosen: { id: 1, files: ["nothing.txt"] } });
       const failure = yield* until(
         "the session answering",
         Effect.sync(() => member.failures[0]),
@@ -202,10 +205,10 @@ suite(session)("tickets into a session served on its own", (it) => {
     Effect.gen(function* () {
       const runner = yield* Runner.Runner;
       const tickets = yield* Tickets.Tickets;
-      const member = yield* Tickets.join(runner, tickets.ticket({ input: "w" }));
+      const member = yield* Tickets.join(runner, yield* tickets.ticket({ input: "w" }));
       const before = (yield* runner.targets).length;
 
-      member.send(newTab);
+      yield* member.send(newTab);
       const failure = yield* until(
         "the session answering",
         Effect.sync(() => member.failures[0]),

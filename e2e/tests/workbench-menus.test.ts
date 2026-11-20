@@ -1,6 +1,7 @@
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import * as Mcp from "../src/mcp.ts";
 import * as Runner from "../src/runner.ts";
 import { suite } from "../src/suite.ts";
@@ -83,7 +84,7 @@ suite(session)("the workbench's menus and the clipboard", (it) => {
       const clicked = yield* clickPicture(page, LINK.x, LINK.y, "right");
       expect(yield* comes(page, "s.menu !== undefined && s.menu.link !== undefined")).toBe(true);
       expect(yield* appears(page, PAGE_MENU)).toBe(true);
-      yield* Effect.sleep(300);
+      yield* Effect.sleep("300 millis");
       const menu = yield* page.box(PAGE_MENU);
       expect(Math.abs(menu.left - clicked.x)).toBeLessThan(6);
       expect(Math.abs(menu.top - clicked.y)).toBeLessThan(6);
@@ -92,19 +93,20 @@ suite(session)("the workbench's menus and the clipboard", (it) => {
 
   it.effect("'Open link in new tab' opens the link in a tab, and the menu goes", () =>
     Effect.gen(function* () {
-      const before: number = yield* snapshot(page, "s.targets.length");
+      const before = yield* snapshot(page, "s.targets.length", Schema.Number);
       yield* clickItem(page, "Open link in new tab");
       const opened = yield* comes(
         page,
         `s.targets.length === ${before + 1} && s.targets.some((target) => target.url.startsWith("${LINKED}"))`,
-        20_000,
+        "20 seconds",
       );
       expect(opened).toBe(true);
       expect(yield* comes(page, "s.menu === undefined")).toBe(true);
 
-      const followed: number = yield* snapshot(
+      const followed = yield* snapshot(
         page,
         `s.targets.find((target) => target.url.startsWith("${LINKED}")).tab`,
+        Schema.Number,
       );
       expect(yield* closeTab(page, followed)).toBe(true);
     }),
@@ -113,11 +115,15 @@ suite(session)("the workbench's menus and the clipboard", (it) => {
   it.effect("the page menu stays within the window near its edge, and Escape dismisses it", () =>
     Effect.gen(function* () {
       expect(yield* selectTab(page, linking)).toBe(true);
-      yield* Effect.sleep(500);
-      const corner = yield* snapshot(page, "({ x: watched.width - 10, y: watched.height - 5 })");
+      yield* Effect.sleep("500 millis");
+      const corner = yield* snapshot(
+        page,
+        "({ x: watched.width - 10, y: watched.height - 5 })",
+        Schema.Struct({ x: Schema.Number, y: Schema.Number }),
+      );
       yield* clickPicture(page, corner.x, corner.y, "right");
       expect(yield* appears(page, PAGE_MENU)).toBe(true);
-      yield* Effect.sleep(300);
+      yield* Effect.sleep("300 millis");
       expect(yield* menuWithinWindow(page)).toBe(true);
 
       yield* escape(page);
