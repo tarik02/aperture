@@ -9,6 +9,21 @@ const connected = () => {
   if (host !== null) return host;
   host = chrome.runtime.connectNative(HOST);
   host.onMessage.addListener((answer) => {
+    // SPIKE: what the session says without having been asked goes to the taps.
+    if (answer?.type === "video.keyframe") {
+      chrome.runtime.sendMessage({ keyframe: answer.tabId }).catch(() => {});
+      return;
+    }
+    if (answer?.type === "video.size") {
+      options.then(({ video }) => {
+        const was = sizes.get(answer.tabId) ?? video;
+        sizes.set(answer.tabId, { width: answer.width, height: answer.height });
+        const same = was?.width === answer.width && was?.height === answer.height;
+        // Taken again at the new size once it is let go of.
+        if (!same && tapped.has(answer.tabId)) chrome.runtime.sendMessage({ untap: answer.tabId }).catch(() => {});
+      });
+      return;
+    }
     const waiting = pending.get(answer?.id);
     if (!waiting) return;
     pending.delete(answer.id);
@@ -176,14 +191,17 @@ const options = fetch(chrome.runtime.getURL("options.json")).then((answer) => an
 
 // The tabs that are tapped or about to be.
 const tapped = new Set();
+// SPIKE: the size the picture of each tab of a headless browser is taken at.
+const sizes = new Map();
 const tap = async (tab) => {
-  if (!(await options).sound) return;
+  const { sound = false, video = null } = await options;
+  if (!sound && !video) return;
   if (tab.id === undefined || isMarker(tab) || tapped.has(tab.id)) return;
   tapped.add(tab.id);
   try {
     await held();
     const stream = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
-    const answer = await chrome.runtime.sendMessage({ tap: stream, tab: tab.id });
+    const answer = await chrome.runtime.sendMessage({ tap: stream, tab: tab.id, sound, video: video && (sizes.get(tab.id) ?? video) });
     if (!answer?.tapped) throw new Error(answer?.error ?? "the tap did not start");
   } catch (error) {
     tapped.delete(tab.id);
@@ -198,7 +216,11 @@ const tap = async (tab) => {
 // script first runs, so these are added here, at once.
 chrome.runtime.onConnect.addListener((taps) => {
   taps.onMessage.addListener((message) => {
-    if (message.type === "sound.untapped") tapped.delete(message.tabId);
+    if (message.type === "sound.untapped") {
+      tapped.delete(message.tabId);
+      // A tab that is still there is tapped again: its video must not end with a hiccup.
+      options.then(({ video }) => video && setTimeout(() => chrome.tabs.get(message.tabId).then(tap, () => {}), 150));
+    }
     tell(message);
   });
 });

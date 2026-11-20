@@ -10,6 +10,7 @@ mod certificates;
 mod egress;
 mod extension;
 mod files;
+mod headless;
 mod live;
 mod names;
 mod pages;
@@ -133,6 +134,7 @@ type Service = JoinHandle<std::io::Result<()>>;
 /// What a session runs beside its browser, and what ends with it.
 struct Session {
     compositor: aperture_compositor::Handle,
+    headless: Option<Arc<headless::Headless>>,
     egress: Arc<egress::Egress>,
     /// The browser's way out, where its names are answered, and the socket tunnels
     /// attach to.
@@ -217,12 +219,23 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
     // Before the browser starts: its extension reports as soon as it runs.
     let extension_socket = sockets.join("extension.sock");
     let extension_dir = spec.runtime_dir.join("extension");
-    extension::unpack(&extension_dir, spec.features.sound)
+    let video = spec
+        .headless
+        .then_some((spec.viewport.width, spec.viewport.height));
+    extension::unpack(&extension_dir, spec.features.sound, video)
         .context("failed to write the extension")?;
     let sound = live::sound::Sound::new();
+    let headless = spec.headless.then(|| {
+        headless::Headless::new(aperture_compositor::Viewport {
+            width: spec.viewport.width,
+            height: spec.viewport.height,
+            scale: 1.0,
+        })
+    });
     let registry = targets::Registry::bind(
         &extension_socket,
         compositor.clone(),
+        headless.clone(),
         spec.state_dir.join("tabs.json"),
         sound.clone(),
     )
@@ -242,6 +255,7 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
     let devtools_socket = given.devtools_socket();
     let mut session = Session {
         compositor,
+        headless,
         egress,
         ways_out,
         registry,
@@ -352,7 +366,11 @@ impl Session {
         let targets = || self.registry.targets();
         let pages = pages::Pages::follow(devtools.clone(), targets(), spec.features.uploads);
 
-        let streams = live::stream::Streams::new(self.compositor.clone());
+        if let Some(headless) = &self.headless {
+            headless.attach(devtools.clone(), targets());
+        }
+        let fed = self.headless.clone().map(|headless| (headless, targets()));
+        let streams = live::stream::Streams::new(self.compositor.clone(), fed);
         let recordings = Recordings::new(
             live::record::Sources {
                 streams: streams.clone(),
@@ -368,7 +386,7 @@ impl Session {
             },
             spec.features.recordings,
         );
-        let presence = presence::Presence::new(self.compositor.clone());
+        let presence = presence::Presence::new(self.compositor.clone(), self.headless.clone());
         let automation = Arc::new(automation::Automation::new(
             devtools.clone(),
             targets(),
@@ -379,6 +397,7 @@ impl Session {
         let served = live::Live {
             browser: devtools,
             compositor: self.compositor.clone(),
+            headless: self.headless.clone(),
             streams,
             targets: targets(),
             recordings: recordings.clone(),

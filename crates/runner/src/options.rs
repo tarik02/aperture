@@ -30,6 +30,10 @@ pub struct Options {
     /// Draw sessions on the CPU also where a GPU works.
     #[arg(long, env = "APERTURE_NO_GPU")]
     no_gpu: bool,
+    /// SPIKE: run sessions' browsers headless, with the picture the browser takes of
+    /// its own tabs. Nothing that needs a window's pixels works.
+    #[arg(long, env = "APERTURE_HEADLESS")]
+    headless: bool,
     #[arg(long, env = "APERTURE_BWRAP", default_value = "bwrap")]
     bwrap: PathBuf,
     #[arg(long, env = "APERTURE_CHROMIUM", default_value = "chromium")]
@@ -92,6 +96,7 @@ pub struct Setup {
     rtc_ports: Option<PortRange>,
     cursor_theme: Option<PathBuf>,
     gpu: bool,
+    headless: bool,
     egress_allow: Vec<String>,
     network: Network,
     browser_args: Vec<String>,
@@ -132,6 +137,7 @@ impl Options {
             rtc_ports: self.rtc_ports,
             cursor_theme: self.cursor_theme,
             gpu: !self.no_gpu,
+            headless: self.headless,
             egress_allow: self.egress_allow,
             browser_args: self.browser_args,
             features: self.features.into_iter().fold(
@@ -178,6 +184,7 @@ impl Setup {
             rtc_ports: self.rtc_ports,
             cursor_theme: self.cursor_theme.clone(),
             gpu: self.gpu,
+            headless: self.headless,
             egress_allow: self.egress_allow.clone(),
             proxy,
             network,

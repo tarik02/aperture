@@ -68,9 +68,18 @@ impl Key {
     }
 }
 
-struct Shared {
-    packets: broadcast::Sender<Arc<Packet>>,
-    keyframe: Notify,
+pub struct Shared {
+    pub packets: broadcast::Sender<Arc<Packet>>,
+    pub keyframe: Notify,
+}
+
+impl Shared {
+    pub fn new() -> Self {
+        Self {
+            packets: broadcast::Sender::new(BACKLOG),
+            keyframe: Notify::new(),
+        }
+    }
 }
 
 /// A stream, for one taker. The channel closes when the window does.
@@ -89,15 +98,23 @@ impl Subscription {
     }
 }
 
+/// SPIKE: where the browser is headless, its tabs' video comes encoded from there.
+type Fed = (
+    Arc<crate::headless::Headless>,
+    tokio::sync::watch::Receiver<Vec<crate::targets::Target>>,
+);
+
 pub struct Streams {
     compositor: Handle,
+    fed: Option<Fed>,
     streams: Mutex<HashMap<Key, Arc<Shared>>>,
 }
 
 impl Streams {
-    pub fn new(compositor: Handle) -> Arc<Self> {
+    pub fn new(compositor: Handle, fed: Option<Fed>) -> Arc<Self> {
         Arc::new(Self {
             compositor,
+            fed,
             streams: Mutex::default(),
         })
     }
@@ -108,6 +125,19 @@ impl Streams {
         self: &Arc<Self>,
         key: Key,
     ) -> Result<Subscription, aperture_compositor::Error> {
+        if let Some((headless, targets)) = &self.fed {
+            let tab = {
+                let targets = targets.borrow();
+                let shown = targets.iter().find(|target| target.window == key.window);
+                shown.map(|target| target.browser_tab)
+            };
+            let tab = tab.ok_or(aperture_compositor::Error::WindowNotFound(key.window))?;
+            let key = Key {
+                format: Format::H264,
+                ..key
+            };
+            return Ok(take(key, &headless.video(tab)));
+        }
         if let Some(subscription) = self.join(key) {
             return Ok(subscription);
         }
@@ -117,10 +147,7 @@ impl Streams {
         if let Some(shared) = streams.get(&key) {
             return Ok(take(key, shared));
         }
-        let shared = Arc::new(Shared {
-            packets: broadcast::Sender::new(BACKLOG),
-            keyframe: Notify::new(),
-        });
+        let shared = Arc::new(Shared::new());
         streams.insert(key, shared.clone());
         let subscription = Subscription {
             key,

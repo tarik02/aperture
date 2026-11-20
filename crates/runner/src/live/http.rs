@@ -53,6 +53,8 @@ pub struct Live {
     /// The browser, for what is asked of it directly.
     pub browser: cdp::Client,
     pub compositor: Handle,
+    /// SPIKE: set where the browser is headless, and then takes the compositor's place.
+    pub headless: Option<Arc<crate::headless::Headless>>,
     pub streams: Arc<Streams>,
     pub targets: watch::Receiver<Vec<Target>>,
     pub recordings: Recordings,
@@ -66,6 +68,16 @@ pub struct Live {
     /// The session's files.
     pub files: PathBuf,
     pub features: Features,
+}
+
+impl Live {
+    /// Gives a window another size, wherever windows are.
+    pub fn set_viewport(&self, window: aperture_compositor::WindowId, viewport: Viewport) {
+        match &self.headless {
+            Some(headless) => headless.set_viewport(window, viewport),
+            None => self.compositor.set_viewport(window, viewport),
+        }
+    }
 }
 
 /// The largest file that is taken for the browser, in bytes.
@@ -432,7 +444,7 @@ async fn viewport_set(
     Json(asked): Json<ViewportView>,
 ) -> Result<StatusCode, Refusal> {
     let target = live.target(Some(&id))?;
-    live.compositor.set_viewport(
+    live.set_viewport(
         target.window,
         Viewport {
             width: asked.width,

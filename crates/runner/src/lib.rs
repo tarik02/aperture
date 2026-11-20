@@ -43,6 +43,9 @@ pub struct Spec {
     /// its pages. On the CPU without.
     #[serde(default)]
     pub gpu: bool,
+    /// SPIKE: the browser runs headless and takes its own picture; see `headless`.
+    #[serde(default)]
+    pub headless: bool,
     /// Local addresses and networks the browser may reach; the rest of what is local to
     /// the node is refused it.
     pub egress_allow: Vec<String>,

@@ -446,6 +446,10 @@ impl Client {
                 .collect()
         });
         self.formats = made.await.map_err(axum::Error::new)?;
+        // A headless browser encodes its own picture, one way.
+        if self.live.headless.is_some() {
+            self.formats.retain(|format| *format == Format::H264);
+        }
         self.format = self.formats.first().copied().unwrap_or(Format::H264);
         self.send_features().await?;
         self.send_targets().await?;
@@ -484,7 +488,7 @@ impl Client {
             && self.grant(Area::Tabs).write
             && self.holds()
         {
-            self.live.compositor.set_viewport(
+            self.live.set_viewport(
                 window,
                 Viewport {
                     width: viewport.width,

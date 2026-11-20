@@ -311,13 +311,6 @@ fn arguments(spec: &Spec, given: &Given) -> Vec<String> {
         "--proxy-bypass-list=<-loopback>",
         // Datagrams have no way out.
         "--disable-quic",
-        "--ozone-platform=wayland",
-        // Fields take text as text, whatever keyboard it takes to write it.
-        "--enable-wayland-ime",
-        "--wayland-text-input-version=3",
-        // No browser interface around the page, and none of the hints a fullscreen
-        // window shows otherwise.
-        "--kiosk",
         // The pages there were when the session last ran, with their histories.
         "--restore-last-session",
         // The browser would quit with its last window, and the extension closes the
@@ -361,7 +354,34 @@ fn arguments(spec: &Spec, given: &Given) -> Vec<String> {
             given.certificate_key
         ),
     ];
+    let shown: Vec<String> =
+        if spec.headless {
+            // SPIKE: no window anywhere; the browser takes its tabs' picture itself.
+            vec![
+            "--headless=new".to_owned(),
+            format!("--window-size={},{}", spec.viewport.width, spec.viewport.height),
+            "--autoplay-policy=no-user-gesture-required".to_owned(),
+            "--disable-background-timer-throttling".to_owned(),
+            "--disable-renderer-backgrounding".to_owned(),
+            "--disable-backgrounding-occluded-windows".to_owned(),
+            "--enable-features=AcceleratedVideoEncoder,VaapiVideoEncoder,VaapiIgnoreDriverChecks"
+                .to_owned(),
+        ]
+        } else {
+            [
+                "--ozone-platform=wayland",
+                // Fields take text as text, whatever keyboard it takes to write it.
+                "--enable-wayland-ime",
+                "--wayland-text-input-version=3",
+                // No browser interface around the page, and none of the hints a fullscreen
+                // window shows otherwise.
+                "--kiosk",
+            ]
+            .map(str::to_owned)
+            .to_vec()
+        };
     own.into_iter()
+        .chain(shown)
         .chain(fixed.map(str::to_owned))
         .chain(drawn)
         .chain(spec.browser_args.iter().cloned())

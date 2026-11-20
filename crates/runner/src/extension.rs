@@ -24,7 +24,7 @@ const FILES: [(&str, &str); 5] = [
 
 /// Writes the extension to `dir`, for the browser to load. It taps the tabs' sound only
 /// where the session is to be heard.
-pub fn unpack(dir: &Path, sound: bool) -> std::io::Result<()> {
+pub fn unpack(dir: &Path, sound: bool, video: Option<(u32, u32)>) -> std::io::Result<()> {
     // Nothing of an earlier run's extension is left for the browser to load.
     match std::fs::remove_dir_all(dir) {
         Ok(()) => {}
@@ -37,7 +37,11 @@ pub fn unpack(dir: &Path, sound: bool) -> std::io::Result<()> {
     }
     std::fs::write(
         dir.join("options.json"),
-        json!({ "sound": sound }).to_string(),
+        json!({
+            "sound": sound,
+            "video": video.map(|(width, height)| json!({ "width": width, "height": height })),
+        })
+        .to_string(),
     )?;
     Ok(())
 }

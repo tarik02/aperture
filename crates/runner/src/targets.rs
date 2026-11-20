@@ -35,7 +35,7 @@ use tracing::{info, warn};
 
 use crate::{cdp, live::sound::Sound};
 
-const MESSAGE_LIMIT: usize = 1024 * 1024;
+const MESSAGE_LIMIT: usize = 16 * 1024 * 1024;
 /// How long the extension waits for a window it opened, or a tab it moved, to show up here.
 const SETTLE_WITHIN: Duration = Duration::from_secs(5);
 /// Pages change their titles and close without the extension saying so.
@@ -156,6 +156,8 @@ const RETURN_WITHIN: Duration = Duration::from_secs(30);
 
 struct Inner {
     compositor: Handle,
+    /// SPIKE: where the browser is headless, its windows are these.
+    headless: Option<Arc<crate::headless::Headless>>,
     browser: watch::Receiver<Option<cdp::Client>>,
     state: Mutex<State>,
     /// One pass at a time: passes read the browser's targets and then change the state.
@@ -178,6 +180,7 @@ impl Registry {
     pub fn bind(
         socket: &Path,
         compositor: Handle,
+        headless: Option<Arc<crate::headless::Headless>>,
         kept: PathBuf,
         sound: Arc<Sound>,
     ) -> std::io::Result<Self> {
@@ -199,6 +202,7 @@ impl Registry {
         };
         let inner = Arc::new(Inner {
             compositor,
+            headless,
             browser: attached,
             state: Mutex::new(state),
             reconciling: tokio::sync::Mutex::default(),
@@ -281,7 +285,27 @@ impl Inner {
     /// Requests and their answers are framed as Chromium frames native messages: the
     /// length, in the machine's byte order, then JSON. What the extension tells of the
     /// tabs' sound comes the same way, and is not answered.
-    async fn serve(&self, mut stream: UnixStream) -> anyhow::Result<()> {
+    async fn serve(&self, stream: UnixStream) -> anyhow::Result<()> {
+        let (mut stream, mut back) = stream.into_split();
+        // Answers and what the extension is told without having asked go the same way.
+        let (answers, mut said) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let mut pushes = self.headless.as_ref().map(|headless| headless.pushes());
+        let writer = tokio::spawn(async move {
+            loop {
+                let message = tokio::select! {
+                    Some(answer) = said.recv() => answer,
+                    Ok(push) = async { pushes.as_mut().expect("guarded").recv().await }, if pushes.is_some() => push.to_string(),
+                    else => return,
+                };
+                let framed = (message.len() as u32).to_ne_bytes();
+                if back.write_all(&framed).await.is_err()
+                    || back.write_all(message.as_bytes()).await.is_err()
+                {
+                    return;
+                }
+            }
+        });
+        let _ended = scopeguard(writer);
         loop {
             let mut length = [0; 4];
             match stream.read_exact(&mut length).await {
@@ -305,6 +329,17 @@ impl Inner {
                 }
                 continue;
             }
+            let of_video = message["type"]
+                .as_str()
+                .is_some_and(|kind| kind.starts_with("video."));
+            if of_video {
+                if let Some(headless) = &self.headless
+                    && let Err(err) = headless.told(&message)
+                {
+                    warn!("the extension said something odd about a tab's video: {err:#}");
+                }
+                continue;
+            }
             let answer = match serde_json::from_value::<Request>(message) {
                 Ok(request) => match self.handle(request.kind).await {
                     Ok(()) => json!({ "id": request.id, "ok": true }),
@@ -318,22 +353,24 @@ impl Inner {
                     json!({ "id": "", "ok": false, "error": err.to_string() })
                 }
             };
-            let answer = answer.to_string();
-            stream
-                .write_all(&(answer.len() as u32).to_ne_bytes())
-                .await?;
-            stream.write_all(answer.as_bytes()).await?;
+            if answers.send(answer.to_string()).is_err() {
+                bail!("the extension takes no answers");
+            }
         }
     }
 
     async fn handle(&self, kind: Kind) -> anyhow::Result<()> {
         match kind {
             Kind::Prepare { nonce } => {
-                self.compositor.expect(nonce);
+                if self.headless.is_none() {
+                    self.compositor.expect(nonce);
+                }
                 Ok(())
             }
             Kind::Cancel { nonce } => {
-                self.compositor.forget(nonce);
+                if self.headless.is_none() {
+                    self.compositor.forget(nonce);
+                }
                 Ok(())
             }
             Kind::Bind {
@@ -341,7 +378,10 @@ impl Inner {
                 window_id,
                 tab_id,
             } => {
-                let window = self.tagged(&nonce).await?;
+                let window = match &self.headless {
+                    Some(headless) => headless.open(&nonce),
+                    None => self.tagged(&nonce).await?,
+                };
                 self.state.lock().expect("not poisoned").bindings.insert(
                     window_id,
                     Binding {
@@ -386,7 +426,11 @@ impl Inner {
             Kind::Closed { window_id } => {
                 {
                     let mut state = self.state.lock().expect("not poisoned");
-                    state.bindings.remove(&window_id);
+                    if let Some(gone) = state.bindings.remove(&window_id)
+                        && let Some(headless) = &self.headless
+                    {
+                        headless.close(gone.window);
+                    }
                     state
                         .ready
                         .retain(|_, ready| ready.chromium_window != window_id);
@@ -436,7 +480,10 @@ impl Inner {
                 height: back.height,
                 scale: back.scale,
             };
-            self.compositor.set_viewport(window, viewport);
+            match &self.headless {
+                Some(headless) => headless.set_viewport(window, viewport),
+                None => self.compositor.set_viewport(window, viewport),
+            }
         }
         for page in fresh {
             if let Err(err) = focus_page(&browser, &page).await {
@@ -460,7 +507,10 @@ impl Inner {
 
     /// Tells watchers the targets whose windows have content, in the order they came to be.
     fn publish(&self) {
-        let windows = self.compositor.windows();
+        let windows = match &self.headless {
+            Some(headless) => headless.windows(),
+            None => self.compositor.windows(),
+        };
         let windows = windows.borrow();
         let mut state = self.state.lock().expect("not poisoned");
         let state = &mut *state;
@@ -655,4 +705,15 @@ struct Page {
     url: String,
     window: Option<i64>,
     opener: Option<String>,
+}
+
+/// Ends a task when it is dropped.
+fn scopeguard(task: tokio::task::JoinHandle<()>) -> impl Drop {
+    struct Ended(tokio::task::JoinHandle<()>);
+    impl Drop for Ended {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+    Ended(task)
 }

@@ -17,11 +17,87 @@ const tell = (message) => {
   worker.postMessage(message);
 };
 
-const tap = async (stream, tab) => {
-  const media = await navigator.mediaDevices.getUserMedia({ audio: { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: stream } } });
+// SPIKE: the picture of a tab of a headless browser, encoded here and sent on as Annex B
+// access units. The tab's size is the picture's; a keyframe comes when one is asked for.
+const keyframes = new Set();
+const base64 = (bytes) => {
+  let text = "";
+  for (let at = 0; at < bytes.length; at += 0x8000) text += String.fromCharCode.apply(null, bytes.subarray(at, at + 0x8000));
+  return btoa(text);
+};
+const watch = async (track, tab) => {
+  const frames = new MediaStreamTrackProcessor({ track }).readable.getReader();
+  let encoder = null;
+  let size = "";
+  let said = false;
+  const make = async (width, height) => {
+    const made = new VideoEncoder({
+      output: (chunk) => {
+        const bytes = new Uint8Array(chunk.byteLength);
+        chunk.copyTo(bytes);
+        tell({ type: "video.packet", tabId: tab, key: chunk.type === "key", width, height, data: base64(bytes) });
+      },
+      error: (error) => tell({ type: "video.failed", tabId: tab, error: String(error?.message ?? error) }),
+    });
+    const config = { codec: "avc1.640033", width, height, bitrate: 8_000_000, framerate: 60, latencyMode: "realtime", avc: { format: "annexb" } };
+    // On the GPU where the browser encodes there, and else as it can.
+    const hardware = { ...config, hardwareAcceleration: "prefer-hardware" };
+    const on = (await VideoEncoder.isConfigSupported(hardware).catch(() => null))?.supported === true;
+    made.configure(on ? hardware : config);
+    made.how = on ? "hardware" : "software";
+    return made;
+  };
+  for (;;) {
+    const { value: frame, done } = await frames.read();
+    if (done) break;
+    const width = frame.displayWidth & ~1;
+    const height = frame.displayHeight & ~1;
+    if (`${width}x${height}` !== size) {
+      if (encoder !== null && encoder.state !== "closed") encoder.close();
+      encoder = await make(width, height);
+      size = `${width}x${height}`;
+      keyframes.add(tab);
+      if (!said) tell({ type: "video.started", tabId: tab, encoder: `${size} ${encoder.how}` });
+      said = true;
+    }
+    // Frames the encoder has no time for are left out, down to the latest.
+    if (encoder.state === "configured" && encoder.encodeQueueSize < 2) {
+      encoder.encode(frame, { keyFrame: keyframes.delete(tab) });
+    }
+    frame.close();
+  }
+  if (encoder !== null && encoder.state !== "closed") encoder.close();
+};
+
+// What is taken of each tab, to let go of it when its picture is to have another size.
+const held = new Map();
+const tap = async (stream, tab, sound, video) => {
+  const source = { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: stream } };
+  const sized = video ? { minWidth: video.width, maxWidth: video.width, minHeight: video.height, maxHeight: video.height, maxFrameRate: 60 } : {};
+  const media = await navigator.mediaDevices.getUserMedia({
+    audio: sound ? source : false,
+    video: video ? { mandatory: { ...source.mandatory, ...sized } } : false,
+  });
+  held.set(tab, media);
+  let ended = false;
+  const end = () => {
+    if (ended) return;
+    ended = true;
+    for (const track of media.getTracks()) track.stop();
+    if (held.get(tab) === media) held.delete(tab);
+    taps.delete(tab);
+    tell({ type: "sound.untapped", tabId: tab });
+  };
+  const [picture] = media.getVideoTracks();
+  if (picture !== undefined) {
+    watch(picture, tab)
+      .catch((error) => tell({ type: "video.failed", tabId: tab, error: String(error?.message ?? error) }))
+      .finally(end);
+  }
   const [track] = media.getAudioTracks();
   taps.add(tab);
   tell({ type: "sound.tapped", tabId: tab });
+  if (track === undefined) return;
 
   const encoder = new AudioEncoder({
     output: (chunk) => {
@@ -59,14 +135,15 @@ const tap = async (stream, tab) => {
     .finally(() => {
       track.stop();
       if (encoder.state !== "closed") encoder.close();
-      taps.delete(tab);
-      tell({ type: "sound.untapped", tabId: tab });
+      end();
     });
 };
 
 chrome.runtime.onMessage.addListener((message, _from, answer) => {
+  if (message.keyframe !== undefined) keyframes.add(message.keyframe);
+  if (message.untap !== undefined) for (const track of held.get(message.untap)?.getTracks() ?? []) track.stop();
   if (message.tap === undefined) return false;
-  tap(message.tap, message.tab).then(
+  tap(message.tap, message.tab, message.sound ?? true, message.video ?? false).then(
     () => answer({ tapped: true }),
     (error) => answer({ tapped: false, error: String(error?.message ?? error) }),
   );

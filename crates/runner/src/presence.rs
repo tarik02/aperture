@@ -158,6 +158,7 @@ struct State {
 
 pub struct Presence {
     compositor: Handle,
+    headless: Option<Arc<crate::headless::Headless>>,
     state: Mutex<State>,
     told: watch::Sender<Present>,
     marks: broadcast::Sender<Mark>,
@@ -176,9 +177,10 @@ impl Drop for Membership {
 }
 
 impl Presence {
-    pub fn new(compositor: Handle) -> Arc<Self> {
+    pub fn new(compositor: Handle, headless: Option<Arc<crate::headless::Headless>>) -> Arc<Self> {
         let presence = Arc::new(Self {
             compositor,
+            headless,
             state: Mutex::default(),
             told: watch::Sender::new(Present::default()),
             marks: broadcast::Sender::new(MARKS),
@@ -423,8 +425,16 @@ impl Presence {
             }
             _ => {}
         }
-        self.compositor.input(input);
+        self.give(input);
         true
+    }
+
+    /// Input goes to the window, wherever windows are.
+    fn give(&self, input: Input) {
+        match &self.headless {
+            Some(headless) => headless.input(input),
+            None => self.compositor.input(input),
+        }
     }
 
     /// Presses or lets go of the keys a member holds down, in `window` or wherever the
@@ -438,7 +448,7 @@ impl Presence {
             return;
         };
         for code in &hands.keys {
-            self.compositor.input(Input::Key {
+            self.give(Input::Key {
                 window,
                 code: *code,
                 pressed,
@@ -458,7 +468,7 @@ impl Presence {
         };
         if let Some((window, x, y)) = hands.at {
             for button in hands.buttons.drain(..) {
-                self.compositor.input(Input::PointerButton {
+                self.give(Input::PointerButton {
                     window,
                     x,
                     y,
