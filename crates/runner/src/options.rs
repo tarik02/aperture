@@ -43,12 +43,13 @@ pub struct Options {
     egress_allow: Vec<String>,
     /// What network sessions' browsers have. `proxied`: none but the session's proxy, so
     /// that everything a browser sends is held to the session's rules; what is not TCP,
-    /// such as WebRTC, has no way out. `direct`: one of its own that reaches out, UDP
-    /// too; pages still load through the proxy, but what goes around it is held to
-    /// nothing and reaches the local network as well. Takes pasta.
+    /// such as WebRTC, has no way out. `udp`: one of its own for UDP alone, which is held
+    /// to nothing and reaches the local network as well; TCP still has no way out but
+    /// the proxy. `direct`: one of its own for TCP too; pages still load through the
+    /// proxy, but nothing holds a browser to it. `udp` and `direct` take pasta.
     #[arg(long, env = "APERTURE_NETWORK", value_enum, default_value_t)]
     network: Network,
-    /// pasta, of the passt project, which `--network direct` runs browsers with.
+    /// pasta, of the passt project, which gives browsers a network of their own.
     #[arg(long, env = "APERTURE_PASTA", default_value = "pasta")]
     pasta: PathBuf,
     /// `aperture-browser-shim`. Next to this program by default.
@@ -115,7 +116,7 @@ impl Options {
                 ffmpeg: self.ffmpeg.as_deref().map(executable).transpose()?,
                 pasta: match self.network {
                     Network::Proxied => None,
-                    Network::Direct => Some(named(&self.pasta)?),
+                    Network::Udp | Network::Direct => Some(named(&self.pasta)?),
                 },
             },
             network: self.network,

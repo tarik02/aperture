@@ -65,9 +65,12 @@ pub enum Network {
     /// to the session's rules, and what is not TCP has no way out.
     #[default]
     Proxied,
-    /// One of its own that reaches out, for what a proxy does not carry: WebRTC and
-    /// whatever else goes over UDP. Pages still load through the proxy, but nothing holds
-    /// the browser to it: what goes around it reaches the local network too.
+    /// One of its own that carries no TCP, for what a proxy does not carry: WebRTC and
+    /// whatever else goes over UDP. TCP still has no way out but the proxy; what goes
+    /// over UDP is held to nothing, and reaches the local network too.
+    Udp,
+    /// One of its own that reaches out, TCP as well. Pages still load through the proxy,
+    /// but nothing holds the browser to it.
     Direct,
 }
 
@@ -141,7 +144,7 @@ pub struct Tools {
     pub ffmpeg: Option<PathBuf>,
     /// `aperture-browser-shim`, which runs the browser inside its sandbox.
     pub browser_shim: PathBuf,
-    /// pasta, which gives a browser a network of its own; needed for [`Network::Direct`].
+    /// pasta, which gives a browser a network of its own; needed for any [`Network`] but the proxied one.
     #[serde(default)]
     pub pasta: Option<PathBuf>,
 }

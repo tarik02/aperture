@@ -134,8 +134,8 @@ pub fn start(spec: &Spec, given: &Given) -> anyhow::Result<Child> {
 
 /// What runs bwrap: bwrap itself, for a browser with no network but its proxy, which
 /// bwrap leaves it without; or pasta, which gives bwrap and what it runs a network of
-/// their own that reaches out. That network takes nothing in, and the machine's own
-/// loopback is not in it.
+/// their own that reaches out, with TCP or without. That network takes nothing in, and
+/// the machine's own loopback is not in it.
 fn network(spec: &Spec) -> anyhow::Result<Command> {
     let bwrap = &spec.tools.bwrap;
     match spec.network {
@@ -144,11 +144,15 @@ fn network(spec: &Spec) -> anyhow::Result<Command> {
             command.arg("--unshare-net");
             Ok(command)
         }
-        Network::Direct => {
+        Network::Udp | Network::Direct => {
             let pasta = spec.tools.pasta.as_ref();
             let mut command = Command::new(pasta.context("a network of its own takes pasta")?);
+            command.args(["--quiet", "--config-net"]);
+            if spec.network == Network::Udp {
+                // The proxy is reached over a socket, so it takes none of this.
+                command.arg("--no-tcp");
+            }
             command
-                .args(["--quiet", "--config-net"])
                 .args(["-t", "none", "-u", "none", "-T", "none", "-U", "none"])
                 .args(["--map-host-loopback", "none"])
                 .args(["--dns-forward", NAMESERVER])
@@ -195,7 +199,7 @@ fn sandbox(command: &mut Command, spec: &Spec, given: &Given, home: &Path) -> an
     if Path::new("/run/systemd/resolve").exists() {
         command.args(["--ro-bind", "/run/systemd/resolve", "/run/systemd/resolve"]);
     }
-    if spec.network == Network::Direct {
+    if spec.network != Network::Proxied {
         // The machine's resolver is often on its loopback, which is not the browser's.
         let resolver = spec.runtime_dir.join("resolv.conf");
         fs::write(&resolver, format!("nameserver {NAMESERVER}\n"))?;
