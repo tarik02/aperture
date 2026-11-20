@@ -50,7 +50,14 @@ struct Arguments {
     /// first needed. Without it snapshots are this node's alone.
     #[arg(long, env = "APERTURE_SNAPSHOT_STORE")]
     snapshot_store: Option<String>,
-    /// tar and zstd, which pack what goes to the snapshots' store.
+    /// Where sessions are kept for every node that names the same place, as
+    /// `--snapshot-store` names one: a session is put there whenever it is suspended, and
+    /// a node that is asked to resume one it does not have, or has an older state of,
+    /// brings it from there. Nothing keeps two nodes from running one session: whoever
+    /// tells the nodes what to do sees to that. Without it sessions are this node's alone.
+    #[arg(long, env = "APERTURE_SESSION_STORE")]
+    session_store: Option<String>,
+    /// tar and zstd, which pack what goes to those stores.
     #[arg(long, env = "APERTURE_TAR", default_value = "tar")]
     tar: PathBuf,
     #[arg(long, env = "APERTURE_ZSTD", default_value = "zstd")]
@@ -172,20 +179,29 @@ async fn main() -> anyhow::Result<()> {
         );
         None
     };
-    let snapshots = match &arguments.snapshot_store {
-        Some(url) => {
-            let tools = Tools {
-                tar: options::executable(&arguments.tar)?,
-                zstd: options::executable(&arguments.zstd)?,
-            };
-            Some(Remote::open(url, tools).context("failed to open the snapshots' store")?)
-        }
-        None => None,
+    let shared = |url: &Option<String>, what: &'static str| {
+        let Some(url) = url else {
+            return Ok(None);
+        };
+        let tools = Tools {
+            tar: options::executable(&arguments.tar)?,
+            zstd: options::executable(&arguments.zstd)?,
+        };
+        anyhow::Ok(Some(Remote::open(url, tools).context(what)?))
     };
+    let snapshots = shared(
+        &arguments.snapshot_store,
+        "failed to open the snapshots' store",
+    )?;
+    let shared_sessions = shared(
+        &arguments.session_store,
+        "failed to open the sessions' store",
+    )?;
     let sessions = Arc::new(Sessions::new(
         store,
         Config {
             snapshots,
+            shared_sessions,
             runtime_root,
             runner: options::executable(&runner)?,
             setup: arguments.options.setup()?,

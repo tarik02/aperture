@@ -58,6 +58,9 @@ A session's profile as it was at one moment, kept as a read-only layer. A sessio
 **Snapshot store**:
 Where executors keep snapshots together, so that a session is created on one node from a snapshot taken on another: an S3 bucket, or a directory the nodes share. A node brings a snapshot's layers to its own storage when it first builds a session on them. Without one, snapshots are their node's alone.
 
+**Session store**:
+Where executors put a session whenever it is suspended, so that another node resumes it: its record, and what its profile had above its layers with its files. A node asked to resume a session it does not have, or has another state of, brings it from there. Nothing in it says which node has a session: whoever tells the nodes what to do sees to it that one runs it at a time. A session whose node died is resumed elsewhere as it was last suspended.
+
 **Session file**:
 A file under the session's files directory: downloads, uploads and recordings. Session files are not part of the profile and never enter a snapshot.
 

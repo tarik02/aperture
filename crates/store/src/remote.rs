@@ -1,10 +1,15 @@
-//! Where nodes keep snapshots together: an object store, such as an S3 bucket or a
-//! directory they all mount.
+//! Where nodes keep snapshots, sessions or both together: an object store, such as an S3
+//! bucket or a directory they all mount.
 //!
 //! ```text
 //! <prefix>/snapshots/<id>.json
 //! <prefix>/layers/<id>/{fs.tar.zst,layer.json}
+//! <prefix>/sessions/<id>/{session.json,state.tar.zst}
 //! ```
+//!
+//! A session's record is as it was last suspended, and its state is what its profile had
+//! above its layers then, with its files. Nothing here says which node has a session:
+//! whoever tells the nodes what to do sees to it that one of them runs it at a time.
 //!
 //! A layer is there once its record is, which is written after its files. A snapshot's
 //! record is written after its layers, so whoever finds a snapshot finds all of it. A node
@@ -25,11 +30,17 @@ use object_store::{
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::{io::AsyncWriteExt, process::Command};
 
-use crate::{LayerRecord, Result, SnapshotRecord, Store, StoreError, check_id, new_id};
+use crate::{
+    Arriving, LayerRecord, Result, SessionRecord, SnapshotRecord, Store, StoreError, check_id,
+    new_id,
+};
 
 /// How long a layer no snapshot is built on stays: one may be on its way to a snapshot
 /// whose record is not written yet.
 const KEPT_UNUSED: Duration = Duration::from_secs(60 * 60);
+
+/// What of a session's directory is its state: the rest is made anew wherever it runs.
+const STATE: [&str; 3] = ["upper", "files", "state"];
 
 /// The programs layers are packed and unpacked with.
 #[derive(Debug, Clone)]
@@ -81,18 +92,21 @@ impl Remote {
 
     /// Puts a snapshot the node took, with the layers that are not there yet.
     pub async fn push(&self, store: &Store, snapshot: &SnapshotRecord) -> Result<()> {
-        let chain = store.layer_chain(snapshot.layer.as_deref())?;
+        self.push_layers(store, snapshot.layer.as_deref()).await?;
+        self.write(&self.snapshot_key(&snapshot.id), snapshot).await
+    }
+
+    /// Puts the layer and those below it that are not there yet.
+    pub async fn push_layers(&self, store: &Store, top: Option<&str>) -> Result<()> {
+        let chain = store.layer_chain(top)?;
         for (id, parent) in chain.into_iter().rev() {
-            if self
-                .read::<LayerRecord>(&self.layer_key(&id))
-                .await?
-                .is_some()
-            {
+            let there = self.read::<LayerRecord>(&self.layer_key(&id)).await?;
+            if there.is_some() {
                 continue;
             }
             let packed = store.staging().join(format!("{}.tar.zst", new_id()));
             let outcome = async {
-                self.pack(&store.layer_files(&id), &packed).await?;
+                self.pack(&store.layer_files(&id), &["."], &packed).await?;
                 self.upload(&packed, &self.files_key(&id)).await
             }
             .await;
@@ -101,17 +115,29 @@ impl Remote {
             self.write(&self.layer_key(&id), &LayerRecord { parent })
                 .await?;
         }
-        self.write(&self.snapshot_key(&snapshot.id), snapshot).await
+        Ok(())
     }
 
     /// Brings a snapshot into the node's store: its record, and the layers that are not
     /// there yet.
     pub async fn pull(&self, store: &Store, snapshot: &SnapshotRecord) -> Result<()> {
+        let _arriving = self.pull_layers(store, snapshot.layer.as_deref()).await?;
+        store.import_snapshot(snapshot)
+    }
+
+    /// Brings the layer and those below it that are not in the node's store yet. They
+    /// stay there for as long as what this returns is kept, also with nothing built on
+    /// them.
+    pub async fn pull_layers<'a>(
+        &self,
+        store: &'a Store,
+        top: Option<&str>,
+    ) -> Result<Arriving<'a>> {
         let mut missing = Vec::new();
-        let mut layer = snapshot.layer.clone();
+        let mut layer = top.map(str::to_owned);
         while let Some(id) = layer.filter(|id| !store.has_layer(id)) {
             let record: LayerRecord = self.read(&self.layer_key(&id)).await?.ok_or_else(|| {
-                StoreError::Archive(format!("layer {id} is not in the snapshots' store"))
+                StoreError::Archive(format!("layer {id} is not in the store nodes share"))
             })?;
             missing.push((id, record.parent.clone()));
             layer = record.parent;
@@ -119,7 +145,7 @@ impl Remote {
         // The layers below the missing ones are here, and stay while the rest comes.
         let below = missing.last().and_then(|(_, parent)| parent.as_deref());
         let kept = store.layer_chain(below)?.into_iter().map(|(id, _)| id);
-        let _arriving = store.arriving(
+        let arriving = store.arriving(
             missing
                 .iter()
                 .map(|(id, _)| id.clone())
@@ -141,7 +167,79 @@ impl Remote {
             }
             outcome?;
         }
-        store.import_snapshot(snapshot)
+        Ok(arriving)
+    }
+
+    /// The session as it was last put here.
+    pub async fn session(&self, id: &str) -> Result<Option<SessionRecord>> {
+        check_id(id)?;
+        self.read(&self.session_key(id)).await
+    }
+
+    /// Puts the session's record, as it is in the node's store.
+    pub async fn put_session(&self, session: &SessionRecord) -> Result<()> {
+        self.write(&self.session_key(&session.id), session).await
+    }
+
+    /// Puts the state of a session whose browser is not running: what its profile has
+    /// above its layers, its files, and what its runner keeps. Gives the revision that
+    /// state is.
+    pub async fn push_state(&self, store: &Store, id: &str) -> Result<String> {
+        let revision = new_id();
+        let packed = store.staging().join(format!("{revision}.tar.zst"));
+        let outcome = async {
+            self.pack(&store.session_dir(id), &STATE, &packed).await?;
+            self.upload(&packed, &self.state_key(id)).await
+        }
+        .await;
+        crate::remove_file(&packed)?;
+        outcome?;
+        Ok(revision)
+    }
+
+    /// Brings the state last put of the session into a directory in the node's store,
+    /// for [`Store::adopt_session`].
+    pub async fn pull_state(&self, store: &Store, id: &str) -> Result<PathBuf> {
+        let staged = store.staging().join(new_id());
+        let packed = staged.with_extension("tar.zst");
+        let outcome = async {
+            self.download(&self.state_key(id), &packed).await?;
+            self.unpack(&packed, &staged).await
+        }
+        .await;
+        crate::remove_file(&packed)?;
+        if outcome.is_err() {
+            crate::remove_dir_all(&staged)?;
+        }
+        outcome?;
+        Ok(staged)
+    }
+
+    /// Removes what is here of the session. The record first: without it the rest is no
+    /// session.
+    pub async fn delete_session(&self, id: &str) -> Result<()> {
+        check_id(id)?;
+        for key in [self.session_key(id), self.state_key(id)] {
+            match self.objects.delete(&key).await {
+                Ok(()) | Err(object_store::Error::NotFound { .. }) => {}
+                Err(err) => return Err(failed(format!("removing {key}"))(err)),
+            }
+        }
+        Ok(())
+    }
+
+    /// The layers the sessions here are built on.
+    async fn session_layers(&self) -> Result<Vec<Option<String>>> {
+        let mut layers = Vec::new();
+        for (key, _) in self.list("sessions").await? {
+            if key.filename() != Some("session.json") {
+                continue;
+            }
+            if let Some(session) = self.read::<SessionRecord>(&key).await? {
+                layers.push(session.base_layer);
+            }
+        }
+        Ok(layers)
     }
 
     /// Removes the snapshot. Its layers stay for as long as another snapshot is built on
@@ -155,14 +253,23 @@ impl Remote {
             .map_err(failed(format!("removing {key}")))
     }
 
-    /// Removes the layers no snapshot is built on.
-    pub async fn collect(&self) -> Result<()> {
-        // Before the snapshots: a layer that comes while this looks is newer than what
-        // is seen of it here.
+    /// Removes the layers no snapshot here and no session in `sessions` is built on.
+    pub async fn collect(&self, sessions: Option<&Self>) -> Result<()> {
+        // Before what is built on them: a layer that comes while this looks is newer
+        // than what is seen of it here.
         let objects = self.list("layers").await?;
+        let mut tops: Vec<Option<String>> = self
+            .snapshots()
+            .await?
+            .into_iter()
+            .map(|snapshot| snapshot.layer)
+            .collect();
+        if let Some(sessions) = sessions {
+            tops.extend(sessions.session_layers().await?);
+        }
         let mut used = HashSet::new();
-        for snapshot in self.snapshots().await? {
-            let mut layer = snapshot.layer;
+        for top in tops {
+            let mut layer = top;
             while let Some(id) = layer.filter(|id| used.insert(id.clone())) {
                 layer = self
                     .read::<LayerRecord>(&self.layer_key(&id))
@@ -208,6 +315,16 @@ impl Remote {
             .clone()
             .join("snapshots")
             .join(format!("{id}.json"))
+    }
+
+    fn session_key(&self, id: &str) -> Key {
+        let session = self.prefix.clone().join("sessions").join(id);
+        session.join("session.json")
+    }
+
+    fn state_key(&self, id: &str) -> Key {
+        let session = self.prefix.clone().join("sessions").join(id);
+        session.join("state.tar.zst")
     }
 
     fn layer_key(&self, id: &str) -> Key {
@@ -310,15 +427,15 @@ impl Remote {
 
     /// Packs a layer's files with what overlayfs keeps of them: the attributes that say a
     /// directory hides what is below it, and the devices that say a file is gone.
-    async fn pack(&self, files: &Path, to: &Path) -> Result<()> {
+    async fn pack(&self, directory: &Path, members: &[&str], to: &Path) -> Result<()> {
         let mut tar = self.tar();
         tar.arg("--create")
             .arg("--file")
             .arg(to)
             .arg("--directory")
-            .arg(files)
-            .arg(".");
-        run(tar, "packing a layer").await
+            .arg(directory)
+            .args(members);
+        run(tar, "packing").await
     }
 
     async fn unpack(&self, from: &Path, to: &Path) -> Result<()> {
@@ -330,7 +447,7 @@ impl Remote {
             .arg("--directory")
             .arg(to)
             .args(["--preserve-permissions", "--no-same-owner"]);
-        run(tar, "unpacking a layer").await
+        run(tar, "unpacking").await
     }
 
     fn tar(&self) -> Command {

@@ -91,6 +91,9 @@ pub struct SessionRecord {
     /// It was suspended for sitting idle, and is to be resumed when someone reaches it.
     #[serde(default)]
     pub asleep: bool,
+    /// Which of the states nodes share of it its profile and files were last the same as.
+    #[serde(default)]
+    pub revision: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -194,6 +197,7 @@ impl Store {
             limits,
             options,
             asleep: false,
+            revision: None,
         };
         // Built aside and renamed into place, so the session appears with its record.
         let staged = self.root.join("sessions").join(format!(".{}", session.id));
@@ -215,6 +219,64 @@ impl Store {
         let mut session = self.session(id)?;
         session.proxy = proxy;
         write_record(&self.session_dir(id).join("session.json"), &session)
+    }
+
+    pub fn set_session_revision(&self, id: &str, revision: &str) -> Result<()> {
+        let mut session = self.session(id)?;
+        session.revision = Some(revision.to_owned());
+        write_record(&self.session_dir(id).join("session.json"), &session)
+    }
+
+    /// Takes a session as another node left it: its record, and with `state` its profile's
+    /// upper directory, its files and what its runner keeps, from a directory on the
+    /// store's filesystem. What this node had of the session goes. The layers the session
+    /// is built on are here, and its browser is not running.
+    pub fn adopt_session(&self, session: &SessionRecord, state: Option<&Path>) -> Result<()> {
+        check_id(&session.id)?;
+        let dir = self.session_dir(&session.id);
+        let record = dir.join("session.json");
+        let staged = match dir.exists() {
+            true => dir.clone(),
+            false => self.root.join("sessions").join(format!(".{}", session.id)),
+        };
+        if staged == dir {
+            // Until the rest is in place the session is the same as no shared state.
+            let unsettled = SessionRecord {
+                revision: None,
+                ..session.clone()
+            };
+            write_record(&record, &unsettled)?;
+        }
+        for sub in ["upper", "files", "state"] {
+            remove_dir_all(&staged.join(sub))?;
+            match state
+                .map(|state| state.join(sub))
+                .filter(|from| from.exists())
+            {
+                Some(from) => {
+                    create_dir_all(&staged)?;
+                    rename(&from, &staged.join(sub))?;
+                }
+                None => create_dir_all(&staged.join(sub))?,
+            }
+        }
+        // Overlayfs keeps indexes of the upper directory it worked for in here.
+        remove_dir_all(&staged.join("work"))?;
+        for sub in ["work", "cache", "logs"] {
+            create_dir_all(&staged.join(sub))?;
+        }
+        write_record(&staged.join("session.json"), session)?;
+        if staged != dir {
+            rename(&staged, &dir)?;
+        }
+        match state {
+            Some(state) => remove_dir_all(state),
+            None => Ok(()),
+        }
+    }
+
+    pub fn has_session(&self, id: &str) -> bool {
+        check_id(id).is_ok() && self.session_dir(id).join("session.json").exists()
     }
 
     pub fn set_session_asleep(&self, id: &str, asleep: bool) -> Result<()> {
@@ -459,7 +521,7 @@ impl Store {
         })
     }
 
-    fn session_dir(&self, id: &str) -> PathBuf {
+    pub(crate) fn session_dir(&self, id: &str) -> PathBuf {
         self.root.join("sessions").join(id)
     }
 

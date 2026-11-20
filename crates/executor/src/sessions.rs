@@ -80,6 +80,16 @@ pub struct Config {
     /// Where snapshots are kept for more nodes than this one; this node's own store
     /// without it.
     pub snapshots: Option<Remote>,
+    /// Where sessions are put when they are suspended, for other nodes to resume them.
+    pub shared_sessions: Option<Remote>,
+}
+
+impl Config {
+    /// Where the layers nodes share are: with the snapshots, which are made of them, or
+    /// with the sessions where snapshots are not shared.
+    fn shared_layers(&self) -> Option<&Remote> {
+        self.snapshots.as_ref().or(self.shared_sessions.as_ref())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -246,6 +256,15 @@ impl Sessions {
         let record = self
             .store
             .create_session(snapshot_id, proxy, limits, options)?;
+        if let (Some(shared), Some(layers)) =
+            (&self.config.shared_sessions, self.config.shared_layers())
+        {
+            let _sharing = self.sharing.lock().await;
+            layers
+                .push_layers(&self.store, record.base_layer.as_deref())
+                .await?;
+            shared.put_session(&record).await?;
+        }
         info!(session = %record.id, ?snapshot_id, "session created");
         if !suspended {
             let _busy = self.busy(&record.id).await;
@@ -278,6 +297,9 @@ impl Sessions {
         let config = proxy.clone().unwrap_or_default();
         self.store
             .set_session_proxy(id, proxy.map(checked).transpose()?)?;
+        if let Some(shared) = &self.config.shared_sessions {
+            shared.put_session(&self.store.session(id)?).await?;
+        }
         match self.running_live(id) {
             Ok(live) => {
                 let body = serde_json::to_vec(&config).expect("a configuration is serializable");
@@ -294,8 +316,9 @@ impl Sessions {
     }
 
     pub async fn resume(&self, id: &str) -> Result<Session> {
-        self.store.session(id)?;
         let _busy = self.busy(id).await;
+        self.bring(id).await?;
+        self.store.session(id)?;
         self.start(id).await?;
         self.get(id)
     }
@@ -306,7 +329,57 @@ impl Sessions {
         self.stop(id).await?;
         // Whoever asked for this resumes it too.
         self.store.set_session_asleep(id, false)?;
+        self.share(id).await?;
         self.get(id)
+    }
+
+    /// Brings the session from where nodes share sessions, when this node has none of it
+    /// or another state than was last put there. A session that runs here is left alone.
+    async fn bring(&self, id: &str) -> Result<()> {
+        let (Some(shared), Some(layers)) =
+            (&self.config.shared_sessions, self.config.shared_layers())
+        else {
+            return Ok(());
+        };
+        let runtime = self.runtime_dir(id);
+        if is_alive(&runtime).map_err(|err| Error::Io(runtime, err))? {
+            return Ok(());
+        }
+        let _sharing = self.sharing.lock().await;
+        // One that was never put there is this node's alone, if it is anyone's.
+        let Some(theirs) = shared.session(id).await? else {
+            return Ok(());
+        };
+        if self.store.has_session(id) && self.store.session(id)?.revision == theirs.revision {
+            return Ok(());
+        }
+        let _arriving = layers
+            .pull_layers(&self.store, theirs.base_layer.as_deref())
+            .await?;
+        let state = match theirs.revision {
+            Some(_) => Some(shared.pull_state(&self.store, id).await?),
+            // It was never suspended: it is as it was created.
+            None => None,
+        };
+        // A profile can be large.
+        tokio::task::block_in_place(|| self.store.adopt_session(&theirs, state.as_deref()))?;
+        info!(session = %id, "session brought from where nodes share them");
+        Ok(())
+    }
+
+    /// Puts the session, which is at rest, where nodes share sessions.
+    async fn share(&self, id: &str) -> Result<()> {
+        let (Some(shared), Some(layers)) =
+            (&self.config.shared_sessions, self.config.shared_layers())
+        else {
+            return Ok(());
+        };
+        let _sharing = self.sharing.lock().await;
+        let base = self.store.session(id)?.base_layer;
+        layers.push_layers(&self.store, base.as_deref()).await?;
+        let revision = shared.push_state(&self.store, id).await?;
+        self.store.set_session_revision(id, &revision)?;
+        Ok(shared.put_session(&self.store.session(id)?).await?)
     }
 
     /// Suspends a session that sat idle, until someone reaches it.
@@ -315,7 +388,8 @@ impl Sessions {
         let _busy = self.busy(id).await;
         // Before it stops: whoever reaches it while it does waits and resumes it.
         self.store.set_session_asleep(id, true)?;
-        self.stop(id).await
+        self.stop(id).await?;
+        self.share(id).await
     }
 
     /// Resumes the session if it was suspended for sitting idle.
@@ -333,12 +407,32 @@ impl Sessions {
     }
 
     pub async fn delete(&self, id: &str) -> Result<()> {
-        self.store.session(id)?;
+        let here = self.store.has_session(id);
+        let shared = match &self.config.shared_sessions {
+            Some(shared) => shared.session(id).await?.map(|_| shared),
+            None => None,
+        };
+        if !here && shared.is_none() {
+            // Says so.
+            self.store.session(id)?;
+        }
         let busy = self.busy(id).await;
-        self.stop(id).await?;
-        // A profile can be large.
-        tokio::task::block_in_place(|| self.store.delete_session(id))?;
-        remove_dir_all(&self.runtime_dir(id))?;
+        if here {
+            self.stop(id).await?;
+            // A profile can be large.
+            tokio::task::block_in_place(|| self.store.delete_session(id))?;
+            remove_dir_all(&self.runtime_dir(id))?;
+        }
+        if let Some(shared) = shared {
+            let _sharing = self.sharing.lock().await;
+            shared.delete_session(id).await?;
+            // The session is gone either way; what it leaves is collected the next time
+            // too.
+            let layers = self.config.shared_layers().unwrap_or(shared);
+            if let Err(err) = layers.collect(Some(shared)).await {
+                warn!("failed to collect the layers nothing is built on: {err}");
+            }
+        }
         drop(busy);
         self.busy.lock().expect("not poisoned").remove(id);
         info!(session = %id, "session deleted");
@@ -404,7 +498,7 @@ impl Sessions {
             deleted => deleted?,
         }
         // The snapshot is gone either way; what it leaves is collected the next time too.
-        if let Err(err) = remote.collect().await {
+        if let Err(err) = remote.collect(self.config.shared_sessions.as_ref()).await {
             warn!("failed to collect the layers no snapshot is built on: {err}");
         }
         Ok(())
