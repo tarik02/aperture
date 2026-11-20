@@ -68,7 +68,7 @@ pub enum Network {
     /// One of its own that carries no TCP, for what a proxy does not carry: WebRTC and
     /// whatever else goes over UDP. TCP still has no way out but the proxy; what goes
     /// over UDP is held to nothing, and reaches the local network too.
-    Udp,
+    Split,
     /// One of its own that reaches out, TCP as well. Pages still load through the proxy,
     /// but nothing holds the browser to it.
     Direct,

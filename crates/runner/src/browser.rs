@@ -144,11 +144,11 @@ fn network(spec: &Spec) -> anyhow::Result<Command> {
             command.arg("--unshare-net");
             Ok(command)
         }
-        Network::Udp | Network::Direct => {
+        Network::Split | Network::Direct => {
             let pasta = spec.tools.pasta.as_ref();
             let mut command = Command::new(pasta.context("a network of its own takes pasta")?);
             command.args(["--quiet", "--config-net"]);
-            if spec.network == Network::Udp {
+            if spec.network == Network::Split {
                 // The proxy is reached over a socket, so it takes none of this.
                 command.arg("--no-tcp");
             }
