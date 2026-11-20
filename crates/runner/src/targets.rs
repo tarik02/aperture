@@ -58,6 +58,8 @@ pub struct Target {
     pub height: u32,
     /// Pixels to a logical pixel.
     pub scale: f64,
+    /// The page that opened this one, where a page did.
+    pub opener: Option<String>,
 }
 
 /// The target a tab's number or a target's id names, as whoever names one may give
@@ -112,6 +114,7 @@ struct Ready {
     order: u64,
     tab: u32,
     browser_tab: i64,
+    opener: Option<String>,
 }
 
 /// What is kept of a tab from one run of the session to the next: the browser brings the
@@ -477,6 +480,7 @@ impl Inner {
                     width: window.width,
                     height: window.height,
                     scale: window.scale,
+                    opener: ready.opener.clone(),
                 })
             })
             .collect();
@@ -574,6 +578,7 @@ impl State {
                     order: self.next_order,
                     tab,
                     browser_tab: binding.tab,
+                    opener: page.opener.clone(),
                 },
             );
         }
@@ -615,6 +620,7 @@ async fn pages(browser: &cdp::Client) -> Result<Vec<Page>, cdp::Error> {
             title: info["title"].as_str().unwrap_or_default().to_owned(),
             url: url.to_owned(),
             window,
+            opener: info["openerId"].as_str().map(str::to_owned),
         });
     }
     Ok(pages)
@@ -648,4 +654,5 @@ struct Page {
     title: String,
     url: String,
     window: Option<i64>,
+    opener: Option<String>,
 }

@@ -105,15 +105,21 @@ export function WorkbenchToolbar({ children }: { readonly children?: ReactNode }
 export function NavigationButtons() {
   const session = useSession();
   const { gives } = useInputState();
+  const snapshot = useSessionSnapshot();
+  const watched = snapshot.targets.find((target) => target.tab === snapshot.selected);
 
   return (
     <div className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-0.5">
-      <ToolbarButton label="Back" disabled={!gives} onClick={() => session.go({ along: "back" })}>
+      <ToolbarButton
+        label="Back"
+        disabled={!gives || watched?.goesBack !== true}
+        onClick={() => session.go({ along: "back" })}
+      >
         <ArrowLeft />
       </ToolbarButton>
       <ToolbarButton
         label="Forward"
-        disabled={!gives}
+        disabled={!gives || watched?.goesForward !== true}
         onClick={() => session.go({ along: "forward" })}
       >
         <ArrowRight />

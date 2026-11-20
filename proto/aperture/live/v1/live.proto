@@ -583,6 +583,9 @@ message Target {
   uint32 tab = 7;
   // The tab plays sound now. Never where the session's sound is off.
   bool sounds = 8;
+  // The page's history has somewhere to go back to, and forward.
+  bool goes_back = 9;
+  bool goes_forward = 10;
 }
 
 // Every target of the session, oldest first. Sent after `hello` and whenever a target

@@ -32,6 +32,9 @@ export interface Target {
   readonly scale: number;
   /** The tab plays sound now. */
   readonly sounds: boolean;
+  /** The page's history has somewhere to go back to, and forward. */
+  readonly goesBack: boolean;
+  readonly goesForward: boolean;
 }
 
 /** What this client may do in one area of the session. */
@@ -356,6 +359,8 @@ export const targetOf = (target: pb.Target): Target => ({
   height: target.height,
   scale: target.scale,
   sounds: target.sounds,
+  goesBack: target.goesBack,
+  goesForward: target.goesForward,
 });
 
 export const presenceOf = (presence: pb.Presence): Presence => ({

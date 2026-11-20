@@ -5,7 +5,7 @@ mod picture;
 mod tell;
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashMap, HashSet},
     time::{Duration, Instant},
 };
 
@@ -30,9 +30,10 @@ use super::{
 };
 use crate::{
     files::{self, Download},
-    pages::{self, Along},
+    pages::{self, Along, History},
     presence::{Identity, Mark, Membership, Phase, Present, Shown},
     proto::aperture::live::v1::{self as pb, client_message, server_message},
+    targets::Target,
 };
 
 /// What a client may do in one area.
@@ -79,13 +80,15 @@ pub async fn serve(live: Live, socket: WebSocket, identity: Identity) {
         sound: None,
         access,
         member: live.presence.join(identity, false),
+        history: live.pages.history(),
         live,
         socket,
         greeted: false,
         json: false,
         pixels: pb::Pixels::PIXELS_UNSPECIFIED,
         selected: None,
-        chosen: false,
+        opened: None,
+        known: HashSet::new(),
         video: None,
         pinned: None,
         fps: None,
@@ -134,8 +137,12 @@ struct Client {
     pixels: pb::Pixels,
     /// The target the client watches, and the window that shows the target.
     selected: Option<(String, WindowId)>,
-    /// The client selected a target itself; until then it watches the newest one.
-    chosen: bool,
+    /// The page of a tab the client opened and does not watch yet.
+    opened: Option<String>,
+    /// The targets there were when the watched one was last settled.
+    known: HashSet<String>,
+    /// Which ways the history of each target's page goes.
+    history: watch::Receiver<HashMap<String, History>>,
     /// The client's WebRTC connection, which lives as long as this does.
     video: Option<rtc::Watch>,
     /// The quality the client asked for, whatever its link carries.
@@ -238,6 +245,12 @@ impl Client {
                         self.send_selected().await?;
                     }
                 }
+                changed = self.history.changed() => {
+                    if changed.is_err() {
+                        return Ok(());
+                    }
+                    self.send_targets().await?;
+                }
                 changed = self.sounding.changed() => {
                     if changed.is_err() {
                         return Ok(());
@@ -321,7 +334,6 @@ impl Client {
                 if let Err(reason) = self.live.presence.follow(self.member.id, None) {
                     debug!(reason, "a client still follows");
                 }
-                self.chosen = true;
                 if self.select(Some(select.tab)).await? {
                     self.send_selected().await?;
                 }
@@ -351,7 +363,12 @@ impl Client {
             }
             Message::Go(go) => {
                 let gone = self.go(*go).await;
-                self.answer(pb::Asked::ASKED_GO, gone).await
+                self.answer(pb::Asked::ASKED_GO, gone).await?;
+                // A tab the client opened may be there already.
+                if self.select(None).await? {
+                    self.send_selected().await?;
+                }
+                Ok(())
             }
             Message::Close(close) => {
                 let closed = self.close(close.tab).await;
@@ -479,6 +496,14 @@ impl Client {
     }
 
     /// The target the client watches, for what only its tab's holder does to it.
+    /// Whether the client holds the lease of the tab it watches, without taking it.
+    fn leads(&self) -> bool {
+        let tab = self.tab();
+        let present = self.present.borrow();
+        let mut leases = present.leases.iter();
+        leases.any(|lease| Some(lease.tab) == tab && lease.holder == self.member.id)
+    }
+
     fn held(&self) -> anyhow::Result<String> {
         let (target, _) = self.selected.as_ref().context("no tab is watched")?;
         ensure!(self.holds(), "someone else holds the tab");
@@ -487,10 +512,20 @@ impl Client {
 
     async fn go(&mut self, go: pb::Go) -> anyhow::Result<()> {
         ensure!(self.grant(Area::Tabs).write, NOT_ALLOWED);
+        let pages = self.live.pages.clone();
+        if go.new_tab {
+            // A tab that is not there yet is nobody's: no lease stands in its way.
+            let url = match go.to {
+                Some(pb::go::To::Url(url)) => url,
+                Some(pb::go::To::Along(_)) => bail!("a new tab has no history to go along"),
+                None => String::new(),
+            };
+            self.opened = Some(pages.open_tab(&url).await?);
+            return Ok(());
+        }
         let target = self.held()?;
-        let pages = &self.live.pages;
         match go.to {
-            Some(pb::go::To::Url(url)) => pages.open(&target, &url, go.new_tab).await,
+            Some(pb::go::To::Url(url)) => pages.open(&target, &url).await,
             Some(pb::go::To::Along(along)) => {
                 let along = match along.as_known() {
                     Some(pb::Along::ALONG_BACK) => Along::Back,
@@ -500,7 +535,7 @@ impl Client {
                 };
                 pages.go(&target, along).await
             }
-            None => pages.open(&target, "", go.new_tab).await,
+            None => pages.open(&target, "").await,
         }
     }
 
@@ -582,7 +617,6 @@ impl Client {
         let Some(tab) = ahead.filter(|tab| self.tab() != Some(*tab)) else {
             return Ok(());
         };
-        self.chosen = true;
         if self.select(Some(tab)).await? {
             self.send_selected().await?;
         }
@@ -749,23 +783,40 @@ impl Client {
             .is_some_and(|tab| self.live.presence.hold(self.member.id, tab, true))
     }
 
-    /// Settles which target the client watches: the one of the tab it asks for, else the
-    /// one it has, else, and always until the client chose one, the newest. A target that
+    /// Settles which target the client watches: the one of the tab it asks for, else a
+    /// tab it opened itself, else one the page it gives input to opened, else the one it
+    /// has, else the newest. A tab someone else opened takes nobody along. A target that
     /// moved to another window is followed there. Tells whether it changed.
     async fn select(&mut self, wanted: Option<u32>) -> Result<bool, axum::Error> {
-        let selected = {
+        let leads = self.leads();
+        let (selected, came) = {
             let targets = self.live.targets.borrow();
             let kept = self
                 .selected
                 .as_ref()
-                .filter(|_| self.chosen)
                 .and_then(|(id, _)| targets.iter().find(|target| target.id == *id));
-            wanted
+            let opened = self
+                .opened
+                .as_ref()
+                .and_then(|opened| targets.iter().find(|target| target.id == *opened));
+            let popped = kept.filter(|_| leads).and_then(|kept| {
+                let new = |target: &&Target| !self.known.contains(&target.id);
+                let of = |target: &&Target| target.opener.as_deref() == Some(kept.id.as_str());
+                targets.iter().rev().filter(new).find(of)
+            });
+            let selected = wanted
                 .and_then(|tab| targets.iter().find(|target| target.tab == tab))
+                .or(opened)
+                .or(popped)
                 .or(kept)
                 .or(targets.last())
-                .map(|target| (target.id.clone(), target.window))
+                .map(|target| (target.id.clone(), target.window));
+            self.known = targets.iter().map(|target| target.id.clone()).collect();
+            (selected, opened.is_some())
         };
+        if came {
+            self.opened = None;
+        }
         if selected == self.selected {
             return Ok(false);
         }

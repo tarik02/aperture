@@ -3,7 +3,7 @@
 //! click. The runner keeps a DevTools session of its own with each page to hear of them,
 //! and to take a page elsewhere.
 
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
@@ -87,6 +87,15 @@ pub struct Pages {
     menus: broadcast::Sender<Menu>,
     /// The targets' pages by the DevTools session each is attached as.
     attached: Arc<watch::Sender<Vec<(String, String)>>>,
+    /// Which ways the history of each target's page goes.
+    history: Arc<watch::Sender<HashMap<String, History>>>,
+}
+
+/// Whether a page's history has somewhere to go.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct History {
+    pub back: bool,
+    pub forward: bool,
 }
 
 #[derive(Clone)]
@@ -109,6 +118,7 @@ impl Pages {
             open: watch::Sender::new(Vec::new()),
             menus: broadcast::Sender::new(16),
             attached: Arc::new(watch::Sender::new(Vec::new())),
+            history: Arc::new(watch::Sender::new(HashMap::new())),
         };
         let mut follower = Follower {
             // Before any page is attached, so no event of one is missed.
@@ -214,27 +224,54 @@ impl Pages {
         Ok(self.browser.call_in(Some(&session), method, params).await?)
     }
 
-    /// Opens a page on the web: in the target's tab, or in a new one.
-    pub async fn open(&self, target: &str, url: &str, new_tab: bool) -> anyhow::Result<()> {
-        if new_tab && url.is_empty() {
-            self.browser
-                .call("Target.createTarget", json!({ "url": NEW_TAB }))
-                .await?;
-            return Ok(());
-        }
-        let web = url::Url::parse(url).is_ok_and(|url| matches!(url.scheme(), "http" | "https"));
-        if !web {
-            bail!("not a page on the web");
-        }
-        if new_tab {
-            self.browser
-                .call("Target.createTarget", json!({ "url": url }))
-                .await?;
-        } else {
-            self.call(target, "Page.navigate", json!({ "url": url }))
-                .await?;
-        }
+    /// Which ways the history of each target's page goes, as it changes.
+    pub fn history(&self) -> watch::Receiver<HashMap<String, History>> {
+        self.history.subscribe()
+    }
+
+    /// Opens a page on the web in the target's tab.
+    pub async fn open(&self, target: &str, url: &str) -> anyhow::Result<()> {
+        ensure_web(url)?;
+        self.call(target, "Page.navigate", json!({ "url": url }))
+            .await?;
         Ok(())
+    }
+
+    /// Opens a tab, on a page on the web or on none, and gives its page.
+    pub async fn open_tab(&self, url: &str) -> anyhow::Result<String> {
+        let url = if url.is_empty() {
+            NEW_TAB
+        } else {
+            ensure_web(url)?;
+            url
+        };
+        let made = self
+            .browser
+            .call("Target.createTarget", json!({ "url": url }))
+            .await?;
+        let page = made["targetId"]
+            .as_str()
+            .context("the browser named no tab")?;
+        Ok(page.to_owned())
+    }
+
+    /// Takes note of which ways the history of a page goes now.
+    async fn look_back(&self, target: &str, session: &str) {
+        let told = self
+            .browser
+            .call_in(Some(session), "Page.getNavigationHistory", json!({}));
+        // A page that is gone has no history to tell.
+        let Ok(told) = told.await else {
+            return;
+        };
+        let at = told["currentIndex"].as_u64().unwrap_or(0) as usize;
+        let entries = told["entries"].as_array().map_or(0, Vec::len);
+        let now = History {
+            back: at > 0,
+            forward: at + 1 < entries,
+        };
+        self.history
+            .send_if_modified(|history| history.insert(target.to_owned(), now) != Some(now));
     }
 
     /// Closes the target's tab.
@@ -350,6 +387,11 @@ impl Follower {
         attached.send_modify(|attached| {
             attached.retain(|(target, _)| pages.contains(target));
         });
+        self.pages.history.send_if_modified(|history| {
+            let before = history.len();
+            history.retain(|target, _| pages.contains(target));
+            history.len() != before
+        });
         self.frames.retain(|(target, _)| pages.contains(target));
         open.send_if_modified(|open| {
             let before = open.len();
@@ -361,7 +403,10 @@ impl Follower {
                 continue;
             }
             match attach(browser, &page).await {
-                Ok(session) => attached.send_modify(|attached| attached.push((page, session))),
+                Ok(session) => {
+                    self.pages.look_back(&page, &session).await;
+                    attached.send_modify(|attached| attached.push((page, session)));
+                }
                 Err(err) => warn!(page, "a page asks the browser, not the session: {err:#}"),
             }
         }
@@ -381,6 +426,23 @@ impl Follower {
             return;
         };
         match event.method.as_str() {
+            // Of the page itself: a frame in it has a history of its own to nobody.
+            // The history has the page it came to only a moment after it is said to have
+            // come, so it is looked at again once the page has loaded.
+            "Page.frameNavigated"
+            | "Page.navigatedWithinDocument"
+            | "Page.frameStoppedLoading"
+            | "Page.loadEventFired" => {
+                let page = self
+                    .pages
+                    .attached
+                    .borrow()
+                    .iter()
+                    .any(|(_, of)| *of == session);
+                if page {
+                    self.pages.look_back(&target, &session).await;
+                }
+            }
             "Target.attachedToTarget" => {
                 let frame = event.params["sessionId"].as_str();
                 let Some(frame) = frame.filter(|_| event.params["targetInfo"]["type"] == "iframe")
@@ -512,4 +574,10 @@ async fn attach_frame(browser: &cdp::Client, session: &str) -> anyhow::Result<()
     )
     .await?;
     attach_frames(browser, session).await
+}
+
+fn ensure_web(url: &str) -> anyhow::Result<()> {
+    let web = url::Url::parse(url).is_ok_and(|url| matches!(url.scheme(), "http" | "https"));
+    anyhow::ensure!(web, "not a page on the web");
+    Ok(())
 }

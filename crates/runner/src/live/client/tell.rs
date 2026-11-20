@@ -93,12 +93,16 @@ impl Client {
 
     pub(super) async fn send_targets(&mut self) -> Result<(), axum::Error> {
         let sounding = self.sounding.borrow_and_update().clone();
+        let history = self.history.borrow_and_update().clone();
         let targets = self
             .live
             .targets
             .borrow_and_update()
             .iter()
-            .map(|target| pb::Target {
+            .map(|target| (target, history.get(&target.id).copied().unwrap_or_default()))
+            .map(|(target, history)| pb::Target {
+                goes_back: history.back,
+                goes_forward: history.forward,
                 id: target.id.clone(),
                 tab: target.tab,
                 title: target.title.clone(),
