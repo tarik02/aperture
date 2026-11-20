@@ -8,18 +8,29 @@
 //!                 "path": "/", "expires": 1767225600, "httpOnly": true, "secure": true,
 //!                 "sameSite": "Lax" }],
 //!   "origins": [{ "origin": "https://example.com",
-//!                 "localStorage": [{ "name": "k", "value": "v" }] }]
+//!                 "localStorage": [{ "name": "k", "value": "v" }],
+//!                 "indexedDB": [{ "name": "db", "version": 1, "stores": [{
+//!                   "name": "kept", "keyPath": "id", "autoIncrement": false,
+//!                   "indexes": [{ "name": "by", "keyPath": "by", "unique": false,
+//!                                 "multiEntry": false }],
+//!                   "records": [{ "key": 1, "value": { "id": 1, "by": "a" } }] }] }] }]
 //! }
 //! ```
+//!
+//! A key or a value of a database that JSON does not hold as it is, such as a date or
+//! bytes, goes encoded as `keyEncoded` or `valueEncoded`; `indexed.js` says how.
 //!
 //! An origin's storage is reached from a page of that origin, so each origin gets one for
 //! a moment: a hidden page that is no tab, which is answered here with an empty document
 //! instead of by the site. Nothing is asked of the site, and nobody in the session sees
 //! the page.
 //!
-//! Of what a page may store, local storage is what is carried. A state that holds more,
-//! as earlier versions exported it (IndexedDB, caches, private files, storage partitioned
-//! by the site it is embedded in), is refused rather than taken in part.
+//! Of what a page may store, local storage is what is carried, and the origin's databases
+//! where the export is asked for them: many sites keep who is signed in there. A database
+//! holding what cannot be written down, such as a file or a key that may not leave the
+//! browser, fails the export rather than being taken in part. A state that holds more, as
+//! earlier versions exported it (caches, private files, storage partitioned by the site it
+//! is embedded in), is refused the same way: a snapshot is what keeps those.
 
 use std::time::Duration;
 
@@ -39,6 +50,12 @@ const MAX_COOKIES: usize = 10_000;
 const MAX_ORIGINS: usize = 100;
 /// How long an origin's page gets to be there.
 const PAGE_WITHIN: Duration = Duration::from_secs(10);
+/// How long an origin's databases get to be read or written.
+const DATABASES_WITHIN: Duration = Duration::from_secs(60);
+/// What an origin's databases may come to, written down.
+const MAX_DATABASES: usize = 32 * 1024 * 1024;
+/// What reads and writes an origin's databases, in a page of the origin.
+const INDEXED: &str = include_str!("indexed.js");
 const POLL: Duration = Duration::from_millis(25);
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -79,8 +96,9 @@ pub struct Origin {
     pub local_storage: Vec<Entry>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     ancestor_origins: Vec<Value>,
+    /// The origin's databases, see the module's description.
     #[serde(rename = "indexedDB", skip_serializing_if = "Vec::is_empty")]
-    indexed_db: Vec<Value>,
+    pub indexed_db: Vec<Value>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     cache_storage: Vec<Value>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -100,6 +118,8 @@ pub struct Entry {
 pub struct Asked {
     pub origins: Origins,
     pub cookies: Cookies,
+    /// The origins' databases as well.
+    pub indexed_db: bool,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -144,7 +164,6 @@ impl State {
             origin_of(&origin.origin).map_err(|err| said(&err))?;
             let more = [
                 ("ancestorOrigins", &origin.ancestor_origins),
-                ("indexedDB", &origin.indexed_db),
                 ("cacheStorage", &origin.cache_storage),
                 ("opfs", &origin.opfs),
             ];
@@ -224,7 +243,18 @@ pub async fn export(
                     .await?;
                 let entries: Vec<(String, String)> =
                     serde_json::from_value(entries).context("local storage is not read")?;
-                if entries.is_empty() {
+                let indexed_db: Vec<Value> = if asked.indexed_db {
+                    let read = format!("{INDEXED}.read({MAX_DATABASES})");
+                    let told = page
+                        .evaluate_within(&read, DATABASES_WITHIN)
+                        .await
+                        .with_context(|| format!("the databases of {origin} are not read"))?;
+                    serde_json::from_str(told.as_str().unwrap_or("[]"))
+                        .with_context(|| format!("the databases of {origin} are not read"))?
+                } else {
+                    Vec::new()
+                };
+                if entries.is_empty() && indexed_db.is_empty() {
                     continue;
                 }
                 stored.push(Origin {
@@ -233,6 +263,7 @@ pub async fn export(
                         .into_iter()
                         .map(|(name, value)| Entry { name, value })
                         .collect(),
+                    indexed_db,
                     ..Default::default()
                 });
             }
@@ -248,8 +279,9 @@ pub async fn export(
     })
 }
 
-/// Puts the state into the session's browser: its cookies beside those there are, and
-/// each origin's local storage in place of what the origin had.
+/// Puts the state into the session's browser: its cookies beside those there are, each
+/// origin's local storage in place of what the origin had, and each of its databases in
+/// place of the origin's one of that name.
 pub async fn import(browser: &cdp::Client, state: &State) -> anyhow::Result<()> {
     state.check().map_err(anyhow::Error::msg)?;
     if !state.origins.is_empty() {
@@ -270,6 +302,15 @@ pub async fn import(browser: &cdp::Client, state: &State) -> anyhow::Result<()> 
                 ))
                 .await
                 .with_context(|| format!("{} did not take its storage", origin.origin))?;
+                if !origin.indexed_db.is_empty() {
+                    let databases = serde_json::to_string(&origin.indexed_db)?;
+                    page.evaluate_within(
+                        &format!("{INDEXED}.write({databases})"),
+                        DATABASES_WITHIN,
+                    )
+                    .await
+                    .with_context(|| format!("{} did not take its databases", origin.origin))?;
+                }
             }
             anyhow::Ok(())
         }
@@ -461,15 +502,24 @@ impl<'a> Aside<'a> {
         }
     }
 
+    /// Evaluates what may take the page a while, such as what waits for its storage.
+    async fn evaluate_within(&self, expression: &str, within: Duration) -> anyhow::Result<Value> {
+        tokio::time::timeout(within, self.evaluate(expression))
+            .await
+            .context("the page did not answer in time")?
+    }
+
     async fn evaluate(&self, expression: &str) -> anyhow::Result<Value> {
         let evaluated = self
             .call(
                 "Runtime.evaluate",
-                json!({ "expression": expression, "returnByValue": true }),
+                json!({ "expression": expression, "returnByValue": true, "awaitPromise": true }),
             )
             .await?;
         if let Some(thrown) = evaluated.get("exceptionDetails") {
+            // The first line says what; the rest is where in the page's script.
             let said = thrown["exception"]["description"].as_str();
+            let said = said.and_then(|said| said.lines().next());
             bail!("{}", said.unwrap_or("the page threw"));
         }
         Ok(evaluated["result"]["value"].clone())

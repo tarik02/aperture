@@ -332,12 +332,17 @@ export interface StateCookie {
   readonly partitionKey?: unknown;
 }
 
-/** What the session's browser keeps for the sites it visits: cookies and local storage. */
+/**
+ * What the session's browser keeps for the sites it visits: cookies, local storage and,
+ * where they were asked for, the origins' IndexedDB databases.
+ */
 export interface StorageState {
   readonly cookies?: readonly StateCookie[];
   readonly origins?: readonly {
     readonly origin: string;
     readonly localStorage?: readonly { readonly name: string; readonly value: string }[];
+    /** The origin's databases, as the session wrote them down. */
+    readonly indexedDB?: readonly unknown[];
   }[];
 }
 
@@ -347,6 +352,8 @@ export interface StorageStateAsked {
   readonly origins?: "open-tabs" | readonly string[];
   /** The cookies the browser would send to those origins, or all it has. */
   readonly cookies?: "matching" | "all";
+  /** The origins' IndexedDB databases as well, where many sites keep who is signed in. */
+  readonly indexed_db?: boolean;
 }
 
 /** Takes cookies and the storage of origins out of the session's browser. */
@@ -357,7 +364,8 @@ export const exportStorageState = Effect.fn("SessionHttp.exportStorageState")(
 
 /**
  * Puts cookies and the storage of origins into the session's browser: the cookies beside
- * those there are, each origin's local storage in place of what the origin had.
+ * those there are, each origin's local storage in place of what the origin had, and each
+ * of its databases in place of the origin's one of that name.
  */
 export const importStorageState = Effect.fn("SessionHttp.importStorageState")(
   (address: Address, state: StorageState) =>

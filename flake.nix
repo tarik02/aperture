@@ -148,7 +148,7 @@
               grep -qw libx264 <<<"$encoders" || { echo "ffmpeg lacks libx264" >&2; exit 1; }
               grep -qw aac <<<"$encoders" || { echo "ffmpeg lacks aac" >&2; exit 1; }
               filters=$(ffmpeg -hide_banner -filters)
-              for filter in ass perspective select setpts fps aselect asetpts aresample; do
+              for filter in ass perspective select setpts fps aselect asetpts aresample trim pad setsar interleave; do
                 grep -Eq "^ [A-Z.]+ +$filter +" <<<"$filters" || { echo "ffmpeg lacks the $filter filter" >&2; exit 1; }
               done
               export FONTCONFIG_FILE=${browserFontsConf}
