@@ -252,7 +252,20 @@ async fn main() -> anyhow::Result<()> {
     info!(listen = %arguments.listen, data = %data_dir.display(), "executor running");
     listening
         .serve(app, async {
-            let _ = tokio::signal::ctrl_c().await;
+            // Ended as a terminal ends it, or as whatever runs it as a service does.
+            let terminate =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate());
+            match terminate {
+                Ok(mut terminate) => {
+                    tokio::select! {
+                        _ = tokio::signal::ctrl_c() => {}
+                        _ = terminate.recv() => {}
+                    }
+                }
+                Err(_) => {
+                    let _ = tokio::signal::ctrl_c().await;
+                }
+            }
         })
         .await?;
     Ok(())
