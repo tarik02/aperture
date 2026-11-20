@@ -1,0 +1,96 @@
+name: checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typescript:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: format
+            run: pnpm format:check
+          - name: lint
+            run: pnpm lint
+          - name: typecheck
+            run: pnpm typecheck
+          - name: build
+            run: pnpm build
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: pnpm/action-setup@v6.0.9
+        with:
+          version: 11.27.1
+
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: ${{ matrix.name }}
+        run: ${{ matrix.run }}
+
+  rust:
+    name: rust
+    runs-on: ubuntu-24.04
+    env:
+      # The programs are not kept: without debug information they build faster and fit the disk.
+      CARGO_PROFILE_DEV_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: cachix/install-nix-action@v31
+
+      - uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'flake.lock') }}
+          restore-keys: rust-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Format
+        run: nix develop --command cargo fmt --check
+
+      - name: Clippy
+        run: nix develop --command cargo clippy --workspace --all-targets -- --deny warnings
+
+      - name: Test
+        run: nix develop --command cargo test --workspace
+
+  generated:
+    name: generated code
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Generate
+        run: |
+          nix develop --command pnpm install --frozen-lockfile
+          nix develop --command pnpm --filter @aperture-browser/session-client generate
+          nix develop --command pnpm --filter @aperture-browser/executor-client generate
+
+      - name: Verify nothing changed
+        run: git diff --exit-code

@@ -1,0 +1,53 @@
+name: e2e
+
+# Real sessions end to end, which takes a browser and a while: for a pull request that asks
+# for it with the `e2e` label, and by hand.
+on:
+  pull_request:
+    types:
+      - labeled
+      - synchronize
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: e2e
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'e2e')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: cachix/install-nix-action@v31
+
+      - uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: e2e-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'flake.lock') }}
+          restore-keys: e2e-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Let the sandbox make its namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Build the workbench
+        run: |
+          nix develop --command pnpm install --frozen-lockfile
+          nix develop --command pnpm --filter @aperture-browser/workbench build
+
+      - name: Build the programs
+        run: nix develop --command cargo build --workspace
+
+      - name: Run
+        run: nix develop --command node e2e/e2e.mjs "$PWD/target/debug"
