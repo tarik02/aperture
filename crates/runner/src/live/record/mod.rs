@@ -2,7 +2,8 @@
 //! it is encoded for those who watch it and writes it into a Matroska file, so recording
 //! costs no second encoding. The pointer is drawn into the video while any recording runs.
 //! The tab's sound goes into the file the same way, as the packets its listeners get, with
-//! silence where it played nothing.
+//! silence where it played nothing. The picture's size is not fixed: it changes in the file
+//! as the target's does, and as the recording goes on with a tab of another size.
 //!
 //! That is the raw video: what a target showed, from start to stop. Once it stopped, the
 //! edit (see [`edit`](super::edit)) makes a second video of it and its journal; the raw one
@@ -46,7 +47,7 @@ use std::{
 };
 
 use anyhow::Context;
-use aperture_compositor::{Frame, Handle, Viewport};
+use aperture_compositor::{Frame, Handle};
 use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::{
@@ -72,8 +73,6 @@ use crate::{cdp, targets::Target};
 
 /// Where recordings go, below the session's files.
 const DIRECTORY: &str = "recordings";
-/// How long a tab gets to take the size of the recording that goes on with it.
-const RESIZED_WITHIN: Duration = Duration::from_secs(3);
 /// What a journal may grow to, which only a runaway recording reaches.
 const JOURNAL_BUDGET: usize = 8 * 1024 * 1024;
 
@@ -422,11 +421,10 @@ impl Recordings {
     }
 
     /// Has a running recording go on with another tab: the video goes on in the same
-    /// file, with the tab's picture from its next frame and its sound. The tab is given
-    /// the size the video has, where it has another.
+    /// file, with the tab's picture from its next frame, at the size it has, and its sound.
     pub async fn retarget(&self, id: &str, target: &str) -> Result<Recording, Error> {
         let inner = &self.0;
-        let (from, to) = {
+        let to = {
             let recordings = inner.recordings.lock().expect("not poisoned");
             let entry = recordings.get(id).ok_or(Error::NoRecording)?;
             if entry.recording.state != State::Recording || entry.running.is_none() {
@@ -437,14 +435,7 @@ impl Recordings {
             if to.id.eq_ignore_ascii_case(&entry.recording.target) {
                 return Ok(entry.recording.clone());
             }
-            let from = targets
-                .iter()
-                .find(|shown| shown.id.eq_ignore_ascii_case(&entry.recording.target));
-            (from.cloned(), to.clone())
-        };
-        let to = match from {
-            Some(from) => self.sized_as(&from, to).await?,
-            None => to,
+            to.clone()
         };
         let moved = Moved {
             pixels: inner
@@ -482,38 +473,6 @@ impl Recordings {
         kept::keep(&inner.files, &entry.recording);
         info!(recording = %id, target = %to.id, "recording retargeted");
         Ok(entry.recording.clone())
-    }
-
-    /// Gives `to` the size `from` has, and waits until it has it: a video has one size.
-    async fn sized_as(&self, from: &Target, to: Target) -> Result<Target, Error> {
-        let size = |target: &Target| (target.width, target.height, target.scale.to_bits());
-        if size(from) == size(&to) {
-            return Ok(to);
-        }
-        self.0.compositor.set_viewport(
-            to.window,
-            Viewport {
-                width: from.width,
-                height: from.height,
-                scale: from.scale,
-            },
-        );
-        let mut targets = self.0.targets.clone();
-        let wanted = size(from);
-        let sized = targets.wait_for(|targets| {
-            let shown = targets.iter().find(|shown| shown.id == to.id);
-            shown.is_none_or(|shown| size(shown) == wanted)
-        });
-        match tokio::time::timeout(RESIZED_WITHIN, sized).await {
-            Ok(Ok(targets)) => targets
-                .iter()
-                .find(|shown| shown.id == to.id)
-                .cloned()
-                .ok_or(Error::NoTarget),
-            _ => Err(Error::State(
-                "the tab did not take the size the recording has".into(),
-            )),
-        }
     }
 
     /// Has the recordings that keep only what automation does go on with the tab it is
@@ -717,11 +676,8 @@ impl Recordings {
             cache: inner.editor.cache.clone(),
             options: recording.options.clone(),
             changed_at_ms: raw.changed_at_ms,
-            frame: Video {
-                duration_ms: raw.duration.as_millis() as i64,
-                width: raw.size.0,
-                height: raw.size.1,
-            },
+            frame: Video::fitting(raw.duration.as_millis() as i64, &raw.segments),
+            segments: raw.segments,
             dropped: recording.journal_dropped,
             video,
             edited,

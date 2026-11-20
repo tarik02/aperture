@@ -178,6 +178,91 @@ pub struct Video {
     pub height: u32,
 }
 
+impl Video {
+    /// The video every picture of the raw one fits in.
+    pub fn fitting(duration_ms: i64, segments: &[Segment]) -> Self {
+        Self {
+            duration_ms,
+            width: segments
+                .iter()
+                .map(|segment| segment.width)
+                .max()
+                .unwrap_or(0),
+            height: segments
+                .iter()
+                .map(|segment| segment.height)
+                .max()
+                .unwrap_or(0),
+        }
+    }
+}
+
+/// A stretch of the raw video in which its picture has one size: from `at_ms` until the
+/// next one begins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Segment {
+    pub at_ms: i64,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Segment {
+    /// Where its picture goes in the video's frame: in the middle, on even pixels, as the
+    /// frame's colours are halved.
+    pub fn placed(&self, video: Video) -> (u32, u32) {
+        let middle = |whole: u32, part: u32| whole.saturating_sub(part) / 2 & !1;
+        (
+            middle(video.width, self.width),
+            middle(video.height, self.height),
+        )
+    }
+}
+
+/// The journal's entries with their positions in the video's frame instead of in the
+/// picture of the segment they fall in.
+pub fn placed(events: &[Event], segments: &[Segment], video: Video) -> Vec<Event> {
+    let offset = |at_ms: i64| {
+        let segment = segments
+            .iter()
+            .rev()
+            .find(|segment| segment.at_ms <= at_ms)
+            .or(segments.first());
+        segment.map_or((0.0, 0.0), |segment| {
+            let (x, y) = segment.placed(video);
+            (f64::from(x), f64::from(y))
+        })
+    };
+    let moved = |position: &mut Value, by: (f64, f64)| {
+        for (key, by) in [("x", by.0), ("y", by.1)] {
+            if let Some(at) = position.get(key).and_then(Value::as_f64) {
+                position[key] = (at + by).into();
+            }
+        }
+    };
+    let mut events = events.to_vec();
+    if segments.len() < 2 {
+        return events;
+    }
+    for event in &mut events {
+        let by = offset(event.at_ms);
+        let started = event.at_ms;
+        let mut fields = Value::Object(std::mem::take(&mut event.fields));
+        moved(&mut fields, by);
+        if let Some(rect) = fields.get_mut("rect") {
+            moved(rect, by);
+        }
+        let track = fields.get_mut("track").and_then(Value::as_array_mut);
+        for point in track.into_iter().flatten() {
+            let after = point["at_ms"].as_f64().unwrap_or(0.0) as i64;
+            moved(&mut point["rect"], offset(started + after));
+        }
+        if let Value::Object(fields) = fields {
+            event.fields = fields;
+        }
+    }
+    events
+}
+
 pub struct Plan {
     pub pieces: Vec<Piece>,
     /// ffmpeg's filter chain, from the raw video to the edited one.
@@ -269,7 +354,26 @@ pub fn plan(
 
 /// What happened, where in the raw video and where in the edited one, for whoever shows
 /// the recording.
-pub fn timeline(plan: &Plan, events: &[Event], dropped: usize, video: Video) -> Value {
+pub fn timeline(
+    plan: &Plan,
+    events: &[Event],
+    dropped: usize,
+    video: Video,
+    segments: &[Segment],
+) -> Value {
+    let segments: Vec<Value> = segments
+        .iter()
+        .map(|segment| {
+            let (x, y) = segment.placed(video);
+            json!({
+                "raw_start_ms": segment.at_ms,
+                "width": segment.width,
+                "height": segment.height,
+                "x": x,
+                "y": y,
+            })
+        })
+        .collect();
     let events: Vec<Value> = events
         .iter()
         .map(|event| {
@@ -297,6 +401,7 @@ pub fn timeline(plan: &Plan, events: &[Event], dropped: usize, video: Video) -> 
         "edited_duration_ms": map_time(&plan.pieces, video.duration_ms),
         "width": video.width,
         "height": video.height,
+        "segments": segments,
         "map": map,
         "events": events,
         "events_dropped": dropped,

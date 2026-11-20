@@ -14,6 +14,7 @@ use tokio::{
 
 use super::Journal;
 use crate::live::{
+    edit::plan::Segment,
     encode,
     sound::{self, Sound},
     stream::{Packet, Subscription},
@@ -28,7 +29,8 @@ pub(super) struct Raw {
     pub duration: Duration,
     /// When its frames that showed a change came, in its own time.
     pub changed_at_ms: Vec<i64>,
-    pub size: (u32, u32),
+    /// The sizes its picture has, each from when it has it.
+    pub segments: Vec<Segment>,
 }
 
 /// The sound of the tab a recording is of.
@@ -57,7 +59,7 @@ const SOUND_FILL_EVERY: Duration = Duration::from_millis(200);
 
 /// Writes the stream from its next keyframe until told to stop, or until the target's
 /// window closes. The journal is told when the video starts. A tab that comes on `moved`
-/// is what is written from its next keyframe on: its picture has the size the video has.
+/// is what is written from its next keyframe on, at whatever size its picture has.
 pub(super) async fn record(
     on: Moved,
     mut heard: Heard,
@@ -75,7 +77,7 @@ pub(super) async fn record(
     let mut first = None;
     let mut last = Duration::ZERO;
     let mut changed_at_ms = Vec::new();
-    let mut size = (0, 0);
+    let mut segments: Vec<Segment> = Vec::new();
     // Until a keyframe comes, at the start and after frames were missed, nothing that
     // comes can be decoded.
     let mut decodable = false;
@@ -88,8 +90,13 @@ pub(super) async fn record(
         // Set by the first frame, and the same after.
         let _ = journal.start.set(began);
         last = packet.time.saturating_sub(began);
-        if size == (0, 0) {
-            size = packet.size;
+        let (width, height) = packet.size;
+        if segments.last().map(|last| (last.width, last.height)) != Some(packet.size) {
+            segments.push(Segment {
+                at_ms: last.as_millis() as i64,
+                width,
+                height,
+            });
         }
         // Something happened where enough of the picture changed.
         let whole = f64::from(packet.size.0) * f64::from(packet.size.1);
@@ -183,7 +190,7 @@ pub(super) async fn record(
     Ok(Raw {
         duration: last,
         changed_at_ms,
-        size,
+        segments,
     })
 }
 

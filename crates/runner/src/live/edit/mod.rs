@@ -14,7 +14,7 @@ use anyhow::{Context, bail};
 use tokio::{io::AsyncReadExt, process::Command, time::timeout};
 use tracing::warn;
 
-use self::plan::{Event, Options, Video};
+use self::plan::{Event, Options, Segment, Video};
 
 /// The edited video's frame rate.
 const FPS: u32 = 30;
@@ -37,7 +37,10 @@ pub struct Job {
     pub options: Options,
     /// When the frames that showed a change came, in the raw video's time.
     pub changed_at_ms: Vec<i64>,
+    /// The frame every picture of the raw video fits in.
     pub frame: Video,
+    /// The sizes the raw video's picture has.
+    pub segments: Vec<Segment>,
     /// Journal entries the journal's budget left out.
     pub dropped: usize,
 }
@@ -70,7 +73,9 @@ async fn make(job: &Job) -> anyhow::Result<()> {
     events.sort_by_key(|event| event.at_ms);
 
     let active = plan::active_spans(&job.changed_at_ms);
-    let planned = plan::plan(&job.options, &events, &active, job.frame, FPS)?;
+    // The plan is of the frame; the journal is of the picture, which may be smaller.
+    let placed = plan::placed(&events, &job.segments, job.frame);
+    let planned = plan::plan(&job.options, &placed, &active, job.frame, FPS)?;
 
     tokio::fs::create_dir_all(&job.work).await?;
     tokio::fs::create_dir_all(&job.cache).await?;
@@ -86,23 +91,77 @@ async fn make(job: &Job) -> anyhow::Result<()> {
             tokio::fs::write(job.work.join(name), script).await?;
         }
     }
+    if job.segments.len() > 1 {
+        let graph = graph(&job.segments, job.frame, &planned);
+        tokio::fs::write(job.work.join("graph.txt"), graph).await?;
+    }
     render(job).await?;
 
-    let timeline = plan::timeline(&planned, &events, job.dropped, job.frame);
+    let timeline = plan::timeline(&planned, &events, job.dropped, job.frame, &job.segments);
     tokio::fs::write(&job.timeline, serde_json::to_vec_pretty(&timeline)?).await?;
     Ok(())
 }
 
+/// The filters of a raw video whose picture changes size: every segment is read on its
+/// own up to where the next begins, put where it goes in the frame and back at its time,
+/// and the plan's chain takes them as one video.
+fn graph(segments: &[Segment], frame: Video, planned: &plan::Plan) -> String {
+    let seconds = |ms: i64| ms as f64 / 1000.0;
+    let mut graph = String::new();
+    for (index, segment) in segments.iter().enumerate() {
+        let (x, y) = segment.placed(frame);
+        graph += &format!("[{index}:v]");
+        if let Some(next) = segments.get(index + 1) {
+            graph += &format!("trim=end={:.3},", seconds(next.at_ms - segment.at_ms));
+        }
+        graph += &format!(
+            "setpts=PTS+{at:.3}/TB,pad={width}:{height}:{x}:{y},setsar=1[s{index}];",
+            at = seconds(segment.at_ms),
+            width = frame.width,
+            height = frame.height,
+        );
+    }
+    for index in 0..segments.len() {
+        graph += &format!("[s{index}]");
+    }
+    graph += &format!("interleave=n={},{}[v]", segments.len(), planned.filter);
+    graph
+}
+
 async fn render(job: &Job) -> anyhow::Result<()> {
     let mut command = Command::new(&job.ffmpeg);
+    command.args(["-hide_banner", "-nostdin", "-nostats", "-loglevel", "error"]);
+    // The video is read as the one container it is and from a file, so that nothing in it
+    // can name something else to read.
+    let read = ["-protocol_whitelist", "file", "-f", "matroska"];
+    if job.segments.len() > 1 {
+        // Filters take one size, so each segment is an input of its own, from its first
+        // frame, which is a keyframe. What ends it is in the graph, which is therefore
+        // not made anew as the next segment's size comes: that would forget the end.
+        for segment in &job.segments {
+            command.args(["-an", "-reinit_filter", "0"]);
+            command.args(["-ss", &format!("{}ms", segment.at_ms)]);
+            command.args(read).arg("-i").arg(&job.video);
+        }
+        // The sound is read whole, and filtered by itself: as a part of the graph its
+        // times come out of order.
+        let sound = format!("{}:a", job.segments.len());
+        command.arg("-vn").args(read).arg("-i").arg(&job.video);
+        command.args([
+            "-/filter_complex",
+            "graph.txt",
+            "-map",
+            "[v]",
+            "-map",
+            &sound,
+        ]);
+        command.args(["-/af", "sound.txt"]);
+    } else {
+        command.args(read).arg("-i").arg(&job.video);
+        command.args(["-/vf", "filter.txt", "-/af", "sound.txt"]);
+    }
     command
-        .args(["-hide_banner", "-nostdin", "-nostats", "-loglevel", "error"])
-        // The video is read as the one container it is and from a file, so that nothing in
-        // it can name something else to read.
-        .args(["-protocol_whitelist", "file", "-f", "matroska"])
-        .arg("-i")
-        .arg(&job.video)
-        .args(["-xerror", "-y", "-/vf", "filter.txt", "-/af", "sound.txt"])
+        .args(["-xerror", "-y"])
         .args(["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"])
         .args(["-c:a", "aac", "-b:a", "128k"])
         .args(["-pix_fmt", "yuv420p", "-fps_mode", "passthrough"])
