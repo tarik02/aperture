@@ -299,7 +299,8 @@
         # One session in a container: `aperture-runner serve`, with its directory at /data.
         # Its browser is sandboxed inside the container, with a /proc of its own, which a
         # container runtime does not let it mount over the one it masks: under podman it
-        # runs with `--security-opt unmask=ALL`.
+        # runs with `--security-opt unmask=ALL`. A browser with a network of its own takes
+        # `--device /dev/net/tun` as well.
         container = pkgs.dockerTools.streamLayeredImage {
           name = "aperture-session";
           tag = version;
