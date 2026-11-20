@@ -1,0 +1,47 @@
+{
+  "name": "@aperture-browser/executor-client",
+  "version": "0.0.0",
+  "description": "Effect client for one Aperture executor: its sessions and the snapshots taken of them.",
+  "homepage": "https://github.com/tarik02/aperture#readme",
+  "bugs": "https://github.com/tarik02/aperture/issues",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tarik02/aperture.git",
+    "directory": "packages/executor-client"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "generate": "buf generate ../.. --template buf.gen.yaml --path ../../proto/aperture/executor/v1/executor.proto",
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "catalog:"
+  },
+  "devDependencies": {
+    "@bufbuild/protoc-gen-es": "catalog:",
+    "effect": "catalog:",
+    "publint": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "catalog:peers"
+  }
+}
