@@ -183,6 +183,25 @@ impl Remote {
         self.read(&self.session_key(id)).await
     }
 
+    /// Every session that is here, with the node that says it has it where one does.
+    pub async fn sessions(&self) -> Result<Vec<(SessionRecord, Option<String>)>> {
+        let listed = self.list("sessions").await?;
+        let mut sessions = Vec::new();
+        for (key, _) in listed {
+            if key.filename() != Some("session.json") {
+                continue;
+            }
+            // One that was deleted since it was listed is no session any more.
+            let Some(session) = self.read::<SessionRecord>(&key).await? else {
+                continue;
+            };
+            let held = self.read::<Held>(&self.held_key(&session.id)).await?;
+            sessions.push((session, held.map(|held| held.node)));
+        }
+        sessions.sort_by(|(a, _), (b, _)| (a.created_at_ms, &a.id).cmp(&(b.created_at_ms, &b.id)));
+        Ok(sessions)
+    }
+
     /// Puts the session's record, as it is in the node's store.
     pub async fn put_session(&self, session: &SessionRecord) -> Result<()> {
         self.write(&self.session_key(&session.id), session).await

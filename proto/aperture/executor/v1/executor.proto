@@ -24,6 +24,17 @@ service ExecutorService {
   rpc UpdateSessionProxy(UpdateSessionProxyRequest) returns (UpdateSessionProxyResponse);
   // Stops the session and removes its profile and files. Snapshots taken of it stay.
   rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
+  // The node's sessions as they change: each as it is now, then each again when what
+  // `GetSession` tells of it becomes another, and a word of each that is gone. What a
+  // session uses is not a change. It goes on until whoever watches leaves.
+  rpc WatchSessions(WatchSessionsRequest) returns (stream WatchSessionsResponse);
+  // Drops this node's copy of a session that is at rest where nodes share sessions: the
+  // session stays there, for whichever node resumes it. Refused for a session that runs,
+  // for one whose state here is not the one that is there, and on a node that shares none.
+  rpc EvictSession(EvictSessionRequest) returns (EvictSessionResponse);
+  // The sessions where nodes share them, whichever node has them or none. Refused on a
+  // node that shares none.
+  rpc ListStoredSessions(ListStoredSessionsRequest) returns (ListStoredSessionsResponse);
 
   // Keeps the session's profile as it is now. A running session is suspended for the
   // moment it takes and resumed after.
@@ -318,6 +329,39 @@ message DeleteSessionRequest {
 }
 
 message DeleteSessionResponse {}
+
+message WatchSessionsRequest {}
+
+message WatchSessionsResponse {
+  oneof event {
+    // A session as it is now: one there was when the watching began, a new one, or one
+    // that changed.
+    Session session = 1;
+    // The id of a session this node has no more: deleted, or evicted.
+    string gone = 2;
+  }
+}
+
+message EvictSessionRequest {
+  string id = 1;
+}
+
+message EvictSessionResponse {}
+
+message ListStoredSessionsRequest {}
+
+message ListStoredSessionsResponse {
+  repeated StoredSession sessions = 1;
+}
+
+// A session as it is where nodes share sessions.
+message StoredSession {
+  string id = 1;
+  optional string snapshot_id = 2;
+  google.protobuf.Timestamp created_at = 3;
+  // The node that says it has the session, where nodes say so and one does.
+  optional string held_by = 4;
+}
 
 message CreateSnapshotRequest {
   string session_id = 1;

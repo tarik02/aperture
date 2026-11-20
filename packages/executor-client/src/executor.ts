@@ -4,6 +4,7 @@ import { createConnectTransport } from "@connectrpc/connect-web";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
 import { ExecutorError } from "./errors.ts";
 import {
   type CreateSessionRequestSchema,
@@ -90,6 +91,28 @@ export const make = (address: Address) => {
       /** Stops the session and removes its profile and files. Snapshots taken of it stay. */
       delete: (id: string) =>
         asked((signal) => client.deleteSession({ id }, { signal })).pipe(Effect.asVoid),
+      /**
+       * The node's sessions as they change: each as it is now, then each again when what
+       * `get` tells of it becomes another, and the id of each that is gone. It goes on
+       * until whoever runs the stream stops.
+       */
+      watch: Stream.suspend(() => {
+        const leaving = new AbortController();
+        const events = client.watchSessions({}, { signal: leaving.signal });
+        return Stream.fromAsyncIterable(events, (cause) => ExecutorError.from(cause)).pipe(
+          Stream.ensuring(Effect.sync(() => leaving.abort())),
+        );
+      }),
+      /**
+       * Drops the node's copy of a session that is at rest where nodes share sessions: the
+       * session stays there, for whichever node resumes it.
+       */
+      evict: (id: string) =>
+        asked((signal) => client.evictSession({ id }, { signal })).pipe(Effect.asVoid),
+      /** The sessions where nodes share them, whichever node has them or none. */
+      stored: asked((signal) => client.listStoredSessions({}, { signal })).pipe(
+        Effect.map((response) => response.sessions),
+      ),
     },
     snapshots: {
       /** Keeps the session's profile as it is now. */

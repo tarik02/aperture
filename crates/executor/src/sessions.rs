@@ -65,6 +65,15 @@ pub enum Error {
     NoCgroups,
     #[error("session {id} is on node {node}; it is resumed here only as a takeover")]
     Held { id: String, node: String },
+    #[error("this executor is not set up with a store nodes share sessions in")]
+    SharesNone,
+    #[error("session {0} runs here; only a session at rest is evicted")]
+    Runs(String),
+    #[error(
+        "what this node has of session {0} is not what is where nodes share sessions; \
+        it would be lost"
+    )]
+    OnlyHere(String),
     #[error("{0}: {1}")]
     Io(PathBuf, std::io::Error),
 }
@@ -479,6 +488,44 @@ impl Sessions {
             self.start(id).await?;
         }
         Ok(())
+    }
+
+    /// Drops this node's copy of a session that is at rest where nodes share sessions.
+    pub async fn evict(&self, id: &str) -> Result<()> {
+        let ours = self.store.session(id)?;
+        let shared = self
+            .config
+            .shared_sessions
+            .as_ref()
+            .ok_or(Error::SharesNone)?;
+        let busy = self.busy(id).await;
+        let runtime = self.runtime_dir(id);
+        if is_alive(&runtime).map_err(|err| Error::Io(runtime.clone(), err))? {
+            return Err(Error::Runs(id.to_owned()));
+        }
+        // The same state as was last put there, or the node's is the only one there is.
+        let theirs = shared.session(id).await?;
+        if theirs.is_none_or(|theirs| theirs.revision != ours.revision) {
+            return Err(Error::OnlyHere(id.to_owned()));
+        }
+        // A profile can be large.
+        tokio::task::block_in_place(|| self.store.delete_session(id))?;
+        remove_dir_all(&runtime)?;
+        drop(busy);
+        self.busy.lock().expect("not poisoned").remove(id);
+        self.activity.lock().expect("not poisoned").remove(id);
+        info!(session = %id, "session evicted; it stays where nodes share sessions");
+        Ok(())
+    }
+
+    /// The sessions where nodes share them, each with the node that says it has it.
+    pub async fn stored(&self) -> Result<Vec<(SessionRecord, Option<String>)>> {
+        let shared = self
+            .config
+            .shared_sessions
+            .as_ref()
+            .ok_or(Error::SharesNone)?;
+        Ok(shared.sessions().await?)
     }
 
     pub async fn delete(&self, id: &str) -> Result<()> {

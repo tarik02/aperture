@@ -1,21 +1,30 @@
 //! The executor's service over ConnectRPC, on [`Sessions`].
 
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Arc,
+    time::Duration as Every,
+};
 
 use aperture_runner::{Feature, Features, Network, Tcp, Udp, proxy};
 use aperture_store::{SnapshotRecord, StoreError};
 use buffa::{EnumValue, MessageField};
 use buffa_types::google::protobuf::{Duration, Timestamp};
 use connectrpc::{
-    ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult,
+    ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult, ServiceStream,
 };
+use futures_util::stream;
 
 use crate::{
     asked::Asked,
     limits::Limits,
-    proto::aperture::executor::v1::{self as pb, ExecutorService},
+    proto::aperture::executor::v1::{self as pb, ExecutorService, watch_sessions_response::Event},
     sessions::{self, Error, Session, Sessions, State},
 };
+
+/// How often the sessions are looked at for whoever watches them. Much of what changes
+/// about a session is what its runner says, which nobody is told of as it happens.
+const WATCHED_EVERY: Every = Every::from_millis(500);
 
 pub struct Executor(pub Arc<Sessions>);
 
@@ -127,6 +136,92 @@ impl ExecutorService for Executor {
     ) -> ServiceResult<pb::DeleteSessionResponse> {
         self.0.delete(request.id).await?;
         Response::ok(pb::DeleteSessionResponse::default())
+    }
+
+    async fn watch_sessions(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, pb::WatchSessionsRequest>,
+    ) -> ServiceResult<ServiceStream<pb::WatchSessionsResponse>> {
+        let sessions = self.0.clone();
+        // What was last told of each session, and what is yet to be told.
+        let told: HashMap<String, pb::Session> = HashMap::new();
+        let waiting: VecDeque<pb::WatchSessionsResponse> = VecDeque::new();
+        let state = (told, waiting, false);
+        let events = stream::unfold(state, move |(mut told, mut waiting, mut looked)| {
+            let sessions = sessions.clone();
+            async move {
+                loop {
+                    if let Some(event) = waiting.pop_front() {
+                        return Some((Ok(event), (told, waiting, looked)));
+                    }
+                    // Everything there is is told at once; what changes, as it is seen to.
+                    if looked {
+                        tokio::time::sleep(WATCHED_EVERY).await;
+                    }
+                    looked = true;
+                    let now = match sessions.list() {
+                        Ok(now) => now,
+                        Err(err) => return Some((Err(err.into()), (told, waiting, looked))),
+                    };
+                    let now: HashMap<String, pb::Session> = now
+                        .into_iter()
+                        .map(|session| {
+                            let mut session = pb::Session::from(session);
+                            // What it uses is another number every time it is looked at.
+                            session.usage = MessageField::none();
+                            (session.id.clone(), session)
+                        })
+                        .collect();
+                    let event = |event| pb::WatchSessionsResponse {
+                        event: Some(event),
+                        ..Default::default()
+                    };
+                    for id in told.keys().filter(|id| !now.contains_key(*id)) {
+                        waiting.push_back(event(Event::Gone(id.clone())));
+                    }
+                    let mut changed: Vec<&pb::Session> = now
+                        .values()
+                        .filter(|session| told.get(&session.id) != Some(*session))
+                        .collect();
+                    changed.sort_by(|a, b| a.id.cmp(&b.id));
+                    for session in changed {
+                        waiting.push_back(event(Event::Session(Box::new(session.clone()))));
+                    }
+                    told = now;
+                }
+            }
+        });
+        Response::ok(Box::pin(events) as ServiceStream<_>)
+    }
+
+    async fn evict_session(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, pb::EvictSessionRequest>,
+    ) -> ServiceResult<pb::EvictSessionResponse> {
+        self.0.evict(request.id).await?;
+        Response::ok(pb::EvictSessionResponse::default())
+    }
+
+    async fn list_stored_sessions(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, pb::ListStoredSessionsRequest>,
+    ) -> ServiceResult<pb::ListStoredSessionsResponse> {
+        let sessions = self.0.stored().await?.into_iter();
+        Response::ok(pb::ListStoredSessionsResponse {
+            sessions: sessions
+                .map(|(session, held_by)| pb::StoredSession {
+                    id: session.id,
+                    snapshot_id: session.snapshot_id,
+                    created_at: MessageField::some(timestamp(session.created_at_ms)),
+                    held_by,
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        })
     }
 
     async fn create_snapshot(
@@ -398,9 +493,13 @@ impl From<Error> for ConnectError {
             | Error::Proxy(_)
             | Error::Limits(_)
             | Error::State(_) => ErrorCode::InvalidArgument,
-            Error::NotRunning(_) | Error::NoCgroups | Error::Options(_) | Error::Held { .. } => {
-                ErrorCode::FailedPrecondition
-            }
+            Error::NotRunning(_)
+            | Error::NoCgroups
+            | Error::Options(_)
+            | Error::Held { .. }
+            | Error::SharesNone
+            | Error::Runs(_)
+            | Error::OnlyHere(_) => ErrorCode::FailedPrecondition,
             Error::Store(_) | Error::Start { .. } | Error::Stop(_) | Error::Io(..) => {
                 ErrorCode::Internal
             }

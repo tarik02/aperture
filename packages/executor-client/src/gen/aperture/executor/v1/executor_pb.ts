@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file aperture/executor/v1/executor.proto.
  */
 export const file_aperture_executor_v1_executor: GenFile = /*@__PURE__*/
-  fileDesc("CiNhcGVydHVyZS9leGVjdXRvci92MS9leGVjdXRvci5wcm90bxIUYXBlcnR1cmUuZXhlY3V0b3IudjEiwwEKCEV4ZWN1dG9yEg8KB3ZlcnNpb24YASABKAkSLwoIZmVhdHVyZXMYAiADKA4yHS5hcGVydHVyZS5leGVjdXRvci52MS5GZWF0dXJlEi4KB25ldHdvcmsYAyABKAsyHS5hcGVydHVyZS5leGVjdXRvci52MS5OZXR3b3JrEiwKBmxpbWl0cxgEIAEoCzIcLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkxpbWl0cxIXCg9ob2xkc19yZXNvdXJjZXMYBSABKAgiFAoSR2V0RXhlY3V0b3JSZXF1ZXN0IkcKE0dldEV4ZWN1dG9yUmVzcG9uc2USMAoIZXhlY3V0b3IYASABKAsyHi5hcGVydHVyZS5leGVjdXRvci52MS5FeGVjdXRvciI1CghGZWF0dXJlcxIpCgJvbhgBIAMoDjIdLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkZlYXR1cmUiZwoHTmV0d29yaxItCgN0Y3AYASABKA4yIC5hcGVydHVyZS5leGVjdXRvci52MS5OZXR3b3JrVGNwEi0KA3VkcBgCIAEoDjIgLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLk5ldHdvcmtVZHAiqQQKB1Nlc3Npb24SCgoCaWQYASABKAkSMQoFc3RhdGUYAiABKA4yIi5hcGVydHVyZS5leGVjdXRvci52MS5TZXNzaW9uU3RhdGUSGAoLc25hcHNob3RfaWQYAyABKAlIAIgBARIuCgpjcmVhdGVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBI3CgllbmRwb2ludHMYBSABKAsyHy5hcGVydHVyZS5leGVjdXRvci52MS5FbmRwb2ludHNIAYgBARIUCgdmYWlsdXJlGAYgASgJSAKIAQESLAoGbGltaXRzGAcgASgLMhwuYXBlcnR1cmUuZXhlY3V0b3IudjEuTGltaXRzEi8KBXVzYWdlGAggASgLMhsuYXBlcnR1cmUuZXhlY3V0b3IudjEuVXNhZ2VIA4gBARIzCgppZGxlX3NpbmNlGAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcEgEiAEBEg4KBmFzbGVlcBgKIAEoCBIvCghmZWF0dXJlcxgLIAMoDjIdLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkZlYXR1cmUSLgoHbmV0d29yaxgMIAEoCzIdLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLk5ldHdvcmtCDgoMX3NuYXBzaG90X2lkQgwKCl9lbmRwb2ludHNCCgoIX2ZhaWx1cmVCCAoGX3VzYWdlQg0KC19pZGxlX3NpbmNlIukBCgZMaW1pdHMSGQoMbWVtb3J5X2J5dGVzGAEgASgESACIAQESFwoKc3dhcF9ieXRlcxgFIAEoBEgBiAEBEhEKBGNwdXMYAiABKAFIAogBARISCgV0YXNrcxgDIAEoBEgDiAEBEjoKEnN1c3BlbmRfaWRsZV9hZnRlchgEIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbkgEiAEBQg8KDV9tZW1vcnlfYnl0ZXNCDQoLX3N3YXBfYnl0ZXNCBwoFX2NwdXNCCAoGX3Rhc2tzQhUKE19zdXNwZW5kX2lkbGVfYWZ0ZXIihwEKBVVzYWdlEhQKDG1lbW9yeV9ieXRlcxgBIAEoBBIZChFtZW1vcnlfcGVha19ieXRlcxgCIAEoBBIrCghjcHVfdGltZRgDIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhINCgV0YXNrcxgEIAEoBBIRCglvb21fa2lsbHMYBSABKAQiUgoJRW5kcG9pbnRzEhAKCGNkcF9wYXRoGAEgASgJEgwKBHBhdGgYAiABKAkSEAoIbWNwX3BhdGgYAyABKAkSEwoLdHVubmVsX3BhdGgYBCABKAkijgIKC1Byb3h5Q29uZmlnEkMKCXVwc3RyZWFtcxgBIAMoCzIwLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLlByb3h5Q29uZmlnLlVwc3RyZWFtc0VudHJ5Ei4KBXJ1bGVzGAIgAygLMh8uYXBlcnR1cmUuZXhlY3V0b3IudjEuUHJveHlSdWxlEisKA2RucxgDIAEoCzIZLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkRuc0gAiAEBGlUKDlVwc3RyZWFtc0VudHJ5EgsKA2tleRgBIAEoCRIyCgV2YWx1ZRgCIAEoCzIjLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLlByb3h5VXBzdHJlYW06AjgBQgYKBF9kbnMiSAoDRG5zEg8KB3NlcnZlcnMYASADKAkSMAoHcmVjb3JkcxgCIAMoCzIfLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkRuc1JlY29yZCIsCglEbnNSZWNvcmQSDAoEbmFtZRgBIAEoCRIRCglhZGRyZXNzZXMYAiADKAkiOAoNUHJveHlVcHN0cmVhbRILCgN1cmwYASABKAkSEQoEYXV0aBgCIAEoCUgAiAEBQgcKBV9hdXRoIkwKCVByb3h5UnVsZRINCgVtYXRjaBgBIAEoCRILCgN2aWEYAiABKAkSDwoCdG8YAyABKAlIAIgBARILCgN0bHMYBCABKAhCBQoDX3RvInYKCFNuYXBzaG90EgoKAmlkGAEgASgJEhEKBG5hbWUYAiABKAlIAIgBARISCgpzZXNzaW9uX2lkGAMgASgJEi4KCmNyZWF0ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wQgcKBV9uYW1lIuQCChRDcmVhdGVTZXNzaW9uUmVxdWVzdBIYCgtzbmFwc2hvdF9pZBgBIAEoCUgAiAEBEhEKCXN1c3BlbmRlZBgCIAEoCBI1CgVwcm94eRgDIAEoCzIhLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLlByb3h5Q29uZmlnSAGIAQESLAoGbGltaXRzGAQgASgLMhwuYXBlcnR1cmUuZXhlY3V0b3IudjEuTGltaXRzEjUKCGZlYXR1cmVzGAUgASgLMh4uYXBlcnR1cmUuZXhlY3V0b3IudjEuRmVhdHVyZXNIAogBARIuCgduZXR3b3JrGAYgASgLMh0uYXBlcnR1cmUuZXhlY3V0b3IudjEuTmV0d29yaxIaCg1zdG9yYWdlX3N0YXRlGAcgASgJSAOIAQFCDgoMX3NuYXBzaG90X2lkQggKBl9wcm94eUILCglfZmVhdHVyZXNCEAoOX3N0b3JhZ2Vfc3RhdGUiRwoVQ3JlYXRlU2Vzc2lvblJlc3BvbnNlEi4KB3Nlc3Npb24YASABKAsyHS5hcGVydHVyZS5leGVjdXRvci52MS5TZXNzaW9uIh8KEUdldFNlc3Npb25SZXF1ZXN0EgoKAmlkGAEgASgJIkQKEkdldFNlc3Npb25SZXNwb25zZRIuCgdzZXNzaW9uGAEgASgLMh0uYXBlcnR1cmUuZXhlY3V0b3IudjEuU2Vzc2lvbiIVChNMaXN0U2Vzc2lvbnNSZXF1ZXN0IkcKFExpc3RTZXNzaW9uc1Jlc3BvbnNlEi8KCHNlc3Npb25zGAEgAygLMh0uYXBlcnR1cmUuZXhlY3V0b3IudjEuU2Vzc2lvbiIjChVTdXNwZW5kU2Vzc2lvblJlcXVlc3QSCgoCaWQYASABKAkiSAoWU3VzcGVuZFNlc3Npb25SZXNwb25zZRIuCgdzZXNzaW9uGAEgASgLMh0uYXBlcnR1cmUuZXhlY3V0b3IudjEuU2Vzc2lvbiI0ChRSZXN1bWVTZXNzaW9uUmVxdWVzdBIKCgJpZBgBIAEoCRIQCgh0YWtlb3ZlchgCIAEoCCJHChVSZXN1bWVTZXNzaW9uUmVzcG9uc2USLgoHc2Vzc2lvbhgBIAEoCzIdLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLlNlc3Npb24iaAoZVXBkYXRlU2Vzc2lvblByb3h5UmVxdWVzdBIKCgJpZBgBIAEoCRI1CgVwcm94eRgCIAEoCzIhLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLlByb3h5Q29uZmlnSACIAQFCCAoGX3Byb3h5IhwKGlVwZGF0ZVNlc3Npb25Qcm94eVJlc3BvbnNlIiIKFERlbGV0ZVNlc3Npb25SZXF1ZXN0EgoKAmlkGAEgASgJIhcKFURlbGV0ZVNlc3Npb25SZXNwb25zZSJHChVDcmVhdGVTbmFwc2hvdFJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRIRCgRuYW1lGAIgASgJSACIAQFCBwoFX25hbWUiSgoWQ3JlYXRlU25hcHNob3RSZXNwb25zZRIwCghzbmFwc2hvdBgBIAEoCzIeLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLlNuYXBzaG90IiAKEkdldFNuYXBzaG90UmVxdWVzdBIKCgJpZBgBIAEoCSJHChNHZXRTbmFwc2hvdFJlc3BvbnNlEjAKCHNuYXBzaG90GAEgASgLMh4uYXBlcnR1cmUuZXhlY3V0b3IudjEuU25hcHNob3QiFgoUTGlzdFNuYXBzaG90c1JlcXVlc3QiSgoVTGlzdFNuYXBzaG90c1Jlc3BvbnNlEjEKCXNuYXBzaG90cxgBIAMoCzIeLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLlNuYXBzaG90IiMKFURlbGV0ZVNuYXBzaG90UmVxdWVzdBIKCgJpZBgBIAEoCSIYChZEZWxldGVTbmFwc2hvdFJlc3BvbnNlKrkBCgxTZXNzaW9uU3RhdGUSHQoZU0VTU0lPTl9TVEFURV9VTlNQRUNJRklFRBAAEhsKF1NFU1NJT05fU1RBVEVfU1VTUEVOREVEEAESGgoWU0VTU0lPTl9TVEFURV9TVEFSVElORxACEhkKFVNFU1NJT05fU1RBVEVfUlVOTklORxADEhwKGFNFU1NJT05fU1RBVEVfU1VTUEVORElORxAEEhgKFFNFU1NJT05fU1RBVEVfRkFJTEVEEAUqxgEKB0ZlYXR1cmUSFwoTRkVBVFVSRV9VTlNQRUNJRklFRBAAEhEKDUZFQVRVUkVfU09VTkQQARITCg9GRUFUVVJFX1VQTE9BRFMQAhIVChFGRUFUVVJFX0RPV05MT0FEUxADEhYKEkZFQVRVUkVfUkVDT1JESU5HUxAEEhUKEUZFQVRVUkVfQ0xJUEJPQVJEEAUSDwoLRkVBVFVSRV9NQ1AQBhIPCgtGRUFUVVJFX0NEUBAHEhIKDkZFQVRVUkVfVFVOTkVMEAgqWgoKTmV0d29ya1RjcBIbChdORVRXT1JLX1RDUF9VTlNQRUNJRklFRBAAEhcKE05FVFdPUktfVENQX1BST1hJRUQQARIWChJORVRXT1JLX1RDUF9ESVJFQ1QQAipXCgpOZXR3b3JrVWRwEhsKF05FVFdPUktfVURQX1VOU1BFQ0lGSUVEEAASFAoQTkVUV09SS19VRFBfTk9ORRABEhYKEk5FVFdPUktfVURQX0RJUkVDVBACMokKCg9FeGVjdXRvclNlcnZpY2USYgoLR2V0RXhlY3V0b3ISKC5hcGVydHVyZS5leGVjdXRvci52MS5HZXRFeGVjdXRvclJlcXVlc3QaKS5hcGVydHVyZS5leGVjdXRvci52MS5HZXRFeGVjdXRvclJlc3BvbnNlEmgKDUNyZWF0ZVNlc3Npb24SKi5hcGVydHVyZS5leGVjdXRvci52MS5DcmVhdGVTZXNzaW9uUmVxdWVzdBorLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkNyZWF0ZVNlc3Npb25SZXNwb25zZRJfCgpHZXRTZXNzaW9uEicuYXBlcnR1cmUuZXhlY3V0b3IudjEuR2V0U2Vzc2lvblJlcXVlc3QaKC5hcGVydHVyZS5leGVjdXRvci52MS5HZXRTZXNzaW9uUmVzcG9uc2USZQoMTGlzdFNlc3Npb25zEikuYXBlcnR1cmUuZXhlY3V0b3IudjEuTGlzdFNlc3Npb25zUmVxdWVzdBoqLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkxpc3RTZXNzaW9uc1Jlc3BvbnNlEmsKDlN1c3BlbmRTZXNzaW9uEisuYXBlcnR1cmUuZXhlY3V0b3IudjEuU3VzcGVuZFNlc3Npb25SZXF1ZXN0GiwuYXBlcnR1cmUuZXhlY3V0b3IudjEuU3VzcGVuZFNlc3Npb25SZXNwb25zZRJoCg1SZXN1bWVTZXNzaW9uEiouYXBlcnR1cmUuZXhlY3V0b3IudjEuUmVzdW1lU2Vzc2lvblJlcXVlc3QaKy5hcGVydHVyZS5leGVjdXRvci52MS5SZXN1bWVTZXNzaW9uUmVzcG9uc2USdwoSVXBkYXRlU2Vzc2lvblByb3h5Ei8uYXBlcnR1cmUuZXhlY3V0b3IudjEuVXBkYXRlU2Vzc2lvblByb3h5UmVxdWVzdBowLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLlVwZGF0ZVNlc3Npb25Qcm94eVJlc3BvbnNlEmgKDURlbGV0ZVNlc3Npb24SKi5hcGVydHVyZS5leGVjdXRvci52MS5EZWxldGVTZXNzaW9uUmVxdWVzdBorLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkRlbGV0ZVNlc3Npb25SZXNwb25zZRJrCg5DcmVhdGVTbmFwc2hvdBIrLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkNyZWF0ZVNuYXBzaG90UmVxdWVzdBosLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkNyZWF0ZVNuYXBzaG90UmVzcG9uc2USYgoLR2V0U25hcHNob3QSKC5hcGVydHVyZS5leGVjdXRvci52MS5HZXRTbmFwc2hvdFJlcXVlc3QaKS5hcGVydHVyZS5leGVjdXRvci52MS5HZXRTbmFwc2hvdFJlc3BvbnNlEmgKDUxpc3RTbmFwc2hvdHMSKi5hcGVydHVyZS5leGVjdXRvci52MS5MaXN0U25hcHNob3RzUmVxdWVzdBorLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkxpc3RTbmFwc2hvdHNSZXNwb25zZRJrCg5EZWxldGVTbmFwc2hvdBIrLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkRlbGV0ZVNuYXBzaG90UmVxdWVzdBosLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkRlbGV0ZVNuYXBzaG90UmVzcG9uc2ViBnByb3RvMw", [file_google_protobuf_duration, file_google_protobuf_timestamp]);
+  fileDesc("CiNhcGVydHVyZS9leGVjdXRvci92MS9leGVjdXRvci5wcm90bxIUYXBlcnR1cmUuZXhlY3V0b3IudjEiwwEKCEV4ZWN1dG9yEg8KB3ZlcnNpb24YASABKAkSLwoIZmVhdHVyZXMYAiADKA4yHS5hcGVydHVyZS5leGVjdXRvci52MS5GZWF0dXJlEi4KB25ldHdvcmsYAyABKAsyHS5hcGVydHVyZS5leGVjdXRvci52MS5OZXR3b3JrEiwKBmxpbWl0cxgEIAEoCzIcLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkxpbWl0cxIXCg9ob2xkc19yZXNvdXJjZXMYBSABKAgiFAoSR2V0RXhlY3V0b3JSZXF1ZXN0IkcKE0dldEV4ZWN1dG9yUmVzcG9uc2USMAoIZXhlY3V0b3IYASABKAsyHi5hcGVydHVyZS5leGVjdXRvci52MS5FeGVjdXRvciI1CghGZWF0dXJlcxIpCgJvbhgBIAMoDjIdLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkZlYXR1cmUiZwoHTmV0d29yaxItCgN0Y3AYASABKA4yIC5hcGVydHVyZS5leGVjdXRvci52MS5OZXR3b3JrVGNwEi0KA3VkcBgCIAEoDjIgLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLk5ldHdvcmtVZHAiqQQKB1Nlc3Npb24SCgoCaWQYASABKAkSMQoFc3RhdGUYAiABKA4yIi5hcGVydHVyZS5leGVjdXRvci52MS5TZXNzaW9uU3RhdGUSGAoLc25hcHNob3RfaWQYAyABKAlIAIgBARIuCgpjcmVhdGVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBI3CgllbmRwb2ludHMYBSABKAsyHy5hcGVydHVyZS5leGVjdXRvci52MS5FbmRwb2ludHNIAYgBARIUCgdmYWlsdXJlGAYgASgJSAKIAQESLAoGbGltaXRzGAcgASgLMhwuYXBlcnR1cmUuZXhlY3V0b3IudjEuTGltaXRzEi8KBXVzYWdlGAggASgLMhsuYXBlcnR1cmUuZXhlY3V0b3IudjEuVXNhZ2VIA4gBARIzCgppZGxlX3NpbmNlGAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcEgEiAEBEg4KBmFzbGVlcBgKIAEoCBIvCghmZWF0dXJlcxgLIAMoDjIdLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkZlYXR1cmUSLgoHbmV0d29yaxgMIAEoCzIdLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLk5ldHdvcmtCDgoMX3NuYXBzaG90X2lkQgwKCl9lbmRwb2ludHNCCgoIX2ZhaWx1cmVCCAoGX3VzYWdlQg0KC19pZGxlX3NpbmNlIukBCgZMaW1pdHMSGQoMbWVtb3J5X2J5dGVzGAEgASgESACIAQESFwoKc3dhcF9ieXRlcxgFIAEoBEgBiAEBEhEKBGNwdXMYAiABKAFIAogBARISCgV0YXNrcxgDIAEoBEgDiAEBEjoKEnN1c3BlbmRfaWRsZV9hZnRlchgEIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbkgEiAEBQg8KDV9tZW1vcnlfYnl0ZXNCDQoLX3N3YXBfYnl0ZXNCBwoFX2NwdXNCCAoGX3Rhc2tzQhUKE19zdXNwZW5kX2lkbGVfYWZ0ZXIihwEKBVVzYWdlEhQKDG1lbW9yeV9ieXRlcxgBIAEoBBIZChFtZW1vcnlfcGVha19ieXRlcxgCIAEoBBIrCghjcHVfdGltZRgDIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhINCgV0YXNrcxgEIAEoBBIRCglvb21fa2lsbHMYBSABKAQiUgoJRW5kcG9pbnRzEhAKCGNkcF9wYXRoGAEgASgJEgwKBHBhdGgYAiABKAkSEAoIbWNwX3BhdGgYAyABKAkSEwoLdHVubmVsX3BhdGgYBCABKAkijgIKC1Byb3h5Q29uZmlnEkMKCXVwc3RyZWFtcxgBIAMoCzIwLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLlByb3h5Q29uZmlnLlVwc3RyZWFtc0VudHJ5Ei4KBXJ1bGVzGAIgAygLMh8uYXBlcnR1cmUuZXhlY3V0b3IudjEuUHJveHlSdWxlEisKA2RucxgDIAEoCzIZLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkRuc0gAiAEBGlUKDlVwc3RyZWFtc0VudHJ5EgsKA2tleRgBIAEoCRIyCgV2YWx1ZRgCIAEoCzIjLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLlByb3h5VXBzdHJlYW06AjgBQgYKBF9kbnMiSAoDRG5zEg8KB3NlcnZlcnMYASADKAkSMAoHcmVjb3JkcxgCIAMoCzIfLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkRuc1JlY29yZCIsCglEbnNSZWNvcmQSDAoEbmFtZRgBIAEoCRIRCglhZGRyZXNzZXMYAiADKAkiOAoNUHJveHlVcHN0cmVhbRILCgN1cmwYASABKAkSEQoEYXV0aBgCIAEoCUgAiAEBQgcKBV9hdXRoIkwKCVByb3h5UnVsZRINCgVtYXRjaBgBIAEoCRILCgN2aWEYAiABKAkSDwoCdG8YAyABKAlIAIgBARILCgN0bHMYBCABKAhCBQoDX3RvInYKCFNuYXBzaG90EgoKAmlkGAEgASgJEhEKBG5hbWUYAiABKAlIAIgBARISCgpzZXNzaW9uX2lkGAMgASgJEi4KCmNyZWF0ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wQgcKBV9uYW1lIuQCChRDcmVhdGVTZXNzaW9uUmVxdWVzdBIYCgtzbmFwc2hvdF9pZBgBIAEoCUgAiAEBEhEKCXN1c3BlbmRlZBgCIAEoCBI1CgVwcm94eRgDIAEoCzIhLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLlByb3h5Q29uZmlnSAGIAQESLAoGbGltaXRzGAQgASgLMhwuYXBlcnR1cmUuZXhlY3V0b3IudjEuTGltaXRzEjUKCGZlYXR1cmVzGAUgASgLMh4uYXBlcnR1cmUuZXhlY3V0b3IudjEuRmVhdHVyZXNIAogBARIuCgduZXR3b3JrGAYgASgLMh0uYXBlcnR1cmUuZXhlY3V0b3IudjEuTmV0d29yaxIaCg1zdG9yYWdlX3N0YXRlGAcgASgJSAOIAQFCDgoMX3NuYXBzaG90X2lkQggKBl9wcm94eUILCglfZmVhdHVyZXNCEAoOX3N0b3JhZ2Vfc3RhdGUiRwoVQ3JlYXRlU2Vzc2lvblJlc3BvbnNlEi4KB3Nlc3Npb24YASABKAsyHS5hcGVydHVyZS5leGVjdXRvci52MS5TZXNzaW9uIh8KEUdldFNlc3Npb25SZXF1ZXN0EgoKAmlkGAEgASgJIkQKEkdldFNlc3Npb25SZXNwb25zZRIuCgdzZXNzaW9uGAEgASgLMh0uYXBlcnR1cmUuZXhlY3V0b3IudjEuU2Vzc2lvbiIVChNMaXN0U2Vzc2lvbnNSZXF1ZXN0IkcKFExpc3RTZXNzaW9uc1Jlc3BvbnNlEi8KCHNlc3Npb25zGAEgAygLMh0uYXBlcnR1cmUuZXhlY3V0b3IudjEuU2Vzc2lvbiIjChVTdXNwZW5kU2Vzc2lvblJlcXVlc3QSCgoCaWQYASABKAkiSAoWU3VzcGVuZFNlc3Npb25SZXNwb25zZRIuCgdzZXNzaW9uGAEgASgLMh0uYXBlcnR1cmUuZXhlY3V0b3IudjEuU2Vzc2lvbiI0ChRSZXN1bWVTZXNzaW9uUmVxdWVzdBIKCgJpZBgBIAEoCRIQCgh0YWtlb3ZlchgCIAEoCCJHChVSZXN1bWVTZXNzaW9uUmVzcG9uc2USLgoHc2Vzc2lvbhgBIAEoCzIdLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLlNlc3Npb24iaAoZVXBkYXRlU2Vzc2lvblByb3h5UmVxdWVzdBIKCgJpZBgBIAEoCRI1CgVwcm94eRgCIAEoCzIhLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLlByb3h5Q29uZmlnSACIAQFCCAoGX3Byb3h5IhwKGlVwZGF0ZVNlc3Npb25Qcm94eVJlc3BvbnNlIiIKFERlbGV0ZVNlc3Npb25SZXF1ZXN0EgoKAmlkGAEgASgJIhcKFURlbGV0ZVNlc3Npb25SZXNwb25zZSIWChRXYXRjaFNlc3Npb25zUmVxdWVzdCJiChVXYXRjaFNlc3Npb25zUmVzcG9uc2USMAoHc2Vzc2lvbhgBIAEoCzIdLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLlNlc3Npb25IABIOCgRnb25lGAIgASgJSABCBwoFZXZlbnQiIQoTRXZpY3RTZXNzaW9uUmVxdWVzdBIKCgJpZBgBIAEoCSIWChRFdmljdFNlc3Npb25SZXNwb25zZSIbChlMaXN0U3RvcmVkU2Vzc2lvbnNSZXF1ZXN0IlMKGkxpc3RTdG9yZWRTZXNzaW9uc1Jlc3BvbnNlEjUKCHNlc3Npb25zGAEgAygLMiMuYXBlcnR1cmUuZXhlY3V0b3IudjEuU3RvcmVkU2Vzc2lvbiKXAQoNU3RvcmVkU2Vzc2lvbhIKCgJpZBgBIAEoCRIYCgtzbmFwc2hvdF9pZBgCIAEoCUgAiAEBEi4KCmNyZWF0ZWRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhQKB2hlbGRfYnkYBCABKAlIAYgBAUIOCgxfc25hcHNob3RfaWRCCgoIX2hlbGRfYnkiRwoVQ3JlYXRlU25hcHNob3RSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSEQoEbmFtZRgCIAEoCUgAiAEBQgcKBV9uYW1lIkoKFkNyZWF0ZVNuYXBzaG90UmVzcG9uc2USMAoIc25hcHNob3QYASABKAsyHi5hcGVydHVyZS5leGVjdXRvci52MS5TbmFwc2hvdCIgChJHZXRTbmFwc2hvdFJlcXVlc3QSCgoCaWQYASABKAkiRwoTR2V0U25hcHNob3RSZXNwb25zZRIwCghzbmFwc2hvdBgBIAEoCzIeLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLlNuYXBzaG90IhYKFExpc3RTbmFwc2hvdHNSZXF1ZXN0IkoKFUxpc3RTbmFwc2hvdHNSZXNwb25zZRIxCglzbmFwc2hvdHMYASADKAsyHi5hcGVydHVyZS5leGVjdXRvci52MS5TbmFwc2hvdCIjChVEZWxldGVTbmFwc2hvdFJlcXVlc3QSCgoCaWQYASABKAkiGAoWRGVsZXRlU25hcHNob3RSZXNwb25zZSq5AQoMU2Vzc2lvblN0YXRlEh0KGVNFU1NJT05fU1RBVEVfVU5TUEVDSUZJRUQQABIbChdTRVNTSU9OX1NUQVRFX1NVU1BFTkRFRBABEhoKFlNFU1NJT05fU1RBVEVfU1RBUlRJTkcQAhIZChVTRVNTSU9OX1NUQVRFX1JVTk5JTkcQAxIcChhTRVNTSU9OX1NUQVRFX1NVU1BFTkRJTkcQBBIYChRTRVNTSU9OX1NUQVRFX0ZBSUxFRBAFKsYBCgdGZWF0dXJlEhcKE0ZFQVRVUkVfVU5TUEVDSUZJRUQQABIRCg1GRUFUVVJFX1NPVU5EEAESEwoPRkVBVFVSRV9VUExPQURTEAISFQoRRkVBVFVSRV9ET1dOTE9BRFMQAxIWChJGRUFUVVJFX1JFQ09SRElOR1MQBBIVChFGRUFUVVJFX0NMSVBCT0FSRBAFEg8KC0ZFQVRVUkVfTUNQEAYSDwoLRkVBVFVSRV9DRFAQBxISCg5GRUFUVVJFX1RVTk5FTBAIKloKCk5ldHdvcmtUY3ASGwoXTkVUV09SS19UQ1BfVU5TUEVDSUZJRUQQABIXChNORVRXT1JLX1RDUF9QUk9YSUVEEAESFgoSTkVUV09SS19UQ1BfRElSRUNUEAIqVwoKTmV0d29ya1VkcBIbChdORVRXT1JLX1VEUF9VTlNQRUNJRklFRBAAEhQKEE5FVFdPUktfVURQX05PTkUQARIWChJORVRXT1JLX1VEUF9ESVJFQ1QQAjLVDAoPRXhlY3V0b3JTZXJ2aWNlEmIKC0dldEV4ZWN1dG9yEiguYXBlcnR1cmUuZXhlY3V0b3IudjEuR2V0RXhlY3V0b3JSZXF1ZXN0GikuYXBlcnR1cmUuZXhlY3V0b3IudjEuR2V0RXhlY3V0b3JSZXNwb25zZRJoCg1DcmVhdGVTZXNzaW9uEiouYXBlcnR1cmUuZXhlY3V0b3IudjEuQ3JlYXRlU2Vzc2lvblJlcXVlc3QaKy5hcGVydHVyZS5leGVjdXRvci52MS5DcmVhdGVTZXNzaW9uUmVzcG9uc2USXwoKR2V0U2Vzc2lvbhInLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkdldFNlc3Npb25SZXF1ZXN0GiguYXBlcnR1cmUuZXhlY3V0b3IudjEuR2V0U2Vzc2lvblJlc3BvbnNlEmUKDExpc3RTZXNzaW9ucxIpLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkxpc3RTZXNzaW9uc1JlcXVlc3QaKi5hcGVydHVyZS5leGVjdXRvci52MS5MaXN0U2Vzc2lvbnNSZXNwb25zZRJrCg5TdXNwZW5kU2Vzc2lvbhIrLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLlN1c3BlbmRTZXNzaW9uUmVxdWVzdBosLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLlN1c3BlbmRTZXNzaW9uUmVzcG9uc2USaAoNUmVzdW1lU2Vzc2lvbhIqLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLlJlc3VtZVNlc3Npb25SZXF1ZXN0GisuYXBlcnR1cmUuZXhlY3V0b3IudjEuUmVzdW1lU2Vzc2lvblJlc3BvbnNlEncKElVwZGF0ZVNlc3Npb25Qcm94eRIvLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLlVwZGF0ZVNlc3Npb25Qcm94eVJlcXVlc3QaMC5hcGVydHVyZS5leGVjdXRvci52MS5VcGRhdGVTZXNzaW9uUHJveHlSZXNwb25zZRJoCg1EZWxldGVTZXNzaW9uEiouYXBlcnR1cmUuZXhlY3V0b3IudjEuRGVsZXRlU2Vzc2lvblJlcXVlc3QaKy5hcGVydHVyZS5leGVjdXRvci52MS5EZWxldGVTZXNzaW9uUmVzcG9uc2USagoNV2F0Y2hTZXNzaW9ucxIqLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLldhdGNoU2Vzc2lvbnNSZXF1ZXN0GisuYXBlcnR1cmUuZXhlY3V0b3IudjEuV2F0Y2hTZXNzaW9uc1Jlc3BvbnNlMAESZQoMRXZpY3RTZXNzaW9uEikuYXBlcnR1cmUuZXhlY3V0b3IudjEuRXZpY3RTZXNzaW9uUmVxdWVzdBoqLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkV2aWN0U2Vzc2lvblJlc3BvbnNlEncKEkxpc3RTdG9yZWRTZXNzaW9ucxIvLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkxpc3RTdG9yZWRTZXNzaW9uc1JlcXVlc3QaMC5hcGVydHVyZS5leGVjdXRvci52MS5MaXN0U3RvcmVkU2Vzc2lvbnNSZXNwb25zZRJrCg5DcmVhdGVTbmFwc2hvdBIrLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkNyZWF0ZVNuYXBzaG90UmVxdWVzdBosLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkNyZWF0ZVNuYXBzaG90UmVzcG9uc2USYgoLR2V0U25hcHNob3QSKC5hcGVydHVyZS5leGVjdXRvci52MS5HZXRTbmFwc2hvdFJlcXVlc3QaKS5hcGVydHVyZS5leGVjdXRvci52MS5HZXRTbmFwc2hvdFJlc3BvbnNlEmgKDUxpc3RTbmFwc2hvdHMSKi5hcGVydHVyZS5leGVjdXRvci52MS5MaXN0U25hcHNob3RzUmVxdWVzdBorLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkxpc3RTbmFwc2hvdHNSZXNwb25zZRJrCg5EZWxldGVTbmFwc2hvdBIrLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkRlbGV0ZVNuYXBzaG90UmVxdWVzdBosLmFwZXJ0dXJlLmV4ZWN1dG9yLnYxLkRlbGV0ZVNuYXBzaG90UmVzcG9uc2ViBnByb3RvMw", [file_google_protobuf_duration, file_google_protobuf_timestamp]);
 
 /**
  * @generated from message aperture.executor.v1.Executor
@@ -849,6 +849,149 @@ export const DeleteSessionResponseSchema: GenMessage<DeleteSessionResponse> = /*
   messageDesc(file_aperture_executor_v1_executor, 28);
 
 /**
+ * @generated from message aperture.executor.v1.WatchSessionsRequest
+ */
+export type WatchSessionsRequest = Message<"aperture.executor.v1.WatchSessionsRequest"> & {
+};
+
+/**
+ * Describes the message aperture.executor.v1.WatchSessionsRequest.
+ * Use `create(WatchSessionsRequestSchema)` to create a new message.
+ */
+export const WatchSessionsRequestSchema: GenMessage<WatchSessionsRequest> = /*@__PURE__*/
+  messageDesc(file_aperture_executor_v1_executor, 29);
+
+/**
+ * @generated from message aperture.executor.v1.WatchSessionsResponse
+ */
+export type WatchSessionsResponse = Message<"aperture.executor.v1.WatchSessionsResponse"> & {
+  /**
+   * @generated from oneof aperture.executor.v1.WatchSessionsResponse.event
+   */
+  event: {
+    /**
+     * A session as it is now: one there was when the watching began, a new one, or one
+     * that changed.
+     *
+     * @generated from field: aperture.executor.v1.Session session = 1;
+     */
+    value: Session;
+    case: "session";
+  } | {
+    /**
+     * The id of a session this node has no more: deleted, or evicted.
+     *
+     * @generated from field: string gone = 2;
+     */
+    value: string;
+    case: "gone";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message aperture.executor.v1.WatchSessionsResponse.
+ * Use `create(WatchSessionsResponseSchema)` to create a new message.
+ */
+export const WatchSessionsResponseSchema: GenMessage<WatchSessionsResponse> = /*@__PURE__*/
+  messageDesc(file_aperture_executor_v1_executor, 30);
+
+/**
+ * @generated from message aperture.executor.v1.EvictSessionRequest
+ */
+export type EvictSessionRequest = Message<"aperture.executor.v1.EvictSessionRequest"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message aperture.executor.v1.EvictSessionRequest.
+ * Use `create(EvictSessionRequestSchema)` to create a new message.
+ */
+export const EvictSessionRequestSchema: GenMessage<EvictSessionRequest> = /*@__PURE__*/
+  messageDesc(file_aperture_executor_v1_executor, 31);
+
+/**
+ * @generated from message aperture.executor.v1.EvictSessionResponse
+ */
+export type EvictSessionResponse = Message<"aperture.executor.v1.EvictSessionResponse"> & {
+};
+
+/**
+ * Describes the message aperture.executor.v1.EvictSessionResponse.
+ * Use `create(EvictSessionResponseSchema)` to create a new message.
+ */
+export const EvictSessionResponseSchema: GenMessage<EvictSessionResponse> = /*@__PURE__*/
+  messageDesc(file_aperture_executor_v1_executor, 32);
+
+/**
+ * @generated from message aperture.executor.v1.ListStoredSessionsRequest
+ */
+export type ListStoredSessionsRequest = Message<"aperture.executor.v1.ListStoredSessionsRequest"> & {
+};
+
+/**
+ * Describes the message aperture.executor.v1.ListStoredSessionsRequest.
+ * Use `create(ListStoredSessionsRequestSchema)` to create a new message.
+ */
+export const ListStoredSessionsRequestSchema: GenMessage<ListStoredSessionsRequest> = /*@__PURE__*/
+  messageDesc(file_aperture_executor_v1_executor, 33);
+
+/**
+ * @generated from message aperture.executor.v1.ListStoredSessionsResponse
+ */
+export type ListStoredSessionsResponse = Message<"aperture.executor.v1.ListStoredSessionsResponse"> & {
+  /**
+   * @generated from field: repeated aperture.executor.v1.StoredSession sessions = 1;
+   */
+  sessions: StoredSession[];
+};
+
+/**
+ * Describes the message aperture.executor.v1.ListStoredSessionsResponse.
+ * Use `create(ListStoredSessionsResponseSchema)` to create a new message.
+ */
+export const ListStoredSessionsResponseSchema: GenMessage<ListStoredSessionsResponse> = /*@__PURE__*/
+  messageDesc(file_aperture_executor_v1_executor, 34);
+
+/**
+ * A session as it is where nodes share sessions.
+ *
+ * @generated from message aperture.executor.v1.StoredSession
+ */
+export type StoredSession = Message<"aperture.executor.v1.StoredSession"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: optional string snapshot_id = 2;
+   */
+  snapshotId?: string | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 3;
+   */
+  createdAt?: Timestamp | undefined;
+
+  /**
+   * The node that says it has the session, where nodes say so and one does.
+   *
+   * @generated from field: optional string held_by = 4;
+   */
+  heldBy?: string | undefined;
+};
+
+/**
+ * Describes the message aperture.executor.v1.StoredSession.
+ * Use `create(StoredSessionSchema)` to create a new message.
+ */
+export const StoredSessionSchema: GenMessage<StoredSession> = /*@__PURE__*/
+  messageDesc(file_aperture_executor_v1_executor, 35);
+
+/**
  * @generated from message aperture.executor.v1.CreateSnapshotRequest
  */
 export type CreateSnapshotRequest = Message<"aperture.executor.v1.CreateSnapshotRequest"> & {
@@ -868,7 +1011,7 @@ export type CreateSnapshotRequest = Message<"aperture.executor.v1.CreateSnapshot
  * Use `create(CreateSnapshotRequestSchema)` to create a new message.
  */
 export const CreateSnapshotRequestSchema: GenMessage<CreateSnapshotRequest> = /*@__PURE__*/
-  messageDesc(file_aperture_executor_v1_executor, 29);
+  messageDesc(file_aperture_executor_v1_executor, 36);
 
 /**
  * @generated from message aperture.executor.v1.CreateSnapshotResponse
@@ -885,7 +1028,7 @@ export type CreateSnapshotResponse = Message<"aperture.executor.v1.CreateSnapsho
  * Use `create(CreateSnapshotResponseSchema)` to create a new message.
  */
 export const CreateSnapshotResponseSchema: GenMessage<CreateSnapshotResponse> = /*@__PURE__*/
-  messageDesc(file_aperture_executor_v1_executor, 30);
+  messageDesc(file_aperture_executor_v1_executor, 37);
 
 /**
  * @generated from message aperture.executor.v1.GetSnapshotRequest
@@ -902,7 +1045,7 @@ export type GetSnapshotRequest = Message<"aperture.executor.v1.GetSnapshotReques
  * Use `create(GetSnapshotRequestSchema)` to create a new message.
  */
 export const GetSnapshotRequestSchema: GenMessage<GetSnapshotRequest> = /*@__PURE__*/
-  messageDesc(file_aperture_executor_v1_executor, 31);
+  messageDesc(file_aperture_executor_v1_executor, 38);
 
 /**
  * @generated from message aperture.executor.v1.GetSnapshotResponse
@@ -919,7 +1062,7 @@ export type GetSnapshotResponse = Message<"aperture.executor.v1.GetSnapshotRespo
  * Use `create(GetSnapshotResponseSchema)` to create a new message.
  */
 export const GetSnapshotResponseSchema: GenMessage<GetSnapshotResponse> = /*@__PURE__*/
-  messageDesc(file_aperture_executor_v1_executor, 32);
+  messageDesc(file_aperture_executor_v1_executor, 39);
 
 /**
  * @generated from message aperture.executor.v1.ListSnapshotsRequest
@@ -932,7 +1075,7 @@ export type ListSnapshotsRequest = Message<"aperture.executor.v1.ListSnapshotsRe
  * Use `create(ListSnapshotsRequestSchema)` to create a new message.
  */
 export const ListSnapshotsRequestSchema: GenMessage<ListSnapshotsRequest> = /*@__PURE__*/
-  messageDesc(file_aperture_executor_v1_executor, 33);
+  messageDesc(file_aperture_executor_v1_executor, 40);
 
 /**
  * @generated from message aperture.executor.v1.ListSnapshotsResponse
@@ -949,7 +1092,7 @@ export type ListSnapshotsResponse = Message<"aperture.executor.v1.ListSnapshotsR
  * Use `create(ListSnapshotsResponseSchema)` to create a new message.
  */
 export const ListSnapshotsResponseSchema: GenMessage<ListSnapshotsResponse> = /*@__PURE__*/
-  messageDesc(file_aperture_executor_v1_executor, 34);
+  messageDesc(file_aperture_executor_v1_executor, 41);
 
 /**
  * @generated from message aperture.executor.v1.DeleteSnapshotRequest
@@ -966,7 +1109,7 @@ export type DeleteSnapshotRequest = Message<"aperture.executor.v1.DeleteSnapshot
  * Use `create(DeleteSnapshotRequestSchema)` to create a new message.
  */
 export const DeleteSnapshotRequestSchema: GenMessage<DeleteSnapshotRequest> = /*@__PURE__*/
-  messageDesc(file_aperture_executor_v1_executor, 35);
+  messageDesc(file_aperture_executor_v1_executor, 42);
 
 /**
  * @generated from message aperture.executor.v1.DeleteSnapshotResponse
@@ -979,7 +1122,7 @@ export type DeleteSnapshotResponse = Message<"aperture.executor.v1.DeleteSnapsho
  * Use `create(DeleteSnapshotResponseSchema)` to create a new message.
  */
 export const DeleteSnapshotResponseSchema: GenMessage<DeleteSnapshotResponse> = /*@__PURE__*/
-  messageDesc(file_aperture_executor_v1_executor, 36);
+  messageDesc(file_aperture_executor_v1_executor, 43);
 
 /**
  * @generated from enum aperture.executor.v1.SessionState
@@ -1248,6 +1391,41 @@ export const ExecutorService: GenService<{
     methodKind: "unary";
     input: typeof DeleteSessionRequestSchema;
     output: typeof DeleteSessionResponseSchema;
+  },
+  /**
+   * The node's sessions as they change: each as it is now, then each again when what
+   * `GetSession` tells of it becomes another, and a word of each that is gone. What a
+   * session uses is not a change. It goes on until whoever watches leaves.
+   *
+   * @generated from rpc aperture.executor.v1.ExecutorService.WatchSessions
+   */
+  watchSessions: {
+    methodKind: "server_streaming";
+    input: typeof WatchSessionsRequestSchema;
+    output: typeof WatchSessionsResponseSchema;
+  },
+  /**
+   * Drops this node's copy of a session that is at rest where nodes share sessions: the
+   * session stays there, for whichever node resumes it. Refused for a session that runs,
+   * for one whose state here is not the one that is there, and on a node that shares none.
+   *
+   * @generated from rpc aperture.executor.v1.ExecutorService.EvictSession
+   */
+  evictSession: {
+    methodKind: "unary";
+    input: typeof EvictSessionRequestSchema;
+    output: typeof EvictSessionResponseSchema;
+  },
+  /**
+   * The sessions where nodes share them, whichever node has them or none. Refused on a
+   * node that shares none.
+   *
+   * @generated from rpc aperture.executor.v1.ExecutorService.ListStoredSessions
+   */
+  listStoredSessions: {
+    methodKind: "unary";
+    input: typeof ListStoredSessionsRequestSchema;
+    output: typeof ListStoredSessionsResponseSchema;
   },
   /**
    * Keeps the session's profile as it is now. A running session is suspended for the
