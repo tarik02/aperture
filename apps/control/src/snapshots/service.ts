@@ -9,6 +9,7 @@ import type {
   SnapshotNotFound,
 } from "../errors.ts";
 import type { Snapshot } from "./schemas.ts";
+import type { SnapshotDescription } from "./store.ts";
 
 /** Snapshots of sessions, wherever they were taken. */
 export interface SnapshotsShape {
@@ -16,11 +17,21 @@ export interface SnapshotsShape {
   readonly take: (
     caller: Caller,
     sessionId: string,
-    options: { readonly name: string | undefined },
+    options: {
+      readonly name: string | undefined;
+      readonly description: string | undefined;
+      readonly tags: ReadonlyArray<string>;
+    },
   ) => Effect.Effect<Snapshot, SessionNotFound | SessionHasNoNode | NodeUnreachable | NodeRefused>;
   /** The caller's own snapshots; all of them for an admin. */
   readonly list: (caller: Caller) => Effect.Effect<ReadonlyArray<Snapshot>>;
   readonly get: (caller: Caller, id: string) => Effect.Effect<Snapshot, SnapshotNotFound>;
+  /** Changes what a snapshot is called, said to be and tagged with; what is left out stays. */
+  readonly describe: (
+    caller: Caller,
+    id: string,
+    said: SnapshotDescription,
+  ) => Effect.Effect<Snapshot, SnapshotNotFound>;
   /**
    * Deletes the snapshot where it is kept, and its record. Sessions created from it keep
    * working. One whose node is forgotten, and that no other node finds, is only forgotten.

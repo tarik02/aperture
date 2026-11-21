@@ -13,6 +13,9 @@ export const Session = Schema.Struct({
   /** Since when its node is silent or does not answer; what was observed is from before. */
   unreachableSince: Schema.NullOr(Schema.DateTimeUtcFromDate),
   snapshotId: Schema.NullOr(Schema.String),
+  /** What its owner calls it. */
+  label: Schema.NullOr(Schema.String),
+  tags: Schema.Array(Schema.String),
   createdAt: Schema.DateTimeUtcFromDate,
   observedAt: Schema.DateTimeUtcFromDate,
 });

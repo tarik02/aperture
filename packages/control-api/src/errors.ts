@@ -68,3 +68,10 @@ export class SessionElsewhere extends Schema.TaggedError<SessionElsewhere>()(
   { id: Schema.String, path: Schema.String },
   { httpApiStatus: 409 },
 ) {}
+
+/** There is no such API token, or it is another account's: the two are told alike. */
+export class ApiTokenNotFound extends Schema.TaggedError<ApiTokenNotFound>()(
+  "ApiTokenNotFound",
+  { id: Schema.String },
+  { httpApiStatus: 404 },
+) {}

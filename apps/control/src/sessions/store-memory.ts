@@ -4,7 +4,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { Memory, moment, ordered } from "../store/memory.ts";
 import type { Observation, Session } from "./schemas.ts";
-import { type NewSession, SessionsStore } from "./store.ts";
+import { type NewSession, type SessionDescription, SessionsStore } from "./store.ts";
 
 /** The records of sessions kept in memory. */
 export const makeSessionsStoreMemory = Effect.fn("SessionsStore.makeMemory")(function* () {
@@ -33,6 +33,8 @@ export const makeSessionsStoreMemory = Effect.fn("SessionsStore.makeMemory")(fun
         failure: session.failure,
         unreachableSince: null,
         snapshotId: session.snapshotId,
+        label: session.label,
+        tags: session.tags,
         createdAt: moment(session.createdAt),
         observedAt: moment(session.now),
       };
@@ -56,6 +58,17 @@ export const makeSessionsStoreMemory = Effect.fn("SessionsStore.makeMemory")(fun
       [...memory.sessions.values()]
         .filter((session) => session.nodeId === nodeId)
         .map((session) => session.id),
+    ),
+  );
+
+  const describe = Effect.fn("SessionsStore.describe")((id: string, said: SessionDescription) =>
+    change(
+      (session) => session.id === id,
+      (session) => ({
+        ...session,
+        label: said.label === undefined ? session.label : said.label,
+        tags: said.tags ?? session.tags,
+      }),
     ),
   );
 
@@ -123,6 +136,7 @@ export const makeSessionsStoreMemory = Effect.fn("SessionsStore.makeMemory")(fun
     list,
     listOf,
     on,
+    describe,
     desire,
     delete: delete_,
     observe,

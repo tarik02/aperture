@@ -3,7 +3,7 @@ import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 import { all, done, first, one } from "../store/rows.ts";
 import { Snapshot } from "./schemas.ts";
-import { type NewSnapshot, SnapshotsStore } from "./store.ts";
+import { type NewSnapshot, type SnapshotDescription, SnapshotsStore } from "./store.ts";
 
 /** The records of snapshots in the SQL database. */
 export const makeSnapshotsStore = Effect.fn("SnapshotsStore.make")(function* () {
@@ -11,10 +11,13 @@ export const makeSnapshotsStore = Effect.fn("SnapshotsStore.make")(function* () 
 
   const insert = Effect.fn("SnapshotsStore.insert")(function* (snapshot: NewSnapshot) {
     return yield* sql`
-      INSERT INTO snapshots (id, account_id, name, session_id, node_id, shared, created_at)
+      INSERT INTO snapshots (
+        id, account_id, name, description, tags, session_id, node_id, shared, created_at
+      )
       VALUES (
-        ${snapshot.id}, ${snapshot.accountId}, ${snapshot.name}, ${snapshot.sessionId},
-        ${snapshot.nodeId}, ${snapshot.shared}, ${snapshot.createdAt}
+        ${snapshot.id}, ${snapshot.accountId}, ${snapshot.name}, ${snapshot.description},
+        ${JSON.stringify(snapshot.tags)}::jsonb, ${snapshot.sessionId}, ${snapshot.nodeId},
+        ${snapshot.shared}, ${snapshot.createdAt}
       )
       RETURNING *
     `.pipe(one(Snapshot));
@@ -34,11 +37,30 @@ export const makeSnapshotsStore = Effect.fn("SnapshotsStore.make")(function* () 
     `.pipe(all(Snapshot));
   });
 
+  const describe = Effect.fn("SnapshotsStore.describe")(function* (
+    id: string,
+    said: SnapshotDescription,
+  ) {
+    if (said.name !== undefined) {
+      yield* sql`UPDATE snapshots SET name = ${said.name} WHERE id = ${id}`.pipe(done);
+    }
+    if (said.description !== undefined) {
+      yield* sql`UPDATE snapshots SET description = ${said.description} WHERE id = ${id}`.pipe(
+        done,
+      );
+    }
+    if (said.tags !== undefined) {
+      yield* sql`
+        UPDATE snapshots SET tags = ${JSON.stringify(said.tags)}::jsonb WHERE id = ${id}
+      `.pipe(done);
+    }
+  });
+
   const delete_ = Effect.fn("SnapshotsStore.delete")(function* (id: string) {
     yield* sql`DELETE FROM snapshots WHERE id = ${id}`.pipe(done);
   });
 
-  return SnapshotsStore.of({ insert, find, list, listOf, delete: delete_ });
+  return SnapshotsStore.of({ insert, find, list, listOf, describe, delete: delete_ });
 });
 
 export const layer = Layer.effect(SnapshotsStore, makeSnapshotsStore());

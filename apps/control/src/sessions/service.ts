@@ -13,6 +13,14 @@ import type {
 } from "../errors.ts";
 import type { Node } from "../nodes/schemas.ts";
 import type { Admission, Session } from "./schemas.ts";
+import type { SessionDescription } from "./store.ts";
+
+export interface NewSessionOptions {
+  readonly suspended: boolean;
+  readonly snapshotId: string | undefined;
+  readonly label: string | undefined;
+  readonly tags: ReadonlyArray<string>;
+}
 
 /** What asking a session's node for something may come to. */
 export type NodeError = SessionNotFound | SessionHasNoNode | NodeUnreachable | NodeRefused;
@@ -27,8 +35,14 @@ export interface SessionsShape {
    */
   readonly create: (
     caller: Caller,
-    options: { readonly suspended: boolean; readonly snapshotId: string | undefined },
+    options: NewSessionOptions,
   ) => Effect.Effect<Session, Forbidden | SnapshotNotFound | NoNode | NodeRefused>;
+  /** Changes what its owner calls a session and tags it with; what is left out stays. */
+  readonly describe: (
+    caller: Caller,
+    id: string,
+    said: SessionDescription,
+  ) => Effect.Effect<Session, SessionNotFound>;
   /** The caller's own sessions; all of them for an admin. */
   readonly list: (caller: Caller) => Effect.Effect<ReadonlyArray<Session>>;
   readonly get: (caller: Caller, id: string) => Effect.Effect<Session, SessionNotFound>;

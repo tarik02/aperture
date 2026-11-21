@@ -3,7 +3,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { Memory, moment, ordered } from "../store/memory.ts";
 import type { Snapshot } from "./schemas.ts";
-import { type NewSnapshot, SnapshotsStore } from "./store.ts";
+import { type NewSnapshot, type SnapshotDescription, SnapshotsStore } from "./store.ts";
 
 /** The records of snapshots kept in memory. */
 export const makeSnapshotsStoreMemory = Effect.fn("SnapshotsStore.makeMemory")(function* () {
@@ -29,13 +29,27 @@ export const makeSnapshotsStoreMemory = Effect.fn("SnapshotsStore.makeMemory")(f
     Effect.sync(() => created().filter((snapshot) => snapshot.accountId === accountId)),
   );
 
+  const describe = Effect.fn("SnapshotsStore.describe")((id: string, said: SnapshotDescription) =>
+    Effect.sync(() => {
+      const snapshot = memory.snapshots.get(id);
+      if (snapshot !== undefined) {
+        memory.snapshots.set(id, {
+          ...snapshot,
+          name: said.name === undefined ? snapshot.name : said.name,
+          description: said.description === undefined ? snapshot.description : said.description,
+          tags: said.tags ?? snapshot.tags,
+        });
+      }
+    }),
+  );
+
   const delete_ = Effect.fn("SnapshotsStore.delete")((id: string) =>
     Effect.sync(() => {
       memory.snapshots.delete(id);
     }),
   );
 
-  return SnapshotsStore.of({ insert, find, list, listOf, delete: delete_ });
+  return SnapshotsStore.of({ insert, find, list, listOf, describe, delete: delete_ });
 });
 
 export const layerTest = Layer.effect(SnapshotsStore, makeSnapshotsStoreMemory());

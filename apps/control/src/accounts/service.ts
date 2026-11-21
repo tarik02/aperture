@@ -1,7 +1,8 @@
 import type { Caller } from "@aperture-browser/control-api";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
-import type { AccountNotFound, Unauthorized } from "../errors.ts";
+import type * as Duration from "effect/Duration";
+import type { AccountNotFound, ApiTokenNotFound, Forbidden, Unauthorized } from "../errors.ts";
 import type { Account, ApiToken } from "./schemas.ts";
 
 /** Accounts, their API tokens, and whose a token is. */
@@ -15,7 +16,13 @@ export interface AccountsShape {
   readonly createToken: (
     accountId: string,
     name: string,
+    /** How long the token is good for; for as long as it is not taken back, without. */
+    lasts?: Duration.Duration,
   ) => Effect.Effect<{ readonly token: ApiToken; readonly secret: string }, AccountNotFound>;
+  /** The tokens of the caller's own account, those taken back among them. */
+  readonly tokens: (caller: Caller) => Effect.Effect<ReadonlyArray<ApiToken>, Forbidden>;
+  /** Takes a token back: one of the caller's own account, or any for an admin. */
+  readonly revokeToken: (caller: Caller, id: string) => Effect.Effect<void, ApiTokenNotFound>;
   /** Whose a bearer token is. */
   readonly identify: (bearer: string) => Effect.Effect<Caller, Unauthorized>;
 }

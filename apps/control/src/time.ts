@@ -10,3 +10,9 @@ export const ago = (duration: Duration.Duration) =>
   Clock.currentTimeMillis.pipe(
     Effect.map((millis) => new Date(millis - Duration.toMillis(duration))),
   );
+
+/** The moment that long after this one. */
+export const after = (duration: Duration.Duration) =>
+  Clock.currentTimeMillis.pipe(
+    Effect.map((millis) => new Date(millis + Duration.toMillis(duration))),
+  );

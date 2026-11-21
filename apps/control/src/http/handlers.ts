@@ -1,8 +1,10 @@
 import { Api, CurrentCaller } from "@aperture-browser/control-api";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import { accountOf } from "../accounts/caller.ts";
 import { Accounts } from "../accounts/service.ts";
 import { Forbidden } from "../errors.ts";
 import { Nodes } from "../nodes/service.ts";
@@ -19,6 +21,9 @@ const admin = Effect.gen(function* () {
   }
   return caller;
 });
+
+const lasting = (days: number | undefined) =>
+  days === undefined ? undefined : Duration.days(days);
 
 const accounts = HttpApiBuilder.group(
   Api,
@@ -47,9 +52,27 @@ const accounts = HttpApiBuilder.group(
         "createToken",
         Effect.fn(function* ({ params, payload }) {
           yield* admin;
-          const { token, secret } = yield* accounts.createToken(params.id, payload.name);
+          const { token, secret } = yield* accounts.createToken(
+            params.id,
+            payload.name,
+            lasting(payload.expiresInDays),
+          );
           return { ...token, token: secret };
         }),
+      )
+      .handle("tokens", () => Effect.flatMap(CurrentCaller, accounts.tokens))
+      .handle(
+        "createOwnToken",
+        Effect.fn(function* ({ payload }) {
+          const account = yield* accountOf(yield* CurrentCaller);
+          const { token, secret } = yield* accounts
+            .createToken(account.id, payload.name, lasting(payload.expiresInDays))
+            .pipe(Effect.orDie);
+          return { ...token, token: secret };
+        }),
+      )
+      .handle("revokeToken", ({ params }) =>
+        Effect.flatMap(CurrentCaller, (caller) => accounts.revokeToken(caller, params.id)),
       );
   }),
 );
@@ -113,6 +136,8 @@ const sessions = HttpApiBuilder.group(
           sessions.create(caller, {
             suspended: payload.suspended ?? false,
             snapshotId: payload.snapshotId,
+            label: payload.label,
+            tags: payload.tags ?? [],
           }),
         ).pipe(Effect.map(told)),
       )
@@ -120,6 +145,11 @@ const sessions = HttpApiBuilder.group(
         Effect.flatMap(CurrentCaller, (caller) => sessions.get(caller, params.id)).pipe(
           Effect.map(told),
         ),
+      )
+      .handle("describe", ({ params, payload }) =>
+        Effect.flatMap(CurrentCaller, (caller) =>
+          sessions.describe(caller, params.id, payload),
+        ).pipe(Effect.map(told)),
       )
       .handle("suspend", ({ params }) =>
         Effect.flatMap(CurrentCaller, (caller) => sessions.suspend(caller, params.id)).pipe(
@@ -154,11 +184,18 @@ const snapshots = HttpApiBuilder.group(
       .handle("list", () => Effect.flatMap(CurrentCaller, snapshots.list))
       .handle("take", ({ params, payload }) =>
         Effect.flatMap(CurrentCaller, (caller) =>
-          snapshots.take(caller, params.id, { name: payload.name }),
+          snapshots.take(caller, params.id, {
+            name: payload.name,
+            description: payload.description,
+            tags: payload.tags ?? [],
+          }),
         ),
       )
       .handle("get", ({ params }) =>
         Effect.flatMap(CurrentCaller, (caller) => snapshots.get(caller, params.id)),
+      )
+      .handle("describe", ({ params, payload }) =>
+        Effect.flatMap(CurrentCaller, (caller) => snapshots.describe(caller, params.id, payload)),
       )
       .handle("delete", ({ params }) =>
         Effect.flatMap(CurrentCaller, (caller) => snapshots.delete(caller, params.id)),

@@ -5,7 +5,7 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import { all, done, first, one } from "../store/rows.ts";
 import { type Observation, Session } from "./schemas.ts";
-import { type NewSession, SessionsStore } from "./store.ts";
+import { type NewSession, type SessionDescription, SessionsStore } from "./store.ts";
 
 const Id = Schema.Struct({ id: Schema.String });
 
@@ -17,11 +17,12 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     return yield* sql`
       INSERT INTO sessions (
         id, account_id, node_id, desired_state, observed_state, failure, snapshot_id,
-        created_at, observed_at
+        label, tags, created_at, observed_at
       )
       VALUES (
         ${session.id}, ${session.accountId}, ${session.nodeId}, ${session.desiredState},
         ${session.observedState}, ${session.failure}, ${session.snapshotId},
+        ${session.label}, ${JSON.stringify(session.tags)}::jsonb,
         ${session.createdAt}, ${session.now}
       )
       RETURNING *
@@ -45,6 +46,20 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
   const on = Effect.fn("SessionsStore.on")(function* (nodeId: string) {
     const rows = yield* sql`SELECT id FROM sessions WHERE node_id = ${nodeId}`.pipe(all(Id));
     return rows.map((row) => row.id);
+  });
+
+  const describe = Effect.fn("SessionsStore.describe")(function* (
+    id: string,
+    said: SessionDescription,
+  ) {
+    if (said.label !== undefined) {
+      yield* sql`UPDATE sessions SET label = ${said.label} WHERE id = ${id}`.pipe(done);
+    }
+    if (said.tags !== undefined) {
+      yield* sql`
+        UPDATE sessions SET tags = ${JSON.stringify(said.tags)}::jsonb WHERE id = ${id}
+      `.pipe(done);
+    }
   });
 
   const desire = Effect.fn("SessionsStore.desire")(function* (id: string, state: DesiredState) {
@@ -105,6 +120,7 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     list,
     listOf,
     on,
+    describe,
     desire,
     delete: delete_,
     observe,

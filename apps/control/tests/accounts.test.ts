@@ -48,6 +48,37 @@ for (const stores of Control.STORES) {
       }),
     );
 
+    it.effect("an account makes, lists and takes back its own tokens", () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const lin = yield* Control.account("Lin");
+        const made = yield* lin.api.accounts.createOwnToken({
+          payload: { name: "ci", expiresInDays: 7 },
+        });
+        expect(made.token).toMatch(/^apc_/u);
+        expect(made.expiresAt).not.toBeNull();
+        expect((yield* lin.api.accounts.tokens()).map((token) => token.name)).toEqual([
+          "checks",
+          "ci",
+        ]);
+
+        const withIt = yield* control.as(made.token);
+        expect((yield* withIt.accounts.current()).id).toBe(lin.account.id);
+
+        // Another account's token is none of theirs to take back.
+        const eve = yield* Control.account("Eve");
+        const refused = yield* Effect.flip(
+          eve.api.accounts.revokeToken({ params: { id: made.id } }),
+        );
+        expect(refused._tag).toBe("ApiTokenNotFound");
+
+        yield* lin.api.accounts.revokeToken({ params: { id: made.id } });
+        expect((yield* Effect.flip(withIt.accounts.current()))._tag).toBe("Unauthorized");
+        const kept = (yield* lin.api.accounts.tokens()).find((token) => token.id === made.id);
+        expect(kept?.revokedAt).not.toBeNull();
+      }),
+    );
+
     it.effect("an account that is no admin makes neither accounts nor tokens", () =>
       Effect.gen(function* () {
         const ada = yield* Control.account("Ada");

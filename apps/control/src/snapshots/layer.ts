@@ -11,7 +11,7 @@ import { Sessions } from "../sessions/service.ts";
 import { now } from "../time.ts";
 import type { Snapshot } from "./schemas.ts";
 import { Snapshots } from "./service.ts";
-import { SnapshotsStore } from "./store.ts";
+import { type SnapshotDescription, SnapshotsStore } from "./store.ts";
 
 export const makeSnapshots = Effect.fn("Snapshots.make")(function* () {
   const store = yield* SnapshotsStore;
@@ -42,7 +42,11 @@ export const makeSnapshots = Effect.fn("Snapshots.make")(function* () {
   const take = Effect.fn("Snapshots.take")(function* (
     caller: Caller,
     sessionId: string,
-    options: { readonly name: string | undefined },
+    options: {
+      readonly name: string | undefined;
+      readonly description: string | undefined;
+      readonly tags: ReadonlyArray<string>;
+    },
   ) {
     const { session, node } = yield* sessions.placed(caller, sessionId);
     const taken = yield* nodes
@@ -55,6 +59,8 @@ export const makeSnapshots = Effect.fn("Snapshots.make")(function* () {
       // A snapshot is whose the session is, also when an admin takes it.
       accountId: session.accountId,
       name: taken.name ?? null,
+      description: options.description ?? null,
+      tags: options.tags,
       sessionId,
       nodeId: node.id,
       shared: node.offers?.sharesSnapshots === true,
@@ -73,6 +79,16 @@ export const makeSnapshots = Effect.fn("Snapshots.make")(function* () {
   });
 
   const get = Effect.fn("Snapshots.get")(function* (caller: Caller, id: string) {
+    return yield* owned(caller, id);
+  });
+
+  const describe = Effect.fn("Snapshots.describe")(function* (
+    caller: Caller,
+    id: string,
+    said: SnapshotDescription,
+  ) {
+    yield* owned(caller, id);
+    yield* store.describe(id, said);
     return yield* owned(caller, id);
   });
 
@@ -95,7 +111,7 @@ export const makeSnapshots = Effect.fn("Snapshots.make")(function* () {
     yield* store.delete(id);
   });
 
-  return Snapshots.of({ take, list, get, delete: delete_ });
+  return Snapshots.of({ take, list, get, describe, delete: delete_ });
 });
 
 export const layer = Layer.effect(Snapshots, makeSnapshots());

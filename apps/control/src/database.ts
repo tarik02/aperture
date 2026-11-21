@@ -29,7 +29,9 @@ const initial = statements([
     account_id uuid NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
     name text NOT NULL,
     token_hash text NOT NULL UNIQUE,
-    created_at timestamptz NOT NULL
+    created_at timestamptz NOT NULL,
+    expires_at timestamptz,
+    revoked_at timestamptz
   )`,
   `CREATE INDEX api_tokens_account_id ON api_tokens (account_id)`,
   `CREATE TABLE registration_tokens (
@@ -58,6 +60,8 @@ const initial = statements([
     id text PRIMARY KEY,
     account_id uuid NOT NULL REFERENCES accounts (id),
     name text,
+    description text,
+    tags jsonb NOT NULL DEFAULT '[]',
     session_id text,
     node_id uuid REFERENCES nodes (id) ON DELETE SET NULL,
     shared boolean NOT NULL,
@@ -77,6 +81,8 @@ const initial = statements([
     failure text,
     unreachable_since timestamptz,
     snapshot_id text,
+    label text,
+    tags jsonb NOT NULL DEFAULT '[]',
     created_at timestamptz NOT NULL,
     observed_at timestamptz NOT NULL
   )`,

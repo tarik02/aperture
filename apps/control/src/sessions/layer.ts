@@ -21,8 +21,8 @@ import { SnapshotsStore } from "../snapshots/store.ts";
 import { Tickets } from "../tickets/service.ts";
 import { now } from "../time.ts";
 import type { Admission, Observation } from "./schemas.ts";
-import { Sessions } from "./service.ts";
-import { SessionsStore } from "./store.ts";
+import { type NewSessionOptions, Sessions } from "./service.ts";
+import { type SessionDescription, SessionsStore } from "./store.ts";
 
 const STATES: Record<proto.SessionState, ObservedState | undefined> = {
   [proto.SessionState.UNSPECIFIED]: undefined,
@@ -157,13 +157,16 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
 
   const create = Effect.fn("Sessions.create")(function* (
     caller: Caller,
-    options: { readonly suspended: boolean; readonly snapshotId: string | undefined },
+    options: NewSessionOptions,
   ) {
     const account = yield* accountOf(caller);
     const alive = yield* nodes.candidates();
     const candidates =
       options.snapshotId === undefined ? alive : yield* having(caller, options.snapshotId, alive);
-    const [node, session] = yield* place(candidates, options);
+    const [node, session] = yield* place(candidates, {
+      suspended: options.suspended,
+      snapshotId: options.snapshotId,
+    });
     const created = session.createdAt;
     yield* store.insert({
       id: session.id,
@@ -173,6 +176,8 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       observedState: observationOf(session)?.state ?? "starting",
       failure: session.failure ?? null,
       snapshotId: session.snapshotId ?? null,
+      label: options.label ?? null,
+      tags: options.tags,
       createdAt: created === undefined ? yield* now : new Date(Number(created.seconds) * 1000),
       now: yield* now,
     });
@@ -193,6 +198,16 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
 
   const get = Effect.fn("Sessions.get")(function* (caller: Caller, id: string) {
     return yield* owned(caller, id);
+  });
+
+  const describe = Effect.fn("Sessions.describe")(function* (
+    caller: Caller,
+    id: string,
+    said: SessionDescription,
+  ) {
+    yield* owned(caller, id);
+    yield* store.describe(id, said);
+    return yield* current(id);
   });
 
   const suspend = Effect.fn("Sessions.suspend")(function* (caller: Caller, id: string) {
@@ -289,6 +304,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     create,
     list,
     get,
+    describe,
     placed,
     suspend,
     resume,

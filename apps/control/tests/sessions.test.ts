@@ -201,6 +201,27 @@ for (const stores of Control.STORES) {
         expect((yield* executor.client.sessions.get(from.id)).snapshotId).toBe(taken.id);
         yield* ada.api.sessions.delete({ params: { id: from.id } });
 
+        // What a session and a snapshot are called and tagged with is their owner's to change.
+        const named = yield* ada.api.sessions.describe({
+          params: { id: session },
+          payload: { label: "Checkout flow", tags: ["shop", "qa"] },
+        });
+        expect(named).toMatchObject({ label: "Checkout flow", tags: ["shop", "qa"] });
+        const retagged = yield* ada.api.sessions.describe({
+          params: { id: session },
+          payload: { tags: ["shop"] },
+        });
+        expect(retagged).toMatchObject({ label: "Checkout flow", tags: ["shop"] });
+        const described = yield* ada.api.snapshots.describe({
+          ...at,
+          payload: { description: "After signing in", tags: ["shop"] },
+        });
+        expect(described).toMatchObject({
+          name: "signed in",
+          description: "After signing in",
+          tags: ["shop"],
+        });
+
         yield* ada.api.snapshots.delete(at);
         expect(yield* ada.api.snapshots.list()).toEqual([]);
         expect((yield* Effect.flip(executor.client.snapshots.get(taken.id))).code).toBe(

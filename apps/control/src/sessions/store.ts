@@ -12,8 +12,15 @@ export interface NewSession {
   readonly observedState: ObservedState;
   readonly failure: string | null;
   readonly snapshotId: string | null;
+  readonly label: string | null;
+  readonly tags: ReadonlyArray<string>;
   readonly createdAt: Date;
   readonly now: Date;
+}
+
+export interface SessionDescription {
+  readonly label?: string | null | undefined;
+  readonly tags?: ReadonlyArray<string> | undefined;
 }
 
 /** Where the records of sessions are kept: whose each is, where it runs, how it was last seen. */
@@ -24,6 +31,8 @@ export interface SessionsStoreShape {
   readonly listOf: (accountId: string) => Effect.Effect<ReadonlyArray<Session>>;
   /** The ids of the sessions that are on a node. */
   readonly on: (nodeId: string) => Effect.Effect<ReadonlyArray<string>>;
+  /** Writes what its owner calls a session and tags it with; what is left out stays. */
+  readonly describe: (id: string, said: SessionDescription) => Effect.Effect<void>;
   readonly desire: (id: string, state: DesiredState) => Effect.Effect<void>;
   readonly delete: (id: string) => Effect.Effect<void>;
   /** Writes what a node said of a session that is on it; the node is in reach, then. */

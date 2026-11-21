@@ -14,5 +14,9 @@ export const ApiToken = Schema.Struct({
   accountId: Schema.String,
   name: Schema.String,
   createdAt: Schema.DateTimeUtcFromDate,
+  /** When it stops being good by itself; never, without. */
+  expiresAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
+  /** When it was taken back; it is kept so that its account sees it was. */
+  revokedAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
 });
 export type ApiToken = typeof ApiToken.Type;
