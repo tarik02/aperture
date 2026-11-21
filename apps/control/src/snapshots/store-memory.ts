@@ -25,8 +25,15 @@ export const makeSnapshotsStoreMemory = Effect.fn("SnapshotsStore.makeMemory")(f
 
   const list = Effect.fn("SnapshotsStore.list")(() => Effect.sync(created));
 
-  const listOf = Effect.fn("SnapshotsStore.listOf")((accountId: string) =>
-    Effect.sync(() => created().filter((snapshot) => snapshot.accountId === accountId)),
+  const listOf = Effect.fn("SnapshotsStore.listOf")(
+    (accountId: string, workspaceIds: ReadonlyArray<string>) =>
+      Effect.sync(() =>
+        created().filter((snapshot) =>
+          snapshot.workspaceId === null
+            ? snapshot.accountId === accountId
+            : workspaceIds.includes(snapshot.workspaceId),
+        ),
+      ),
   );
 
   const describe = Effect.fn("SnapshotsStore.describe")((id: string, said: SnapshotDescription) =>

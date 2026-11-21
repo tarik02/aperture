@@ -1,9 +1,17 @@
 import * as Schema from "effect/Schema";
 
+/**
+ * Who an account is for: a person, who signs in, or a service, which comes with API
+ * tokens alone. Both hold sessions and snapshots, and both are let into workspaces.
+ */
+export const AccountKind = Schema.Literals(["person", "service"]);
+export type AccountKind = typeof AccountKind.Type;
+
 export const Account = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   admin: Schema.Boolean,
+  kind: AccountKind,
   createdAt: Schema.DateTimeUtcFromDate,
 });
 export type Account = typeof Account.Type;

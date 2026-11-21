@@ -10,11 +10,14 @@ import * as Secrets from "../secrets.ts";
 import { Settings } from "../settings/service.ts";
 import { after, now } from "../time.ts";
 import { accountOf, reaches } from "./caller.ts";
+import type { AccountKind } from "./schemas.ts";
 import { Accounts } from "./service.ts";
 import { AccountsStore } from "./store.ts";
+import { WorkspacesStore } from "../workspaces/store.ts";
 
 export const makeAccounts = Effect.fn("Accounts.make")(function* () {
   const store = yield* AccountsStore;
+  const workspaces = yield* WorkspacesStore;
   const settings = yield* Settings;
   const crypto = yield* Effect.context<Crypto.Crypto>();
   const bootstrap = yield* Secrets.hash(Redacted.value(settings.bootstrapToken));
@@ -22,11 +25,13 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
   const create = Effect.fn("Accounts.create")(function* (account: {
     readonly name: string;
     readonly admin: boolean;
+    readonly kind: AccountKind;
   }) {
     return yield* store.insert({
       id: yield* Secrets.id,
       name: account.name,
       admin: account.admin,
+      kind: account.kind,
       createdAt: yield* now,
     });
   }, Effect.provide(crypto));
@@ -60,13 +65,18 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     const hashed = yield* Secrets.hash(bearer);
     // Digests are compared, so how long it takes tells nothing of the token.
     if (hashed === bootstrap) {
-      return { account: Option.none(), admin: true } satisfies Caller;
+      return { account: Option.none(), admin: true, workspaces: [] } satisfies Caller;
     }
     const account = yield* store.findByTokenHash(hashed, yield* now);
     if (Option.isNone(account)) {
       return yield* new Unauthorized({ message: "that is no token of an account" });
     }
-    return { account, admin: account.value.admin } satisfies Caller;
+    const joined = yield* workspaces.of(account.value.id);
+    return {
+      account,
+      admin: account.value.admin,
+      workspaces: joined.map(({ workspace, role }) => ({ id: workspace.id, role })),
+    } satisfies Caller;
   }, Effect.provide(crypto));
 
   const tokens = Effect.fn("Accounts.tokens")(function* (caller: Caller) {
@@ -76,7 +86,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
 
   const revokeToken = Effect.fn("Accounts.revokeToken")(function* (caller: Caller, id: string) {
     const token = Option.filter(yield* store.findToken(id), (found) =>
-      reaches(caller, found.accountId),
+      reaches(caller, { accountId: found.accountId, workspaceId: null }),
     );
     if (Option.isNone(token)) {
       return yield* new ApiTokenNotFound({ id });

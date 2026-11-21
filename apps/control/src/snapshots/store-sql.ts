@@ -12,10 +12,11 @@ export const makeSnapshotsStore = Effect.fn("SnapshotsStore.make")(function* () 
   const insert = Effect.fn("SnapshotsStore.insert")(function* (snapshot: NewSnapshot) {
     return yield* sql`
       INSERT INTO snapshots (
-        id, account_id, name, description, tags, session_id, node_id, shared, created_at
+        id, account_id, workspace_id, name, description, tags, session_id, node_id, shared, created_at
       )
       VALUES (
-        ${snapshot.id}, ${snapshot.accountId}, ${snapshot.name}, ${snapshot.description},
+        ${snapshot.id}, ${snapshot.accountId}, ${snapshot.workspaceId}, ${snapshot.name},
+        ${snapshot.description},
         ${JSON.stringify(snapshot.tags)}::jsonb, ${snapshot.sessionId}, ${snapshot.nodeId},
         ${snapshot.shared}, ${snapshot.createdAt}
       )
@@ -31,9 +32,18 @@ export const makeSnapshotsStore = Effect.fn("SnapshotsStore.make")(function* () 
     return yield* sql`SELECT * FROM snapshots ORDER BY created_at, id`.pipe(all(Snapshot));
   });
 
-  const listOf = Effect.fn("SnapshotsStore.listOf")(function* (accountId: string) {
+  const listOf = Effect.fn("SnapshotsStore.listOf")(function* (
+    accountId: string,
+    workspaceIds: ReadonlyArray<string>,
+  ) {
     return yield* sql`
-      SELECT * FROM snapshots WHERE account_id = ${accountId} ORDER BY created_at, id
+      SELECT * FROM snapshots
+      WHERE ${sql.or([
+        sql`(account_id = ${accountId} AND workspace_id IS NULL)`,
+        // `IN ()` is no SQL.
+        ...(workspaceIds.length === 0 ? [] : [sql`workspace_id IN ${sql.in(workspaceIds)}`]),
+      ])}
+      ORDER BY created_at, id
     `.pipe(all(Snapshot));
   });
 

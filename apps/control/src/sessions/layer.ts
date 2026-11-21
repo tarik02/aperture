@@ -19,6 +19,7 @@ import {
   SessionHasNoNode,
   SessionNotFound,
   SnapshotNotFound,
+  WorkspaceNotFound,
 } from "../errors.ts";
 import { asked } from "../nodes/asked.ts";
 import type { Node } from "../nodes/schemas.ts";
@@ -104,7 +105,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
 
   const owned = Effect.fn(function* (caller: Caller, id: string) {
     const session = yield* store.find(id);
-    const mine = Option.filter(session, (found) => reaches(caller, found.accountId));
+    const mine = Option.filter(session, (found) => reaches(caller, found));
     return yield* Option.match(mine, {
       onNone: () => Effect.fail(new SessionNotFound({ id })),
       onSome: Effect.succeed,
@@ -145,7 +146,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     candidates: ReadonlyArray<Node>,
   ) {
     const snapshot = Option.filter(yield* snapshots.find(snapshotId), (found) =>
-      reaches(caller, found.accountId),
+      reaches(caller, found),
     );
     if (Option.isNone(snapshot)) {
       return yield* new SnapshotNotFound({ id: snapshotId });
@@ -191,6 +192,10 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     options: NewSessionOptions,
   ) {
     const account = yield* accountOf(caller);
+    const workspaceId = options.workspaceId ?? null;
+    if (workspaceId !== null && !caller.workspaces.some((one) => one.id === workspaceId)) {
+      return yield* new WorkspaceNotFound({ id: workspaceId });
+    }
     const alive = yield* nodes.candidates();
     const candidates =
       options.snapshotId === undefined ? alive : yield* having(caller, options.snapshotId, alive);
@@ -203,6 +208,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     yield* store.insert({
       id: session.id,
       accountId: account.id,
+      workspaceId,
       nodeId: node.id,
       desiredState: options.suspended ? "suspended" : "running",
       observedState: observationOf(session)?.state ?? "starting",
@@ -224,7 +230,11 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       return yield* store.list();
     }
     return yield* Option.match(caller.account, {
-      onSome: (account) => store.listOf(account.id),
+      onSome: (account) =>
+        store.listOf(
+          account.id,
+          caller.workspaces.map((workspace) => workspace.id),
+        ),
       onNone: () => Effect.succeed([]),
     });
   });

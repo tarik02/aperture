@@ -3,13 +3,14 @@ import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as Duration from "effect/Duration";
 import type { AccountNotFound, ApiTokenNotFound, Forbidden, Unauthorized } from "../errors.ts";
-import type { Account, ApiToken } from "./schemas.ts";
+import type { Account, AccountKind, ApiToken } from "./schemas.ts";
 
 /** Accounts, their API tokens, and whose a token is. */
 export interface AccountsShape {
   readonly create: (account: {
     readonly name: string;
     readonly admin: boolean;
+    readonly kind: AccountKind;
   }) => Effect.Effect<Account>;
   readonly list: () => Effect.Effect<ReadonlyArray<Account>>;
   /** A new API token of the account. The secret is told here and kept nowhere. */

@@ -4,6 +4,8 @@ import * as Schema from "effect/Schema";
 export const Snapshot = Schema.Struct({
   id: Schema.String,
   accountId: Schema.String,
+  /** The workspace it is of: the one its session was of when it was taken. */
+  workspaceId: Schema.NullOr(Schema.String),
   name: Schema.NullOr(Schema.String),
   description: Schema.NullOr(Schema.String),
   tags: Schema.Record(Schema.String, Schema.String),

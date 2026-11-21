@@ -7,6 +7,7 @@ import type { Observation, Session } from "./schemas.ts";
 export interface NewSession {
   readonly id: string;
   readonly accountId: string;
+  readonly workspaceId: string | null;
   readonly nodeId: string;
   readonly desiredState: DesiredState;
   readonly observedState: ObservedState;
@@ -28,7 +29,11 @@ export interface SessionsStoreShape {
   readonly insert: (session: NewSession) => Effect.Effect<Session>;
   readonly find: (id: string) => Effect.Effect<Option.Option<Session>>;
   readonly list: () => Effect.Effect<ReadonlyArray<Session>>;
-  readonly listOf: (accountId: string) => Effect.Effect<ReadonlyArray<Session>>;
+  /** An account's own sessions, and those of these workspaces. */
+  readonly listOf: (
+    accountId: string,
+    workspaceIds: ReadonlyArray<string>,
+  ) => Effect.Effect<ReadonlyArray<Session>>;
   /** The ids of the sessions that are on a node. */
   readonly on: (nodeId: string) => Effect.Effect<ReadonlyArray<string>>;
   /** Writes what its owner calls a session and tags it with; what is left out stays. */

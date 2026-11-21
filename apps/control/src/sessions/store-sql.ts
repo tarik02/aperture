@@ -17,11 +17,12 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
   const insert = Effect.fn("SessionsStore.insert")(function* (session: NewSession) {
     return yield* sql`
       INSERT INTO sessions (
-        id, account_id, node_id, desired_state, observed_state, failure, snapshot_id,
+        id, account_id, workspace_id, node_id, desired_state, observed_state, failure, snapshot_id,
         label, tags, created_at, observed_at
       )
       VALUES (
-        ${session.id}, ${session.accountId}, ${session.nodeId}, ${session.desiredState},
+        ${session.id}, ${session.accountId}, ${session.workspaceId}, ${session.nodeId},
+        ${session.desiredState},
         ${session.observedState}, ${session.failure}, ${session.snapshotId},
         ${session.label}, ${JSON.stringify(session.tags)}::jsonb,
         ${session.createdAt}, ${session.now}
@@ -38,9 +39,18 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     return yield* sql`SELECT * FROM sessions ORDER BY created_at, id`.pipe(all(Session));
   });
 
-  const listOf = Effect.fn("SessionsStore.listOf")(function* (accountId: string) {
+  const listOf = Effect.fn("SessionsStore.listOf")(function* (
+    accountId: string,
+    workspaceIds: ReadonlyArray<string>,
+  ) {
     return yield* sql`
-      SELECT * FROM sessions WHERE account_id = ${accountId} ORDER BY created_at, id
+      SELECT * FROM sessions
+      WHERE ${sql.or([
+        sql`(account_id = ${accountId} AND workspace_id IS NULL)`,
+        // `IN ()` is no SQL.
+        ...(workspaceIds.length === 0 ? [] : [sql`workspace_id IN ${sql.in(workspaceIds)}`]),
+      ])}
+      ORDER BY created_at, id
     `.pipe(all(Session));
   });
 

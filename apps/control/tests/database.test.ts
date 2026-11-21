@@ -36,6 +36,8 @@ suite(database)("the database", (it) => {
         "registration_tokens",
         "sessions",
         "snapshots",
+        "workspace_members",
+        "workspaces",
       ]);
     }),
   );

@@ -10,6 +10,7 @@ import type {
   SessionHasNoNode,
   SessionNotFound,
   SnapshotNotFound,
+  WorkspaceNotFound,
 } from "../errors.ts";
 import type { Node } from "../nodes/schemas.ts";
 import type { Admission, Session } from "./schemas.ts";
@@ -19,6 +20,8 @@ export interface NewSessionOptions {
   readonly suspended: boolean;
   readonly snapshotId: string | undefined;
   readonly label: string | undefined;
+  /** The workspace the session is of; the caller's own account's without. */
+  readonly workspaceId: string | undefined;
   readonly proxy: ProxyConfig | undefined;
   readonly tags: Readonly<Record<string, string>>;
 }
@@ -37,7 +40,10 @@ export interface SessionsShape {
   readonly create: (
     caller: Caller,
     options: NewSessionOptions,
-  ) => Effect.Effect<Session, Forbidden | SnapshotNotFound | NoNode | NodeRefused>;
+  ) => Effect.Effect<
+    Session,
+    Forbidden | WorkspaceNotFound | SnapshotNotFound | NoNode | NodeRefused
+  >;
   /** Changes what its owner calls a session and tags it with; what is left out stays. */
   readonly describe: (
     caller: Caller,

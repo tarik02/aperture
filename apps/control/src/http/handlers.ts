@@ -12,6 +12,7 @@ import { sessionPath } from "../routing/paths.ts";
 import type { Session } from "../sessions/schemas.ts";
 import { Sessions } from "../sessions/service.ts";
 import { Snapshots } from "../snapshots/service.ts";
+import { type Joined, Workspaces } from "../workspaces/service.ts";
 
 /** Goes on for an admin, and for nobody else. */
 const admin = Effect.gen(function* () {
@@ -45,7 +46,11 @@ const accounts = HttpApiBuilder.group(
       .handle("create", ({ payload }) =>
         Effect.andThen(
           admin,
-          accounts.create({ name: payload.name, admin: payload.admin ?? false }),
+          accounts.create({
+            name: payload.name,
+            admin: payload.admin ?? false,
+            kind: payload.kind ?? "service",
+          }),
         ),
       )
       .handle(
@@ -137,6 +142,7 @@ const sessions = HttpApiBuilder.group(
             suspended: payload.suspended ?? false,
             snapshotId: payload.snapshotId,
             label: payload.label,
+            workspaceId: payload.workspaceId,
             proxy: payload.proxy,
             tags: payload.tags ?? {},
           }),
@@ -214,4 +220,46 @@ const snapshots = HttpApiBuilder.group(
   }),
 );
 
-export const layer = Layer.mergeAll(accounts, nodes, sessions, snapshots);
+const workspaces = HttpApiBuilder.group(
+  Api,
+  "workspaces",
+  Effect.fn(function* (handlers) {
+    const workspaces = yield* Workspaces;
+    const shown = ({ workspace, role }: Joined) => ({ ...workspace, role });
+    return handlers
+      .handle("list", () =>
+        CurrentCaller.pipe(
+          Effect.flatMap(workspaces.list),
+          Effect.map((all) => all.map(shown)),
+        ),
+      )
+      .handle("create", ({ payload }) =>
+        Effect.flatMap(CurrentCaller, (caller) => workspaces.create(caller, payload.name)).pipe(
+          Effect.map(shown),
+        ),
+      )
+      .handle("rename", ({ params, payload }) =>
+        Effect.flatMap(CurrentCaller, (caller) =>
+          workspaces.rename(caller, params.id, payload.name),
+        ).pipe(Effect.map(shown)),
+      )
+      .handle("delete", ({ params }) =>
+        Effect.flatMap(CurrentCaller, (caller) => workspaces.delete(caller, params.id)),
+      )
+      .handle("members", ({ params }) =>
+        Effect.flatMap(CurrentCaller, (caller) => workspaces.members(caller, params.id)),
+      )
+      .handle("admit", ({ params, payload }) =>
+        Effect.flatMap(CurrentCaller, (caller) =>
+          workspaces.admit(caller, params.id, params.accountId, payload.role),
+        ),
+      )
+      .handle("dismiss", ({ params }) =>
+        Effect.flatMap(CurrentCaller, (caller) =>
+          workspaces.dismiss(caller, params.id, params.accountId),
+        ),
+      );
+  }),
+);
+
+export const layer = Layer.mergeAll(accounts, nodes, sessions, snapshots, workspaces);

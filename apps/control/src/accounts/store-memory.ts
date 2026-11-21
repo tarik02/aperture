@@ -15,6 +15,7 @@ export const makeAccountsStoreMemory = Effect.fn("AccountsStore.makeMemory")(fun
         id: account.id,
         name: account.name,
         admin: account.admin,
+        kind: account.kind,
         createdAt: moment(account.createdAt),
       };
       memory.accounts.set(kept.id, kept);

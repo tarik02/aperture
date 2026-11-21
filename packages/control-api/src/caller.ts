@@ -10,7 +10,10 @@ export interface Caller {
     readonly id: string;
     readonly name: string;
     readonly admin: boolean;
+    readonly kind: "person" | "service";
     readonly createdAt: DateTime.Utc;
   }>;
   readonly admin: boolean;
+  /** The workspaces the account is in, and what it does in each. */
+  readonly workspaces: ReadonlyArray<{ readonly id: string; readonly role: "member" | "admin" }>;
 }

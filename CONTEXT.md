@@ -54,6 +54,12 @@ A machine with an executor on it, as the control plane knows it: its name, where
 **Registration token**:
 What lets an executor tell a control plane it is a node of it. An admin makes it; several can be good at once.
 
+**Workspace**:
+Where accounts keep sessions and snapshots together: what is a workspace's is all its members', and stays the workspace's when a member leaves. A session or a snapshot is of one workspace or of none, and of none it is its account's own. A member who is an admin of the workspace says who its members are.
+
+**Service account**:
+An account for something that is not a person: it comes with API tokens alone. It holds sessions and snapshots and is let into workspaces as a person's account is.
+
 **Session path**:
 Where a session is reached through a proxy that stands before the nodes, below the proxy's own address: `/n/<node>/sessions/<id>`. The proxy sends what comes there on to the node, once the control plane told it the request may pass and gave it a ticket to put on it; the ticket goes no further than the proxy. The path changes when the session moves to another node.
 

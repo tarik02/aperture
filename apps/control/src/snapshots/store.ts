@@ -6,6 +6,7 @@ import type { Snapshot } from "./schemas.ts";
 export interface NewSnapshot {
   readonly id: string;
   readonly accountId: string;
+  readonly workspaceId: string | null;
   readonly name: string | null;
   readonly description: string | null;
   readonly tags: Readonly<Record<string, string>>;
@@ -26,7 +27,11 @@ export interface SnapshotsStoreShape {
   readonly insert: (snapshot: NewSnapshot) => Effect.Effect<Snapshot>;
   readonly find: (id: string) => Effect.Effect<Option.Option<Snapshot>>;
   readonly list: () => Effect.Effect<ReadonlyArray<Snapshot>>;
-  readonly listOf: (accountId: string) => Effect.Effect<ReadonlyArray<Snapshot>>;
+  /** An account's own snapshots, and those of these workspaces. */
+  readonly listOf: (
+    accountId: string,
+    workspaceIds: ReadonlyArray<string>,
+  ) => Effect.Effect<ReadonlyArray<Snapshot>>;
   /** Writes what a snapshot is called, said to be and tagged with; what is left out stays. */
   readonly describe: (id: string, said: SnapshotDescription) => Effect.Effect<void>;
   readonly delete: (id: string) => Effect.Effect<void>;

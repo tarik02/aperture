@@ -14,16 +14,29 @@ const statements = (all: ReadonlyArray<string>) =>
   });
 
 /**
- * Every table names its owner `account_id`, so that what an account shares with others
- * later is said beside it and not in its place.
+ * A session or a snapshot names the account that made it as `account_id`, and beside it
+ * the workspace it is of, where it is of one: without, it is that account's own.
  */
 const initial = statements([
   `CREATE TABLE accounts (
     id uuid PRIMARY KEY,
     name text NOT NULL,
     admin boolean NOT NULL DEFAULT false,
+    kind text NOT NULL DEFAULT 'service' CHECK (kind IN ('person', 'service')),
     created_at timestamptz NOT NULL
   )`,
+  `CREATE TABLE workspaces (
+    id uuid PRIMARY KEY,
+    name text NOT NULL,
+    created_at timestamptz NOT NULL
+  )`,
+  `CREATE TABLE workspace_members (
+    workspace_id uuid NOT NULL REFERENCES workspaces (id) ON DELETE CASCADE,
+    account_id uuid NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    role text NOT NULL CHECK (role IN ('member', 'admin')),
+    PRIMARY KEY (workspace_id, account_id)
+  )`,
+  `CREATE INDEX workspace_members_account_id ON workspace_members (account_id)`,
   `CREATE TABLE api_tokens (
     id uuid PRIMARY KEY,
     account_id uuid NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
@@ -59,6 +72,7 @@ const initial = statements([
   `CREATE TABLE snapshots (
     id text PRIMARY KEY,
     account_id uuid NOT NULL REFERENCES accounts (id),
+    workspace_id uuid REFERENCES workspaces (id),
     name text,
     description text,
     tags jsonb NOT NULL DEFAULT '{}',
@@ -73,6 +87,7 @@ const initial = statements([
   `CREATE TABLE sessions (
     id text PRIMARY KEY,
     account_id uuid NOT NULL REFERENCES accounts (id),
+    workspace_id uuid REFERENCES workspaces (id),
     node_id uuid REFERENCES nodes (id) ON DELETE SET NULL,
     desired_state text NOT NULL CHECK (desired_state IN ('running', 'suspended')),
     observed_state text NOT NULL CHECK (
@@ -90,6 +105,8 @@ const initial = statements([
   )`,
   `CREATE INDEX sessions_account_id ON sessions (account_id)`,
   `CREATE INDEX sessions_node_id ON sessions (node_id)`,
+  `CREATE INDEX sessions_workspace_id ON sessions (workspace_id)`,
+  `CREATE INDEX snapshots_workspace_id ON snapshots (workspace_id)`,
 ]);
 
 /** Brings the database to what this program expects; what was applied before is left alone. */

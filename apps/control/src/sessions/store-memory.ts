@@ -27,6 +27,7 @@ export const makeSessionsStoreMemory = Effect.fn("SessionsStore.makeMemory")(fun
       const kept: Session = {
         id: session.id,
         accountId: session.accountId,
+        workspaceId: session.workspaceId,
         nodeId: session.nodeId,
         desiredState: session.desiredState,
         observedState: session.observedState,
@@ -49,8 +50,15 @@ export const makeSessionsStoreMemory = Effect.fn("SessionsStore.makeMemory")(fun
 
   const list = Effect.fn("SessionsStore.list")(() => Effect.sync(created));
 
-  const listOf = Effect.fn("SessionsStore.listOf")((accountId: string) =>
-    Effect.sync(() => created().filter((session) => session.accountId === accountId)),
+  const listOf = Effect.fn("SessionsStore.listOf")(
+    (accountId: string, workspaceIds: ReadonlyArray<string>) =>
+      Effect.sync(() =>
+        created().filter((session) =>
+          session.workspaceId === null
+            ? session.accountId === accountId
+            : workspaceIds.includes(session.workspaceId),
+        ),
+      ),
   );
 
   const on = Effect.fn("SessionsStore.on")((nodeId: string) =>

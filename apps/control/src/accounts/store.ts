@@ -1,12 +1,13 @@
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
-import type { Account, ApiToken } from "./schemas.ts";
+import type { Account, AccountKind, ApiToken } from "./schemas.ts";
 
 export interface NewAccount {
   readonly id: string;
   readonly name: string;
   readonly admin: boolean;
+  readonly kind: AccountKind;
   readonly createdAt: Date;
 }
 

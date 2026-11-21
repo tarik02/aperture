@@ -75,3 +75,17 @@ export class ApiTokenNotFound extends Schema.TaggedError<ApiTokenNotFound>()(
   { id: Schema.String },
   { httpApiStatus: 404 },
 ) {}
+
+/** There is no such workspace, or the caller is not in it: the two are told alike. */
+export class WorkspaceNotFound extends Schema.TaggedError<WorkspaceNotFound>()(
+  "WorkspaceNotFound",
+  { id: Schema.String },
+  { httpApiStatus: 404 },
+) {}
+
+/** The workspace still has sessions or snapshots, so it is not removed. */
+export class WorkspaceInUse extends Schema.TaggedError<WorkspaceInUse>()(
+  "WorkspaceInUse",
+  { id: Schema.String },
+  { httpApiStatus: 409 },
+) {}

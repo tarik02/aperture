@@ -4,7 +4,10 @@ import * as Schema from "effect/Schema";
 
 export const Session = Schema.Struct({
   id: Schema.String,
+  /** The account that made it; its owner, where it is of no workspace. */
   accountId: Schema.String,
+  /** The workspace it is of, whose members all have it. */
+  workspaceId: Schema.NullOr(Schema.String),
   /** The node it is on; none for a session that is gone from its node. */
   nodeId: Schema.NullOr(Schema.String),
   desiredState: DesiredState,

@@ -19,17 +19,37 @@ import {
   SessionNotFound,
   SnapshotNotFound,
   Unauthorized,
+  WorkspaceInUse,
+  WorkspaceNotFound,
 } from "./errors.ts";
 import { Access, DesiredState, ObservedState, Offers, ProxyConfig } from "./schemas.ts";
 
 /** Where the control plane's API is, apart from the routes of sessions and of nodes. */
 export const PREFIX = "/api/control";
 
+const WorkspaceRole = Schema.Literals(["member", "admin"]);
+
 export const Account = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   admin: Schema.Boolean,
+  /** A person, who signs in, or a service, which comes with API tokens alone. */
+  kind: Schema.Literals(["person", "service"]),
   createdAt: Schema.DateTimeUtcFromString,
+});
+
+/** A workspace as its caller has it: `role` is none for an admin who is no member. */
+export const Workspace = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  createdAt: Schema.DateTimeUtcFromString,
+  role: Schema.NullOr(WorkspaceRole),
+});
+
+export const WorkspaceMember = Schema.Struct({
+  accountId: Schema.String,
+  name: Schema.String,
+  role: WorkspaceRole,
 });
 
 /** An API token as its account sees it: never the token. */
@@ -79,6 +99,7 @@ export const Node = Schema.Struct({
 export const Session = Schema.Struct({
   id: Schema.String,
   accountId: Schema.String,
+  workspaceId: Schema.NullOr(Schema.String),
   nodeId: Schema.NullOr(Schema.String),
   desiredState: DesiredState,
   observedState: ObservedState,
@@ -99,6 +120,7 @@ export const Session = Schema.Struct({
 export const Snapshot = Schema.Struct({
   id: Schema.String,
   accountId: Schema.String,
+  workspaceId: Schema.NullOr(Schema.String),
   name: Schema.NullOr(Schema.String),
   description: Schema.NullOr(Schema.String),
   tags: Schema.Record(Schema.String, Schema.String),
@@ -156,6 +178,7 @@ export class AccountsGroup extends HttpApiGroup.make("accounts")
       payload: Schema.Struct({
         name: Schema.NonEmptyString,
         admin: Schema.optional(Schema.Boolean),
+        kind: Schema.optional(Schema.Literals(["person", "service"])),
       }),
       success: Account.pipe(HttpApiSchema.status(201)),
       error: Forbidden,
@@ -202,11 +225,13 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
         suspended: Schema.optional(Schema.Boolean),
         snapshotId: Schema.optional(Schema.NonEmptyString),
         label: Schema.optional(Schema.NonEmptyString),
+        /** The workspace the session is of; the caller's own account's without. */
+        workspaceId: Schema.optional(Schema.NonEmptyString),
         tags: Schema.optional(Tags),
         proxy: Schema.optional(ProxyConfig),
       }),
       success: Session.pipe(HttpApiSchema.status(201)),
-      error: [Forbidden, SnapshotNotFound, NoNode, NodeRefused],
+      error: [Forbidden, WorkspaceNotFound, SnapshotNotFound, NoNode, NodeRefused],
     }),
     HttpApiEndpoint.get("get", "/sessions/:id", {
       params: session,
@@ -301,8 +326,51 @@ export class SnapshotsGroup extends HttpApiGroup.make("snapshots")
     }),
   ) {}
 
+const workspace = { id: Schema.String };
+
+export class WorkspacesGroup extends HttpApiGroup.make("workspaces")
+  .add(
+    HttpApiEndpoint.get("list", "/workspaces", { success: Schema.Array(Workspace) }),
+    HttpApiEndpoint.post("create", "/workspaces", {
+      payload: Schema.Struct({ name: Schema.NonEmptyString }),
+      success: Workspace.pipe(HttpApiSchema.status(201)),
+      error: Forbidden,
+    }),
+    HttpApiEndpoint.patch("rename", "/workspaces/:id", {
+      params: workspace,
+      payload: Schema.Struct({ name: Schema.NonEmptyString }),
+      success: Workspace,
+      error: [WorkspaceNotFound, Forbidden],
+    }),
+    HttpApiEndpoint.delete("delete", "/workspaces/:id", {
+      params: workspace,
+      error: [WorkspaceNotFound, Forbidden, WorkspaceInUse],
+    }),
+    HttpApiEndpoint.get("members", "/workspaces/:id/members", {
+      params: workspace,
+      success: Schema.Array(WorkspaceMember),
+      error: WorkspaceNotFound,
+    }),
+    HttpApiEndpoint.put("admit", "/workspaces/:id/members/:accountId", {
+      params: { ...workspace, accountId: Schema.String },
+      payload: Schema.Struct({ role: WorkspaceRole }),
+      error: [WorkspaceNotFound, Forbidden, AccountNotFound],
+    }),
+    HttpApiEndpoint.delete("dismiss", "/workspaces/:id/members/:accountId", {
+      params: { ...workspace, accountId: Schema.String },
+      error: [WorkspaceNotFound, Forbidden],
+    }),
+  )
+  .annotateMerge(
+    OpenApi.annotations({
+      title: "Workspaces",
+      description:
+        "Where accounts keep sessions and snapshots together: what is a workspace's is all its members'.",
+    }),
+  ) {}
+
 export class Api extends HttpApi.make("control")
-  .add(AccountsGroup, NodesGroup, SessionsGroup, SnapshotsGroup)
+  .add(AccountsGroup, NodesGroup, SessionsGroup, SnapshotsGroup, WorkspacesGroup)
   .middleware(Authorization)
   .prefix(PREFIX)
   .annotateMerge(

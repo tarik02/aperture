@@ -13,8 +13,10 @@ export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
 
   const insert = Effect.fn("AccountsStore.insert")(function* (account: NewAccount) {
     return yield* sql`
-      INSERT INTO accounts (id, name, admin, created_at)
-      VALUES (${account.id}, ${account.name}, ${account.admin}, ${account.createdAt})
+      INSERT INTO accounts (id, name, admin, kind, created_at)
+      VALUES (
+        ${account.id}, ${account.name}, ${account.admin}, ${account.kind}, ${account.createdAt}
+      )
       RETURNING *
     `.pipe(one(Account));
   });

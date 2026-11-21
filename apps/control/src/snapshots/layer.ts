@@ -21,7 +21,7 @@ export const makeSnapshots = Effect.fn("Snapshots.make")(function* () {
   const owned = Effect.fn(function* (caller: Caller, id: string) {
     const snapshot = yield* store.find(id);
     return yield* Option.match(
-      Option.filter(snapshot, (found) => reaches(caller, found.accountId)),
+      Option.filter(snapshot, (found) => reaches(caller, found)),
       {
         onNone: () => Effect.fail(new SnapshotNotFound({ id })),
         onSome: Effect.succeed,
@@ -58,6 +58,7 @@ export const makeSnapshots = Effect.fn("Snapshots.make")(function* () {
       id: taken.id,
       // A snapshot is whose the session is, also when an admin takes it.
       accountId: session.accountId,
+      workspaceId: session.workspaceId,
       name: taken.name ?? null,
       description: options.description ?? null,
       tags: options.tags,
@@ -73,7 +74,11 @@ export const makeSnapshots = Effect.fn("Snapshots.make")(function* () {
       return yield* store.list();
     }
     return yield* Option.match(caller.account, {
-      onSome: (account) => store.listOf(account.id),
+      onSome: (account) =>
+        store.listOf(
+          account.id,
+          caller.workspaces.map((workspace) => workspace.id),
+        ),
       onNone: () => Effect.succeed([]),
     });
   });

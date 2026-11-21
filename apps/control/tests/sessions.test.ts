@@ -253,6 +253,53 @@ for (const stores of Control.STORES) {
       }),
     );
 
+    it.effect("what is a workspace's is all its members', and nobody else's", () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const team = yield* ada.api.workspaces.create({ payload: { name: "Shop team" } });
+        expect(team).toMatchObject({ name: "Shop team", role: "admin" });
+        const shared = yield* ada.api.sessions.create({
+          payload: { workspaceId: team.id, suspended: true, label: "Shared" },
+        });
+        expect(shared.workspaceId).toBe(team.id);
+
+        const bob = yield* Control.account("Bob");
+        const at = { params: { id: shared.id } };
+        expect((yield* Effect.flip(bob.api.sessions.get(at)))._tag).toBe("SessionNotFound");
+        expect(yield* bob.api.workspaces.list()).toEqual([]);
+        // Nobody makes a session in a workspace they are not in, nor says who is in it.
+        const outside = yield* Effect.flip(
+          bob.api.sessions.create({ payload: { workspaceId: team.id } }),
+        );
+        expect(outside._tag).toBe("WorkspaceNotFound");
+
+        const member = { params: { id: team.id, accountId: bob.account.id } };
+        yield* ada.api.workspaces.admit({ ...member, payload: { role: "member" } });
+        // The same token, now of a member: what it reaches is told anew with each request.
+        const asBob = yield* control.as(bob.token);
+        expect((yield* asBob.sessions.get(at)).label).toBe("Shared");
+        expect((yield* asBob.sessions.list()).map((one) => one.id)).toEqual([shared.id]);
+        expect((yield* asBob.workspaces.list()).map((one) => one.role)).toEqual(["member"]);
+        expect((yield* asBob.workspaces.members({ params: { id: team.id } })).length).toBe(2);
+        const notTheirs = yield* Effect.flip(
+          asBob.workspaces.admit({ ...member, payload: { role: "admin" } }),
+        );
+        expect(notTheirs._tag).toBe("Forbidden");
+        // Ada's own sessions stay hers.
+        expect((yield* Effect.flip(asBob.sessions.get({ params: { id: session } })))._tag).toBe(
+          "SessionNotFound",
+        );
+
+        const inUse = yield* Effect.flip(ada.api.workspaces.delete({ params: { id: team.id } }));
+        expect(inUse._tag).toBe("WorkspaceInUse");
+        yield* ada.api.workspaces.dismiss(member);
+        expect((yield* Effect.flip(asBob.sessions.get(at)))._tag).toBe("SessionNotFound");
+        yield* ada.api.sessions.delete(at);
+        yield* ada.api.workspaces.delete({ params: { id: team.id } });
+        expect(yield* ada.api.workspaces.list()).toEqual([]);
+      }),
+    );
+
     it.effect("suspending and resuming go through to the node", () =>
       Effect.gen(function* () {
         const executor = yield* Executor.Executor;

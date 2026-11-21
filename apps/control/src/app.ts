@@ -28,6 +28,9 @@ import * as SnapshotsStoreSql from "./snapshots/store-sql.ts";
 import * as Memory from "./store/memory.ts";
 import * as Tickets from "./tickets/layer.ts";
 import * as Vault from "./vault/layer.ts";
+import * as Workspaces from "./workspaces/layer.ts";
+import * as WorkspacesStoreMemory from "./workspaces/store-memory.ts";
+import * as WorkspacesStoreSql from "./workspaces/store-sql.ts";
 
 /** The stores on the database the settings name, migrated before anything is asked of it. */
 export const stores = Layer.mergeAll(
@@ -35,6 +38,7 @@ export const stores = Layer.mergeAll(
   NodesStoreSql.layer,
   SessionsStoreSql.layer,
   SnapshotsStoreSql.layer,
+  WorkspacesStoreSql.layer,
 ).pipe(Layer.provide(Database.layer));
 
 /** The stores on nothing but memory, which is gone with the layer. */
@@ -43,10 +47,11 @@ export const storesTest = Layer.mergeAll(
   NodesStoreMemory.layerTest,
   SessionsStoreMemory.layerTest,
   SnapshotsStoreMemory.layerTest,
+  WorkspacesStoreMemory.layerTest,
 ).pipe(Layer.provide(Memory.layer));
 
 /** What the control plane knows and does, whoever asks: over HTTP, or by itself. */
-export const services = Layer.mergeAll(Snapshots.layer, Routing.layer).pipe(
+export const services = Layer.mergeAll(Snapshots.layer, Routing.layer, Workspaces.layer).pipe(
   Layer.provideMerge(Sessions.layer),
   Layer.provideMerge(Layer.mergeAll(Accounts.layer, Nodes.layer, Tickets.layer)),
   Layer.provide(Vault.layer),
