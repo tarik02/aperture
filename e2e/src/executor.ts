@@ -23,6 +23,7 @@ import {
   type NoPort,
   type Program,
   run,
+  logsDirectory,
 } from "./process.ts";
 import { program } from "./programs.ts";
 import { type TimedOut, until } from "./wait.ts";
@@ -149,8 +150,19 @@ export const start = Effect.fn("Executor.start")(function* (options: ExecutorOpt
   const client = make({ url, token });
 
   const stop = Effect.suspend(() => running.ends("SIGINT"));
+  // What the sessions' runners logged goes with the sessions, unless it is asked for.
+  const keepLogs = Effect.gen(function* () {
+    const logs = yield* logsDirectory;
+    if (logs === undefined) {
+      return;
+    }
+    for (const session of yield* fs.readDirectory(`${data}/sessions`)) {
+      const from = `${data}/sessions/${session}/logs/runner.log`;
+      yield* fs.copyFile(from, `${logs}/runner-${session}.log`);
+    }
+  }).pipe(Effect.ignore);
   yield* Effect.addFinalizer(() =>
-    client.sessions.list.pipe(
+    keepLogs.pipe(Effect.andThen(client.sessions.list)).pipe(
       Effect.flatMap((sessions) =>
         Effect.forEach(sessions, (session) => Effect.ignore(client.sessions.delete(session.id)), {
           discard: true,

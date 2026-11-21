@@ -27,6 +27,16 @@ export interface Program {
   readonly ends: (signal: Signal) => Effect.Effect<void>;
 }
 
+/**
+ * Where whoever runs the checks asked for the programs' logs to be kept, if they did: for
+ * looking into a check that fails once in many runs, after the run.
+ */
+export const logsDirectory = Config.String("APERTURE_E2E_LOGS").pipe(
+  Config.withDefault(""),
+  Effect.orElseSucceed(() => ""),
+  Effect.map((directory) => (directory === "" ? undefined : directory)),
+);
+
 /** Runs a program for as long as the scope lasts. */
 export const run = Effect.fn("run")(function* (
   program: string,
@@ -37,7 +47,7 @@ export const run = Effect.fn("run")(function* (
     env,
     extendEnv: true,
     stdin: "ignore",
-    stdout: "ignore",
+    stdout: "pipe",
     stderr: "pipe",
     // The signal is for the program alone: what it started ends as the program has it end.
     detached: false,
@@ -45,16 +55,12 @@ export const run = Effect.fn("run")(function* (
     forceKillAfter: ENDS_WITHIN,
   });
   let said = "";
-  // All of it, where whoever runs the checks asked for it: for looking into a check that
-  // fails once in many runs, after the run.
   const fs = yield* FileSystem.FileSystem;
-  const logs = yield* Config.String("APERTURE_E2E_LOGS").pipe(
-    Config.withDefault(""),
-    Effect.orElseSucceed(() => ""),
-  );
+  const logs = yield* logsDirectory;
   const name = program.split("/").at(-1) ?? "program";
-  const log = logs === "" ? undefined : `${logs}/${name}-${handle.pid}.log`;
-  yield* handle.stderr.pipe(
+  const log = logs === undefined ? undefined : `${logs}/${name}-${handle.pid}.log`;
+  // Both of its outputs: which one a program logs to is the program's own choice.
+  yield* Stream.merge(handle.stdout, handle.stderr).pipe(
     Stream.decodeText(),
     Stream.runForEach((chunk) =>
       Effect.gen(function* () {
