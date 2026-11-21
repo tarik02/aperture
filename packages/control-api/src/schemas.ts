@@ -97,7 +97,8 @@ export type ProxyConfig = typeof ProxyConfig.Type;
 /**
  * What an API token may be held to: with scopes it does what they name and nothing else,
  * and without any it does whatever its account does. Writing something includes reading
- * it; `admin` is what an admin's token keeps an admin's with.
+ * it; `events:read` reads the events of its account and of the workspaces that is in, and
+ * `admin` is what an admin's token keeps an admin's with.
  */
 export const Scope = Schema.Literals([
   "sessions:read",
@@ -106,6 +107,7 @@ export const Scope = Schema.Literals([
   "snapshots:write",
   "workspaces:write",
   "tokens:write",
+  "events:read",
   "admin",
 ]);
 export type Scope = typeof Scope.Type;
@@ -126,3 +128,87 @@ export const TokenResources = Schema.Struct({
   snapshots: Schema.Array(Schema.String),
 });
 export type TokenResources = typeof TokenResources.Type;
+
+/**
+ * What an event says was done. The set is closed: what reads events knows every kind
+ * there is, and a new one is added here.
+ */
+export const EventKind = Schema.Literals([
+  "sign_in.succeeded",
+  "sign_in.failed",
+  "account.created",
+  "account.disabled",
+  "account.enabled",
+  "account.removed",
+  "account.setup_link_made",
+  "account.second_factor_reset",
+  "account.passkeys_removed",
+  "token.created",
+  "token.revoked",
+  "grant.given",
+  "grant.revoked",
+  "registration_token.created",
+  "workspace.created",
+  "workspace.renamed",
+  "workspace.deleted",
+  "workspace.member_admitted",
+  "workspace.member_dismissed",
+  "session.created",
+  "session.suspended",
+  "session.resumed",
+  "session.deleted",
+  "snapshot.taken",
+  "snapshot.replaced",
+  "snapshot.deleted",
+  "share.created",
+  "share.revoked",
+  "share.joined",
+  "node.registered",
+  "node.silent",
+]);
+export type EventKind = typeof EventKind.Type;
+
+/**
+ * Who did what an event says: an account, the guest of a share link, the holder of the
+ * bootstrap token, someone who is not known, as whoever failed to sign in, or the control
+ * plane by itself.
+ */
+export const EventActor = Schema.Struct({
+  kind: Schema.Literals(["account", "guest", "bootstrap", "anonymous", "system"]),
+  /** An account's id, or `share:<id>` for a guest; none for the others. */
+  id: Schema.NullOr(Schema.String),
+  /** What they were called then. */
+  name: Schema.NullOr(Schema.String),
+});
+export type EventActor = typeof EventActor.Type;
+
+/** What an event is about, as it was called then: it may be gone, or called otherwise, since. */
+export const EventResource = Schema.Struct({
+  kind: Schema.Literals([
+    "account",
+    "token",
+    "grant",
+    "registration_token",
+    "workspace",
+    "session",
+    "snapshot",
+    "share",
+    "node",
+  ]),
+  id: Schema.String,
+  label: Schema.NullOr(Schema.String),
+});
+export type EventResource = typeof EventResource.Type;
+
+/** What else an event of its kind says, in a few plain values. Never a secret. */
+export const EventDetail = Schema.Record(
+  Schema.String,
+  Schema.Union([
+    Schema.String,
+    Schema.Number,
+    Schema.Boolean,
+    Schema.Null,
+    Schema.Array(Schema.String),
+  ]),
+);
+export type EventDetail = typeof EventDetail.Type;

@@ -33,6 +33,10 @@ import {
 import {
   Access,
   DesiredState,
+  EventActor,
+  EventDetail,
+  EventKind,
+  EventResource,
   ObservedState,
   Offers,
   ProxyConfig,
@@ -216,6 +220,28 @@ export const Share = Schema.Struct({
 
 /** A link as it is told once, when it is made: `url` is what a guest opens. */
 export const ShareCreated = Schema.Struct({ ...Share.fields, url: Schema.String });
+
+/** Something that was done, by whom and to what: written once, and never changed. */
+export const Event = Schema.Struct({
+  id: Schema.String,
+  at: Schema.DateTimeUtcFromString,
+  kind: EventKind,
+  actor: EventActor,
+  /** What it was about; nothing where that is not known, as with whoever nobody knows. */
+  resource: Schema.NullOr(EventResource),
+  /** The workspace what it was about is of, where it is of one. */
+  workspaceId: Schema.NullOr(Schema.String),
+  /** Where the request that did it came from, where one did and that is known. */
+  address: Schema.NullOr(Schema.String),
+  detail: EventDetail,
+});
+
+/** Events, the newest first, and what the ones after them are asked for with. */
+export const EventPage = Schema.Struct({
+  events: Schema.Array(Event),
+  /** The cursor of the events before these; none where these are the oldest. */
+  next: Schema.NullOr(Schema.String),
+});
 
 /** Who the request comes from, for what handles it. */
 export class CurrentCaller extends Context.Service<CurrentCaller, Caller>()(
@@ -539,6 +565,43 @@ export class WorkspacesGroup extends HttpApiGroup.make("workspaces")
     }),
   ) {}
 
+export const EVENTS_MOST = 200;
+
+export class EventsGroup extends HttpApiGroup.make("events")
+  .add(
+    HttpApiEndpoint.get("list", "/events", {
+      query: {
+        kind: Schema.optional(EventKind),
+        /** An account's id, or a part of what the actor was called. */
+        actor: Schema.optional(Schema.NonEmptyString),
+        resourceKind: Schema.optional(EventResource.fields.kind),
+        resourceId: Schema.optional(Schema.NonEmptyString),
+        workspaceId: Schema.optional(Schema.NonEmptyString),
+        /** Events from this moment on. */
+        since: Schema.optional(Schema.DateTimeUtcFromString),
+        /** Events before this moment. */
+        until: Schema.optional(Schema.DateTimeUtcFromString),
+        /** What a page before said the next is asked for with. */
+        cursor: Schema.optional(Schema.String.check(Schema.isPattern(/^\d{1,16}_[0-9a-f-]{36}$/u))),
+        limit: Schema.optional(
+          Schema.FiniteFromString.check(
+            Schema.isInt(),
+            Schema.isBetween({ minimum: 1, maximum: EVENTS_MOST }),
+          ),
+        ),
+      },
+      success: EventPage,
+      error: Forbidden,
+    }),
+  )
+  .annotateMerge(
+    OpenApi.annotations({
+      title: "Events",
+      description:
+        "What was done by whom, the newest first. An admin reads all of it; anyone else what their own account did or had done to it, and what was done in the workspaces they are in.",
+    }),
+  ) {}
+
 /** What an app asks a person for, as its authorization request says it. */
 const asked = { clientId: Schema.NonEmptyString, redirectUri: Schema.NonEmptyString };
 
@@ -594,6 +657,7 @@ export class SignInGroup extends HttpApiGroup.make("signIn")
 export class Api extends HttpApi.make("control")
   .add(
     AccountsGroup,
+    EventsGroup,
     GrantsGroup,
     NodesGroup,
     SessionsGroup,

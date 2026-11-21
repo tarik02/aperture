@@ -54,7 +54,8 @@ export const makeNodesStore = Effect.fn("NodesStore.make")(function* () {
         public_url = EXCLUDED.public_url,
         operator_token_sealed = EXCLUDED.operator_token_sealed,
         registration_token_id = EXCLUDED.registration_token_id,
-        last_seen_at = EXCLUDED.last_seen_at
+        last_seen_at = EXCLUDED.last_seen_at,
+        silent_at = NULL
       RETURNING *
     `.pipe(one(NodeRecord));
   });
@@ -63,6 +64,14 @@ export const makeNodesStore = Effect.fn("NodesStore.make")(function* () {
     yield* sql`UPDATE nodes SET offers = ${encodeOffers(offers)}::jsonb WHERE id = ${id}`.pipe(
       done,
     );
+  });
+
+  const noteSilent = Effect.fn("NodesStore.noteSilent")(function* (since: Date, now: Date) {
+    return yield* sql`
+      UPDATE nodes SET silent_at = ${now}
+      WHERE last_seen_at <= ${since} AND silent_at IS NULL
+      RETURNING *
+    `.pipe(all(NodeRecord));
   });
 
   const list = Effect.fn("NodesStore.list")(function* () {
@@ -96,6 +105,7 @@ export const makeNodesStore = Effect.fn("NodesStore.make")(function* () {
     findRegistrationTokenByHash,
     seen,
     describe,
+    noteSilent,
     list,
     find,
     seenSince,

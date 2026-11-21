@@ -4,9 +4,12 @@ import * as HttpRouter from "effect/http/HttpRouter";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Schema from "effect/Schema";
+import { Doer } from "../events/doer.ts";
+import { anonymous } from "../events/schemas.ts";
 import { Grants } from "../grants/service.ts";
 import type { Tokens } from "../grants/schemas.ts";
 import { Settings } from "../settings/service.ts";
+import { doing } from "./doer.ts";
 import { PATH as MCP_PATH, RESOURCE_METADATA_PATH } from "./mcp.ts";
 import { anyOrigin, originOf } from "./origin.ts";
 
@@ -236,7 +239,12 @@ export const layer = HttpRouter.use(
         HttpServerRequest.HttpServerRequest
       >,
     ) {
-      yield* router.add(method, path, (request) => open(handler(request)));
+      yield* router.add(method, path, (request) =>
+        // An app comes with no account: what it does is done by nobody that is known.
+        open(
+          handler(request).pipe(Effect.provideService(Doer, doing(settings, request, anonymous()))),
+        ),
+      );
       yield* router.add("OPTIONS", path, open(Effect.succeed(HttpServerResponse.empty())));
     });
 

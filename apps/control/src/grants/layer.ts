@@ -19,6 +19,7 @@ import {
   OAuthClientNotFound,
   RedirectRefused,
 } from "../errors.ts";
+import { Events } from "../events/service.ts";
 import * as Secrets from "../secrets.ts";
 import { after, ago, now } from "../time.ts";
 import type { Grant, Tokens } from "./schemas.ts";
@@ -65,6 +66,7 @@ const answerable = (given: string) => {
 
 export const makeGrants = Effect.fn("Grants.make")(function* () {
   const store = yield* GrantsStore;
+  const events = yield* Events;
   const crypto = yield* Effect.context<Crypto.Crypto>();
 
   const register = Effect.fn("Grants.register")(function* (app: {
@@ -138,8 +140,27 @@ export const makeGrants = Effect.fn("Grants.make")(function* () {
       codeChallenge: asked.codeChallenge,
       expiresAt: yield* after(CODE_LASTS),
     });
+    yield* events.record({
+      kind: "grant.given",
+      resource: { kind: "grant", id: grantId, label: client.name },
+      ownerId: account.id,
+      detail: {
+        clientId: client.id,
+        scopes: asked.scopes,
+        heldToResources: asked.resources !== undefined,
+      },
+    });
     return code;
   }, Effect.provide(crypto));
+
+  /** Records that a grant is gone, and by whose doing: the person's, the app's, or a code's misuse. */
+  const taken = (grant: Grant, by: "person" | "app" | "code_misused") =>
+    events.record({
+      kind: "grant.revoked",
+      resource: { kind: "grant", id: grant.id, label: grant.clientName },
+      ownerId: grant.accountId,
+      detail: { clientId: grant.clientId, by },
+    });
 
   const issue = Effect.fn(function* (grant: Grant) {
     const accessToken = yield* Secrets.make("apo");
@@ -184,6 +205,9 @@ export const makeGrants = Effect.fn("Grants.make")(function* () {
     ) {
       // A code that someone else tried was seen by someone else: what it was for is undone.
       yield* store.deleteGrant(code.value.grantId);
+      if (Option.isSome(grant)) {
+        yield* taken(grant.value, "code_misused");
+      }
       return yield* new GrantRefused({ message: "the code was made for another request" });
     }
     return yield* issue(grant.value);
@@ -215,6 +239,7 @@ export const makeGrants = Effect.fn("Grants.make")(function* () {
       return yield* new GrantRefused({ message: "the token is another app's" });
     }
     yield* store.deleteGrant(grant.value.id);
+    yield* taken(grant.value, "app");
   }, Effect.provide(crypto));
 
   const forget = Effect.fn("Grants.forget")(function* () {
@@ -235,6 +260,7 @@ export const makeGrants = Effect.fn("Grants.make")(function* () {
       return yield* new GrantNotFound({ id });
     }
     yield* store.deleteGrant(grant.value.id);
+    yield* taken(grant.value, "person");
   });
 
   return Grants.of({

@@ -99,6 +99,7 @@ export const ALL_SCOPES = [
   "snapshots:write",
   "workspaces:write",
   "tokens:write",
+  "events:read",
   "admin",
 ] as const;
 

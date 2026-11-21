@@ -88,6 +88,10 @@ _Avoid_: Tenant, user
 Said of an account an admin took out of use without removing it: nothing signs in as it, whatever it proves itself by, its cookies, its API tokens and the tokens of its grants are nobody's at once, and whoever is in a session as it is put out. The share links it made let nobody in while it is, and their guests are put out with it. All that is its own stays, and it is as it was once an admin enables it. Nobody disables or removes their own account, and the last admin stays.
 _Avoid_: Blocked, banned, suspended (which is a session's)
 
+**Event**:
+Something that was done, written down once and never changed: when, what kind of thing it was, who did it and what it was about, each as it was called then, the workspace that was of, and where the request came from. Who did it is an account, the guest of a share link, the holder of the bootstrap token, someone not known, as whoever failed to sign in, or the control plane by itself. An admin reads every event; anyone else those of their own account, done by it or to it, and of the workspaces they are in. Events are kept for a while and then forgotten, and none holds a secret.
+_Avoid_: Audit entry, activity, log line
+
 **Ticket**:
 A signed, expiring pass for one person into one session. It lets its holder watch, and says what else they may do as access. Whoever stands above the executor signs it; the gateway only checks it. A session socket opened with it stays open after the ticket ran out, but for one whose ticket says until when, and one whose holder the operator dismisses.
 _Avoid_: Session token, share link

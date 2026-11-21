@@ -39,6 +39,11 @@ export interface NodesStoreShape {
    */
   readonly seen: (node: SeenNode) => Effect.Effect<NodeRecord>;
   readonly describe: (id: string, offers: Offers) => Effect.Effect<void>;
+  /**
+   * Notes that the nodes not seen since then fell silent, and gives those it was not
+   * noted of before: each is given once, until it is seen again.
+   */
+  readonly noteSilent: (since: Date, now: Date) => Effect.Effect<ReadonlyArray<NodeRecord>>;
   readonly list: () => Effect.Effect<ReadonlyArray<NodeRecord>>;
   readonly find: (id: string) => Effect.Effect<Option.Option<NodeRecord>>;
   /** The nodes seen since then. */

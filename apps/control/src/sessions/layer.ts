@@ -22,6 +22,7 @@ import {
   SnapshotNotFound,
   WorkspaceNotFound,
 } from "../errors.ts";
+import { Events } from "../events/service.ts";
 import { asked } from "../nodes/asked.ts";
 import type { Node } from "../nodes/schemas.ts";
 import { Nodes } from "../nodes/service.ts";
@@ -29,7 +30,7 @@ import { SnapshotsStore } from "../snapshots/store.ts";
 import { Tickets } from "../tickets/service.ts";
 import { now } from "../time.ts";
 import { Vault } from "../vault/service.ts";
-import type { Admission, Observation } from "./schemas.ts";
+import type { Admission, Observation, Session } from "./schemas.ts";
 import { type NewSessionOptions, Sessions } from "./service.ts";
 import { type SessionDescription, SessionsStore } from "./store.ts";
 
@@ -68,6 +69,15 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
   const nodes = yield* Nodes;
   const tickets = yield* Tickets;
   const vault = yield* Vault;
+  const events = yield* Events;
+
+  /** A session as an event is about it. */
+  const about = (session: Session) =>
+    ({
+      resource: { kind: "session", id: session.id, label: session.label },
+      ownerId: session.accountId,
+      workspaceId: session.workspaceId,
+    }) as const;
 
   const seal = (id: string, proxy: ProxyConfig | null) =>
     proxy === null ? Effect.succeed(null) : vault.seal(encodeProxy(proxy), id);
@@ -234,7 +244,13 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     yield* store.keepProxy(session.id, yield* seal(session.id, options.proxy ?? null));
     // What the node said of the session while there was no record of it was dropped.
     yield* Effect.ignore(refresh(node, session.id));
-    return yield* Effect.orDie(current(session.id));
+    const made = yield* Effect.orDie(current(session.id));
+    yield* events.record({
+      kind: "session.created",
+      ...about(made),
+      detail: { node: node.name, snapshotId: made.snapshotId, suspended: options.suspended },
+    });
+    return made;
   });
 
   const list = Effect.fn("Sessions.list")(function* (caller: Caller) {
@@ -293,21 +309,23 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
   });
 
   const suspend = Effect.fn("Sessions.suspend")(function* (caller: Caller, id: string) {
-    const { node } = yield* placed(caller, id);
+    const { session, node } = yield* placed(caller, id);
     yield* store.desire(id, "suspended");
     yield* through(node, id, nodes.executor(node).sessions.suspend(id));
+    yield* events.record({ kind: "session.suspended", ...about(session) });
     return yield* current(id);
   });
 
   const resume = Effect.fn("Sessions.resume")(function* (caller: Caller, id: string) {
-    const { node } = yield* placed(caller, id);
+    const { session, node } = yield* placed(caller, id);
     yield* store.desire(id, "running");
     yield* through(node, id, nodes.executor(node).sessions.resume(id));
+    yield* events.record({ kind: "session.resumed", ...about(session) });
     return yield* current(id);
   });
 
   const delete_ = Effect.fn("Sessions.delete")(function* (caller: Caller, id: string) {
-    const { node } = yield* placed(caller, id);
+    const { session, node } = yield* placed(caller, id);
     yield* nodes
       .executor(node)
       .sessions.delete(id)
@@ -320,6 +338,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
         asked(node),
       );
     yield* store.delete(id);
+    yield* events.record({ kind: "session.deleted", ...about(session) });
   });
 
   const admit = Effect.fn("Sessions.admit")(function* (

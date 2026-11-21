@@ -8,5 +8,6 @@ export const SCOPES: ReadonlyArray<{ readonly scope: Scope; readonly lets: strin
   { scope: "snapshots:write", lets: "Save, change and delete snapshots" },
   { scope: "workspaces:write", lets: "Create workspaces and say who is in them" },
   { scope: "tokens:write", lets: "See, make and revoke API tokens" },
+  { scope: "events:read", lets: "See what was done, and by whom" },
   { scope: "admin", lets: "What only an admin does: nodes and accounts" },
 ];

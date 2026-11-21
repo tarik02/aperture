@@ -49,6 +49,7 @@ export const makeNodesStoreMemory = Effect.fn("NodesStore.makeMemory")(function*
         lastSeenAt: moment(node.now),
       };
       memory.nodes.set(kept.id, kept);
+      memory.nodesSilent.delete(kept.id);
       return kept;
     }),
   );
@@ -59,6 +60,18 @@ export const makeNodesStoreMemory = Effect.fn("NodesStore.makeMemory")(function*
       if (node !== undefined) {
         memory.nodes.set(id, { ...node, offers });
       }
+    }),
+  );
+
+  const noteSilent = Effect.fn("NodesStore.noteSilent")((since: Date) =>
+    Effect.sync(() => {
+      const fell = [...memory.nodes.values()].filter(
+        (node) => !isAfter(node.lastSeenAt, since) && !memory.nodesSilent.has(node.id),
+      );
+      for (const node of fell) {
+        memory.nodesSilent.add(node.id);
+      }
+      return fell;
     }),
   );
 
@@ -89,6 +102,7 @@ export const makeNodesStoreMemory = Effect.fn("NodesStore.makeMemory")(function*
     findRegistrationTokenByHash,
     seen,
     describe,
+    noteSilent,
     list,
     find,
     seenSince,

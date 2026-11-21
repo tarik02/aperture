@@ -15,6 +15,8 @@ import * as Schema from "effect/Schema";
 import { Pool } from "pg";
 import { AccountsStore } from "../accounts/store.ts";
 import { EmailTaken, PersonNotFound } from "../errors.ts";
+import { anonymous } from "../events/schemas.ts";
+import { Events } from "../events/service.ts";
 import * as Secrets from "../secrets.ts";
 import { Settings } from "../settings/service.ts";
 import { Vault } from "../vault/service.ts";
@@ -32,6 +34,32 @@ const PASSWORD = "credential";
 const ISSUER = "Aperture";
 /** The header better-auth is told where a request came from in. */
 const FROM_HEADER = "x-aperture-client-address";
+/** The route of better-auth's own a provider sends people back to. */
+const PROVIDER_CALLBACK = "/callback/:id";
+/**
+ * The routes that sign someone in, each with what they prove themselves by there. A
+ * password that is followed by a second factor signs nobody in yet.
+ */
+const SIGN_INS: ReadonlyArray<readonly [RegExp, "password" | "two_factor" | "passkey"]> = [
+  [/\/sign-in\/email$/u, "password"],
+  [/\/two-factor\/verify-[a-z-]+$/u, "two_factor"],
+  [/\/passkey\/verify-authentication$/u, "passkey"],
+];
+const PROVIDER_CAME_BACK = /\/callback\/([^/]+)$/u;
+const REDIRECTS_FROM = 300;
+const ERRORS_FROM = 400;
+
+/** What someone who signs in with a password sends, of which the address alone is read. */
+const Tried = Schema.fromJsonString(Schema.Struct({ email: Schema.optional(Schema.String) }));
+/** What a route that signs someone in answers, as far as it tells whether it did and whom. */
+const Answered = Schema.fromJsonString(
+  Schema.Struct({
+    twoFactorRedirect: Schema.optional(Schema.Boolean),
+    user: Schema.optional(Schema.Struct({ id: Schema.String })),
+    session: Schema.optional(Schema.Struct({ userId: Schema.String })),
+    code: Schema.optional(Schema.String),
+  }),
+);
 
 /**
  * Identity by better-auth, on whatever database it is given. Everything of better-auth is
@@ -41,6 +69,7 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
   const vault = yield* Vault;
   const settings = yield* Settings;
   const accounts = yield* AccountsStore;
+  const events = yield* Events;
   const context = yield* Effect.context<Crypto.Crypto>();
   /** Setup tokens on their way: better-auth hands one to whoever sends it, which is this. */
   const sent = new Map<string, string>();
@@ -108,6 +137,19 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
               throw refused("account_disabled", "This account is disabled. Ask an admin.");
             }
           },
+          // Who a provider signed in is told nowhere but here: its answer is a redirect.
+          after: async (session, context) => {
+            if (context?.path !== PROVIDER_CALLBACK) {
+              return;
+            }
+            await Effect.runPromise(
+              signedIn(
+                session.userId,
+                { method: "provider", provider: String(context.params?.["id"] ?? "") },
+                Option.fromNullishOr(context.headers?.get(FROM_HEADER)),
+              ),
+            );
+          },
         },
       },
       user: {
@@ -140,13 +182,104 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
   } satisfies BetterAuthOptions;
   const auth = betterAuth(options);
 
+  /** Records that someone signed in, as the account they sign in as where they have one. */
+  const signedIn = Effect.fn(function* (
+    personId: string | undefined,
+    detail: { readonly method: string; readonly provider?: string },
+    from: Option.Option<string>,
+  ) {
+    const account = personId === undefined ? Option.none() : yield* accounts.findByPerson(personId);
+    yield* events.record({
+      kind: "sign_in.succeeded",
+      address: Option.getOrNull(from),
+      detail,
+      ...Option.match(account, {
+        onNone: () => ({ actor: anonymous() }),
+        onSome: (found) => ({
+          actor: { kind: "account" as const, id: found.id, name: found.name },
+          resource: { kind: "account" as const, id: found.id, label: found.name },
+          ownerId: found.id,
+        }),
+      }),
+    });
+  });
+
+  /** Records that someone did not sign in: by what they tried, and never what they tried it with. */
+  const refusedSignIn = (
+    detail: { readonly method: string; readonly provider?: string; readonly reason: string },
+    email: string | undefined,
+    from: Option.Option<string>,
+  ) =>
+    events.record({
+      kind: "sign_in.failed",
+      actor: anonymous(email ?? null),
+      address: Option.getOrNull(from),
+      detail,
+    });
+
+  /** Records what a request to a route that signs someone in came to. */
+  const noted = Effect.fn(function* (
+    path: string,
+    sent: string,
+    answer: Response,
+    from: Option.Option<string>,
+  ) {
+    const provider = PROVIDER_CAME_BACK.exec(path)?.[1];
+    if (provider !== undefined) {
+      // Signed in, they are sent on to the console; otherwise back with why not.
+      const to = answer.headers.get("location") ?? "";
+      const reason =
+        answer.status >= ERRORS_FROM
+          ? String(answer.status)
+          : answer.status >= REDIRECTS_FROM && URL.canParse(to, "http://localhost")
+            ? new URL(to, "http://localhost").searchParams.get("error")
+            : null;
+      if (reason !== null) {
+        yield* refusedSignIn({ method: "provider", provider, reason }, undefined, from);
+      }
+      return;
+    }
+    const method = SIGN_INS.find(([route]) => route.test(path))?.[1];
+    if (method === undefined) {
+      return;
+    }
+    const read = Schema.decodeUnknownOption(Answered);
+    const answered = Option.getOrElse(
+      read(yield* Effect.promise(() => answer.clone().text())),
+      () => ({}) as typeof Answered.Type,
+    );
+    if (answer.ok) {
+      if (answered.twoFactorRedirect !== true) {
+        yield* signedIn(answered.user?.id ?? answered.session?.userId, { method }, from);
+      }
+      return;
+    }
+    const tried = Option.getOrUndefined(Schema.decodeUnknownOption(Tried)(sent));
+    yield* refusedSignIn(
+      { method, reason: answered.code?.toLowerCase() ?? String(answer.status) },
+      tried?.email,
+      from,
+    );
+  });
+
   const handle = Effect.fn("Identity.handle")(function* (
     request: Request,
     from: Option.Option<string>,
   ) {
-    if (new URL(request.url).pathname.startsWith(SIGN_UP)) {
+    const { pathname } = new URL(request.url);
+    if (pathname.startsWith(SIGN_UP)) {
       return new Response(null, { status: NOT_FOUND });
     }
+    // Read before it is handed on, which leaves nothing of it to read.
+    const signsIn = SIGN_INS.find(([route]) => route.test(pathname))?.[1];
+    const sent =
+      request.method === "POST" && signsIn !== undefined
+        ? yield* Effect.promise(() => request.clone().text())
+        : "";
+    // A code is also asked of someone who is signed in, when they turn the second factor
+    // on: that signs nobody in.
+    const already =
+      signsIn === "two_factor" && Option.isSome(yield* personOf(new Headers(request.headers)));
     // Where it came from is said here and by nobody else: what the request says of that
     // itself is dropped.
     const headers = new Headers(request.headers);
@@ -154,7 +287,11 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
     if (Option.isSome(from)) {
       headers.set(FROM_HEADER, from.value);
     }
-    return yield* Effect.promise(() => auth.handler(new Request(request, { headers })));
+    const answer = yield* Effect.promise(() => auth.handler(new Request(request, { headers })));
+    if (!already) {
+      yield* noted(pathname, sent, answer, from);
+    }
+    return answer;
   });
 
   const providers = Effect.fn("Identity.providers")(() =>

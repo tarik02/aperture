@@ -38,6 +38,8 @@ export interface NodesShape {
   readonly find: (id: string) => Effect.Effect<Option.Option<Node>>;
   /** Keeps what a node's executor said of itself. */
   readonly describe: (node: Node, executor: proto.Executor) => Effect.Effect<void>;
+  /** Notes which nodes fell silent since it was last looked: each once, until it is back. */
+  readonly noteSilent: () => Effect.Effect<void>;
   /** The node's executor, driven as its operator. */
   readonly executor: (node: Node) => ExecutorClient;
 }

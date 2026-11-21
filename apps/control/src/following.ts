@@ -73,6 +73,7 @@ export const makeFollowing = Effect.fn("Following.make")(function* () {
       { discard: true },
     );
     yield* sessions.unreachableExceptOn(alive);
+    yield* nodes.noteSilent();
   });
 
   yield* look().pipe(

@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { reaches } from "../accounts/caller.ts";
 import { SnapshotNotFound } from "../errors.ts";
+import { Events } from "../events/service.ts";
 import { asked } from "../nodes/asked.ts";
 import type { Node } from "../nodes/schemas.ts";
 import { Nodes } from "../nodes/service.ts";
@@ -17,6 +18,15 @@ export const makeSnapshots = Effect.fn("Snapshots.make")(function* () {
   const store = yield* SnapshotsStore;
   const nodes = yield* Nodes;
   const sessions = yield* Sessions;
+  const events = yield* Events;
+
+  /** A snapshot as an event is about it. */
+  const about = (snapshot: Snapshot) =>
+    ({
+      resource: { kind: "snapshot", id: snapshot.id, label: snapshot.name },
+      ownerId: snapshot.accountId,
+      workspaceId: snapshot.workspaceId,
+    }) as const;
 
   const owned = Effect.fn(function* (caller: Caller, id: string) {
     const snapshot = yield* store.find(id);
@@ -88,8 +98,14 @@ export const makeSnapshots = Effect.fn("Snapshots.make")(function* () {
       createdAt: created === undefined ? yield* now : new Date(Number(created.seconds) * 1000),
     });
     // Only once the new one is there: a snapshot that could not be taken replaces nothing.
+    yield* events.record({ kind: "snapshot.taken", ...about(kept), detail: { sessionId } });
     if (replaced !== undefined) {
       yield* remove(replaced);
+      yield* events.record({
+        kind: "snapshot.replaced",
+        ...about(replaced),
+        detail: { by: kept.id },
+      });
     }
     return kept;
   });
@@ -125,7 +141,9 @@ export const makeSnapshots = Effect.fn("Snapshots.make")(function* () {
   });
 
   const delete_ = Effect.fn("Snapshots.delete")(function* (caller: Caller, id: string) {
-    yield* remove(yield* owned(caller, id));
+    const snapshot = yield* owned(caller, id);
+    yield* remove(snapshot);
+    yield* events.record({ kind: "snapshot.deleted", ...about(snapshot) });
   });
 
   return Snapshots.of({ take, list, get, describe, delete: delete_ });

@@ -2,6 +2,7 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Layer from "effect/Layer";
 import type { Account, ApiToken } from "../accounts/schemas.ts";
+import type { Event } from "../events/schemas.ts";
 import type { Client, Grant } from "../grants/schemas.ts";
 import type { NewCode, NewToken } from "../grants/store.ts";
 import type { NodeRecord, RegistrationToken } from "../nodes/schemas.ts";
@@ -23,6 +24,9 @@ export interface MemoryShape {
   /** By the token's digest. */
   readonly registrationTokens: Map<string, RegistrationToken>;
   readonly nodes: Map<string, NodeRecord>;
+  /** The nodes that were noted to have fallen silent, and were not heard from since. */
+  readonly nodesSilent: Set<string>;
+  readonly events: Map<string, Event>;
   readonly sessions: Map<string, Session>;
   /** Sessions' routing, sealed, by the session's id. */
   readonly sessionProxies: Map<string, string>;
@@ -53,6 +57,8 @@ export const layer = Layer.sync(Memory, () =>
     apiTokens: new Map(),
     registrationTokens: new Map(),
     nodes: new Map(),
+    nodesSilent: new Set(),
+    events: new Map(),
     sessions: new Map(),
     sessionProxies: new Map(),
     shares: new Map(),

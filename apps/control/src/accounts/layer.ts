@@ -6,6 +6,7 @@ import {
 } from "@aperture-browser/control-api";
 import * as UrlPath from "@aperture-browser/shared/url-path";
 import type * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as HttpClient from "effect/http/HttpClient";
@@ -22,6 +23,7 @@ import {
   PersonNotFound,
   Unauthorized,
 } from "../errors.ts";
+import { Events } from "../events/service.ts";
 import { GrantsStore } from "../grants/store.ts";
 import { Identity } from "../identity/service.ts";
 import { Nodes } from "../nodes/service.ts";
@@ -43,6 +45,13 @@ const DISMISSED_WITHIN = Duration.seconds(5);
 /** How many sessions' nodes are asked at a time to put someone out. */
 const DISMISSED_AT_ONCE = 16;
 
+/** An account as an event is about it: it is its own, so that it reads what is done to it. */
+const about = (account: Account) =>
+  ({
+    resource: { kind: "account", id: account.id, label: account.name },
+    ownerId: account.id,
+  }) as const;
+
 const counted = (count: number, what: string) => `${count} ${what}${count === 1 ? "" : "s"}`;
 
 export const makeAccounts = Effect.fn("Accounts.make")(function* () {
@@ -56,6 +65,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
   const workspaces = yield* WorkspacesStore;
   const identity = yield* Identity;
   const settings = yield* Settings;
+  const events = yield* Events;
   const crypto = yield* Effect.context<Crypto.Crypto>();
   const bootstrap = yield* Secrets.hash(Redacted.value(settings.bootstrapToken));
 
@@ -74,7 +84,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
       account.email === undefined
         ? null
         : yield* identity.create({ email: account.email, name: account.name });
-    return yield* store.insert({
+    const made = yield* store.insert({
       id: yield* Secrets.id,
       name: account.name,
       admin: account.admin,
@@ -82,6 +92,12 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
       person,
       createdAt: yield* now,
     });
+    yield* events.record({
+      kind: "account.created",
+      ...about(made),
+      detail: { kind: made.kind, admin: made.admin, email: made.email },
+    });
+    return made;
   }, Effect.provide(crypto));
 
   const setupToken = Effect.fn("Accounts.setupToken")(function* (accountId: string) {
@@ -92,7 +108,9 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     if (account.value.email === null) {
       return yield* new PersonNotFound({ email: "" });
     }
-    return yield* identity.setupToken(account.value.email);
+    const token = yield* identity.setupToken(account.value.email);
+    yield* events.record({ kind: "account.setup_link_made", ...about(account.value) });
+    return token;
   });
 
   const resetSecondFactor = Effect.fn("Accounts.resetSecondFactor")(function* (accountId: string) {
@@ -104,6 +122,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
       return yield* new PersonNotFound({ email: "" });
     }
     yield* identity.resetSecondFactor(account.value.email);
+    yield* events.record({ kind: "account.second_factor_reset", ...about(account.value) });
   });
 
   const removePasskeys = Effect.fn("Accounts.removePasskeys")(function* (accountId: string) {
@@ -115,6 +134,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
       return yield* new PersonNotFound({ email: "" });
     }
     yield* identity.removePasskeys(account.value.email);
+    yield* events.record({ kind: "account.passkeys_removed", ...about(account.value) });
   });
 
   /** The caller an account is, with the workspaces it is in. */
@@ -160,16 +180,20 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     if (!settings.provisionPeople) {
       return yield* new Unauthorized({ message: "nobody is signed in" });
     }
-    return yield* callerOf(
-      yield* store.insertForPerson({
-        id: yield* Secrets.id,
-        name: person.value.name.trim() || person.value.email,
-        admin: false,
-        kind: "person",
-        person: { id: person.value.id, email: person.value.email },
-        createdAt: yield* now,
-      }),
-    );
+    const made = yield* store.insertForPerson({
+      id: yield* Secrets.id,
+      name: person.value.name.trim() || person.value.email,
+      admin: false,
+      kind: "person",
+      person: { id: person.value.id, email: person.value.email },
+      createdAt: yield* now,
+    });
+    yield* events.record({
+      kind: "account.created",
+      ...about(made),
+      detail: { kind: made.kind, admin: made.admin, email: made.email, provisioned: true },
+    });
+    return yield* callerOf(made);
   }, Effect.provide(crypto));
 
   const list = Effect.fn("Accounts.list")(function* () {
@@ -251,6 +275,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
       yield* identity.signOut(account.email).pipe(Effect.ignore);
     }
     yield* dismiss(id, yield* shares.listBy(id));
+    yield* events.record({ kind: "account.disabled", ...about(disabled) });
     return disabled;
   });
 
@@ -259,6 +284,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     if (Option.isNone(enabled)) {
       return yield* new AccountNotFound({ id });
     }
+    yield* events.record({ kind: "account.enabled", ...about(enabled.value) });
     return enabled.value;
   });
 
@@ -281,6 +307,11 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     const links = yield* shares.listBy(id);
     yield* store.delete(id);
     yield* dismiss(id, links);
+    yield* events.record({
+      kind: "account.removed",
+      ...about(account),
+      detail: { kind: account.kind, email: account.email },
+    });
   });
 
   const createToken = Effect.fn("Accounts.createToken")(function* (
@@ -304,6 +335,17 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
       expiresAt: lasts === undefined ? null : yield* after(lasts),
       scopes: scopes ?? null,
       resources: resources ?? null,
+    });
+    yield* events.record({
+      kind: "token.created",
+      resource: { kind: "token", id: token.id, label: token.name },
+      ownerId: accountId,
+      detail: {
+        account: account.value.name,
+        scopes: token.scopes,
+        expiresAt: token.expiresAt === null ? null : DateTime.formatIso(token.expiresAt),
+        heldToResources: token.resources !== null,
+      },
     });
     return { token, secret };
   }, Effect.provide(crypto));
@@ -349,6 +391,11 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
       return yield* new ApiTokenNotFound({ id });
     }
     yield* store.revokeToken(id, yield* now);
+    yield* events.record({
+      kind: "token.revoked",
+      resource: { kind: "token", id, label: token.value.name },
+      ownerId: token.value.accountId,
+    });
   });
 
   return Accounts.of({

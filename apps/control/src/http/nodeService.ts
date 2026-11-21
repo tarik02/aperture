@@ -16,7 +16,11 @@ import type * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Schema from "effect/Schema";
 import { NodeService } from "../gen/aperture/control/v1/nodes_pb.ts";
+import { Doer } from "../events/doer.ts";
+import { SYSTEM } from "../events/schemas.ts";
 import { Nodes } from "../nodes/service.ts";
+import { Settings } from "../settings/service.ts";
+import { doing } from "./doer.ts";
 
 const STATUS = {
   invalid_argument: 400,
@@ -100,23 +104,24 @@ const path = (method: { readonly name: string }) =>
 export const layer = HttpRouter.use(
   Effect.fn(function* (router) {
     const nodes = yield* Nodes;
-    yield* router.add(
-      "POST",
-      path(NodeService.method.keepalive),
-      unary(NodeService.method.keepalive, (said) =>
-        nodes.keepalive(said).pipe(
-          Effect.map(({ node, againAfter }) => ({
-            nodeId: node.id,
-            againAfter: durationFromMs(Duration.toMillis(againAfter)),
-          })),
-          Effect.catchTags({
-            RegistrationRefused: (error) =>
-              Effect.fail(new Refused({ code: "unauthenticated", message: error.message })),
-            KeepaliveInvalid: (error) =>
-              Effect.fail(new Refused({ code: "invalid_argument", message: error.message })),
-          }),
-        ),
+    const settings = yield* Settings;
+    const keepalive = unary(NodeService.method.keepalive, (said) =>
+      nodes.keepalive(said).pipe(
+        Effect.map(({ node, againAfter }) => ({
+          nodeId: node.id,
+          againAfter: durationFromMs(Duration.toMillis(againAfter)),
+        })),
+        Effect.catchTags({
+          RegistrationRefused: (error) =>
+            Effect.fail(new Refused({ code: "unauthenticated", message: error.message })),
+          KeepaliveInvalid: (error) =>
+            Effect.fail(new Refused({ code: "invalid_argument", message: error.message })),
+        }),
       ),
+    );
+    yield* router.add("POST", path(NodeService.method.keepalive), (request) =>
+      // A node tells of itself: nobody's doing but the system's, from where the node is.
+      keepalive(request).pipe(Effect.provideService(Doer, doing(settings, request, SYSTEM))),
     );
   }),
 );

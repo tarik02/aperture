@@ -1,6 +1,7 @@
 import type { Access, Caller, ShareRole } from "@aperture-browser/control-api";
 import * as UrlPath from "@aperture-browser/shared/url-path";
 import type * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as HttpClient from "effect/http/HttpClient";
@@ -16,9 +17,11 @@ import {
   ShareRefused,
   TooManyTries,
 } from "../errors.ts";
+import { Events } from "../events/service.ts";
 import { Nodes } from "../nodes/service.ts";
 import { sessionAt, sessionPath } from "../routing/paths.ts";
 import { Sessions } from "../sessions/service.ts";
+import type { Session } from "../sessions/schemas.ts";
 import { SessionsStore } from "../sessions/store.ts";
 import * as Secrets from "../secrets.ts";
 import { Settings } from "../settings/service.ts";
@@ -70,9 +73,21 @@ export const makeShares = Effect.fn("Shares.make")(function* () {
   const tickets = yield* Tickets;
   const settings = yield* Settings;
   const client = yield* HttpClient.HttpClient;
+  const events = yield* Events;
   const crypto = yield* Effect.context<Crypto.Crypto>();
   /** The secrets that were no link's, by where they came from: how many since when. */
   const tried = new Map<string, { count: number; since: number }>();
+
+  /**
+   * A link as an event is about it. It is its session's owner's to read of, whoever
+   * made it.
+   */
+  const about = (share: Share, session: Session) =>
+    ({
+      resource: { kind: "share", id: share.id, label: share.name },
+      ownerId: session.accountId,
+      workspaceId: session.workspaceId,
+    }) as const;
 
   /**
    * The link a secret is of. The secrets are long and random, so there is nothing to
@@ -146,7 +161,7 @@ export const makeShares = Effect.fn("Shares.make")(function* () {
     },
   ) {
     const account = yield* accountOf(caller);
-    yield* sessions.get(caller, sessionId);
+    const session = yield* sessions.get(caller, sessionId);
     const secret = yield* Secrets.make("aps");
     const share = yield* store.insert({
       id: yield* Secrets.id,
@@ -157,6 +172,15 @@ export const makeShares = Effect.fn("Shares.make")(function* () {
       tokenHash: yield* Secrets.hash(secret),
       createdAt: yield* now,
       expiresAt: link.lasts === undefined ? null : yield* after(link.lasts),
+    });
+    yield* events.record({
+      kind: "share.created",
+      ...about(share, session),
+      detail: {
+        sessionId,
+        role: share.role,
+        expiresAt: share.expiresAt === null ? null : DateTime.formatIso(share.expiresAt),
+      },
     });
     return { share, secret };
   }, Effect.provide(crypto));
@@ -171,19 +195,25 @@ export const makeShares = Effect.fn("Shares.make")(function* () {
     sessionId: string,
     id: string,
   ) {
-    yield* sessions.get(caller, sessionId);
+    const session = yield* sessions.get(caller, sessionId);
     const share = Option.filter(yield* store.find(id), (found) => found.sessionId === sessionId);
     if (Option.isNone(share)) {
       return yield* new ShareNotFound({ id });
     }
     yield* store.delete(id);
     yield* dismiss(share.value);
+    yield* events.record({
+      kind: "share.revoked",
+      ...about(share.value, session),
+      detail: { sessionId },
+    });
   });
 
   const enter = Effect.fn("Shares.enter")(function* (
     id: string,
     token: string,
     from: Option.Option<string>,
+    joining: Option.Option<string>,
   ) {
     const share = yield* good(token, from);
     const session = yield* sessionsStore.find(share.sessionId);
@@ -192,6 +222,15 @@ export const makeShares = Effect.fn("Shares.make")(function* () {
       return yield* new ShareRefused({ message: "this link is not good, or not any more" });
     }
     yield* noted(share);
+    if (Option.isSome(joining)) {
+      yield* events.record({
+        kind: "share.joined",
+        ...about(share, session.value),
+        actor: { kind: "guest", id: guestsOf(share.id), name: joining.value },
+        address: Option.getOrNull(from),
+        detail: { sessionId: share.sessionId, role: share.role },
+      });
+    }
     const { nodeId, observedState, unreachableSince } = session.value;
     return {
       share,

@@ -19,7 +19,9 @@ import { ControlTools } from "../mcp/toolkit.ts";
 import { Sessions } from "../sessions/service.ts";
 import { Settings } from "../settings/service.ts";
 import { Snapshots } from "../snapshots/service.ts";
+import { actorOf, Doer } from "../events/doer.ts";
 import { callerOf } from "./caller.ts";
+import { doing } from "./doer.ts";
 import { told } from "./handlers.ts";
 import { anyOrigin, originOf } from "./origin.ts";
 
@@ -261,6 +263,7 @@ export const layer = Layer.unwrap(
         // every one it is not told by name: it is not told where the request is from.
         return yield* handled.pipe(
           Effect.provideService(CurrentCaller, caller.success),
+          Effect.provideService(Doer, doing(settings, request, actorOf(caller.success))),
           Effect.provideService(
             HttpServerRequest.HttpServerRequest,
             request.modify({ headers: Headers.remove(request.headers, "origin") }),

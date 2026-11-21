@@ -84,6 +84,12 @@ for (const stores of Control.STORES) {
           const again = yield* signInThrough(control.url, "local", ada.email);
           expect(again.at).toBe("/-/sessions");
           expect((yield* accountOf(again.cookie)).status).toBe(200);
+          // Who a provider signed in is recorded as who signed in with a password is.
+          const recorded = yield* bootstrap.events.list({ query: { kind: "sign_in.succeeded" } });
+          expect(recorded.events[0]).toMatchObject({
+            actor: { kind: "account", id: made.id },
+            detail: { method: "provider", provider: Dex.PROVIDER },
+          });
         }),
       );
 
@@ -96,6 +102,11 @@ for (const stores of Control.STORES) {
           const landed = yield* signInThrough(control.url, "local", bob.email);
           expect(landed.at).toBe("/sign-in-refused?error=signup_disabled");
           expect((yield* accountOf(landed.cookie)).status).toBe(401);
+          const refused = yield* bootstrap.events.list({ query: { kind: "sign_in.failed" } });
+          expect(refused.events[0]).toMatchObject({
+            actor: { kind: "anonymous" },
+            detail: { method: "provider", provider: Dex.PROVIDER, reason: "signup_disabled" },
+          });
           expect(yield* bootstrap.accounts.list()).toHaveLength(before.length);
         }),
       );

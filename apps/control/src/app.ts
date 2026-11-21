@@ -10,6 +10,10 @@ import * as Accounts from "./accounts/layer.ts";
 import * as AccountsStoreMemory from "./accounts/store-memory.ts";
 import * as AccountsStoreSql from "./accounts/store-sql.ts";
 import * as Database from "./database.ts";
+import * as EventsForgetting from "./events/forgetting.ts";
+import * as Events from "./events/layer.ts";
+import * as EventsStoreMemory from "./events/store-memory.ts";
+import * as EventsStoreSql from "./events/store-sql.ts";
 import * as Following from "./following.ts";
 import * as Forgetting from "./grants/forgetting.ts";
 import * as Grants from "./grants/layer.ts";
@@ -49,6 +53,7 @@ import * as WorkspacesStoreSql from "./workspaces/store-sql.ts";
 /** The stores on the database the settings name, migrated before anything is asked of it. */
 export const stores = Layer.mergeAll(
   AccountsStoreSql.layer,
+  EventsStoreSql.layer,
   GrantsStoreSql.layer,
   NodesStoreSql.layer,
   SessionsStoreSql.layer,
@@ -60,6 +65,7 @@ export const stores = Layer.mergeAll(
 /** The stores on nothing but memory, which is gone with the layer. */
 export const storesTest = Layer.mergeAll(
   AccountsStoreMemory.layerTest,
+  EventsStoreMemory.layerTest,
   GrantsStoreMemory.layerTest,
   NodesStoreMemory.layerTest,
   SessionsStoreMemory.layerTest,
@@ -117,20 +123,23 @@ const serving = Layer.mergeAll(
   ),
   Following.layer,
   Forgetting.layer,
+  EventsForgetting.layer,
 ).pipe(Layer.provide(services));
 
 /**
  * The control plane on whatever HTTP server it is given: its API, the service nodes call,
- * the following of nodes and the forgetting of what apps left, for as long as the layer
- * lasts.
+ * the following of nodes and the forgetting of what apps left and of old events, for as
+ * long as the layer lasts.
  */
 export const layer = serving.pipe(
-  Layer.provide(Identity.layer.pipe(Layer.provideMerge(stores))),
+  Layer.provide(Identity.layer.pipe(Layer.provideMerge(Events.layer), Layer.provideMerge(stores))),
   Layer.provide(Vault.layer),
 );
 
 /** The same with nothing kept beyond the layer: for checks that need no database. */
 export const layerTest = serving.pipe(
-  Layer.provide(Identity.layerTest.pipe(Layer.provideMerge(storesTest))),
+  Layer.provide(
+    Identity.layerTest.pipe(Layer.provideMerge(Events.layer), Layer.provideMerge(storesTest)),
+  ),
   Layer.provide(Vault.layer),
 );

@@ -6,16 +6,25 @@ import * as Option from "effect/Option";
 import { accountOf } from "../accounts/caller.ts";
 import { AccountsStore } from "../accounts/store.ts";
 import { AccountNotFound, Forbidden, WorkspaceInUse, WorkspaceNotFound } from "../errors.ts";
+import { Events } from "../events/service.ts";
 import * as Secrets from "../secrets.ts";
 import { now } from "../time.ts";
-import type { WorkspaceRole } from "./schemas.ts";
+import type { Workspace, WorkspaceRole } from "./schemas.ts";
 import { type Joined, Workspaces } from "./service.ts";
 import { WorkspacesStore } from "./store.ts";
 
 export const makeWorkspaces = Effect.fn("Workspaces.make")(function* () {
   const store = yield* WorkspacesStore;
   const accounts = yield* AccountsStore;
+  const events = yield* Events;
   const crypto = yield* Effect.context<Crypto.Crypto>();
+
+  /** A workspace as an event is about it. */
+  const about = (workspace: Workspace) =>
+    ({
+      resource: { kind: "workspace", id: workspace.id, label: workspace.name },
+      workspaceId: workspace.id,
+    }) as const;
 
   /** The workspace as the caller has it; one the caller is not in is not there for them. */
   const joined = Effect.fn(function* (caller: Caller, id: string) {
@@ -40,6 +49,7 @@ export const makeWorkspaces = Effect.fn("Workspaces.make")(function* () {
     const account = yield* accountOf(caller);
     const workspace = yield* store.insert({ id: yield* Secrets.id, name, createdAt: yield* now });
     yield* store.admit(workspace.id, account.id, "admin");
+    yield* events.record({ kind: "workspace.created", ...about(workspace) });
     return { workspace, role: "admin" } satisfies Joined;
   }, Effect.provide(crypto));
 
@@ -68,14 +78,20 @@ export const makeWorkspaces = Effect.fn("Workspaces.make")(function* () {
   ) {
     const found = yield* administered(caller, id);
     yield* store.rename(id, name);
+    yield* events.record({
+      kind: "workspace.renamed",
+      ...about({ ...found.workspace, name }),
+      detail: { from: found.workspace.name },
+    });
     return { ...found, workspace: { ...found.workspace, name } } satisfies Joined;
   });
 
   const delete_ = Effect.fn("Workspaces.delete")(function* (caller: Caller, id: string) {
-    yield* administered(caller, id);
+    const found = yield* administered(caller, id);
     if (!(yield* store.delete(id))) {
       return yield* new WorkspaceInUse({ id });
     }
+    yield* events.record({ kind: "workspace.deleted", ...about(found.workspace) });
   });
 
   const members = Effect.fn("Workspaces.members")(function* (caller: Caller, id: string) {
@@ -89,11 +105,18 @@ export const makeWorkspaces = Effect.fn("Workspaces.make")(function* () {
     accountId: string,
     role: WorkspaceRole,
   ) {
-    yield* administered(caller, id);
-    if (Option.isNone(yield* accounts.find(accountId))) {
+    const found = yield* administered(caller, id);
+    const account = yield* accounts.find(accountId);
+    if (Option.isNone(account)) {
       return yield* new AccountNotFound({ id: accountId });
     }
     yield* store.admit(id, accountId, role);
+    yield* events.record({
+      kind: "workspace.member_admitted",
+      ...about(found.workspace),
+      ownerId: accountId,
+      detail: { accountId, account: account.value.name, role },
+    });
   });
 
   const dismiss = Effect.fn("Workspaces.dismiss")(function* (
@@ -101,8 +124,18 @@ export const makeWorkspaces = Effect.fn("Workspaces.make")(function* () {
     id: string,
     accountId: string,
   ) {
-    yield* administered(caller, id);
+    const found = yield* administered(caller, id);
+    const account = yield* accounts.find(accountId);
     yield* store.dismiss(id, accountId);
+    yield* events.record({
+      kind: "workspace.member_dismissed",
+      ...about(found.workspace),
+      ownerId: accountId,
+      detail: {
+        accountId,
+        account: Option.getOrNull(Option.map(account, (one) => one.name)),
+      },
+    });
   });
 
   return Workspaces.of({ create, list, of, rename, delete: delete_, members, admit, dismiss });

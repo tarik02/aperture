@@ -264,6 +264,20 @@ for (const stores of Control.STORES) {
           expect(yield* plainly.json).not.toMatchObject({ twoFactorRedirect: true });
           expect(yield* account(cookiesOf(plainly))).toBe(200);
 
+          // Each time they were signed in is recorded with what they proved themselves by:
+          // the password alone signed nobody in while a code was asked after it, and the
+          // code that turned the second factor on did not either.
+          const signIns = yield* bootstrap.events.list({
+            query: { kind: "sign_in.succeeded", resourceId: noor.id },
+          });
+          const methods = signIns.events.map((event) => event.detail["method"]);
+          expect(methods.slice(0, 3)).toEqual(["password", "two_factor", "two_factor"]);
+          expect(methods.filter((method) => method === "two_factor")).toHaveLength(2);
+          const refused = yield* bootstrap.events.list({ query: { kind: "sign_in.failed" } });
+          expect(
+            refused.events.filter((event) => event.detail["method"] === "two_factor").length,
+          ).toBeGreaterThanOrEqual(2);
+
           // Passkeys are kept where the rest of a person is, and an admin alone removes
           // them without the person; a service account has none to remove.
           const passkeys = yield* http.execute(

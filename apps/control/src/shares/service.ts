@@ -58,6 +58,8 @@ export interface SharesShape {
     id: string,
     token: string,
     from: Option.Option<string>,
+    /** What the guest says they are to be called, when they say it: that is their joining. */
+    joining: Option.Option<string>,
   ) => Effect.Effect<Entered, GuestError>;
   /**
    * Lets a guest's request to the path of the link's session pass, and to no other path:

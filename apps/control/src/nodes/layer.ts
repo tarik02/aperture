@@ -8,6 +8,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import { KeepaliveInvalid, RegistrationRefused } from "../errors.ts";
+import { Events } from "../events/service.ts";
 import * as Secrets from "../secrets.ts";
 import { keepaliveEvery, Settings } from "../settings/service.ts";
 import { ago, now } from "../time.ts";
@@ -54,6 +55,7 @@ export const makeNodes = Effect.fn("Nodes.make")(function* () {
   const store = yield* NodesStore;
   const settings = yield* Settings;
   const vault = yield* Vault;
+  const events = yield* Events;
   const crypto = yield* Effect.context<Crypto.Crypto>();
   const silent = ago(settings.nodeSilentAfter);
   /** The digest of the registration token that is good without being made. */
@@ -84,6 +86,10 @@ export const makeNodes = Effect.fn("Nodes.make")(function* () {
       name,
       tokenHash: yield* Secrets.hash(secret),
       createdAt: yield* now,
+    });
+    yield* events.record({
+      kind: "registration_token.created",
+      resource: { kind: "registration_token", id: token.id, label: token.name },
     });
     return { token, secret };
   }, Effect.provide(crypto));
@@ -116,6 +122,20 @@ export const makeNodes = Effect.fn("Nodes.make")(function* () {
       registrationTokenId: Option.getOrNull(Option.map(token, (made) => made.id)),
       now: yield* now,
     });
+    // A node that was never seen before was registered now, at the moment it was seen.
+    if (DateTime.toEpochMillis(node.registeredAt) === DateTime.toEpochMillis(node.lastSeenAt)) {
+      yield* events.record({
+        kind: "node.registered",
+        resource: { kind: "node", id: node.id, label: node.name },
+        detail: {
+          internalUrl: node.internalUrl,
+          registrationToken: token.pipe(
+            Option.map((made) => made.name),
+            Option.getOrNull,
+          ),
+        },
+      });
+    }
     return {
       node: { ...node, operatorToken: said.operatorToken } satisfies Node,
       againAfter: keepaliveEvery(settings),
@@ -148,6 +168,20 @@ export const makeNodes = Effect.fn("Nodes.make")(function* () {
     yield* store.describe(node.id, offersOf(executor));
   });
 
+  const noteSilent = Effect.fn("Nodes.noteSilent")(function* () {
+    const fell = yield* store.noteSilent(yield* silent, yield* now);
+    yield* Effect.forEach(
+      fell,
+      (node) =>
+        events.record({
+          kind: "node.silent",
+          resource: { kind: "node", id: node.id, label: node.name },
+          detail: { lastSeenAt: DateTime.formatIso(node.lastSeenAt) },
+        }),
+      { discard: true },
+    );
+  });
+
   const executor = (node: Node) => make({ url: node.internalUrl, token: node.operatorToken });
 
   return Nodes.of({
@@ -159,6 +193,7 @@ export const makeNodes = Effect.fn("Nodes.make")(function* () {
     candidates,
     find,
     describe,
+    noteSilent,
     executor,
   });
 });

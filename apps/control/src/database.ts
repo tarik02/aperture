@@ -173,6 +173,34 @@ const sessionShares = statements([
 // A disabled account stays with all that is its own, and is nobody's way in.
 const accountsDisabled = statements([`ALTER TABLE accounts ADD COLUMN disabled_at timestamptz`]);
 
+// An event names what it is about and references nothing: it stays when that is gone.
+// A node is noted silent once, until it is heard from again; the ones there are were
+// noted before there was anything to note it in.
+const events = statements([
+  `CREATE TABLE events (
+    id uuid PRIMARY KEY,
+    occurred_at timestamptz NOT NULL,
+    kind text NOT NULL,
+    actor_kind text NOT NULL,
+    actor_id text,
+    actor_name text,
+    resource_kind text,
+    resource_id text,
+    resource_label text,
+    owner_id text,
+    workspace_id text,
+    address text,
+    detail jsonb NOT NULL DEFAULT '{}'
+  )`,
+  `CREATE INDEX events_occurred_at ON events (occurred_at DESC, id DESC)`,
+  `CREATE INDEX events_actor_id ON events (actor_id, occurred_at DESC)`,
+  `CREATE INDEX events_owner_id ON events (owner_id, occurred_at DESC)`,
+  `CREATE INDEX events_workspace_id ON events (workspace_id, occurred_at DESC)`,
+  `CREATE INDEX events_resource ON events (resource_kind, resource_id, occurred_at DESC)`,
+  `ALTER TABLE nodes ADD COLUMN silent_at timestamptz`,
+  `UPDATE nodes SET silent_at = last_seen_at`,
+]);
+
 /** Brings the database to what this program expects; what was applied before is left alone. */
 export const migrate = Migrator.make({})({
   loader: Migrator.fromRecord({
@@ -180,6 +208,7 @@ export const migrate = Migrator.make({})({
     "0002_clients_granted": clientsGranted,
     "0003_session_shares": sessionShares,
     "0004_accounts_disabled": accountsDisabled,
+    "0005_events": events,
   }),
   table: "control_migrations",
 });

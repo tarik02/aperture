@@ -138,6 +138,12 @@ in
         description = "The domains of the email addresses people are made for so; any, where none is named.";
       };
     };
+    eventsKeep = lib.mkOption {
+      type = lib.types.str;
+      default = "90 days";
+      example = "1 year";
+      description = "How long an event is kept before it is forgotten: what was done by whom, as an admin reads it.";
+    };
     environment = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       default = { };
@@ -185,6 +191,7 @@ in
         APERTURE_CONTROL_MASTER_KEY = cfg.masterKeyFile;
         APERTURE_CONTROL_TICKET_KEY = cfg.ticketKeyFile;
         APERTURE_CONTROL_BOOTSTRAP_TOKEN_FILE = cfg.bootstrapTokenFile;
+        APERTURE_CONTROL_EVENTS_KEEP = cfg.eventsKeep;
       }
       // lib.optionalAttrs (cfg.publicUrl != null) { APERTURE_CONTROL_PUBLIC_URL = cfg.publicUrl; }
       // lib.optionalAttrs (cfg.internalUrl != null) { APERTURE_CONTROL_INTERNAL_URL = cfg.internalUrl; }

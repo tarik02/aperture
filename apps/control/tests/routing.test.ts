@@ -994,7 +994,8 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
           `(() => {
             const said = document.querySelector('[data-console-token-create] fieldset [data-slot="field-error"]').getBoundingClientRect();
             const body = document.querySelector('${BODY}').getBoundingClientRect();
-            return said.top >= body.top && said.bottom <= body.bottom;
+            // To within a pixel: what is scrolled to is placed between pixels.
+            return said.top >= body.top - 1 && said.bottom <= body.bottom + 1;
           })()`,
         ),
       ).toBe(true);

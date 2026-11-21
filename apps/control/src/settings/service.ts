@@ -84,6 +84,8 @@ export interface SettingsShape {
   readonly ticketLifetime: Duration.Duration;
   /** How long a node may send no keepalive before it is not used. */
   readonly nodeSilentAfter: Duration.Duration;
+  /** How long an event is kept before it is forgotten. */
+  readonly eventsKeep: Duration.Duration;
 }
 
 export class Settings extends Context.Service<Settings, SettingsShape>()(

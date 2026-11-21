@@ -83,14 +83,17 @@ export const layer = HttpRouter.use(
         request.remoteAddress,
         request.headers["x-forwarded-for"],
       );
-      const entered = yield* shares.enter(id, token.value, from);
-      const name =
+      const said =
         asked.name === undefined || asked.name.trim() === ""
-          ? Option.match(kept, {
-              onSome: (guest) => (guest.token === token.value ? guest.name : ""),
-              onNone: () => "",
-            })
-          : guestName(asked.name);
+          ? Option.none<string>()
+          : Option.some(guestName(asked.name));
+      const entered = yield* shares.enter(id, token.value, from, said);
+      const name = Option.getOrElse(said, () =>
+        Option.match(kept, {
+          onSome: (guest) => (guest.token === token.value ? guest.name : ""),
+          onNone: () => "",
+        }),
+      );
       const guest = carried({ token: token.value, name });
       const longest = DateTime.fromDateUnsafe(yield* after(CARRIED_MOST));
       const cookie = {

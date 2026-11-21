@@ -13,6 +13,7 @@ import * as Str from "effect/String";
 import * as TestClock from "effect/testing/TestClock";
 import * as App from "../src/app.ts";
 import * as Database from "../src/database.ts";
+import * as Events from "../src/events/layer.ts";
 import * as Forgetting from "../src/grants/forgetting.ts";
 import * as GrantsLive from "../src/grants/layer.ts";
 import { Grants } from "../src/grants/service.ts";
@@ -68,6 +69,7 @@ const apps = Effect.gen(function* () {
 
 const memory = Forgetting.layer.pipe(
   Layer.provideMerge(GrantsLive.layer),
+  Layer.provide(Events.layerTest),
   Layer.provide(App.storesTest),
   Layer.provide(NodeServices.layer),
 );
@@ -88,6 +90,7 @@ it.effect("an app nobody gave a grant is forgotten a day after it registered", (
 );
 
 const database = GrantsLive.layer.pipe(
+  Layer.provide(Events.layerTest),
   Layer.provideMerge(GrantsStoreSql.layer),
   Layer.provideMerge(
     Layer.effectDiscard(Database.migrate).pipe(

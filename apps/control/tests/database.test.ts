@@ -28,6 +28,7 @@ suite(database)("the database", (it) => {
         "clients_granted",
         "session_shares",
         "accounts_disabled",
+        "events",
       ]);
 
       const tables = yield* sql`
@@ -37,6 +38,7 @@ suite(database)("the database", (it) => {
         "accounts",
         "api_tokens",
         "control_migrations",
+        "events",
         "nodes",
         "oauth_clients",
         "oauth_codes",

@@ -1,4 +1,5 @@
 import { Api, covers, CurrentCaller, Scope } from "@aperture-browser/control-api";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
@@ -8,6 +9,7 @@ import * as Option from "effect/Option";
 import { accountOf } from "../accounts/caller.ts";
 import { Accounts } from "../accounts/service.ts";
 import { Forbidden } from "../errors.ts";
+import { Events } from "../events/service.ts";
 import { Grants } from "../grants/service.ts";
 import { Identity } from "../identity/service.ts";
 import { Nodes } from "../nodes/service.ts";
@@ -143,6 +145,26 @@ const accounts = HttpApiBuilder.group(
       .handle("revokeToken", ({ params }) =>
         Effect.flatMap(scoped("tokens:write"), (caller) => accounts.revokeToken(caller, params.id)),
       );
+  }),
+);
+
+const events = HttpApiBuilder.group(
+  Api,
+  "events",
+  Effect.fn(function* (handlers) {
+    const events = yield* Events;
+    return handlers.handle(
+      "list",
+      Effect.fn(function* ({ query }) {
+        const page = yield* events.list(yield* CurrentCaller, {
+          ...query,
+          since: query.since === undefined ? undefined : DateTime.toDate(query.since),
+          until: query.until === undefined ? undefined : DateTime.toDate(query.until),
+        });
+        // Whose an event is, is what decides who reads it, and is told to nobody.
+        return { ...page, events: page.events.map(({ ownerId: _, ...event }) => event) };
+      }),
+    );
   }),
 );
 
@@ -420,6 +442,7 @@ const workspaces = HttpApiBuilder.group(
 
 export const layer = Layer.mergeAll(
   accounts,
+  events,
   grants,
   nodes,
   sessions,

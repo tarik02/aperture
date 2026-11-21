@@ -68,6 +68,9 @@ const given = Config.all({
   nodeSilentAfter: Config.Duration("APERTURE_CONTROL_NODE_SILENT_AFTER").pipe(
     Config.withDefault(Duration.seconds(30)),
   ),
+  eventsKeep: Config.Duration("APERTURE_CONTROL_EVENTS_KEEP").pipe(
+    Config.withDefault(Duration.days(90)),
+  ),
 });
 
 /** The secret a file holds, less the space around it. */
