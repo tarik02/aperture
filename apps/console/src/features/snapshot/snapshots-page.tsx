@@ -9,11 +9,16 @@ import {
   TableRow,
 } from "@aperture-browser/ui/components/table";
 import { useNavigate } from "@tanstack/react-router";
-import { Play, Trash2 } from "lucide-react";
+import { Pencil, Play, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
+import { DescribeDialog } from "#/components/describe-dialog.tsx";
+import { TagList } from "#/components/tag-list.tsx";
 import { useCreateSessionMutation } from "#/features/session/session.mutations.ts";
-import { useDeleteSnapshotMutation } from "#/features/snapshot/snapshot.mutations.ts";
+import {
+  useDeleteSnapshotMutation,
+  useDescribeSnapshotMutation,
+} from "#/features/snapshot/snapshot.mutations.ts";
 import { type Snapshot, useSnapshotsQuery } from "#/features/snapshot/snapshot.queries.ts";
 import { told } from "#/lib/api.ts";
 
@@ -23,7 +28,9 @@ function SnapshotRow({ snapshot }: { snapshot: Snapshot }) {
   const navigate = useNavigate();
   const create = useCreateSessionMutation();
   const remove = useDeleteSnapshotMutation();
+  const describe = useDescribeSnapshotMutation();
   const [confirming, setConfirming] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const start = () =>
     create.mutate(
@@ -39,9 +46,15 @@ function SnapshotRow({ snapshot }: { snapshot: Snapshot }) {
       <TableCell>
         <div className="aperture:grid aperture:gap-0.5">
           <span className="aperture:font-medium">{snapshot.name ?? "Unnamed"}</span>
+          {snapshot.description === null ? null : (
+            <span className="aperture:text-sm aperture:text-muted-foreground">
+              {snapshot.description}
+            </span>
+          )}
           <span className="aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
             {snapshot.id}
           </span>
+          <TagList tags={snapshot.tags} />
         </div>
       </TableCell>
       <TableCell>
@@ -56,6 +69,9 @@ function SnapshotRow({ snapshot }: { snapshot: Snapshot }) {
             <Play />
             New session
           </Button>
+          <Button size="icon-sm" variant="ghost" aria-label="Edit" onClick={() => setEditing(true)}>
+            <Pencil />
+          </Button>
           <Button
             size="icon-sm"
             variant="ghost"
@@ -65,6 +81,18 @@ function SnapshotRow({ snapshot }: { snapshot: Snapshot }) {
             <Trash2 />
           </Button>
         </div>
+        <DescribeDialog
+          title="Edit snapshot"
+          nameLabel="Name"
+          withDescription
+          initial={snapshot}
+          open={editing}
+          pending={describe.isPending}
+          onOpenChange={setEditing}
+          onSubmit={(said) =>
+            describe.mutate({ id: snapshot.id, ...said }, { onSuccess: () => setEditing(false) })
+          }
+        />
         <ConfirmDialog
           open={confirming}
           title="Delete this snapshot?"

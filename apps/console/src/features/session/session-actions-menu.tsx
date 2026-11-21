@@ -7,12 +7,25 @@ import {
   DropdownMenuTrigger,
 } from "@aperture-browser/ui/components/dropdown-menu";
 import { useNavigate } from "@tanstack/react-router";
-import { Camera, EllipsisVertical, ExternalLink, Link2, Pause, Play, Trash2 } from "lucide-react";
+import {
+  Camera,
+  EllipsisVertical,
+  ExternalLink,
+  Link2,
+  Pause,
+  Play,
+  Tags,
+  Trash2,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
+import { DescribeDialog } from "#/components/describe-dialog.tsx";
 import type { Session } from "#/features/session/session.queries.ts";
-import { useSessionActionMutation } from "#/features/session/session.mutations.ts";
+import {
+  useDescribeSessionMutation,
+  useSessionActionMutation,
+} from "#/features/session/session.mutations.ts";
 import { SaveSnapshotDialog } from "#/features/snapshot/save-snapshot-dialog.tsx";
 
 /** What is done with one session. */
@@ -21,7 +34,8 @@ export function SessionActionsMenu({ session }: { session: Session }) {
   const suspend = useSessionActionMutation("suspend");
   const resume = useSessionActionMutation("resume");
   const remove = useSessionActionMutation("delete");
-  const [dialog, setDialog] = useState<"delete" | "snapshot" | null>(null);
+  const describe = useDescribeSessionMutation();
+  const [dialog, setDialog] = useState<"delete" | "snapshot" | "describe" | null>(null);
   const placed = session.nodeId !== null;
 
   const copyLink = async () => {
@@ -49,6 +63,10 @@ export function SessionActionsMenu({ session }: { session: Session }) {
           <DropdownMenuItem onClick={() => void copyLink()}>
             <Link2 />
             Copy link
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setDialog("describe")}>
+            <Tags />
+            Edit label and tags
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           {session.desiredState === "suspended" ? (
@@ -82,6 +100,20 @@ export function SessionActionsMenu({ session }: { session: Session }) {
         pending={remove.isPending}
         onOpenChange={(open) => setDialog(open ? "delete" : null)}
         onConfirm={() => remove.mutate(session.id, { onSettled: () => setDialog(null) })}
+      />
+      <DescribeDialog
+        title="Edit session"
+        nameLabel="Label"
+        initial={{ name: session.label, tags: session.tags }}
+        open={dialog === "describe"}
+        pending={describe.isPending}
+        onOpenChange={(open) => setDialog(open ? "describe" : null)}
+        onSubmit={(said) =>
+          describe.mutate(
+            { id: session.id, label: said.name, tags: said.tags },
+            { onSuccess: () => setDialog(null) },
+          )
+        }
       />
       <SaveSnapshotDialog
         sessionId={session.id}

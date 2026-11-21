@@ -8,4 +8,5 @@ export const queryKeys = {
   nodes: ["nodes"] as const,
   registrationTokens: ["registration-tokens"] as const,
   accounts: ["accounts"] as const,
+  tokens: ["tokens"] as const,
 };

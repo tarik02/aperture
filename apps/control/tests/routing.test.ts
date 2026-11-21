@@ -14,6 +14,7 @@ import * as Control from "./src/control.ts";
 import * as Proxy from "./src/proxy.ts";
 
 const ENTER = 13;
+const ESCAPE = 27;
 
 const Shot = Schema.Struct({ data: Schema.String });
 
@@ -149,7 +150,29 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         `document.querySelector(${JSON.stringify(`${card} img`)})?.naturalWidth > 0`,
         "30 seconds",
       );
+      yield* ada.api.sessions.describe({
+        params: { id },
+        payload: { label: "Checkout flow", tags: { team: "shop" } },
+      });
+      yield* page.until(`!!document.querySelector('${card} [data-console-tag="team=shop"]')`);
+      expect(yield* page.text(card)).toContain("Checkout flow");
       yield* shot(page, fs, "console-sessions");
+
+      // A token is made in the page, and told there once.
+      yield* page.click(`a[href="/-/tokens"]`);
+      yield* page.until(`!!document.querySelector('[data-console-token="checks"]')`);
+      yield* page.click("[data-console-token-new]");
+      yield* page.until(`!!document.querySelector("[data-console-token-create] input")`);
+      yield* page.click("[data-console-token-create] input");
+      yield* page.type("from the console");
+      yield* page.key("Enter", "Enter", ENTER);
+      yield* page.until(`!!document.querySelector("[data-console-secret]")`);
+      const secret = (yield* page.text("[data-console-secret]")) ?? "";
+      expect(secret).toMatch(/^apc_/u);
+      const withIt = yield* (yield* Control.Control).as(secret);
+      expect((yield* withIt.accounts.current()).id).toBe(ada.account.id);
+      yield* shot(page, fs, "console-token");
+      yield* page.key("Escape", "Escape", ESCAPE);
 
       yield* ada.api.snapshots.take({ params: { id }, payload: { name: "signed in" } });
       yield* page.click(`a[href="/-/snapshots"]`);
