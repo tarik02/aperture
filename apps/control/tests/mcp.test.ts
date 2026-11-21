@@ -1,3 +1,4 @@
+import { Executor } from "@aperture-browser/e2e/src/executor.ts";
 import { request } from "@aperture-browser/e2e/src/http.ts";
 import * as Mcp from "@aperture-browser/e2e/src/mcp.ts";
 import { suite } from "@aperture-browser/e2e/src/suite.ts";
@@ -6,6 +7,7 @@ import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as Socket from "effect/socket/Socket";
 import * as Control from "./src/control.ts";
 import { registered } from "./src/node.ts";
 
@@ -18,6 +20,19 @@ const Listed = Schema.fromJsonString(
   Schema.Struct({ sessions: Schema.Array(Schema.Struct({ id: Schema.String })) }),
 );
 const Opened = Schema.fromJsonString(Schema.Struct({ tab: Schema.Number }));
+/** Who is in a session, as it tells whoever watches it. */
+const Present = Schema.fromJsonString(
+  Schema.Struct({
+    presence: Schema.Struct({
+      members: Schema.Array(
+        Schema.Struct({
+          name: Schema.optional(Schema.String),
+          agent: Schema.optional(Schema.Boolean),
+        }),
+      ),
+    }),
+  }),
+);
 
 const needs = (stores: (typeof Control.STORES)[number]) =>
   registered.pipe(Layer.provideMerge(Control.layer({ stores })));
@@ -117,6 +132,46 @@ for (const stores of Control.STORES) {
 
         const refused = yield* Effect.flip(agent.call("navigate", { url: PAGE }));
         expect(refused.reason).toMatch(/session_id/u);
+      }),
+    );
+
+    it.effect("whoever's token calls is in the session under the account's name", () =>
+      Effect.gen(function* () {
+        const executor = yield* Executor;
+        const socket = yield* Socket.makeWebSocket(
+          `${executor.url.replace("http", "ws")}/sessions/${session}/ws?token=${executor.token}`,
+        );
+        const reader = yield* socket.reader;
+        const writer = yield* socket.writer;
+        let automation: ReadonlyArray<string | undefined> = [];
+        yield* reader.pull.pipe(
+          Effect.flatMap(
+            Effect.forEach(
+              (frame) =>
+                typeof frame === "string"
+                  ? Schema.decodeUnknownEffect(Present)(frame).pipe(
+                      Effect.map(({ presence }) => {
+                        automation = presence.members
+                          .filter((member) => member.agent === true)
+                          .map((member) => member.name);
+                      }),
+                      Effect.ignore,
+                    )
+                  : Effect.void,
+              { discard: true },
+            ),
+          ),
+          Effect.forever,
+          Effect.ignore,
+          Effect.forkScoped,
+        );
+        yield* writer.write(JSON.stringify({ hello: { pixels: "PIXELS_TILES" } }));
+
+        yield* agent.call("tabs", { session_id: session });
+        yield* until(
+          "the account's automation being in the session",
+          Effect.sync(() => automation.includes("Ada")),
+        );
       }),
     );
 
