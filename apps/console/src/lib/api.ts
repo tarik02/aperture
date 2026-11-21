@@ -41,7 +41,12 @@ export const callAs = <A, E>(
     Effect.tapError((error) =>
       // A token that is nobody's any more signs nobody in.
       Effect.sync(() => {
-        if (isFailure(error) && error._tag === "Unauthorized" && bearer === token()) {
+        if (
+          bearer !== undefined &&
+          isFailure(error) &&
+          error._tag === "Unauthorized" &&
+          bearer === token()
+        ) {
           keepToken(undefined);
         }
       }),

@@ -34,6 +34,17 @@ export const keepToken = (next: string | undefined) => {
   }
 };
 
+// Another tab of this browser signs in and out for this one too.
+addEventListener("storage", (event) => {
+  if (event.key !== KEY && event.key !== null) {
+    return;
+  }
+  current = read();
+  for (const listener of listeners) {
+    listener();
+  }
+});
+
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => listeners.delete(listener);
