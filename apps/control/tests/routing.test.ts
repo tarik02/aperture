@@ -1100,13 +1100,18 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.click("[data-console-security]");
       const dialog = (step: string) => `[data-console-security-dialog="${step}"]`;
       yield* page.until(`!!document.querySelector('${dialog("none")} input')`);
-      // The dialog is as tall at each step, with its buttons where they were.
-      const steps = [yield* placed(page)];
+      // Each step has a height of its own, which nothing within the step changes; the
+      // dialog moves from one to the next, and is measured once it is there.
+      const still = page.until(
+        `document.querySelector('[data-slot="dialog-content"]').getAnimations().length === 0`,
+      );
+      const first = [yield* placed(page)];
       yield* page.click(`${dialog("none")} input`);
       yield* page.key("Enter", "Enter", ENTER);
       yield* page.until(`!!document.querySelector('${dialog("none")} [data-slot="field-error"]')`);
       yield* shot(page, fs, "console-security-invalid");
-      steps.push(yield* placed(page));
+      first.push(yield* placed(page));
+      alike(first);
       yield* page.type(password);
       yield* page.key("Enter", "Enter", ENTER);
       yield* page.until(`!!document.querySelector('${dialog("confirm")} input')`);
@@ -1114,24 +1119,25 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.until(
         `(document.querySelector("[data-console-totp-qr] path")?.getAttribute("d")?.length ?? 0) > 100`,
       );
+      yield* still;
       yield* shot(page, fs, "console-totp");
       yield* shotDark(page, fs, "console-totp-dark");
-      steps.push(yield* placed(page));
+      const second = [yield* placed(page)];
       // And as text in the picture's place, for whoever cannot scan it.
       yield* page.click("[data-console-totp-manual]");
       yield* page.until(`!!document.querySelector("[data-console-totp-uri] code")`);
       const uri = (yield* page.text("[data-console-totp-uri] code")) ?? "";
       yield* shot(page, fs, "console-totp-manual");
-      steps.push(yield* placed(page));
+      second.push(yield* placed(page));
+      alike(second);
       expect(uri).toMatch(/^otpauth:\/\/totp\/Aperture:/u);
       yield* page.click(`${dialog("confirm")} input`);
       // The whole code gives itself: nothing is left to press.
       yield* page.type(yield* totp(uri));
       yield* page.until(`!!document.querySelector('${dialog("backup-codes")}')`);
       expect(yield* page.text("[data-console-backup-codes] code")).toMatch(/\w{5}-\w{5}/u);
+      yield* still;
       yield* shot(page, fs, "console-backup-codes");
-      steps.push(yield* placed(page));
-      alike(steps);
 
       // The password alone leads to the code, and nowhere further.
       expect(yield* asked("/sign-out", {})).toBe(200);

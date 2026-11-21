@@ -46,21 +46,51 @@ type AccountSecurityDialogProps = {
  * and turned off, each with the password.
  */
 export function AccountSecurityDialog({ person, open, onOpenChange }: AccountSecurityDialogProps) {
+  const [step, setStep] = useState<Enrolling["step"]>("none");
+  // It opens at its first step each time.
+  const shown = open ? step : "none";
+
   return (
     // What was typed and told is gone with the dialog: the codes are shown once.
     <FreshDialog
       open={open}
-      onOpenChange={onOpenChange}
-      // Tall: the code to scan is as wide as the dialog, and fits whole.
-      height="42rem"
+      onOpenChange={(next) => {
+        if (!next) {
+          setStep("none");
+        }
+        onOpenChange(next);
+      }}
+      // Each step has the height it needs, and the dialog moves from one to the next: a
+      // step is another thing to do, not the same form with more in it.
+      className="aperture:transition-[height] aperture:duration-200 aperture:ease-out"
+      height={HEIGHTS[shown]}
     >
-      <Security person={person} onDone={() => onOpenChange(false)} />
+      <Security person={person} onStep={setStep} onDone={() => onOpenChange(false)} />
     </FreshDialog>
   );
 }
 
-function Security({ person, onDone }: { person: Person; onDone: () => void }) {
-  const [enrolling, setEnrolling] = useState<Enrolling>({ step: "none" });
+/** The code to scan is as wide as the dialog and fits whole; the other steps hold little. */
+const HEIGHTS: Record<Enrolling["step"], string> = {
+  none: "20rem",
+  confirm: "42rem",
+  "backup-codes": "25rem",
+};
+
+function Security({
+  person,
+  onStep,
+  onDone,
+}: {
+  person: Person;
+  onStep: (step: Enrolling["step"]) => void;
+  onDone: () => void;
+}) {
+  const [enrolling, setEnrollingStep] = useState<Enrolling>({ step: "none" });
+  const setEnrolling = (next: Enrolling) => {
+    setEnrollingStep(next);
+    onStep(next.step);
+  };
 
   return (
     <>
