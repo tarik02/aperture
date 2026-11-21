@@ -36,7 +36,10 @@
         return f"curl -sf -X {method} -H 'Authorization: Bearer {token}' {data} {api}{path}"
 
     with subtest("the console is served through the proxy"):
-        machine.succeed("curl -sf http://localhost/ | grep -q '<title>Aperture</title>'")
+        # The proxy has its routes once it has asked for them.
+        machine.wait_until_succeeds(
+            "curl -sf http://localhost/ | grep -q '<title>Aperture</title>'", timeout=60
+        )
 
     with subtest("the node registers itself, and the control plane reaches it"):
         machine.wait_until_succeeds(
