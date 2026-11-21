@@ -16,11 +16,13 @@ import {
   Play,
   Tags,
   Trash2,
+  Waypoints,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { DescribeDialog } from "#/components/describe-dialog.tsx";
+import { SessionProxyDialog } from "#/features/proxy/session-proxy-dialog.tsx";
 import type { Session } from "#/features/session/session.queries.ts";
 import {
   useDescribeSessionMutation,
@@ -35,7 +37,7 @@ export function SessionActionsMenu({ session }: { session: Session }) {
   const resume = useSessionActionMutation("resume");
   const remove = useSessionActionMutation("delete");
   const describe = useDescribeSessionMutation();
-  const [dialog, setDialog] = useState<"delete" | "snapshot" | "describe" | null>(null);
+  const [dialog, setDialog] = useState<"delete" | "snapshot" | "describe" | "proxy" | null>(null);
   const placed = session.nodeId !== null;
 
   const copyLink = async () => {
@@ -67,6 +69,10 @@ export function SessionActionsMenu({ session }: { session: Session }) {
           <DropdownMenuItem onClick={() => setDialog("describe")}>
             <Tags />
             Edit label and tags
+          </DropdownMenuItem>
+          <DropdownMenuItem disabled={!placed} onClick={() => setDialog("proxy")}>
+            <Waypoints />
+            Edit routing
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           {session.desiredState === "suspended" ? (
@@ -114,6 +120,11 @@ export function SessionActionsMenu({ session }: { session: Session }) {
             { onSuccess: () => setDialog(null) },
           )
         }
+      />
+      <SessionProxyDialog
+        sessionId={session.id}
+        open={dialog === "proxy"}
+        onOpenChange={(open) => setDialog(open ? "proxy" : null)}
       />
       <SaveSnapshotDialog
         sessionId={session.id}

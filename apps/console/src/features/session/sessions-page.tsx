@@ -2,10 +2,11 @@ import { Button } from "@aperture-browser/ui/components/button";
 import { Input } from "@aperture-browser/ui/components/input";
 import { NativeSelect, NativeSelectOption } from "@aperture-browser/ui/components/native-select";
 import { useNavigate } from "@tanstack/react-router";
-import { Pause, Play, Plus, Trash2, X } from "lucide-react";
+import { ChevronDown, Pause, Play, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
+import { SessionCreateDialog } from "#/features/session/session-create-dialog.tsx";
 import { SessionCard } from "#/features/session/session-card.tsx";
 import {
   useBulkSessionActionMutation,
@@ -49,6 +50,7 @@ export function SessionsPage() {
   const [order, setOrder] = useState<Order>("created");
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
+  const [creating, setCreating] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
   /** Where a range that Shift extends starts. */
   const anchor = useRef<string>(undefined);
@@ -139,10 +141,27 @@ export function SessionsPage() {
           <NativeSelectOption value="created">Newest</NativeSelectOption>
           <NativeSelectOption value="label">Label</NativeSelectOption>
         </NativeSelect>
-        <Button data-console-create size="sm" disabled={create.isPending} onClick={createAndOpen}>
-          <Plus />
-          New session
-        </Button>
+        <div className="aperture:flex">
+          <Button
+            data-console-create
+            size="sm"
+            className="aperture:rounded-r-none"
+            disabled={create.isPending}
+            onClick={createAndOpen}
+          >
+            <Plus />
+            New session
+          </Button>
+          <Button
+            data-console-create-custom
+            size="icon-sm"
+            aria-label="New session with options"
+            className="aperture:rounded-l-none aperture:border-l-primary-foreground/20"
+            onClick={() => setCreating(true)}
+          >
+            <ChevronDown />
+          </Button>
+        </div>
       </PageHeaderActions>
       {chosen.length > 0 ? (
         <div
@@ -211,6 +230,7 @@ export function SessionsPage() {
           ))}
         </div>
       )}
+      <SessionCreateDialog open={creating} onOpenChange={setCreating} />
       <ConfirmDialog
         open={confirming}
         title={`Delete ${chosen.length} sessions?`}

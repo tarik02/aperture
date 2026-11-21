@@ -189,6 +189,21 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         "30 seconds",
       );
       yield* shot(page, fs, "console-session");
+
+      // A session is made as it is asked for in the dialog, and opened.
+      yield* page.evaluate(`void (location.href = "/-/sessions")`);
+      yield* page.until(`!!document.querySelector("[data-console-create-custom]")`);
+      yield* page.click("[data-console-create-custom]");
+      yield* page.until(`!!document.querySelector("[data-console-session-create] input")`);
+      yield* page.click("[data-console-session-create] input");
+      yield* page.type("Made in a dialog");
+      yield* shot(page, fs, "console-create");
+      yield* page.key("Enter", "Enter", ENTER);
+      yield* page.until(
+        `location.pathname.startsWith("/-/sessions/") && !location.pathname.endsWith(${JSON.stringify(id)})`,
+      );
+      const made = (yield* ada.api.sessions.list()).find((one) => one.label === "Made in a dialog");
+      expect(made).toBeDefined();
       expect(page.errors()).toEqual([]);
     }),
   );

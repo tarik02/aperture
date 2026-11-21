@@ -1,3 +1,4 @@
+import type { ProxyConfig } from "@aperture-browser/control-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { call } from "#/lib/api.ts";
@@ -8,7 +9,12 @@ export function useCreateSessionMutation() {
   const queries = useQueryClient();
   return useMutation({
     mutationFn: (
-      options: { snapshotId?: string; label?: string; tags?: Record<string, string> } = {},
+      options: {
+        snapshotId?: string;
+        label?: string;
+        tags?: Record<string, string>;
+        proxy?: ProxyConfig;
+      } = {},
     ) => call((api) => api.sessions.create({ payload: options })),
     onError: (error) => toastMutationError(error, "The session was not created"),
     onSettled: () => queries.invalidateQueries({ queryKey: queryKeys.sessions }),
