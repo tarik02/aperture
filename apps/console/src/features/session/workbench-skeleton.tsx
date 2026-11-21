@@ -30,7 +30,7 @@ export function WorkbenchSkeleton({
       className={cn(
         "aperture:flex aperture:min-h-0 aperture:flex-1 aperture:flex-col aperture:bg-background",
         // Over the workbench that is filling in below it.
-        over && "aperture:absolute aperture:inset-0 aperture:z-30",
+        over && "aperture:pointer-events-none aperture:absolute aperture:inset-0 aperture:z-30",
       )}
     >
       <div className="aperture:flex aperture:h-8 aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:bg-muted/40 aperture:px-2">

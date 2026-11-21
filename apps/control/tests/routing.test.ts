@@ -531,6 +531,10 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* choose(page, `[data-slot="dropdown-menu-item"]`, "Save to snapshot");
       const save = "[data-console-save-snapshot]";
       yield* page.until(`!!document.querySelector('${save} input[name="name"]')`);
+      // A dialog that is still growing into place moves what is pressed from under the press.
+      yield* page.until(
+        `document.querySelector('${save}')?.closest('[data-slot="dialog-content"]').getAnimations().length === 0`,
+      );
       yield* shot(page, fs, "console-save-snapshot");
       yield* page.click(`${save} [data-console-save-snapshot-mode="replace"]`);
       yield* page.until(
