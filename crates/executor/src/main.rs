@@ -3,6 +3,7 @@
 
 mod asked;
 mod limits;
+mod registration;
 mod rpc;
 mod scopes;
 mod sessions;
@@ -22,10 +23,11 @@ use aperture_store::{
 };
 use axum::{Router, routing::get};
 use clap::Parser;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::{
     limits::Limits,
+    registration::Registration,
     scopes::Scopes,
     sessions::{Config, Door, Sessions},
 };
@@ -125,6 +127,33 @@ struct Arguments {
         value_delimiter = ','
     )]
     cors_origins: Vec<Origin>,
+    /// The control plane this node registers with, such as `https://aperture.example`:
+    /// the node tells it that it is there, under its name, for as long as it runs, and
+    /// gives it the operator's token, with which the control plane runs sessions here.
+    #[arg(
+        long,
+        env = "APERTURE_CONTROL_PLANE",
+        requires = "registration_token_file"
+    )]
+    control_plane: Option<String>,
+    /// A file with a registration token, which an admin of the control plane makes.
+    #[arg(
+        long,
+        env = "APERTURE_REGISTRATION_TOKEN_FILE",
+        requires = "control_plane"
+    )]
+    registration_token_file: Option<PathBuf>,
+    /// Where the control plane reaches this executor, such as `http://10.0.0.7:7900`.
+    /// The address it listens on by default, where that is one others can reach.
+    #[arg(long, env = "APERTURE_INTERNAL_URL", requires = "control_plane")]
+    internal_url: Option<String>,
+    /// Where a load balancer in front of the nodes reaches this one, when that is
+    /// another address.
+    #[arg(long, env = "APERTURE_BALANCER_URL", requires = "control_plane")]
+    balancer_url: Option<String>,
+    /// Where clients reach this node's sessions from outside, when they do.
+    #[arg(long, env = "APERTURE_PUBLIC_URL", requires = "control_plane")]
+    public_url: Option<String>,
     #[command(flatten)]
     options: Options,
 }
@@ -208,21 +237,44 @@ async fn main() -> anyhow::Result<()> {
         &arguments.session_store,
         "failed to open the sessions' store",
     )?;
+    let node = match arguments.node {
+        Some(node) => node,
+        None => fs::read_to_string("/proc/sys/kernel/hostname")
+            .context("failed to read the machine's name")?
+            .trim()
+            .to_owned(),
+    };
+    let registration = match (arguments.control_plane, arguments.registration_token_file) {
+        (Some(control_plane), Some(file)) => Some(Registration {
+            control_plane,
+            registration_token: fs::read_to_string(&file)
+                .with_context(|| {
+                    format!("failed to read the registration token {}", file.display())
+                })?
+                .trim()
+                .to_owned(),
+            name: node.clone(),
+            internal_url: match (arguments.internal_url, &arguments.listen) {
+                (Some(url), _) => url,
+                (None, Listen::Address(address)) if !address.ip().is_unspecified() => {
+                    format!("http://{address}")
+                }
+                (None, _) => anyhow::bail!(
+                    "say where the control plane reaches this node, with --internal-url"
+                ),
+            },
+            balancer_url: arguments.balancer_url,
+            public_url: arguments.public_url,
+            operator_token: keys.token.clone(),
+        }),
+        _ => None,
+    };
     let sessions = Arc::new(Sessions::new(
         store,
         Config {
             snapshots,
             shared_sessions,
-            holds_as: match arguments.session_locks {
-                true => Some(match arguments.node {
-                    Some(node) => node,
-                    None => fs::read_to_string("/proc/sys/kernel/hostname")
-                        .context("failed to read the machine's name")?
-                        .trim()
-                        .to_owned(),
-                }),
-                false => None,
-            },
+            holds_as: arguments.session_locks.then_some(node),
             transfers: arguments.transfers.into(),
             runtime_root,
             runner: options::executable(&runner)?,
@@ -250,6 +302,13 @@ async fn main() -> anyhow::Result<()> {
         .await
         .with_context(|| format!("failed to listen on {}", arguments.listen))?;
     info!(listen = %arguments.listen, data = %data_dir.display(), "executor running");
+    if let Some(registration) = registration {
+        tokio::spawn(async move {
+            if let Err(error) = registration.keep().await {
+                warn!("this node is not registered: {error:#}");
+            }
+        });
+    }
     listening
         .serve(app, async {
             // Ended as a terminal ends it, or as whatever runs it as a service does.

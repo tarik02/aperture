@@ -18,6 +18,7 @@ futures-util.workspace = true
 humantime = "2.4.0"
 libc.workspace = true
 parse-size = "1.1.0"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

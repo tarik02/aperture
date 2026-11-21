@@ -25,7 +25,10 @@ fn main() {
 
     connectrpc_build::Config::new()
         .descriptor_set(&descriptors)
-        .files(&["aperture/executor/v1/executor.proto"])
+        .files(&[
+            "aperture/executor/v1/executor.proto",
+            "aperture/control/v1/nodes.proto",
+        ])
         .include_file("_connectrpc.rs")
         .emit_rerun_directives(false)
         .compile()

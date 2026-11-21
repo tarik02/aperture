@@ -1,8 +1,11 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
+import * as Executor from "@aperture-browser/e2e/src/executor.ts";
+import { directory } from "@aperture-browser/e2e/src/process.ts";
 import { suite } from "@aperture-browser/e2e/src/suite.ts";
 import { until } from "@aperture-browser/e2e/src/wait.ts";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as Schema from "effect/Schema";
@@ -165,6 +168,34 @@ for (const stores of Control.STORES) {
           const refused = yield* Effect.flip(ada.api.sessions.create({ payload: {} }));
           expect(refused._tag).toBe("NoNode");
         }),
+      );
+
+      it.effect("an executor told of the control plane registers itself, and is reached", () =>
+        Effect.gen(function* () {
+          const control = yield* Control.Control;
+          const fs = yield* FileSystem.FileSystem;
+          const file = `${yield* directory}/registration-token`;
+          yield* fs.writeFileString(file, `${yield* registrationToken}\n`);
+          const executor = yield* Executor.start({
+            env: {
+              APERTURE_CONTROL_PLANE: control.url,
+              APERTURE_REGISTRATION_TOKEN_FILE: file,
+              APERTURE_NODE: "node-e",
+              APERTURE_PUBLIC_URL: "https://sessions.example/",
+            },
+          });
+
+          // What it offers is what the control plane read from it with the token it gave.
+          const registered = yield* until(
+            "the node registering and being reached",
+            node("node-e").pipe(Effect.map((listed) => listed?.offers != null && listed)),
+          );
+          expect(registered).toMatchObject({
+            internalUrl: executor.url,
+            publicUrl: "https://sessions.example",
+            alive: true,
+          });
+        }).pipe(Effect.scoped),
       );
     },
   );
