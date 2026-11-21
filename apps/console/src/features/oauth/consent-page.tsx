@@ -12,6 +12,7 @@ import {
 import { useForm, useStore } from "@tanstack/react-form";
 import { useId, useState } from "react";
 import { ApertureMark } from "#/components/aperture-mark.tsx";
+import { WindowTitlebar } from "#/components/window-titlebar.tsx";
 import { Choice } from "#/components/choice.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
 import { useApproveMutation } from "#/features/oauth/oauth.mutations.ts";
@@ -67,6 +68,7 @@ const askedIn = (search: string): Asked | undefined => {
 function Frame({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <main className="aperture:flex aperture:h-full aperture:items-center aperture:justify-center aperture:overflow-y-auto aperture:bg-muted/40 aperture:p-4">
+      <WindowTitlebar over />
       <div
         data-console-consent
         className="aperture:flex aperture:w-full aperture:max-w-lg aperture:flex-col aperture:gap-4 aperture:rounded-xl aperture:border aperture:bg-card aperture:p-6 aperture:shadow-sm"

@@ -1,6 +1,7 @@
 import { RouterProvider } from "@tanstack/react-router";
 import { createRoot } from "react-dom/client";
 import { carry } from "#/lib/api.ts";
+import { registerServiceWorker } from "#/lib/pwa.ts";
 import { token } from "#/lib/token.ts";
 import { AppProviders } from "#/providers/app-providers.tsx";
 import { router } from "#/router.tsx";
@@ -11,6 +12,8 @@ const signedIn = token();
 if (signedIn !== undefined) {
   void carry(signedIn);
 }
+
+registerServiceWorker();
 
 const root = document.getElementById("root");
 if (root !== null) {

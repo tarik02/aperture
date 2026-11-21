@@ -33,7 +33,10 @@ export function WorkbenchSkeleton({
         over && "aperture:pointer-events-none aperture:absolute aperture:inset-0 aperture:z-30",
       )}
     >
-      <div className="aperture:flex aperture:h-8 aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:bg-muted/40 aperture:px-2">
+      <div
+        data-workbench-titlebar-skeleton=""
+        className="aperture:flex aperture:h-8 aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:bg-muted/40 aperture:px-2"
+      >
         <Skeleton className="aperture:h-5 aperture:w-44 aperture:rounded-md" />
         <Skeleton className="aperture:size-5 aperture:rounded-md" />
         <span className="aperture:flex-1" />

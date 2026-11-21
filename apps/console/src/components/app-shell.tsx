@@ -7,6 +7,7 @@ import { useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
 import { AppSidebar } from "#/components/app-sidebar.tsx";
 import { PageHeaderActionsTarget } from "#/components/page-header-actions.tsx";
+import { WindowTitlebar } from "#/components/window-titlebar.tsx";
 import { useDocumentTitle } from "#/lib/document-title.ts";
 import { resolveNavItem } from "#/lib/navigation.ts";
 
@@ -31,6 +32,7 @@ export function AppShell({ layout, children }: AppShellProps) {
       <SidebarProvider key="workbench" defaultOpen={false} className={FILLS}>
         <AppSidebar collapsible="offcanvas" />
         <SidebarInset className="aperture:h-full aperture:min-h-0 aperture:overflow-hidden">
+          <WindowTitlebar />
           {children}
         </SidebarInset>
       </SidebarProvider>
@@ -41,7 +43,10 @@ export function AppShell({ layout, children }: AppShellProps) {
     <SidebarProvider key="page" className={FILLS}>
       <AppSidebar collapsible="icon" />
       <SidebarInset className="aperture:h-full aperture:min-h-0 aperture:overflow-hidden">
-        <header className="aperture:flex aperture:h-12 aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:border-b aperture:px-3">
+        <header
+          data-app-titlebar=""
+          className="aperture:flex aperture:h-12 aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:border-b aperture:px-3"
+        >
           <SidebarTrigger className="aperture:-ml-1" />
           <h1 className="aperture:shrink-0 aperture:truncate aperture:pr-2 aperture:text-sm aperture:font-semibold aperture:max-sm:sr-only">
             {page}

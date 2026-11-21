@@ -1,4 +1,5 @@
 @import "@aperture-browser/ui/styles.css";
+@import "./window-controls-overlay.css";
 @source "./";
 @source "../../../packages/session-react/src";
 

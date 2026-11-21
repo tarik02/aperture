@@ -22,6 +22,8 @@ import { TokensPage } from "#/features/token/tokens-page.tsx";
 import { WorkspacesPage } from "#/features/workspace/workspaces-page.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
 import { InvitePage } from "#/features/auth/invite-page.tsx";
+import { useDeployWatch } from "#/lib/deploy-watch.ts";
+import { useWindowControlsOverlay } from "#/lib/window-controls-overlay.ts";
 
 /** Nothing is shown to whoever is not signed in but the way in. */
 function Signed() {
@@ -32,7 +34,14 @@ function Signed() {
   return account.isError ? <SignInPage /> : <Outlet />;
 }
 
-const root = createRootRoute();
+/** What every page has: the window it is in, and word of a newer build. */
+function Root() {
+  useWindowControlsOverlay();
+  useDeployWatch();
+  return <Outlet />;
+}
+
+const root = createRootRoute({ component: Root });
 
 const signed = createRoute({ getParentRoute: () => root, id: "signed", component: Signed });
 

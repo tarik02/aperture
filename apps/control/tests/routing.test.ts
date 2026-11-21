@@ -1008,6 +1008,291 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
     }),
   );
 
+  it.effect("the console is installed as an app whose title bars stand for the window's", () =>
+    Effect.gen(function* () {
+      const proxy = yield* Proxy.Proxy;
+      const viewer = yield* Viewer.Viewer;
+      const fs = yield* FileSystem.FileSystem;
+      const id = path.split("/").at(-1) ?? "";
+      const card = `[data-console-session="${id}"]`;
+      const page = yield* viewer.open(`${proxy.url}/-/sessions`);
+      yield* page.until(`!!document.querySelector(${JSON.stringify(card)})`);
+
+      // What a browser installs it by is served as what it is.
+      const served = yield* page.evaluate(
+        `(async () => {
+          const type = async (path) => {
+            const answer = await fetch(path, { cache: "no-store" });
+            return answer.status + " " + (answer.headers.get("content-type") ?? "").split(";")[0];
+          };
+          const manifest = await (await fetch(document.querySelector('link[rel="manifest"]').href)).json();
+          return {
+            manifest: await type("/manifest.webmanifest"),
+            worker: await type("/sw.js"),
+            name: manifest.name,
+            display: manifest.display_override,
+            icons: await Promise.all(manifest.icons.map((icon) => type(icon.src).then((served) => served + " " + icon.purpose))),
+          };
+        })()`,
+      );
+      expect(served).toEqual({
+        manifest: "200 application/manifest+json",
+        worker: "200 text/javascript",
+        name: "Aperture",
+        display: ["window-controls-overlay", "standalone"],
+        icons: [
+          "200 image/png any",
+          "200 image/png any",
+          "200 image/png maskable",
+          "200 image/svg+xml any",
+        ],
+      });
+
+      // The worker takes the page, which loads again through it: its files are kept, and
+      // nothing that is asked of the control plane or of a node is.
+      yield* page.until(
+        `navigator.serviceWorker.controller?.scriptURL === location.origin + "/sw.js"`,
+        "30 seconds",
+      );
+      yield* page.evaluate(`void location.reload()`);
+      yield* page.until(
+        `!!navigator.serviceWorker.controller && !!document.querySelector(${JSON.stringify(card)})`,
+        "30 seconds",
+      );
+      const entry = yield* page.evaluate(
+        `document.querySelector('script[type="module"][src]').src`,
+        Schema.String,
+      );
+      const kept = () =>
+        page.evaluate(
+          `(async () => {
+            const kept = [];
+            for (const name of await caches.keys()) {
+              for (const request of await (await caches.open(name)).keys()) {
+                kept.push(new URL(request.url).pathname);
+              }
+            }
+            return kept;
+          })()`,
+          Schema.Array(Schema.String),
+        );
+      yield* until(
+        "the worker keeping the page and its script",
+        kept().pipe(
+          Effect.map(
+            (paths) => paths.includes("/index.html") && paths.includes(new URL(entry).pathname),
+          ),
+        ),
+      );
+      // What changes behind the page is seen by it at once, the worker being no part of it.
+      yield* ada.api.sessions.describe({
+        params: { id },
+        payload: { label: "Checkout flow", tags: { team: "shop", seen: "fresh" } },
+      });
+      yield* page.until(`!!document.querySelector('${card} [data-console-tag="seen=fresh"]')`);
+      expect(
+        (yield* kept()).filter((one) => one !== "/index.html" && !one.startsWith("/assets/")),
+      ).toEqual([]);
+      // The browser does not so much as ask the worker about what is the control plane's.
+      yield* page.evaluate(
+        `void fetch("/api/control/sessions?unkept").then((answer) => answer.text())`,
+      );
+      const asked = `performance.getEntriesByType("resource").filter((entry) => entry.name.endsWith("?unkept")).map((entry) => entry.workerMatchedSourceType + " " + entry.workerFinalSourceType)`;
+      yield* page.until(`${asked}.length === 1`);
+      expect(yield* page.evaluate(asked)).toEqual(["network network"]);
+
+      // In a tab the title bars are as they were, and nothing is there to move a window by.
+      const bars = `(() => {
+        const style = (selector) => {
+          const element = document.querySelector(selector);
+          return element === null ? null : getComputedStyle(element);
+        };
+        return {
+          height: style("[data-app-titlebar]")?.height,
+          moves: style("[data-app-titlebar]")?.getPropertyValue("app-region"),
+          sidebar: style("[data-app-sidebar-titlebar]")?.height,
+        };
+      })()`;
+      expect(yield* page.evaluate(bars)).toEqual({
+        height: "48px",
+        moves: "none",
+        sidebar: "40px",
+      });
+
+      // The overlay itself is not to be had in this browser: its geometry is given to the
+      // styles as the browser would give it, with a box where the window's buttons would be.
+      const overlay = (side: "left" | "right", buttons: number, height: number) =>
+        `void (() => {
+          document.getElementById("wco-emulation")?.remove();
+          const style = document.createElement("style");
+          style.id = "wco-emulation";
+          style.textContent = \`
+            html.wco {
+              --app-titlebar-area-x: ${side === "left" ? buttons : 0}px;
+              --app-titlebar-area-width: calc(100vw - ${buttons}px);
+              --app-titlebar-area-height: ${height}px;
+            }
+            html.wco::after {
+              content: "window buttons";
+              position: fixed;
+              top: 0;
+              ${side}: 0;
+              z-index: 2147483647;
+              box-sizing: border-box;
+              width: ${buttons}px;
+              height: ${height}px;
+              border: 1px dashed #e11d48;
+              background: var(--sidebar);
+              color: #e11d48;
+              font: 10px/${height - 2}px sans-serif;
+              text-align: center;
+              pointer-events: none;
+            }\`;
+          document.head.append(style);
+          document.documentElement.classList.remove("wco-left", "wco-right");
+          document.documentElement.classList.add("wco", "wco-${side}");
+        })()`;
+      /** Whether what is pressed in a title bar is clear of the window's buttons, and not what moves the window. */
+      const clear = (bar: string, side: "left" | "right", buttons: number) =>
+        `(() => {
+          const bar = document.querySelector(${JSON.stringify(bar)});
+          const pressed = [...bar.querySelectorAll("a, button, input, [data-browser-tab]")].filter((one) => one.getBoundingClientRect().width > 1 && one.getAttribute("aria-hidden") !== "true");
+          return {
+            height: bar.getBoundingClientRect().height,
+            moves: getComputedStyle(bar).getPropertyValue("app-region"),
+            pressed: pressed.length > 0,
+            under: pressed
+              .filter((one) => {
+                const at = one.getBoundingClientRect();
+                return ${side === "left" ? `at.left < ${buttons}` : `at.right > innerWidth - ${buttons}`};
+              })
+              .map((one) => one.tagName + " " + Math.round(one.getBoundingClientRect().left) + " " + one.textContent.trim()),
+            held: pressed.every((one) => getComputedStyle(one).getPropertyValue("app-region") === "no-drag"),
+          };
+        })()`;
+      const stands = { height: 38, moves: "drag", pressed: true, under: [], held: true };
+      const settled = Effect.sleep("400 millis");
+
+      // Buttons on the right, as Windows and Linux have them.
+      yield* page.evaluate(overlay("right", 138, 33));
+      yield* settled;
+      expect(yield* page.evaluate(clear("[data-app-titlebar]", "right", 138))).toEqual(stands);
+      yield* shot(page, fs, "console-wco-right");
+      yield* shotDark(page, fs, "console-wco-right-dark");
+      // The colour the browser paints behind the buttons follows the theme that was chosen.
+      yield* page.evaluate(DARK);
+      yield* page.until(
+        `[...document.querySelectorAll('meta[name="theme-color"]')].every((meta) => meta.content === getComputedStyle(document.documentElement).getPropertyValue("--sidebar").trim())`,
+      );
+      yield* page.evaluate(AUTO);
+
+      // Buttons on the left, as macOS has them: the sidebar's head is under them.
+      yield* page.evaluate(overlay("left", 86, 28));
+      yield* settled;
+      expect(yield* page.evaluate(clear("[data-app-sidebar-titlebar]", "left", 86))).toEqual({
+        ...stands,
+        pressed: false,
+      });
+      expect(
+        yield* page.evaluate(
+          `document.querySelector("[data-sidebar-logo]").getBoundingClientRect().left >= 86`,
+        ),
+      ).toBe(true);
+      yield* shot(page, fs, "console-wco-left");
+      yield* shotDark(page, fs, "console-wco-left-dark");
+      // Narrowed to its icons the sidebar is narrower than the buttons: its mark goes below
+      // them, and the title bar starts after them.
+      yield* page.click("[data-app-titlebar] [data-slot='sidebar-trigger']");
+      yield* page.until(
+        `!!document.querySelector('[data-slot="sidebar"][data-collapsible="icon"]')`,
+      );
+      yield* settled;
+      yield* shot(page, fs, "console-wco-left-icons");
+      expect(yield* page.evaluate(clear("[data-app-titlebar]", "left", 86))).toEqual(stands);
+      expect(
+        yield* page.evaluate(
+          `document.querySelector("[data-sidebar-logo]").getBoundingClientRect().top >= 28`,
+        ),
+      ).toBe(true);
+      yield* page.click("[data-app-titlebar] [data-slot='sidebar-trigger']");
+      yield* page.until(`!!document.querySelector('[data-slot="sidebar"][data-state="expanded"]')`);
+      // The cards move while the sidebar widens, and are pressed once they rest.
+      yield* settled;
+
+      // The workbench brings its own title bar, which takes the window's place the same way.
+      yield* page.click(`${card} [data-console-session-open]`);
+      yield* page.until(`location.pathname === ${JSON.stringify(`/-/sessions/${id}`)}`);
+      yield* page.until(
+        `[...document.querySelectorAll("[data-aperture-surface]")].some((surface) => surface.getBoundingClientRect().width > 0)`,
+        "30 seconds",
+      );
+      yield* page.until(`!document.querySelector("[data-console-session-note]")`, "30 seconds");
+      yield* settled;
+      expect(yield* page.evaluate(clear("[data-workbench-titlebar]", "left", 86))).toEqual(stands);
+      yield* shot(page, fs, "console-wco-left-session");
+      yield* page.evaluate(overlay("right", 138, 33));
+      yield* settled;
+      expect(yield* page.evaluate(clear("[data-workbench-titlebar]", "right", 138))).toEqual(
+        stands,
+      );
+      yield* shot(page, fs, "console-wco-right-session");
+      yield* shotDark(page, fs, "console-wco-right-session-dark");
+      // The sidebar comes over the workbench from the edge, its head a title bar as well.
+      yield* Effect.gen(function* () {
+        yield* page.mouse("mouseMoved", 400, 300);
+        yield* page.mouse("mouseMoved", 2, 300);
+        yield* page.until(
+          `!!document.querySelector('[data-slot="sidebar-container"][data-peek]')`,
+          "3 seconds",
+        );
+      }).pipe(Effect.retry({ times: 5 }));
+      yield* settled;
+      yield* shot(page, fs, "console-wco-right-session-sidebar");
+      yield* page.mouse("mouseMoved", 600, 300);
+
+      // Where nothing has a title bar, a bar of the window's stands above what is asked.
+      const bare = yield* viewer.open(`${proxy.url}/invite`);
+      yield* bare.until(`!!document.querySelector("[data-app-window-titlebar]")`);
+      expect(
+        yield* bare.evaluate(
+          `getComputedStyle(document.querySelector("[data-app-window-titlebar]")).display`,
+        ),
+      ).toBe("none");
+      yield* bare.evaluate(overlay("right", 138, 33));
+      yield* settled;
+      expect(
+        yield* bare.evaluate(
+          `(() => {
+            const bar = document.querySelector("[data-app-window-titlebar]");
+            const below = document.querySelector("main form").getBoundingClientRect();
+            return { height: bar.getBoundingClientRect().height, moves: getComputedStyle(bar).getPropertyValue("app-region"), below: below.top >= 38 };
+          })()`,
+        ),
+      ).toEqual({ height: 38, moves: "drag", below: true });
+      yield* shot(bare, fs, "console-wco-right-bare");
+      yield* bare.close;
+
+      // A build that was deployed since the page loaded is told of, with a way to it.
+      yield* page.evaluate(
+        `void (() => {
+          const asked = window.fetch;
+          window.fetch = (input, init) =>
+            input === "/"
+              ? Promise.resolve(new Response('<script type="module" crossorigin src="/assets/index-another.js"></script>', { headers: { "content-type": "text/html" } }))
+              : asked(input, init);
+          document.dispatchEvent(new Event("visibilitychange"));
+        })()`,
+      );
+      yield* page.until(
+        `[...document.querySelectorAll("[data-sonner-toast]")].some((toast) => toast.textContent.includes("new version") && toast.querySelector("[data-button]")?.textContent === "Reload")`,
+      );
+      yield* settled;
+      yield* shot(page, fs, "console-new-version");
+      expect(page.errors()).toEqual([]);
+      yield* page.close;
+    }),
+  );
+
   it.effect("a person follows a setup link, signs in, and opens a session with cookies alone", () =>
     Effect.gen(function* () {
       const proxy = yield* Proxy.Proxy;
