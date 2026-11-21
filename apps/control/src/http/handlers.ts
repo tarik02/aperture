@@ -73,6 +73,13 @@ const accounts = HttpApiBuilder.group(
           return { token: yield* accounts.setupToken(params.id) };
         }),
       )
+      .handle(
+        "resetSecondFactor",
+        Effect.fn(function* ({ params }) {
+          yield* admin;
+          yield* accounts.resetSecondFactor(params.id);
+        }),
+      )
       .handle("tokens", () => Effect.flatMap(CurrentCaller, accounts.tokens))
       .handle(
         "createOwnToken",

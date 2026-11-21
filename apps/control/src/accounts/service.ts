@@ -26,6 +26,10 @@ export interface AccountsShape {
   readonly setupToken: (
     accountId: string,
   ) => Effect.Effect<string, AccountNotFound | PersonNotFound>;
+  /** Turns the second factor of an account's person off, for one who lost what gives its codes. */
+  readonly resetSecondFactor: (
+    accountId: string,
+  ) => Effect.Effect<void, AccountNotFound | PersonNotFound>;
   /** Who a browser's cookies sign in. */
   readonly ofPerson: (headers: Headers) => Effect.Effect<Caller, Unauthorized>;
   readonly list: () => Effect.Effect<ReadonlyArray<Account>>;

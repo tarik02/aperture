@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { call } from "#/lib/api.ts";
-import { enrol, giveCode, person, turnSecondFactorOff } from "#/lib/identity.ts";
+import { enrol, giveCode, person, renewBackupCodes, turnSecondFactorOff } from "#/lib/identity.ts";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { queryKeys } from "#/lib/query-keys.ts";
 import { useToken } from "#/lib/token.ts";
@@ -45,6 +45,13 @@ export function useConfirmEnrolmentMutation() {
     mutationFn: giveCode,
     onError: (error) => toastMutationError(error, "The code was not taken"),
     onSuccess: () => queries.invalidateQueries({ queryKey: queryKeys.person }),
+  });
+}
+
+export function useRenewBackupCodesMutation() {
+  return useMutation({
+    mutationFn: renewBackupCodes,
+    onError: (error) => toastMutationError(error, "No new backup codes were made"),
   });
 }
 

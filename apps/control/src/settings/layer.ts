@@ -14,6 +14,17 @@ const given = Config.all({
   listenPort: Config.Port("APERTURE_CONTROL_LISTEN_PORT").pipe(Config.withDefault(7800)),
   internalUrl: Config.option(Config.NonEmptyString("APERTURE_CONTROL_INTERNAL_URL")),
   publicUrl: Config.option(Config.NonEmptyString("APERTURE_CONTROL_PUBLIC_URL")),
+  // This machine's own by default: a proxy beside the program is the usual one.
+  trustedProxies: Config.String("APERTURE_CONTROL_TRUSTED_PROXIES").pipe(
+    Config.withDefault("127.0.0.0/8,::1"),
+    Config.map((list) =>
+      list
+        .split(",")
+        .map((one) => one.trim())
+        .filter((one) => one !== ""),
+    ),
+  ),
+  rateLimit: Config.Boolean("APERTURE_CONTROL_RATE_LIMIT").pipe(Config.withDefault(true)),
   consoleDir: Config.option(Config.NonEmptyString("APERTURE_CONTROL_CONSOLE_DIR")),
   // A secret is given as it is, or as a file that holds it: the second is how whatever
   // sets a machine up hands secrets over.

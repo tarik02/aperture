@@ -17,8 +17,11 @@ export interface Person {
 export interface IdentityShape {
   /** Where its own routes are, which a browser asks to sign in and out. */
   readonly path: `/${string}`;
-  /** Answers a request to its own routes. */
-  readonly handle: (request: Request) => Effect.Effect<Response>;
+  /**
+   * Answers a request to its own routes. `from` is where the request came from, by which
+   * tries at signing in are counted; nobody's count without.
+   */
+  readonly handle: (request: Request, from: Option.Option<string>) => Effect.Effect<Response>;
   /** Whose the cookies of a request are; nobody's where they sign nobody in. */
   readonly personOf: (headers: Headers) => Effect.Effect<Option.Option<Person>>;
   /** Makes a person, who signs in once they set a password with a setup token. */
@@ -28,6 +31,11 @@ export interface IdentityShape {
   }) => Effect.Effect<Person, EmailTaken>;
   /** A token with which a person sets a password of their own: a first one, or another. */
   readonly setupToken: (email: string) => Effect.Effect<string, PersonNotFound>;
+  /**
+   * Turns a person's second factor off without them: for one who lost what gives its codes.
+   * Their password stays, and they turn a second factor on again themselves.
+   */
+  readonly resetSecondFactor: (email: string) => Effect.Effect<void, PersonNotFound>;
 }
 
 export class Identity extends Context.Service<Identity, IdentityShape>()(

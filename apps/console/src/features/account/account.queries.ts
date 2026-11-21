@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { call } from "#/lib/api.ts";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { queryKeys } from "#/lib/query-keys.ts";
@@ -31,6 +32,16 @@ export function useSetupLinkMutation() {
       return `${location.origin}/invite#token=${encodeURIComponent(token)}`;
     },
     onError: (error) => toastMutationError(error, "The link was not made"),
+  });
+}
+
+/** Turns the second factor of an account's person off, for one who lost what gives its codes. */
+export function useResetSecondFactorMutation() {
+  return useMutation({
+    mutationFn: (accountId: string) =>
+      call((api) => api.accounts.resetSecondFactor({ params: { id: accountId } })),
+    onSuccess: () => toast.success("Two-factor sign-in is off for this account"),
+    onError: (error) => toastMutationError(error, "The second factor was not reset"),
   });
 }
 

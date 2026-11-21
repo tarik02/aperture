@@ -190,6 +190,10 @@ export class AccountsGroup extends HttpApiGroup.make("accounts")
       success: Account.pipe(HttpApiSchema.status(201)),
       error: [Forbidden, EmailTaken, AccountInvalid],
     }),
+    HttpApiEndpoint.post("resetSecondFactor", "/accounts/:id/second-factor/reset", {
+      params: { id: Schema.String },
+      error: [Forbidden, AccountNotFound, PersonNotFound],
+    }),
     HttpApiEndpoint.post("createSetupToken", "/accounts/:id/setup-token", {
       params: { id: Schema.String },
       success: Schema.Struct({ token: Schema.String }).pipe(HttpApiSchema.status(201)),

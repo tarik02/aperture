@@ -20,6 +20,8 @@ const SIGN_UP = `${PATH}/sign-up/`;
 const NOT_FOUND = 404;
 /** What an authenticator shows its codes under. */
 const ISSUER = "Aperture";
+/** The header better-auth is told where a request came from in. */
+const FROM_HEADER = "x-aperture-client-address";
 
 /**
  * Identity by better-auth, on whatever database it is given. Everything of better-auth is
@@ -51,15 +53,27 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
     // A second factor is a person's own to turn on, with an authenticator's codes. Its secret
     // and backup codes are kept in its own table, sealed with the secret above.
     plugins: [twoFactor({ issuer: ISSUER })],
+    rateLimit: { enabled: settings.rateLimit },
+    advanced: { ipAddress: { ipAddressHeaders: [FROM_HEADER] } },
     telemetry: { enabled: false },
   } satisfies BetterAuthOptions;
   const auth = betterAuth(options);
 
-  const handle = Effect.fn("Identity.handle")(function* (request: Request) {
+  const handle = Effect.fn("Identity.handle")(function* (
+    request: Request,
+    from: Option.Option<string>,
+  ) {
     if (new URL(request.url).pathname.startsWith(SIGN_UP)) {
       return new Response(null, { status: NOT_FOUND });
     }
-    return yield* Effect.promise(() => auth.handler(request));
+    // Where it came from is said here and by nobody else: what the request says of that
+    // itself is dropped.
+    const headers = new Headers(request.headers);
+    headers.delete(FROM_HEADER);
+    if (Option.isSome(from)) {
+      headers.set(FROM_HEADER, from.value);
+    }
+    return yield* Effect.promise(() => auth.handler(new Request(request, { headers })));
   });
 
   const personOf = Effect.fn("Identity.personOf")(function* (headers: Headers) {
@@ -105,10 +119,27 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
     return token;
   });
 
+  const resetSecondFactor = Effect.fn("Identity.resetSecondFactor")(function* (email: string) {
+    const found = yield* Effect.promise(async () =>
+      (await auth.$context).internalAdapter.findUserByEmail(email),
+    );
+    if (found === null) {
+      return yield* new PersonNotFound({ email });
+    }
+    yield* Effect.promise(async () => {
+      const { adapter, internalAdapter } = await auth.$context;
+      await adapter.deleteMany({
+        model: "twoFactor",
+        where: [{ field: "userId", value: found.user.id }],
+      });
+      await internalAdapter.updateUser(found.user.id, { twoFactorEnabled: false });
+    });
+  });
+
   return {
     auth,
     options,
-    service: Identity.of({ path: PATH, handle, personOf, create, setupToken }),
+    service: Identity.of({ path: PATH, handle, personOf, create, setupToken, resetSecondFactor }),
   };
 });
 

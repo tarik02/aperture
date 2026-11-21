@@ -329,7 +329,16 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.type(password);
       yield* page.key("Enter", "Enter", ENTER);
       yield* page.until(`!!document.querySelector('${dialog("confirm")} input')`);
+      yield* page.until(`!!document.querySelector("[data-console-totp-manual]")`);
+      yield* shot(page, yield* FileSystem.FileSystem, "console-totp");
+      yield* page.click("[data-console-totp-manual]");
+      yield* page.until(`!!document.querySelector("[data-console-totp-uri] code")`);
       const uri = (yield* page.text("[data-console-totp-uri] code")) ?? "";
+      // The same address as a picture, for an authenticator's camera.
+      yield* page.until(
+        `(document.querySelector("[data-console-totp-qr] path")?.getAttribute("d")?.length ?? 0) > 100`,
+      );
+      yield* shot(page, yield* FileSystem.FileSystem, "console-totp-manual");
       expect(uri).toMatch(/^otpauth:\/\/totp\/Aperture:/u);
       yield* shot(page, fs, "console-second-factor");
       yield* page.click(`${dialog("confirm")} input`);

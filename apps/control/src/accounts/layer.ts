@@ -66,6 +66,17 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     return yield* identity.setupToken(account.value.email);
   });
 
+  const resetSecondFactor = Effect.fn("Accounts.resetSecondFactor")(function* (accountId: string) {
+    const account = yield* store.find(accountId);
+    if (Option.isNone(account)) {
+      return yield* new AccountNotFound({ id: accountId });
+    }
+    if (account.value.email === null) {
+      return yield* new PersonNotFound({ email: "" });
+    }
+    yield* identity.resetSecondFactor(account.value.email);
+  });
+
   /** The caller an account is, with the workspaces it is in. */
   const callerOf = Effect.fn(function* (account: Account) {
     const joined = yield* workspaces.of(account.id);
@@ -143,6 +154,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
   return Accounts.of({
     create,
     setupToken,
+    resetSecondFactor,
     ofPerson,
     list,
     createToken,

@@ -9,12 +9,14 @@ import {
   DialogTitle,
 } from "@aperture-browser/ui/components/dialog";
 import { Input } from "@aperture-browser/ui/components/input";
+import { QrCode } from "@aperture-browser/ui/components/qr-code";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { CopyField } from "#/components/copy-field.tsx";
 import {
   useConfirmEnrolmentMutation,
   useEnrolMutation,
+  useRenewBackupCodesMutation,
   useTurnSecondFactorOffMutation,
 } from "#/features/auth/auth.queries.ts";
 import type { Person } from "#/lib/identity.ts";
@@ -44,14 +46,18 @@ export function AccountSecurityDialog({ person, open, onOpenChange }: AccountSec
   const enrol = useEnrolMutation();
   const confirm = useConfirmEnrolmentMutation();
   const turnOff = useTurnSecondFactorOffMutation();
+  const renew = useRenewBackupCodesMutation();
   const [enrolling, setEnrolling] = useState<Enrolling>({ step: "none" });
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
+  /** Whether what the picture says is shown as text as well, for whoever cannot scan it. */
+  const [manual, setManual] = useState(false);
 
   const close = (next: boolean) => {
     if (!next) {
       // What was typed and told is gone with the dialog: the codes are shown once.
       setEnrolling({ step: "none" });
+      setManual(false);
       setPassword("");
       setCode("");
     }
@@ -99,12 +105,11 @@ export function AccountSecurityDialog({ person, open, onOpenChange }: AccountSec
           </DialogHeader>
           {enrolling.step === "backup-codes" ? (
             <>
-              <p className="aperture:text-sm aperture:text-muted-foreground">
-                Keep these backup codes: each signs you in once without the authenticator, and they
-                are not shown again.
-              </p>
               <div data-console-backup-codes>
-                <CopyField label="Backup codes" value={enrolling.backupCodes.join("\n")} />
+                <CopyField
+                  label="Backup codes, shown once"
+                  value={enrolling.backupCodes.join("\n")}
+                />
               </div>
               <DialogFooter>
                 <Button type="button" onClick={() => close(false)}>
@@ -114,16 +119,32 @@ export function AccountSecurityDialog({ person, open, onOpenChange }: AccountSec
             </>
           ) : enrolling.step === "confirm" ? (
             <>
-              <p className="aperture:text-sm aperture:text-muted-foreground">
-                Add this to an authenticator app, by its address or by the secret alone, then give
-                the code it shows.
-              </p>
-              <div data-console-totp-uri>
-                <CopyField label="Setup address" value={enrolling.uri} />
-              </div>
-              <CopyField label="Secret" value={enrolling.secret} />
+              <QrCode
+                data-console-totp-qr
+                value={enrolling.uri}
+                label="Setup address for an authenticator"
+                className="aperture:size-auto aperture:w-full"
+              />
+              {manual ? (
+                <>
+                  <div data-console-totp-uri>
+                    <CopyField label="Setup address" value={enrolling.uri} />
+                  </div>
+                  <CopyField label="Secret" value={enrolling.secret} />
+                </>
+              ) : (
+                <Button
+                  type="button"
+                  variant="link"
+                  data-console-totp-manual
+                  className="aperture:h-auto aperture:justify-self-start aperture:p-0"
+                  onClick={() => setManual(true)}
+                >
+                  Can't scan it?
+                </Button>
+              )}
               <label className="aperture:grid aperture:gap-1.5 aperture:text-sm">
-                Code from your authenticator
+                Code
                 <Input
                   name="code"
                   autoComplete="one-time-code"
@@ -153,11 +174,6 @@ export function AccountSecurityDialog({ person, open, onOpenChange }: AccountSec
                   {person.secondFactor ? "On" : "Off"}
                 </Badge>
               </div>
-              <p className="aperture:text-sm aperture:text-muted-foreground">
-                {person.secondFactor
-                  ? "Signing in takes your password and a code from your authenticator. Turning it off takes your password."
-                  : "Have signing in take a code from an authenticator app as well as your password."}
-              </p>
               <label className="aperture:grid aperture:gap-1.5 aperture:text-sm">
                 Password
                 <Input
@@ -172,6 +188,24 @@ export function AccountSecurityDialog({ person, open, onOpenChange }: AccountSec
                 <Button type="button" variant="outline" onClick={() => close(false)}>
                   Close
                 </Button>
+                {person.secondFactor ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    data-console-renew-backup-codes
+                    disabled={renew.isPending || password === ""}
+                    onClick={() =>
+                      renew.mutate(password, {
+                        onSuccess: (backupCodes) => {
+                          setPassword("");
+                          setEnrolling({ step: "backup-codes", backupCodes });
+                        },
+                      })
+                    }
+                  >
+                    New backup codes
+                  </Button>
+                ) : null}
                 {person.secondFactor ? (
                   <Button
                     type="submit"

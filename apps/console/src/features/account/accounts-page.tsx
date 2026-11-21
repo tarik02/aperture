@@ -8,7 +8,8 @@ import {
   TableHeader,
   TableRow,
 } from "@aperture-browser/ui/components/table";
-import { KeyRound, Link2, Plus } from "lucide-react";
+import { KeyRound, Link2, Plus, ShieldOff } from "lucide-react";
+import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { useState } from "react";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { AccountCreateDialog } from "#/features/account/account-create-dialog.tsx";
@@ -16,6 +17,7 @@ import { SecretDialog } from "#/components/secret-dialog.tsx";
 import {
   useAccountsQuery,
   useCreateApiTokenMutation,
+  useResetSecondFactorMutation,
   useSetupLinkMutation,
 } from "#/features/account/account.queries.ts";
 
@@ -27,6 +29,8 @@ export function AccountsPage() {
   const setupLink = useSetupLinkMutation();
   const [creating, setCreating] = useState(false);
   const [link, setLink] = useState<string>();
+  const resetSecondFactor = useResetSecondFactorMutation();
+  const [resetting, setResetting] = useState<string>();
   const createToken = useCreateApiTokenMutation();
   const [secret, setSecret] = useState<string>();
 
@@ -84,6 +88,17 @@ export function AccountsPage() {
                     Setup link
                   </Button>
                 ) : null}
+                {account.kind === "person" ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    data-console-reset-second-factor
+                    onClick={() => setResetting(account.id)}
+                  >
+                    <ShieldOff />
+                    Reset 2FA
+                  </Button>
+                ) : null}
                 <Button
                   size="sm"
                   variant="outline"
@@ -100,6 +115,20 @@ export function AccountsPage() {
           ))}
         </TableBody>
       </Table>
+      <ConfirmDialog
+        open={resetting !== undefined}
+        title="Turn this person's two-factor sign-in off?"
+        description="For someone who lost their authenticator and backup codes. Their password stays, and they turn it on again themselves."
+        confirmLabel="Turn off"
+        variant="destructive"
+        pending={resetSecondFactor.isPending}
+        onOpenChange={(open) => (open ? undefined : setResetting(undefined))}
+        onConfirm={() =>
+          resetting === undefined
+            ? undefined
+            : resetSecondFactor.mutate(resetting, { onSettled: () => setResetting(undefined) })
+        }
+      />
       <AccountCreateDialog open={creating} onOpenChange={setCreating} />
       <SecretDialog title="Setup link" secret={link} onClose={() => setLink(undefined)} />
       <SecretDialog title="API token" secret={secret} onClose={() => setSecret(undefined)} />

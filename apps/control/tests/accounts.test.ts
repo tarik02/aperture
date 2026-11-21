@@ -258,6 +258,18 @@ for (const stores of Control.STORES) {
           );
           expect(spent.status).toBe(401);
           expect(yield* account(cookiesOf(spent))).toBe(401);
+
+          // Whoever lost the authenticator and the codes is let back in by an admin: the
+          // second factor is off, and the password is the one it was.
+          const ada = yield* Control.account(`Ada-${stores}`);
+          const notHers = yield* Effect.flip(
+            ada.api.accounts.resetSecondFactor({ params: { id: noor.id } }),
+          );
+          expect(notHers._tag).toBe("Forbidden");
+          yield* bootstrap.accounts.resetSecondFactor({ params: { id: noor.id } });
+          const plainly = yield* post("/sign-in/email", { email, password });
+          expect(yield* plainly.json).not.toMatchObject({ twoFactorRedirect: true });
+          expect(yield* account(cookiesOf(plainly))).toBe(200);
         }),
     );
 

@@ -25,6 +25,14 @@ export interface SettingsShape {
    * its API; none where something else serves the console, or nobody uses one.
    */
   readonly consoleDir: Option.Option<string>;
+  /**
+   * The proxies whose word is taken for where a request came from: addresses, and IPv4
+   * ranges as `10.0.0.0/8`. A request that comes from none of them came from where its
+   * connection did, whatever it says.
+   */
+  readonly trustedProxies: ReadonlyArray<string>;
+  /** Whether signing in is held to so many tries a while from one address. */
+  readonly rateLimit: boolean;
   /** Lets its holder do what an admin does before there is any account. */
   readonly bootstrapToken: Redacted.Redacted;
   /**

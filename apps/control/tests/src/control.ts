@@ -33,6 +33,8 @@ export interface ControlOptions {
   readonly nodeSilentAfter?: string;
   /** Serve the console as it was built, beside the API. */
   readonly console?: boolean;
+  /** Hold signing in to so many tries a while from one address, as a deployment does. */
+  readonly rateLimit?: boolean;
 }
 
 /** What a node says of itself in a keepalive, as JSON has it. */
@@ -122,6 +124,8 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
   const environment = ConfigProvider.fromEnvRecord({
     APERTURE_CONTROL_LISTEN_PORT: String(port),
     APERTURE_CONTROL_MASTER_KEY: masterKey,
+    // Checks sign in more often from one address than anyone is let.
+    APERTURE_CONTROL_RATE_LIMIT: String(options.rateLimit ?? false),
     APERTURE_CONTROL_DATABASE_URL: postgres?.url ?? "postgres://nowhere",
     APERTURE_CONTROL_BOOTSTRAP_TOKEN: BOOTSTRAP,
     APERTURE_CONTROL_TICKET_KEY: signingKey,

@@ -92,4 +92,12 @@ export const giveCode = (code: string) => ask("/two-factor/verify-totp", { code 
 /** Finishes signing in with a backup code, which is spent by it. */
 export const giveBackupCode = (code: string) => ask("/two-factor/verify-backup-code", { code });
 
+const BackupCodes = Schema.Struct({ backupCodes: Schema.Array(Schema.String) });
+
+/** Makes new backup codes, in place of the ones there were: those sign nobody in any more. */
+export const renewBackupCodes = async (password: string) =>
+  Schema.decodeUnknownSync(BackupCodes)(
+    await ask("/two-factor/generate-backup-codes", { password }),
+  ).backupCodes;
+
 export const turnSecondFactorOff = (password: string) => ask("/two-factor/disable", { password });
