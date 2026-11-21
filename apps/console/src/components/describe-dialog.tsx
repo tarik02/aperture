@@ -1,20 +1,16 @@
 import { Button } from "@aperture-browser/ui/components/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@aperture-browser/ui/components/dialog";
-import { Input } from "@aperture-browser/ui/components/input";
+import { DialogFooter, DialogHeader, DialogTitle } from "@aperture-browser/ui/components/dialog";
+import { Field, FieldLabel } from "@aperture-browser/ui/components/field";
 import {
   entriesToTags,
   TagEditor,
-  type TagEntry,
   tagsToEntries,
 } from "@aperture-browser/ui/components/tag-editor";
 import { Textarea } from "@aperture-browser/ui/components/textarea";
-import { type FormEvent, useState } from "react";
+import { useForm, useStore } from "@tanstack/react-form";
+import { useId } from "react";
+import { FreshDialog } from "#/components/fresh-dialog.tsx";
+import { TextField } from "#/components/text-field.tsx";
 
 export interface Described {
   readonly name: string | null;
@@ -34,20 +30,17 @@ type DescribeDialogProps = {
     tags: Readonly<Record<string, string>>;
   };
   open: boolean;
-  pending: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (described: Described) => void;
+  /** Keeps what was said; the dialog closes once it is kept, and stays when it is not. */
+  onSubmit: (described: Described) => Promise<unknown>;
 };
 
 /** Changes what something is called, said to be and tagged with. */
-export function DescribeDialog(props: DescribeDialogProps) {
+export function DescribeDialog({ open, onOpenChange, ...form }: DescribeDialogProps) {
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent>
-        {/* Mounted with the dialog, so it starts from what is kept each time it opens. */}
-        {props.open ? <DescribeForm {...props} /> : null}
-      </DialogContent>
-    </Dialog>
+    <FreshDialog open={open} onOpenChange={onOpenChange}>
+      <DescribeForm {...form} onDone={() => onOpenChange(false)} />
+    </FreshDialog>
   );
 }
 
@@ -56,53 +49,70 @@ function DescribeForm({
   nameLabel,
   withDescription = false,
   initial,
-  pending,
-  onOpenChange,
   onSubmit,
-}: DescribeDialogProps) {
-  const [name, setName] = useState(initial.name ?? "");
-  const [description, setDescription] = useState(initial.description ?? "");
-  const [tags, setTags] = useState<TagEntry[]>(() => tagsToEntries({ ...initial.tags }));
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    onSubmit({
-      name: name.trim() === "" ? null : name.trim(),
-      description: description.trim() === "" ? null : description.trim(),
-      tags: entriesToTags(tags),
-    });
-  };
+  onDone,
+}: Omit<DescribeDialogProps, "open" | "onOpenChange"> & { onDone: () => void }) {
+  const descriptionId = useId();
+  const form = useForm({
+    defaultValues: {
+      name: initial.name ?? "",
+      description: initial.description ?? "",
+      tags: tagsToEntries({ ...initial.tags }),
+    },
+    onSubmit: async ({ value }) => {
+      try {
+        await onSubmit({
+          name: value.name.trim() === "" ? null : value.name.trim(),
+          description: value.description.trim() === "" ? null : value.description.trim(),
+          tags: entriesToTags(value.tags),
+        });
+      } catch {
+        // Told of where it was asked for.
+        return;
+      }
+      onDone();
+    },
+  });
+  const submitting = useStore(form.store, (state) => state.isSubmitting);
 
   return (
-    <form data-console-describe onSubmit={submit} className="aperture:grid aperture:gap-4">
+    <form
+      data-console-describe
+      className="aperture:grid aperture:gap-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void form.handleSubmit();
+      }}
+    >
       <DialogHeader>
         <DialogTitle>{title}</DialogTitle>
       </DialogHeader>
-      <label className="aperture:grid aperture:gap-1.5 aperture:text-sm">
-        {nameLabel}
-        <Input
-          name="name"
-          autoFocus
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
-      </label>
+      <form.Field name="name">
+        {(field) => <TextField field={field} label={nameLabel} autoFocus autoComplete="off" />}
+      </form.Field>
       {withDescription ? (
-        <label className="aperture:grid aperture:gap-1.5 aperture:text-sm">
-          Description
-          <Textarea
-            name="description"
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-          />
-        </label>
+        <form.Field name="description">
+          {(field) => (
+            <Field>
+              <FieldLabel htmlFor={descriptionId}>Description</FieldLabel>
+              <Textarea
+                id={descriptionId}
+                name={field.name}
+                value={field.state.value}
+                onChange={(event) => field.handleChange(event.target.value)}
+              />
+            </Field>
+          )}
+        </form.Field>
       ) : null}
-      <TagEditor entries={tags} onChange={setTags} />
+      <form.Field name="tags">
+        {(field) => <TagEditor entries={field.state.value} onChange={field.handleChange} />}
+      </form.Field>
       <DialogFooter>
-        <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+        <Button type="button" variant="outline" onClick={onDone}>
           Cancel
         </Button>
-        <Button type="submit" disabled={pending}>
+        <Button type="submit" disabled={submitting}>
           Save
         </Button>
       </DialogFooter>

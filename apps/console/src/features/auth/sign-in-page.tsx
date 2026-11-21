@@ -1,49 +1,114 @@
 import { Button } from "@aperture-browser/ui/components/button";
-import { Input } from "@aperture-browser/ui/components/input";
+import { useForm, useStore } from "@tanstack/react-form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
-import { callAs, carry, told } from "#/lib/api.ts";
-import { AuthCard } from "#/features/auth/auth-card.tsx";
+import { useState } from "react";
 import { CodeInput } from "#/components/code-input.tsx";
+import { TextField } from "#/components/text-field.tsx";
+import { AuthCard } from "#/features/auth/auth-card.tsx";
+import { callAs, carry, told } from "#/lib/api.ts";
 import { giveBackupCode, giveCode, signIn } from "#/lib/identity.ts";
 import { queryKeys } from "#/lib/query-keys.ts";
 import { keepToken } from "#/lib/token.ts";
+import { all, email, required } from "#/lib/validation.ts";
+
+type Way = "password" | "token" | "code" | "backup-code";
+
+function Refused({ error }: { error: unknown }) {
+  return (
+    <p role="alert" className="aperture:text-sm aperture:text-destructive">
+      {told(error)}
+    </p>
+  );
+}
+
+function Another({ children, ...button }: React.ComponentProps<typeof Button>) {
+  return (
+    <Button type="button" variant="link" className="aperture:h-auto aperture:p-0" {...button}>
+      {children}
+    </Button>
+  );
+}
+
+/** Who is signed in is asked anew: by the token, or by the cookies there are now. */
+const useSignedIn = () => {
+  const queries = useQueryClient();
+  return () =>
+    Promise.all([
+      queries.invalidateQueries({ queryKey: queryKeys.account }),
+      queries.invalidateQueries({ queryKey: queryKeys.person }),
+    ]);
+};
 
 /**
  * Signs a person in with their password, and a code where they turned a second factor on, or
  * anyone with an account's API token.
  */
 export function SignInPage() {
-  const queries = useQueryClient();
-  const [way, setWay] = useState<"password" | "token" | "code" | "backup-code">("password");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [given, setGiven] = useState("");
-  const [code, setCode] = useState("");
+  const [way, setWay] = useState<Way>("password");
+  if (way === "password") {
+    return <WithPassword onWay={setWay} />;
+  }
+  if (way === "token") {
+    return <WithToken onWay={setWay} />;
+  }
+  // Each way of the second factor starts with nothing typed.
+  return <WithCode key={way} way={way} onWay={setWay} />;
+}
 
-  const signedIn = () =>
-    Promise.all([
-      queries.invalidateQueries({ queryKey: queryKeys.account }),
-      queries.invalidateQueries({ queryKey: queryKeys.person }),
-    ]);
-  const withPassword = useMutation({
-    mutationFn: () => signIn(email.trim(), password),
-    onSuccess: (answer) => {
-      if (answer === "signed-in") {
-        return signedIn();
-      }
-      setCode("");
-      setWay("code");
-    },
+function WithPassword({ onWay }: { onWay: (way: Way) => void }) {
+  const signedIn = useSignedIn();
+  const signing = useMutation({
+    mutationFn: (given: { email: string; password: string }) =>
+      signIn(given.email.trim(), given.password),
+    onSuccess: (answer) => (answer === "signed-in" ? signedIn() : onWay("code")),
   });
-  const withCode = useMutation({
-    mutationFn: (given: string) =>
-      (way === "backup-code" ? giveBackupCode : giveCode)(given.trim()),
-    // A code that was not taken is typed anew.
-    onError: () => setCode(""),
-    onSuccess: signedIn,
+  const form = useForm({
+    defaultValues: { email: "", password: "" },
+    // What it fails with is shown below the fields.
+    onSubmit: ({ value }) => signing.mutateAsync(value).catch(() => undefined),
   });
-  const withToken = useMutation({
+  const submitting = useStore(form.store, (state) => state.isSubmitting);
+
+  return (
+    <AuthCard
+      title="Sign in to Aperture"
+      data-console-sign-in="password"
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        void form.handleSubmit();
+      }}
+    >
+      <form.Field name="email" validators={{ onSubmit: all(required("An email"), email) }}>
+        {(field) => (
+          <TextField field={field} label="Email" type="email" autoComplete="username" autoFocus />
+        )}
+      </form.Field>
+      <form.Field name="password" validators={{ onSubmit: required("A password") }}>
+        {(field) => (
+          <TextField
+            field={field}
+            label="Password"
+            type="password"
+            autoComplete="current-password"
+          />
+        )}
+      </form.Field>
+      {signing.isError ? <Refused error={signing.error} /> : null}
+      <Button type="submit" disabled={submitting}>
+        Sign in
+      </Button>
+      <div className="aperture:flex aperture:justify-center aperture:gap-4">
+        <Another data-console-sign-in-way onClick={() => onWay("token")}>
+          Use an API token
+        </Another>
+      </div>
+    </AuthCard>
+  );
+}
+
+function WithToken({ onWay }: { onWay: (way: Way) => void }) {
+  const signing = useMutation({
     mutationFn: async (bearer: string) => {
       await callAs(bearer, (api) => api.accounts.current());
       await carry(bearer);
@@ -51,129 +116,105 @@ export function SignInPage() {
     },
     onSuccess: keepToken,
   });
-  const second = way === "code" || way === "backup-code";
-  const signing = second ? withCode : way === "password" ? withPassword : withToken;
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    if (second) {
-      withCode.mutate(code);
-    } else if (way === "password") {
-      withPassword.mutate();
-    } else {
-      withToken.mutate(given.trim());
-    }
-  };
+  const form = useForm({
+    defaultValues: { token: "" },
+    // What it fails with is shown below the field.
+    onSubmit: ({ value }) => signing.mutateAsync(value.token.trim()).catch(() => undefined),
+  });
+  const submitting = useStore(form.store, (state) => state.isSubmitting);
 
   return (
     <AuthCard
-      title={second ? "Two-factor sign-in" : "Sign in to Aperture"}
-      data-console-sign-in={way}
-      onSubmit={submit}
+      title="Sign in to Aperture"
+      data-console-sign-in="token"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void form.handleSubmit();
+      }}
     >
-      {way === "code" ? (
-        <CodeInput
-          value={code}
-          onChange={setCode}
-          onComplete={(given) => (withCode.isPending ? undefined : withCode.mutate(given))}
-        />
-      ) : way === "backup-code" ? (
-        <label className="aperture:flex aperture:flex-col aperture:gap-1.5 aperture:text-sm">
-          Backup code
-          <Input
-            name="code"
-            autoComplete="off"
-            autoFocus
-            value={code}
-            onChange={(event) => setCode(event.target.value)}
-          />
-        </label>
-      ) : way === "password" ? (
-        <>
-          <label className="aperture:flex aperture:flex-col aperture:gap-1.5 aperture:text-sm">
-            Email
-            <Input
-              type="email"
-              name="email"
-              autoComplete="username"
-              autoFocus
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </label>
-          <label className="aperture:flex aperture:flex-col aperture:gap-1.5 aperture:text-sm">
-            Password
-            <Input
-              type="password"
-              name="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          </label>
-        </>
-      ) : (
-        <label className="aperture:flex aperture:flex-col aperture:gap-1.5 aperture:text-sm">
-          API token
-          <Input
+      <form.Field name="token" validators={{ onSubmit: required("An API token") }}>
+        {(field) => (
+          <TextField
+            field={field}
+            label="API token"
             type="password"
-            name="token"
             autoComplete="off"
             autoFocus
             placeholder="apc_…"
-            value={given}
-            onChange={(event) => setGiven(event.target.value)}
           />
-        </label>
-      )}
-      {signing.isError ? (
-        <p role="alert" className="aperture:text-sm aperture:text-destructive">
-          {told(signing.error)}
-        </p>
-      ) : null}
-      <Button type="submit" disabled={signing.isPending}>
+        )}
+      </form.Field>
+      {signing.isError ? <Refused error={signing.error} /> : null}
+      <Button type="submit" disabled={submitting}>
         Sign in
       </Button>
       <div className="aperture:flex aperture:justify-center aperture:gap-4">
-        {second ? (
-          <>
-            <Button
-              type="button"
-              variant="link"
-              data-console-sign-in-way
-              className="aperture:h-auto aperture:p-0"
-              onClick={() => {
-                withCode.reset();
-                setCode("");
-                setWay(way === "code" ? "backup-code" : "code");
-              }}
-            >
-              {way === "code" ? "Use a backup code" : "Use the authenticator"}
-            </Button>
-            <Button
-              type="button"
-              variant="link"
-              className="aperture:h-auto aperture:p-0"
-              onClick={() => {
-                withCode.reset();
-                setPassword("");
-                setWay("password");
-              }}
-            >
-              Start over
-            </Button>
-          </>
-        ) : (
-          <Button
-            type="button"
-            variant="link"
-            data-console-sign-in-way
-            className="aperture:h-auto aperture:p-0"
-            onClick={() => setWay(way === "password" ? "token" : "password")}
-          >
-            {way === "password" ? "Use an API token" : "Use a password"}
-          </Button>
-        )}
+        <Another data-console-sign-in-way onClick={() => onWay("password")}>
+          Use a password
+        </Another>
+      </div>
+    </AuthCard>
+  );
+}
+
+function WithCode({ way, onWay }: { way: "code" | "backup-code"; onWay: (way: Way) => void }) {
+  const signedIn = useSignedIn();
+  const signing = useMutation({
+    mutationFn: (given: string) =>
+      (way === "backup-code" ? giveBackupCode : giveCode)(given.trim()),
+    onSuccess: signedIn,
+  });
+  const form = useForm({
+    defaultValues: { code: "" },
+    onSubmit: async ({ value, formApi }) => {
+      try {
+        await signing.mutateAsync(value.code);
+      } catch {
+        // A code that was not taken is typed anew; why is shown below it.
+        formApi.reset();
+      }
+    },
+  });
+  const submitting = useStore(form.store, (state) => state.isSubmitting);
+
+  return (
+    <AuthCard
+      title="Two-factor sign-in"
+      data-console-sign-in={way}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void form.handleSubmit();
+      }}
+    >
+      <form.Field
+        name="code"
+        validators={{ onSubmit: required(way === "code" ? "The code" : "A backup code") }}
+      >
+        {(field) =>
+          way === "code" ? (
+            <CodeInput
+              value={field.state.value}
+              onChange={field.handleChange}
+              error={field.state.meta.errors.find((error) => typeof error === "string")}
+              onComplete={() => (submitting ? undefined : void form.handleSubmit())}
+            />
+          ) : (
+            <TextField field={field} label="Backup code" autoComplete="off" autoFocus />
+          )
+        }
+      </form.Field>
+      {signing.isError ? <Refused error={signing.error} /> : null}
+      <Button type="submit" disabled={submitting}>
+        Sign in
+      </Button>
+      <div className="aperture:flex aperture:justify-center aperture:gap-4">
+        <Another
+          data-console-sign-in-way
+          onClick={() => onWay(way === "code" ? "backup-code" : "code")}
+        >
+          {way === "code" ? "Use a backup code" : "Use the authenticator"}
+        </Another>
+        <Another onClick={() => onWay("password")}>Start over</Another>
       </div>
     </AuthCard>
   );

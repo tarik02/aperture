@@ -15,13 +15,16 @@ type AppShellProps = {
   children: React.ReactNode;
 };
 
+/** As tall as the window and no taller: what is inside scrolls, and fills what it does not. */
+const FILLS = "aperture:h-svh";
+
 export function AppShell({ layout, children }: AppShellProps) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [headerActions, setHeaderActions] = useState<HTMLDivElement | null>(null);
 
   if (layout === "workbench") {
     return (
-      <SidebarProvider key="workbench" defaultOpen={false}>
+      <SidebarProvider key="workbench" defaultOpen={false} className={FILLS}>
         <AppSidebar collapsible="offcanvas" />
         <SidebarInset className="aperture:h-full aperture:min-h-0 aperture:overflow-hidden">
           {children}
@@ -31,7 +34,7 @@ export function AppShell({ layout, children }: AppShellProps) {
   }
 
   return (
-    <SidebarProvider key="page">
+    <SidebarProvider key="page" className={FILLS}>
       <AppSidebar collapsible="icon" />
       <SidebarInset className="aperture:h-full aperture:min-h-0 aperture:overflow-hidden">
         <header className="aperture:flex aperture:h-12 aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:border-b aperture:px-3">

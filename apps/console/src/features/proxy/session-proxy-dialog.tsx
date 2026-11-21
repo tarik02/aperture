@@ -1,19 +1,24 @@
 import { Button } from "@aperture-browser/ui/components/button";
 import {
-  Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@aperture-browser/ui/components/dialog";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
-import { toast } from "sonner";
-import { draftOf, type ProxyDraft, ProxyEditor, proxyOf } from "#/features/proxy/proxy-editor.tsx";
-import { call } from "#/lib/api.ts";
-import { toastMutationError } from "#/lib/mutation-toast.ts";
-import { queryKeys } from "#/lib/query-keys.ts";
+import { useForm, useStore } from "@tanstack/react-form";
+import { FreshDialog } from "#/components/fresh-dialog.tsx";
+import {
+  draftOf,
+  type ProxyDraft,
+  ProxyEditor,
+  proxyOf,
+  proxyRules,
+} from "#/features/proxy/proxy-editor.tsx";
+import {
+  useSessionProxyQuery,
+  useSetSessionProxyMutation,
+} from "#/features/proxy/proxy.queries.ts";
+import { told } from "#/lib/api.ts";
 
 type SessionProxyDialogProps = {
   sessionId: string;
@@ -23,26 +28,26 @@ type SessionProxyDialogProps = {
 
 /** Changes how a session's connections are routed, while it runs. */
 export function SessionProxyDialog({ sessionId, open, onOpenChange }: SessionProxyDialogProps) {
-  const kept = useQuery({
-    queryKey: queryKeys.proxy(sessionId),
-    queryFn: () => call((api) => api.sessions.proxy({ params: { id: sessionId } })),
-    enabled: open,
-    // Edited from what is kept now, and not from what was when the dialog last opened.
-    gcTime: 0,
-  });
+  const kept = useSessionProxyQuery(sessionId, open);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        {open && kept.data !== undefined ? (
-          <ProxyForm
-            sessionId={sessionId}
-            initial={draftOf(kept.data.proxy)}
-            onDone={() => onOpenChange(false)}
-          />
-        ) : null}
-      </DialogContent>
-    </Dialog>
+    <FreshDialog open={open} onOpenChange={onOpenChange}>
+      {/* What was kept when the dialog last opened is not what is edited from. */}
+      {kept.data === undefined || (open && kept.isFetching) ? (
+        <DialogHeader>
+          <DialogTitle>Routing</DialogTitle>
+          <DialogDescription>
+            {kept.isError ? told(kept.error) : "Asking how it is routed now…"}
+          </DialogDescription>
+        </DialogHeader>
+      ) : (
+        <ProxyForm
+          sessionId={sessionId}
+          initial={draftOf(kept.data.proxy)}
+          onDone={() => onOpenChange(false)}
+        />
+      )}
+    </FreshDialog>
   );
 }
 
@@ -55,40 +60,50 @@ function ProxyForm({
   initial: ProxyDraft;
   onDone: () => void;
 }) {
-  const queries = useQueryClient();
-  const [draft, setDraft] = useState(initial);
-  const save = useMutation({
-    mutationFn: () =>
-      call((api) =>
-        api.sessions.setProxy({ params: { id: sessionId }, payload: { proxy: proxyOf(draft) } }),
-      ),
-    onSuccess: () => {
-      toast.success("Routing changed");
+  const save = useSetSessionProxyMutation(sessionId);
+  const form = useForm({
+    defaultValues: { proxy: initial },
+    onSubmit: async ({ value }) => {
+      try {
+        await save.mutateAsync(proxyOf(value.proxy));
+      } catch {
+        // The mutation tells of it.
+        return;
+      }
       onDone();
     },
-    onError: (error) => toastMutationError(error, "The routing was not changed"),
-    onSettled: () => queries.invalidateQueries({ queryKey: queryKeys.proxy(sessionId) }),
   });
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    save.mutate();
-  };
+  const submitting = useStore(form.store, (state) => state.isSubmitting);
 
   return (
-    <form data-console-session-proxy onSubmit={submit} className="aperture:grid aperture:gap-4">
+    <form
+      data-console-session-proxy
+      className="aperture:grid aperture:min-w-0 aperture:gap-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void form.handleSubmit();
+      }}
+    >
       <DialogHeader>
         <DialogTitle>Routing</DialogTitle>
         <DialogDescription>
           Where the session's browser connections go. It takes effect for new connections.
         </DialogDescription>
       </DialogHeader>
-      <ProxyEditor draft={draft} onChange={setDraft} />
+      <form.Field name="proxy" validators={{ onSubmit: ({ value }) => proxyRules(value) }}>
+        {(field) => (
+          <ProxyEditor
+            draft={field.state.value}
+            error={field.state.meta.errors.length > 0 ? proxyRules(field.state.value) : undefined}
+            onChange={field.handleChange}
+          />
+        )}
+      </form.Field>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onDone}>
           Cancel
         </Button>
-        <Button type="submit" disabled={save.isPending}>
+        <Button type="submit" disabled={submitting}>
           Save
         </Button>
       </DialogFooter>

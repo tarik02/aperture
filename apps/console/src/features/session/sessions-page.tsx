@@ -1,23 +1,34 @@
 import { Button } from "@aperture-browser/ui/components/button";
 import { Input } from "@aperture-browser/ui/components/input";
-import { NativeSelect, NativeSelectOption } from "@aperture-browser/ui/components/native-select";
-import { useNavigate } from "@tanstack/react-router";
 import { ChevronDown, Pause, Play, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Choice } from "#/components/choice.tsx";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { SessionCreateDialog } from "#/features/session/session-create-dialog.tsx";
 import { SessionCard } from "#/features/session/session-card.tsx";
 import {
   useBulkSessionActionMutation,
-  useCreateSessionMutation,
+  useOpenNewSession,
 } from "#/features/session/session.mutations.ts";
 import { type Session, useSessionsQuery } from "#/features/session/session.queries.ts";
 import { useSelectedWorkspace } from "#/features/workspace/workspace.queries.ts";
 import { told } from "#/lib/api.ts";
+import { useLast } from "#/lib/use-last.ts";
 
-type Status = "all" | "active" | "suspended" | "failed";
-type Order = "created" | "label";
+const STATUSES = [
+  { value: "all", label: "All" },
+  { value: "active", label: "Active" },
+  { value: "suspended", label: "Suspended" },
+  { value: "failed", label: "Failed" },
+] as const;
+type Status = (typeof STATUSES)[number]["value"];
+
+const ORDERS = [
+  { value: "created", label: "Newest" },
+  { value: "label", label: "Label" },
+] as const;
+type Order = (typeof ORDERS)[number]["value"];
 
 const STATUS: Record<Status, (session: Session) => boolean> = {
   all: () => true,
@@ -41,17 +52,18 @@ const matches = (session: Session, sought: string) =>
 /** An account's sessions, wherever they run. */
 export function SessionsPage() {
   const sessions = useSessionsQuery();
-  const create = useCreateSessionMutation();
+  const openNew = useOpenNewSession();
   const suspend = useBulkSessionActionMutation("suspend");
   const resume = useBulkSessionActionMutation("resume");
   const remove = useBulkSessionActionMutation("delete");
-  const navigate = useNavigate();
   const workspace = useSelectedWorkspace();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<Status>("all");
   const [order, setOrder] = useState<Order>("created");
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const [confirming, setConfirming] = useState(false);
+  /** How many sessions are asked to be deleted, while that is asked. */
+  const [confirming, setConfirming] = useState<number>();
+  const deleted = useLast(confirming);
   const [creating, setCreating] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
   /** Where a range that Shift extends starts. */
@@ -105,12 +117,6 @@ export function SessionsPage() {
     setSelected(next);
   };
 
-  const createAndOpen = () =>
-    create.mutate(workspace === null ? {} : { workspaceId: workspace.id }, {
-      onSuccess: (session) =>
-        navigate({ to: "/-/sessions/$sessionId", params: { sessionId: session.id } }),
-    });
-
   const busy = suspend.isPending || resume.isPending || remove.isPending;
   const clear = { onSettled: () => setSelected(new Set()) };
 
@@ -125,33 +131,20 @@ export function SessionsPage() {
           onChange={(event) => setSearch(event.target.value)}
           className="aperture:h-8 aperture:max-w-56"
         />
-        <NativeSelect
+        <Choice
           size="sm"
           aria-label="Status"
           value={status}
-          onChange={(event) => setStatus(event.target.value as Status)}
-        >
-          <NativeSelectOption value="all">All</NativeSelectOption>
-          <NativeSelectOption value="active">Active</NativeSelectOption>
-          <NativeSelectOption value="suspended">Suspended</NativeSelectOption>
-          <NativeSelectOption value="failed">Failed</NativeSelectOption>
-        </NativeSelect>
-        <NativeSelect
-          size="sm"
-          aria-label="Sort"
-          value={order}
-          onChange={(event) => setOrder(event.target.value as Order)}
-        >
-          <NativeSelectOption value="created">Newest</NativeSelectOption>
-          <NativeSelectOption value="label">Label</NativeSelectOption>
-        </NativeSelect>
+          options={STATUSES}
+          onChange={setStatus}
+        />
+        <Choice size="sm" aria-label="Sort" value={order} options={ORDERS} onChange={setOrder} />
         <div className="aperture:flex">
           <Button
             data-console-create
             size="sm"
             className="aperture:rounded-r-none"
-            disabled={create.isPending}
-            onClick={createAndOpen}
+            onClick={() => void openNew(workspace === null ? {} : { workspaceId: workspace.id })}
           >
             <Plus />
             New session
@@ -195,7 +188,7 @@ export function SessionsPage() {
             size="sm"
             variant="destructive"
             disabled={busy}
-            onClick={() => setConfirming(true)}
+            onClick={() => setConfirming(chosen.length)}
           >
             <Trash2 />
             Delete
@@ -236,17 +229,17 @@ export function SessionsPage() {
       )}
       <SessionCreateDialog open={creating} onOpenChange={setCreating} />
       <ConfirmDialog
-        open={confirming}
-        title={`Delete ${chosen.length} sessions?`}
+        open={confirming !== undefined}
+        title={deleted === 1 ? "Delete this session?" : `Delete ${deleted ?? 0} sessions?`}
         description="Their profiles and files are removed. Snapshots taken of them stay."
         confirmLabel="Delete"
         variant="destructive"
         pending={remove.isPending}
-        onOpenChange={setConfirming}
+        onOpenChange={(open) => (open ? undefined : setConfirming(undefined))}
         onConfirm={() =>
           remove.mutate(chosen, {
             onSettled: () => {
-              setConfirming(false);
+              setConfirming(undefined);
               setSelected(new Set());
             },
           })

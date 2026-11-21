@@ -1,25 +1,24 @@
 import { Button } from "@aperture-browser/ui/components/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@aperture-browser/ui/components/dialog";
-import { Input } from "@aperture-browser/ui/components/input";
-import { NativeSelect, NativeSelectOption } from "@aperture-browser/ui/components/native-select";
+import { DialogFooter, DialogHeader, DialogTitle } from "@aperture-browser/ui/components/dialog";
+import { Field, FieldLabel } from "@aperture-browser/ui/components/field";
 import {
   entriesToTags,
   TagEditor,
   type TagEntry,
 } from "@aperture-browser/ui/components/tag-editor";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@aperture-browser/ui/components/tabs";
-import { useNavigate } from "@tanstack/react-router";
-import { type FormEvent, useState } from "react";
-import { emptyDraft, ProxyEditor, proxyOf } from "#/features/proxy/proxy-editor.tsx";
-import { useCreateSessionMutation } from "#/features/session/session.mutations.ts";
-import { useSelectedWorkspace } from "#/features/workspace/workspace.queries.ts";
+import { useForm, useStore } from "@tanstack/react-form";
+import { useId, useState } from "react";
+import { Choice } from "#/components/choice.tsx";
+import { FreshDialog } from "#/components/fresh-dialog.tsx";
+import { TextField } from "#/components/text-field.tsx";
+import { emptyDraft, ProxyEditor, proxyOf, proxyRules } from "#/features/proxy/proxy-editor.tsx";
+import { useOpenNewSession } from "#/features/session/session.mutations.ts";
 import { useSnapshotsQuery } from "#/features/snapshot/snapshot.queries.ts";
+import { useSelectedWorkspace } from "#/features/workspace/workspace.queries.ts";
+
+/** Stands for no snapshot where one is chosen. */
+const EMPTY = "empty";
 
 type SessionCreateDialogProps = {
   open: boolean;
@@ -29,95 +28,122 @@ type SessionCreateDialogProps = {
 /** A session made as it is asked for: named, from a snapshot, routed, tagged. */
 export function SessionCreateDialog({ open, onOpenChange }: SessionCreateDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        {open ? <CreateForm onDone={() => onOpenChange(false)} /> : null}
-      </DialogContent>
-    </Dialog>
+    <FreshDialog open={open} onOpenChange={onOpenChange}>
+      <CreateForm onDone={() => onOpenChange(false)} />
+    </FreshDialog>
   );
 }
 
 function CreateForm({ onDone }: { onDone: () => void }) {
-  const navigate = useNavigate();
   const snapshots = useSnapshotsQuery();
   const workspace = useSelectedWorkspace();
-  const create = useCreateSessionMutation();
-  const [label, setLabel] = useState("");
-  const [snapshotId, setSnapshotId] = useState("");
-  const [proxy, setProxy] = useState(emptyDraft);
-  const [tags, setTags] = useState<TagEntry[]>([]);
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    const routed = proxyOf(proxy);
-    create.mutate(
-      {
-        ...(label.trim() === "" ? {} : { label: label.trim() }),
-        ...(snapshotId === "" ? {} : { snapshotId }),
+  const open = useOpenNewSession();
+  const snapshotId = useId();
+  const [tab, setTab] = useState("general");
+  const form = useForm({
+    defaultValues: {
+      label: "",
+      snapshotId: EMPTY,
+      proxy: emptyDraft,
+      tags: [] as TagEntry[],
+    },
+    onSubmit: ({ value }) => {
+      const routed = proxyOf(value.proxy);
+      onDone();
+      void open({
+        ...(value.label.trim() === "" ? {} : { label: value.label.trim() }),
+        ...(value.snapshotId === EMPTY ? {} : { snapshotId: value.snapshotId }),
         ...(routed === null ? {} : { proxy: routed }),
         ...(workspace === null ? {} : { workspaceId: workspace.id }),
-        tags: entriesToTags(tags),
+        tags: entriesToTags(value.tags),
+      });
+    },
+    validators: {
+      // Asked of the form, since the routing's tab may not be the one shown.
+      onSubmit: ({ value }) => {
+        const wrong = proxyRules(value.proxy);
+        return wrong === undefined ? undefined : { fields: { proxy: wrong } };
       },
-      {
-        onSuccess: (session) => {
-          onDone();
-          void navigate({ to: "/-/sessions/$sessionId", params: { sessionId: session.id } });
-        },
-      },
-    );
-  };
+    },
+    onSubmitInvalid: () => setTab("proxy"),
+  });
+  const submitting = useStore(form.store, (state) => state.isSubmitting);
+  const from = [
+    { value: EMPTY, label: "An empty profile" },
+    ...(snapshots.data ?? [])
+      .filter((snapshot) => snapshot.workspaceId === (workspace?.id ?? null))
+      .map((snapshot) => ({ value: snapshot.id, label: snapshot.name ?? snapshot.id })),
+  ];
 
   return (
-    <form data-console-session-create onSubmit={submit} className="aperture:grid aperture:gap-4">
+    <form
+      data-console-session-create
+      className="aperture:grid aperture:min-w-0 aperture:gap-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void form.handleSubmit();
+      }}
+    >
       <DialogHeader>
         <DialogTitle>New session</DialogTitle>
       </DialogHeader>
-      <Tabs defaultValue="general">
+      <Tabs value={tab} onValueChange={(value) => setTab(String(value))}>
         <TabsList>
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="proxy">Routing</TabsTrigger>
           <TabsTrigger value="advanced">Advanced</TabsTrigger>
         </TabsList>
         <TabsContent value="general" className="aperture:grid aperture:gap-4 aperture:pt-2">
-          <label className="aperture:grid aperture:gap-1.5 aperture:text-sm">
-            Label
-            <Input
-              name="label"
-              autoFocus
-              value={label}
-              onChange={(event) => setLabel(event.target.value)}
-            />
-          </label>
-          <label className="aperture:grid aperture:gap-1.5 aperture:text-sm">
-            Start from
-            <NativeSelect
-              name="snapshot"
-              value={snapshotId}
-              onChange={(event) => setSnapshotId(event.target.value)}
-            >
-              <NativeSelectOption value="">An empty profile</NativeSelectOption>
-              {snapshots.data
-                ?.filter((snapshot) => snapshot.workspaceId === (workspace?.id ?? null))
-                .map((snapshot) => (
-                  <NativeSelectOption key={snapshot.id} value={snapshot.id}>
-                    {snapshot.name ?? snapshot.id}
-                  </NativeSelectOption>
-                ))}
-            </NativeSelect>
-          </label>
+          <form.Field name="label">
+            {(field) => (
+              <TextField
+                field={field}
+                label="Label"
+                placeholder="Optional"
+                autoFocus
+                autoComplete="off"
+              />
+            )}
+          </form.Field>
+          <form.Field name="snapshotId">
+            {(field) => (
+              <Field>
+                <FieldLabel htmlFor={snapshotId}>Start from</FieldLabel>
+                <Choice
+                  id={snapshotId}
+                  className="aperture:w-full"
+                  value={field.state.value}
+                  options={from}
+                  onChange={field.handleChange}
+                />
+              </Field>
+            )}
+          </form.Field>
         </TabsContent>
         <TabsContent value="proxy" className="aperture:pt-2">
-          <ProxyEditor draft={proxy} onChange={setProxy} />
+          <form.Field name="proxy">
+            {(field) => (
+              <ProxyEditor
+                draft={field.state.value}
+                error={
+                  field.state.meta.errors.length > 0 ? proxyRules(field.state.value) : undefined
+                }
+                onChange={field.handleChange}
+              />
+            )}
+          </form.Field>
         </TabsContent>
         <TabsContent value="advanced" className="aperture:pt-2">
-          <TagEditor entries={tags} onChange={setTags} />
+          <form.Field name="tags">
+            {(field) => <TagEditor entries={field.state.value} onChange={field.handleChange} />}
+          </form.Field>
         </TabsContent>
       </Tabs>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onDone}>
           Cancel
         </Button>
-        <Button type="submit" disabled={create.isPending}>
+        <Button type="submit" disabled={submitting}>
           Create
         </Button>
       </DialogFooter>

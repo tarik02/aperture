@@ -1,25 +1,36 @@
 import type { ProxyConfig } from "@aperture-browser/control-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
+import { noteAsked } from "#/features/session/new-sessions.ts";
 import { call } from "#/lib/api.ts";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { queryKeys } from "#/lib/query-keys.ts";
 
-export function useCreateSessionMutation() {
+type NewSessionOptions = {
+  snapshotId?: string;
+  label?: string;
+  workspaceId?: string;
+  tags?: Record<string, string>;
+  proxy?: ProxyConfig;
+};
+
+/**
+ * Asks for a session and opens its workbench at once, before there is a session: the
+ * workbench says it starts, and takes the session's address when there is one.
+ */
+export function useOpenNewSession() {
   const queries = useQueryClient();
-  return useMutation({
-    mutationFn: (
-      options: {
-        snapshotId?: string;
-        label?: string;
-        workspaceId?: string;
-        tags?: Record<string, string>;
-        proxy?: ProxyConfig;
-      } = {},
-    ) => call((api) => api.sessions.create({ payload: options })),
-    onError: (error) => toastMutationError(error, "The session was not created"),
-    onSettled: () => queries.invalidateQueries({ queryKey: queryKeys.sessions }),
-  });
+  const navigate = useNavigate();
+  return (options: NewSessionOptions = {}) => {
+    const making = call((api) => api.sessions.create({ payload: options }));
+    void making
+      .then((session) => queries.setQueryData(queryKeys.session(session.id), session))
+      // Told of in the workbench that waits for it.
+      .catch(() => undefined)
+      .finally(() => queries.invalidateQueries({ queryKey: queryKeys.sessions }));
+    return navigate({ to: "/-/sessions/$sessionId", params: { sessionId: noteAsked(making) } });
+  };
 }
 
 export function useDescribeSessionMutation() {

@@ -7,16 +7,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@aperture-browser/ui/components/dialog";
-import { Input } from "@aperture-browser/ui/components/input";
-import { NativeSelect, NativeSelectOption } from "@aperture-browser/ui/components/native-select";
+import { useForm, useStore } from "@tanstack/react-form";
 import { Trash2 } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { Choice } from "#/components/choice.tsx";
+import { TextField } from "#/components/text-field.tsx";
 import {
   useAdmitMemberMutation,
   useDismissMemberMutation,
   useWorkspaceMembersQuery,
   type Workspace,
 } from "#/features/workspace/workspace.queries.ts";
+import { required } from "#/lib/validation.ts";
+
+const ROLES = [
+  { value: "member", label: "member" },
+  { value: "admin", label: "admin" },
+] as const;
+type Role = (typeof ROLES)[number]["value"];
 
 type WorkspaceMembersDialogProps = {
   workspace: Workspace;
@@ -36,13 +43,19 @@ export function WorkspaceMembersDialog({
   const members = useWorkspaceMembersQuery(workspace.id, open);
   const admit = useAdmitMemberMutation(workspace.id);
   const dismiss = useDismissMemberMutation(workspace.id);
-  const [accountId, setAccountId] = useState("");
-  const [role, setRole] = useState<"member" | "admin">("member");
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    admit.mutate({ accountId: accountId.trim(), role }, { onSuccess: () => setAccountId("") });
-  };
+  const form = useForm({
+    defaultValues: { accountId: "", role: "member" as Role },
+    onSubmit: async ({ value, formApi }) => {
+      try {
+        await admit.mutateAsync({ accountId: value.accountId.trim(), role: value.role });
+      } catch {
+        // The mutation tells of it.
+        return;
+      }
+      formApi.reset();
+    },
+  });
+  const submitting = useStore(form.store, (state) => state.isSubmitting);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -79,22 +92,36 @@ export function WorkspaceMembersDialog({
           ))}
         </ul>
         {administers ? (
-          <form onSubmit={submit} className="aperture:flex aperture:gap-2">
-            <Input
-              name="account"
-              placeholder="Account id"
-              value={accountId}
-              onChange={(event) => setAccountId(event.target.value)}
-            />
-            <NativeSelect
-              aria-label="Role"
-              value={role}
-              onChange={(event) => setRole(event.target.value as "member" | "admin")}
-            >
-              <NativeSelectOption value="member">member</NativeSelectOption>
-              <NativeSelectOption value="admin">admin</NativeSelectOption>
-            </NativeSelect>
-            <Button type="submit" disabled={admit.isPending || accountId.trim() === ""}>
+          <form
+            data-console-member-add
+            className="aperture:flex aperture:items-start aperture:gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void form.handleSubmit();
+            }}
+          >
+            <form.Field name="accountId" validators={{ onSubmit: required("An account id") }}>
+              {(field) => (
+                <TextField
+                  field={field}
+                  label="Account id"
+                  placeholder="Account id"
+                  autoComplete="off"
+                  labelHidden
+                />
+              )}
+            </form.Field>
+            <form.Field name="role">
+              {(field) => (
+                <Choice
+                  aria-label="Role"
+                  value={field.state.value}
+                  options={ROLES}
+                  onChange={field.handleChange}
+                />
+              )}
+            </form.Field>
+            <Button type="submit" disabled={submitting}>
               Add
             </Button>
           </form>

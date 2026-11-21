@@ -120,13 +120,9 @@ export function SessionActionsMenu({ session }: { session: Session }) {
         nameLabel="Label"
         initial={{ name: session.label, tags: session.tags }}
         open={dialog === "describe"}
-        pending={describe.isPending}
         onOpenChange={(open) => setDialog(open ? "describe" : null)}
         onSubmit={(said) =>
-          describe.mutate(
-            { id: session.id, label: said.name, tags: said.tags },
-            { onSuccess: () => setDialog(null) },
-          )
+          describe.mutateAsync({ id: session.id, label: said.name, tags: said.tags })
         }
       />
       <SessionDetailsDialog

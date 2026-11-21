@@ -9,6 +9,7 @@ import {
 } from "@aperture-browser/ui/components/dialog";
 import { Copy } from "lucide-react";
 import { toast } from "sonner";
+import { useLast } from "#/lib/use-last.ts";
 
 type SecretDialogProps = {
   title: string;
@@ -19,8 +20,9 @@ type SecretDialogProps = {
 
 /** Shows a secret the one time it is told: it is kept nowhere it could be read again. */
 export function SecretDialog({ title, secret, onClose }: SecretDialogProps) {
+  const shown = useLast(secret);
   const copy = async () => {
-    await navigator.clipboard.writeText(secret ?? "");
+    await navigator.clipboard.writeText(shown ?? "");
     toast.success("Copied");
   };
 
@@ -35,7 +37,7 @@ export function SecretDialog({ title, secret, onClose }: SecretDialogProps) {
           data-console-secret
           className="aperture:block aperture:rounded-lg aperture:bg-muted aperture:p-3 aperture:font-mono aperture:text-xs aperture:break-all"
         >
-          {secret}
+          {shown}
         </code>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => void copy()}>

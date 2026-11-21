@@ -1,19 +1,19 @@
 import { Badge } from "@aperture-browser/ui/components/badge";
 import { Button } from "@aperture-browser/ui/components/button";
 import {
-  Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@aperture-browser/ui/components/dialog";
-import { Input } from "@aperture-browser/ui/components/input";
 import { QrCode } from "@aperture-browser/ui/components/qr-code";
-import { type FormEvent, useState } from "react";
+import { useForm, useStore } from "@tanstack/react-form";
+import { useState } from "react";
 import { toast } from "sonner";
 import { CodeInput } from "#/components/code-input.tsx";
 import { CopyField } from "#/components/copy-field.tsx";
+import { FreshDialog } from "#/components/fresh-dialog.tsx";
+import { TextField } from "#/components/text-field.tsx";
 import {
   useConfirmEnrolmentMutation,
   useEnrolMutation,
@@ -21,6 +21,7 @@ import {
   useTurnSecondFactorOffMutation,
 } from "#/features/auth/auth.queries.ts";
 import type { Person } from "#/lib/identity.ts";
+import { required } from "#/lib/validation.ts";
 
 /** How far turning the second factor on has come. */
 type Enrolling =
@@ -44,186 +45,219 @@ type AccountSecurityDialogProps = {
  * and turned off, each with the password.
  */
 export function AccountSecurityDialog({ person, open, onOpenChange }: AccountSecurityDialogProps) {
-  const enrol = useEnrolMutation();
-  const confirm = useConfirmEnrolmentMutation();
-  const turnOff = useTurnSecondFactorOffMutation();
-  const renew = useRenewBackupCodesMutation();
+  return (
+    // What was typed and told is gone with the dialog: the codes are shown once.
+    <FreshDialog open={open} onOpenChange={onOpenChange}>
+      <Security person={person} onDone={() => onOpenChange(false)} />
+    </FreshDialog>
+  );
+}
+
+function Security({ person, onDone }: { person: Person; onDone: () => void }) {
   const [enrolling, setEnrolling] = useState<Enrolling>({ step: "none" });
-  const [password, setPassword] = useState("");
-  const [code, setCode] = useState("");
-  /** Whether what the picture says is shown as text as well, for whoever cannot scan it. */
-  const [manual, setManual] = useState(false);
-
-  const close = (next: boolean) => {
-    if (!next) {
-      // What was typed and told is gone with the dialog: the codes are shown once.
-      setEnrolling({ step: "none" });
-      setManual(false);
-      setPassword("");
-      setCode("");
-    }
-    onOpenChange(next);
-  };
-
-  const confirmWith = (given: string) => {
-    if (enrolling.step !== "confirm" || confirm.isPending) {
-      return;
-    }
-    confirm.mutate(given.trim(), {
-      onSuccess: () => {
-        setCode("");
-        setEnrolling({ step: "backup-codes", backupCodes: enrolling.backupCodes });
-        toast.success("Two-factor sign-in is on");
-      },
-      // A code that was not taken is typed anew.
-      onError: () => setCode(""),
-    });
-  };
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    if (enrolling.step === "confirm") {
-      confirmWith(code);
-    } else if (person.secondFactor) {
-      turnOff.mutate(password, {
-        onSuccess: () => {
-          setPassword("");
-          toast.success("Two-factor sign-in is off");
-        },
-      });
-    } else {
-      enrol.mutate(password, {
-        onSuccess: (made) => {
-          setPassword("");
-          setEnrolling({ step: "confirm", ...made });
-        },
-      });
-    }
-  };
 
   return (
-    <Dialog open={open} onOpenChange={close}>
-      <DialogContent>
-        <form
-          data-console-security-dialog={enrolling.step}
-          onSubmit={submit}
-          className="aperture:grid aperture:min-w-0 aperture:gap-4"
+    <div className="aperture:grid aperture:min-w-0 aperture:gap-4">
+      <DialogHeader>
+        <DialogTitle>Account security</DialogTitle>
+        <DialogDescription>{person.email}</DialogDescription>
+      </DialogHeader>
+      {enrolling.step === "backup-codes" ? (
+        <div data-console-security-dialog="backup-codes" className="aperture:grid aperture:gap-4">
+          <div data-console-backup-codes>
+            <CopyField label="Backup codes, shown once" value={enrolling.backupCodes.join("\n")} />
+          </div>
+          <DialogFooter>
+            <Button type="button" onClick={onDone}>
+              Done
+            </Button>
+          </DialogFooter>
+        </div>
+      ) : enrolling.step === "confirm" ? (
+        <Confirm
+          enrolling={enrolling}
+          onConfirmed={() =>
+            setEnrolling({ step: "backup-codes", backupCodes: enrolling.backupCodes })
+          }
+          onDone={onDone}
+        />
+      ) : (
+        <WithPassword person={person} onEnrolling={setEnrolling} onDone={onDone} />
+      )}
+    </div>
+  );
+}
+
+/** What is done with the password: the second factor turned on or off, or its backup codes renewed. */
+function WithPassword({
+  person,
+  onEnrolling,
+  onDone,
+}: {
+  person: Person;
+  onEnrolling: (enrolling: Enrolling) => void;
+  onDone: () => void;
+}) {
+  const enrol = useEnrolMutation();
+  const turnOff = useTurnSecondFactorOffMutation();
+  const renew = useRenewBackupCodesMutation();
+  const form = useForm({
+    defaultValues: { password: "" },
+    onSubmitMeta: { renew: false },
+    onSubmit: async ({ value, meta, formApi }) => {
+      try {
+        if (meta.renew) {
+          const backupCodes = await renew.mutateAsync(value.password);
+          onEnrolling({ step: "backup-codes", backupCodes });
+        } else if (person.secondFactor) {
+          await turnOff.mutateAsync(value.password);
+          formApi.reset();
+          toast.success("Two-factor sign-in is off");
+        } else {
+          onEnrolling({ step: "confirm", ...(await enrol.mutateAsync(value.password)) });
+        }
+      } catch {
+        // The mutation tells of it.
+      }
+    },
+  });
+  const submitting = useStore(form.store, (state) => state.isSubmitting);
+
+  return (
+    <form
+      data-console-security-dialog="none"
+      className="aperture:grid aperture:gap-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void form.handleSubmit({ renew: false });
+      }}
+    >
+      <div className="aperture:flex aperture:items-center aperture:justify-between aperture:gap-2 aperture:text-sm">
+        Two-factor sign-in
+        <Badge
+          data-console-second-factor={person.secondFactor ? "on" : "off"}
+          variant={person.secondFactor ? "default" : "outline"}
         >
-          <DialogHeader>
-            <DialogTitle>Account security</DialogTitle>
-            <DialogDescription>{person.email}</DialogDescription>
-          </DialogHeader>
-          {enrolling.step === "backup-codes" ? (
-            <>
-              <div data-console-backup-codes>
-                <CopyField
-                  label="Backup codes, shown once"
-                  value={enrolling.backupCodes.join("\n")}
-                />
-              </div>
-              <DialogFooter>
-                <Button type="button" onClick={() => close(false)}>
-                  Done
-                </Button>
-              </DialogFooter>
-            </>
-          ) : enrolling.step === "confirm" ? (
-            <>
-              <QrCode
-                data-console-totp-qr
-                value={enrolling.uri}
-                label="Setup address for an authenticator"
-                className="aperture:size-auto aperture:w-full"
-              />
-              {manual ? (
-                <>
-                  <div data-console-totp-uri>
-                    <CopyField label="Setup address" value={enrolling.uri} />
-                  </div>
-                  <CopyField label="Secret" value={enrolling.secret} />
-                </>
-              ) : (
-                <Button
-                  type="button"
-                  variant="link"
-                  data-console-totp-manual
-                  className="aperture:h-auto aperture:justify-self-start aperture:p-0"
-                  onClick={() => setManual(true)}
-                >
-                  Can't scan it?
-                </Button>
-              )}
-              <CodeInput value={code} onChange={setCode} onComplete={confirmWith} />
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => close(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={confirm.isPending || code.trim() === ""}>
-                  Confirm
-                </Button>
-              </DialogFooter>
-            </>
-          ) : (
-            <>
-              <div className="aperture:flex aperture:items-center aperture:justify-between aperture:gap-2 aperture:text-sm">
-                Two-factor sign-in
-                <Badge
-                  data-console-second-factor={person.secondFactor ? "on" : "off"}
-                  variant={person.secondFactor ? "default" : "outline"}
-                >
-                  {person.secondFactor ? "On" : "Off"}
-                </Badge>
-              </div>
-              <label className="aperture:grid aperture:gap-1.5 aperture:text-sm">
-                Password
-                <Input
-                  type="password"
-                  name="password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                />
-              </label>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => close(false)}>
-                  Close
-                </Button>
-                {person.secondFactor ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    data-console-renew-backup-codes
-                    disabled={renew.isPending || password === ""}
-                    onClick={() =>
-                      renew.mutate(password, {
-                        onSuccess: (backupCodes) => {
-                          setPassword("");
-                          setEnrolling({ step: "backup-codes", backupCodes });
-                        },
-                      })
-                    }
-                  >
-                    New backup codes
-                  </Button>
-                ) : null}
-                {person.secondFactor ? (
-                  <Button
-                    type="submit"
-                    variant="destructive"
-                    disabled={turnOff.isPending || password === ""}
-                  >
-                    Turn off
-                  </Button>
-                ) : (
-                  <Button type="submit" disabled={enrol.isPending || password === ""}>
-                    Turn on
-                  </Button>
-                )}
-              </DialogFooter>
-            </>
-          )}
-        </form>
-      </DialogContent>
-    </Dialog>
+          {person.secondFactor ? "On" : "Off"}
+        </Badge>
+      </div>
+      <form.Field name="password" validators={{ onSubmit: required("Your password") }}>
+        {(field) => (
+          <TextField
+            field={field}
+            label="Password"
+            type="password"
+            autoComplete="current-password"
+          />
+        )}
+      </form.Field>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onDone}>
+          Close
+        </Button>
+        {person.secondFactor ? (
+          <Button
+            type="button"
+            variant="outline"
+            data-console-renew-backup-codes
+            disabled={submitting}
+            onClick={() => void form.handleSubmit({ renew: true })}
+          >
+            New backup codes
+          </Button>
+        ) : null}
+        <Button
+          type="submit"
+          variant={person.secondFactor ? "destructive" : "default"}
+          disabled={submitting}
+        >
+          {person.secondFactor ? "Turn off" : "Turn on"}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
+/** Shows an authenticator what to keep, and takes a code of its to show that it does. */
+function Confirm({
+  enrolling,
+  onConfirmed,
+  onDone,
+}: {
+  enrolling: Extract<Enrolling, { step: "confirm" }>;
+  onConfirmed: () => void;
+  onDone: () => void;
+}) {
+  const confirm = useConfirmEnrolmentMutation();
+  /** Whether what the picture says is shown as text as well, for whoever cannot scan it. */
+  const [manual, setManual] = useState(false);
+  const form = useForm({
+    defaultValues: { code: "" },
+    onSubmit: async ({ value, formApi }) => {
+      try {
+        await confirm.mutateAsync(value.code.trim());
+      } catch {
+        // A code that was not taken is typed anew.
+        formApi.reset();
+        return;
+      }
+      toast.success("Two-factor sign-in is on");
+      onConfirmed();
+    },
+  });
+  const submitting = useStore(form.store, (state) => state.isSubmitting);
+
+  return (
+    <form
+      data-console-security-dialog="confirm"
+      className="aperture:grid aperture:min-w-0 aperture:gap-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void form.handleSubmit();
+      }}
+    >
+      <QrCode
+        data-console-totp-qr
+        value={enrolling.uri}
+        label="Setup address for an authenticator"
+        className="aperture:size-auto aperture:w-full"
+      />
+      {manual ? (
+        <>
+          <div data-console-totp-uri>
+            <CopyField label="Setup address" value={enrolling.uri} />
+          </div>
+          <CopyField label="Secret" value={enrolling.secret} />
+        </>
+      ) : (
+        <Button
+          type="button"
+          variant="link"
+          data-console-totp-manual
+          className="aperture:h-auto aperture:justify-self-start aperture:p-0"
+          onClick={() => setManual(true)}
+        >
+          Can't scan it?
+        </Button>
+      )}
+      <form.Field name="code" validators={{ onSubmit: required("The code") }}>
+        {(field) => (
+          <CodeInput
+            value={field.state.value}
+            onChange={field.handleChange}
+            error={field.state.meta.errors.find((error) => typeof error === "string")}
+            onComplete={() => (submitting ? undefined : void form.handleSubmit())}
+          />
+        )}
+      </form.Field>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={submitting}>
+          Confirm
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }

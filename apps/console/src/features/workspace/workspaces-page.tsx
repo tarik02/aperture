@@ -8,10 +8,10 @@ import {
   TableHeader,
   TableRow,
 } from "@aperture-browser/ui/components/table";
-import { Trash2, Users } from "lucide-react";
+import { Plus, Trash2, Users } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
-import { NameForm } from "#/components/name-form.tsx";
+import { NameDialog } from "#/components/name-dialog.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
 import { WorkspaceMembersDialog } from "#/features/workspace/workspace-members-dialog.tsx";
@@ -83,17 +83,23 @@ function WorkspaceRow({ workspace }: { workspace: Workspace }) {
 export function WorkspacesPage() {
   const workspaces = useWorkspacesQuery();
   const create = useCreateWorkspaceMutation();
+  const [creating, setCreating] = useState(false);
 
   return (
     <div className="aperture:p-4">
       <PageHeaderActions>
-        <NameForm
-          placeholder="Workspace name"
-          label="New workspace"
-          pending={create.isPending}
-          onSubmit={(name) => create.mutate(name)}
-        />
+        <Button data-console-workspace-new size="sm" onClick={() => setCreating(true)}>
+          <Plus />
+          New workspace
+        </Button>
       </PageHeaderActions>
+      <NameDialog
+        title="New workspace"
+        description="Its members all have its sessions and snapshots."
+        open={creating}
+        onOpenChange={setCreating}
+        onSubmit={(name) => create.mutateAsync(name)}
+      />
       {workspaces.data?.length === 0 ? (
         <p
           data-console-empty

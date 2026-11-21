@@ -1,6 +1,5 @@
 import { Badge } from "@aperture-browser/ui/components/badge";
 import { Button } from "@aperture-browser/ui/components/button";
-import { NativeSelect, NativeSelectOption } from "@aperture-browser/ui/components/native-select";
 import {
   Table,
   TableBody,
@@ -11,19 +10,24 @@ import {
 } from "@aperture-browser/ui/components/table";
 import { Plus } from "lucide-react";
 import { useState } from "react";
+import { Choice } from "#/components/choice.tsx";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { SecretDialog } from "#/components/secret-dialog.tsx";
 import { TokenCreateDialog } from "#/features/token/token-create-dialog.tsx";
-import {
-  type ApiToken,
-  useRevokeTokenMutation,
-  useTokensQuery,
-} from "#/features/token/token.queries.ts";
+import { useRevokeTokenMutation } from "#/features/token/token.mutations.ts";
+import { type ApiToken, useTokensQuery } from "#/features/token/token.queries.ts";
+import { told } from "#/lib/api.ts";
+import { useLast } from "#/lib/use-last.ts";
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
-type Shown = "active" | "revoked" | "all";
+const SHOWN = [
+  { value: "active", label: "Active" },
+  { value: "revoked", label: "Revoked or expired" },
+  { value: "all", label: "All" },
+] as const;
+type Shown = (typeof SHOWN)[number]["value"];
 
 const stateOf = (token: ApiToken) => {
   if (token.revokedAt !== null) {
@@ -42,6 +46,7 @@ export function TokensPage() {
   const [creating, setCreating] = useState(false);
   const [secret, setSecret] = useState<string>();
   const [revoking, setRevoking] = useState<ApiToken>();
+  const revoked = useLast(revoking);
 
   const listed = (tokens.data ?? []).filter((token) => {
     const state = stateOf(token);
@@ -51,26 +56,29 @@ export function TokensPage() {
   return (
     <div className="aperture:p-4">
       <PageHeaderActions>
-        <NativeSelect
+        <Choice
           size="sm"
           aria-label="Which tokens"
           value={shown}
-          onChange={(event) => setShown(event.target.value as Shown)}
-        >
-          <NativeSelectOption value="active">Active</NativeSelectOption>
-          <NativeSelectOption value="revoked">Revoked or expired</NativeSelectOption>
-          <NativeSelectOption value="all">All</NativeSelectOption>
-        </NativeSelect>
+          options={SHOWN}
+          onChange={setShown}
+        />
         <Button data-console-token-new size="sm" onClick={() => setCreating(true)}>
           <Plus />
           New token
         </Button>
       </PageHeaderActions>
+      {tokens.isError ? (
+        <p role="alert" className="aperture:pb-4 aperture:text-sm aperture:text-destructive">
+          {told(tokens.error)}
+        </p>
+      ) : null}
       <Table scrollable={false}>
         <TableHeader>
           <TableRow>
             <TableHead>Name</TableHead>
             <TableHead>State</TableHead>
+            <TableHead>Scopes</TableHead>
             <TableHead>Created</TableHead>
             <TableHead>Expires</TableHead>
             <TableHead />
@@ -84,6 +92,19 @@ export function TokensPage() {
                 <TableCell className="aperture:font-medium">{token.name}</TableCell>
                 <TableCell>
                   <Badge variant={state === "active" ? "default" : "outline"}>{state}</Badge>
+                </TableCell>
+                <TableCell className="aperture:whitespace-normal">
+                  {token.scopes === null ? (
+                    <span className="aperture:text-muted-foreground">Everything</span>
+                  ) : (
+                    <span className="aperture:flex aperture:flex-wrap aperture:gap-1">
+                      {token.scopes.map((scope) => (
+                        <Badge key={scope} variant="secondary" data-console-token-scope={scope}>
+                          {scope}
+                        </Badge>
+                      ))}
+                    </span>
+                  )}
                 </TableCell>
                 <TableCell className="aperture:text-muted-foreground">
                   {when.format(new Date(token.createdAt.epochMilliseconds))}
@@ -109,7 +130,7 @@ export function TokensPage() {
       <SecretDialog title="API token" secret={secret} onClose={() => setSecret(undefined)} />
       <ConfirmDialog
         open={revoking !== undefined}
-        title={`Revoke ${revoking?.name ?? "this token"}?`}
+        title={`Revoke ${revoked?.name ?? "this token"}?`}
         description="Whatever uses it is let in no more. This is not undone."
         confirmLabel="Revoke"
         variant="destructive"

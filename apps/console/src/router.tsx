@@ -6,10 +6,13 @@ import {
   redirect,
 } from "@tanstack/react-router";
 import { AppShell } from "#/components/app-shell.tsx";
-import { AccountsPage } from "#/features/account/accounts-page.tsx";
+import { PeoplePage } from "#/features/account/people-page.tsx";
+import { ServiceAccountsPage } from "#/features/account/service-accounts-page.tsx";
 import { SignInPage } from "#/features/auth/sign-in-page.tsx";
 import { NodesPage } from "#/features/node/nodes-page.tsx";
-import { SessionWorkbench } from "#/features/session/session-workbench.tsx";
+import { RegistrationTokensPage } from "#/features/node/registration-tokens-page.tsx";
+import { isNewSession } from "#/features/session/new-sessions.ts";
+import { NewSessionWorkbench, SessionWorkbench } from "#/features/session/session-workbench.tsx";
 import { SessionsPage } from "#/features/session/sessions-page.tsx";
 import { SnapshotsPage } from "#/features/snapshot/snapshots-page.tsx";
 import { TokensPage } from "#/features/token/tokens-page.tsx";
@@ -76,19 +79,36 @@ const workspaces = createRoute({
 
 const nodes = createRoute({ getParentRoute: () => pages, path: "/-/nodes", component: NodesPage });
 
-const accounts = createRoute({
+const registrationTokens = createRoute({
   getParentRoute: () => pages,
-  path: "/-/accounts",
-  component: AccountsPage,
+  path: "/-/registration-tokens",
+  component: RegistrationTokensPage,
+});
+
+const people = createRoute({
+  getParentRoute: () => pages,
+  path: "/-/people",
+  component: PeoplePage,
+});
+
+const serviceAccounts = createRoute({
+  getParentRoute: () => pages,
+  path: "/-/service-accounts",
+  component: ServiceAccountsPage,
 });
 
 const session = createRoute({
   getParentRoute: () => signed,
   path: "/-/sessions/$sessionId",
   component: function Opened() {
+    const { sessionId } = session.useParams();
     return (
       <AppShell layout="workbench">
-        <SessionWorkbench sessionId={session.useParams().sessionId} />
+        {isNewSession(sessionId) ? (
+          <NewSessionWorkbench sessionKey={sessionId} />
+        ) : (
+          <SessionWorkbench sessionId={sessionId} />
+        )}
       </AppShell>
     );
   },
@@ -99,7 +119,16 @@ export const router = createRouter({
     invite,
     signed.addChildren([
       index,
-      pages.addChildren([sessions, snapshots, tokens, workspaces, nodes, accounts]),
+      pages.addChildren([
+        sessions,
+        snapshots,
+        tokens,
+        workspaces,
+        nodes,
+        registrationTokens,
+        people,
+        serviceAccounts,
+      ]),
       session,
     ]),
   ]),

@@ -8,13 +8,12 @@ import {
   TableHeader,
   TableRow,
 } from "@aperture-browser/ui/components/table";
-import { useNavigate } from "@tanstack/react-router";
 import { Pencil, Play, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { DescribeDialog } from "#/components/describe-dialog.tsx";
 import { TagList } from "#/components/tag-list.tsx";
-import { useCreateSessionMutation } from "#/features/session/session.mutations.ts";
+import { useOpenNewSession } from "#/features/session/session.mutations.ts";
 import {
   useDeleteSnapshotMutation,
   useDescribeSnapshotMutation,
@@ -26,24 +25,17 @@ import { told } from "#/lib/api.ts";
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
 function SnapshotRow({ snapshot }: { snapshot: Snapshot }) {
-  const navigate = useNavigate();
-  const create = useCreateSessionMutation();
+  const openNew = useOpenNewSession();
   const remove = useDeleteSnapshotMutation();
   const describe = useDescribeSnapshotMutation();
   const [confirming, setConfirming] = useState(false);
   const [editing, setEditing] = useState(false);
 
   const start = () =>
-    create.mutate(
-      {
-        snapshotId: snapshot.id,
-        ...(snapshot.workspaceId === null ? {} : { workspaceId: snapshot.workspaceId }),
-      },
-      {
-        onSuccess: (session) =>
-          navigate({ to: "/-/sessions/$sessionId", params: { sessionId: session.id } }),
-      },
-    );
+    openNew({
+      snapshotId: snapshot.id,
+      ...(snapshot.workspaceId === null ? {} : { workspaceId: snapshot.workspaceId }),
+    });
 
   return (
     <TableRow data-console-snapshot={snapshot.id}>
@@ -69,7 +61,12 @@ function SnapshotRow({ snapshot }: { snapshot: Snapshot }) {
       </TableCell>
       <TableCell>
         <div className="aperture:flex aperture:justify-end aperture:gap-1">
-          <Button size="sm" variant="outline" disabled={create.isPending} onClick={start}>
+          <Button
+            size="sm"
+            variant="outline"
+            data-console-snapshot-start
+            onClick={() => void start()}
+          >
             <Play />
             New session
           </Button>
@@ -91,11 +88,8 @@ function SnapshotRow({ snapshot }: { snapshot: Snapshot }) {
           withDescription
           initial={snapshot}
           open={editing}
-          pending={describe.isPending}
           onOpenChange={setEditing}
-          onSubmit={(said) =>
-            describe.mutate({ id: snapshot.id, ...said }, { onSuccess: () => setEditing(false) })
-          }
+          onSubmit={(said) => describe.mutateAsync({ id: snapshot.id, ...said })}
         />
         <ConfirmDialog
           open={confirming}

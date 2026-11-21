@@ -1,11 +1,12 @@
 import { Button } from "@aperture-browser/ui/components/button";
-import { Input } from "@aperture-browser/ui/components/input";
+import { useForm, useStore } from "@tanstack/react-form";
 import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { type FormEvent, useState } from "react";
+import { TextField } from "#/components/text-field.tsx";
 import { AuthCard } from "#/features/auth/auth-card.tsx";
 import { told } from "#/lib/api.ts";
 import { setPassword } from "#/lib/identity.ts";
+import { atLeast } from "#/lib/validation.ts";
 
 const MIN_LENGTH = 8;
 
@@ -14,45 +15,49 @@ export function InvitePage() {
   const navigate = useNavigate();
   // After the `#`, so the token is sent nowhere when the link is opened.
   const token = new URLSearchParams(location.hash.slice(1)).get("token") ?? "";
-  const [password, setGiven] = useState("");
   const set = useMutation({
-    mutationFn: () => setPassword(token, password),
+    mutationFn: (password: string) => setPassword(token, password),
     onSuccess: () => navigate({ to: "/-/sessions" }),
   });
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    set.mutate();
-  };
+  const form = useForm({
+    defaultValues: { password: "" },
+    // What it fails with is shown below the field.
+    onSubmit: ({ value }) => set.mutateAsync(value.password).catch(() => undefined),
+  });
+  const submitting = useStore(form.store, (state) => state.isSubmitting);
 
   return (
-    <AuthCard title="Set your password" data-console-invite onSubmit={submit}>
+    <AuthCard
+      title="Set your password"
+      data-console-invite
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        void form.handleSubmit();
+      }}
+    >
       {token === "" ? (
         <p role="alert" className="aperture:text-sm aperture:text-destructive">
           This link has no token in it. Ask for another.
         </p>
       ) : null}
-      <label className="aperture:flex aperture:flex-col aperture:gap-1.5 aperture:text-sm">
-        New password
-        <Input
-          type="password"
-          name="password"
-          autoComplete="new-password"
-          autoFocus
-          minLength={MIN_LENGTH}
-          value={password}
-          onChange={(event) => setGiven(event.target.value)}
-        />
-      </label>
+      <form.Field name="password" validators={{ onSubmit: atLeast(MIN_LENGTH, "A password") }}>
+        {(field) => (
+          <TextField
+            field={field}
+            label="New password"
+            type="password"
+            autoComplete="new-password"
+            autoFocus
+          />
+        )}
+      </form.Field>
       {set.isError ? (
         <p role="alert" className="aperture:text-sm aperture:text-destructive">
           {told(set.error)}
         </p>
       ) : null}
-      <Button
-        type="submit"
-        disabled={set.isPending || token === "" || password.length < MIN_LENGTH}
-      >
+      <Button type="submit" disabled={submitting || token === ""}>
         Set password
       </Button>
     </AuthCard>

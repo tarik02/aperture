@@ -1,25 +1,28 @@
-import {
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from "@aperture-browser/ui/components/sidebar";
+import { Avatar, AvatarFallback } from "@aperture-browser/ui/components/avatar";
+import { Button } from "@aperture-browser/ui/components/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture-browser/ui/components/tooltip";
 import { useQueryClient } from "@tanstack/react-query";
-import { LogOut, ShieldCheck } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
-import { AccountSecurityDialog } from "#/features/auth/account-security-dialog.tsx";
-import { useAccountQuery, usePersonQuery } from "#/features/auth/auth.queries.ts";
+import { useAccountQuery } from "#/features/auth/auth.queries.ts";
 import { forget } from "#/lib/api.ts";
 import { signOut as endSignIn } from "#/lib/identity.ts";
 import { keepToken } from "#/lib/token.ts";
 
-/** Who is signed in, how a person among them proves it, and the way out. */
+const initials = (name: string) => {
+  const parts = name.trim().split(/\s+/u).filter(Boolean);
+  const letters =
+    parts.length > 1 ? `${parts[0]?.[0] ?? ""}${parts.at(-1)?.[0] ?? ""}` : name.slice(0, 2);
+  return letters.toUpperCase() || "?";
+};
+
+/** Who is signed in, and the way out. */
 export function AuthMenu() {
   const account = useAccountQuery();
-  const person = usePersonQuery();
   const queries = useQueryClient();
   const [confirming, setConfirming] = useState(false);
-  const [securing, setSecuring] = useState(false);
+  const name = account.data?.name ?? "Account";
 
   const signOut = () => {
     void Promise.allSettled([forget(), endSignIn()]).then(() => {
@@ -31,37 +34,39 @@ export function AuthMenu() {
   };
 
   return (
-    <SidebarMenu>
-      {person.data ? (
-        <SidebarMenuItem>
-          <SidebarMenuButton
-            data-console-security
-            tooltip="Account security"
-            onClick={() => setSecuring(true)}
-          >
-            <ShieldCheck />
-            <span data-sidebar-collapse-label>Account security</span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      ) : null}
-      <SidebarMenuItem>
-        <SidebarMenuButton
-          data-console-sign-out
-          tooltip="Sign out"
-          onClick={() => setConfirming(true)}
+    <div className="aperture:flex aperture:items-center aperture:gap-2 aperture:rounded-lg aperture:p-1 aperture:group-data-[collapsible=icon]:p-0">
+      <Avatar className="aperture:size-8 aperture:rounded-lg">
+        <AvatarFallback className="aperture:rounded-lg aperture:text-xs">
+          {initials(name)}
+        </AvatarFallback>
+      </Avatar>
+      <span data-sidebar-collapse-label className="aperture:grid aperture:min-w-0 aperture:flex-1">
+        <span className="aperture:truncate aperture:text-sm aperture:font-medium">{name}</span>
+        <span className="aperture:truncate aperture:text-xs aperture:text-sidebar-foreground/60">
+          {account.data?.admin === true
+            ? "Admin"
+            : account.data?.kind === "service"
+              ? "Service account"
+              : "Member"}
+        </span>
+      </span>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Sign out"
+              data-console-sign-out
+              onClick={() => setConfirming(true)}
+              className="aperture:group-data-[collapsible=icon]:hidden"
+            />
+          }
         >
           <LogOut />
-          <span data-sidebar-collapse-label className="aperture:grid aperture:min-w-0">
-            <span className="aperture:truncate aperture:text-sm">{account.data?.name}</span>
-            <span className="aperture:truncate aperture:text-xs aperture:text-sidebar-foreground/60">
-              {account.data?.admin === true ? "Admin" : "Account"}
-            </span>
-          </span>
-        </SidebarMenuButton>
-      </SidebarMenuItem>
-      {person.data ? (
-        <AccountSecurityDialog person={person.data} open={securing} onOpenChange={setSecuring} />
-      ) : null}
+        </TooltipTrigger>
+        <TooltipContent side="top">Sign out</TooltipContent>
+      </Tooltip>
       <ConfirmDialog
         open={confirming}
         title="Sign out?"
@@ -70,6 +75,6 @@ export function AuthMenu() {
         onOpenChange={setConfirming}
         onConfirm={signOut}
       />
-    </SidebarMenu>
+    </div>
   );
 }

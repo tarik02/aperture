@@ -15,6 +15,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { ApertureMark } from "#/components/aperture-mark.tsx";
 import { AuthMenu } from "#/components/auth-menu.tsx";
 import { ThemeToggle } from "#/components/theme-toggle.tsx";
+import { AccountSidebarGroup } from "#/features/auth/account-sidebar-group.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
 import { RecentSessionsSidebarGroup } from "#/features/session/recent-sessions-sidebar-group.tsx";
 import { WorkspaceSwitcher } from "#/features/workspace/workspace-switcher.tsx";
@@ -28,10 +29,6 @@ export function AppSidebar({ collapsible }: { collapsible: "icon" | "offcanvas" 
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const account = useAccountQuery();
   const activeItem = resolveNavItem(pathname);
-  const items = primaryNavItems.filter(
-    (item) => item.adminOnly !== true || account.data?.admin === true,
-  );
-  const adminItems = items.filter((item) => item.group === "admin");
 
   return (
     <Sidebar collapsible={collapsible} peekOnHover={collapsible === "offcanvas"}>
@@ -54,11 +51,16 @@ export function AppSidebar({ collapsible }: { collapsible: "icon" | "offcanvas" 
       <SidebarContent>
         <NavGroup
           label="Workspace"
-          items={items.filter((item) => item.group === "workspace")}
+          items={primaryNavItems.filter((item) => item.group === "workspace")}
           activeItem={activeItem}
         />
-        {adminItems.length > 0 ? (
-          <NavGroup label="Administration" items={adminItems} activeItem={activeItem} />
+        <AccountSidebarGroup activeItem={activeItem} />
+        {account.data?.admin === true ? (
+          <NavGroup
+            label="Administration"
+            items={primaryNavItems.filter((item) => item.group === "admin")}
+            activeItem={activeItem}
+          />
         ) : null}
         <RecentSessionsSidebarGroup pathname={pathname} />
       </SidebarContent>

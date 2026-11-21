@@ -1,8 +1,9 @@
 import type { ProxyConfig } from "@aperture-browser/control-api";
 import { Button } from "@aperture-browser/ui/components/button";
 import { Input } from "@aperture-browser/ui/components/input";
-import { NativeSelect, NativeSelectOption } from "@aperture-browser/ui/components/native-select";
+import { FieldError } from "@aperture-browser/ui/components/field";
 import { Plus, Trash2 } from "lucide-react";
+import { Choice } from "#/components/choice.tsx";
 
 /** A session's routing while it is edited: with rows that are not filled in yet. */
 export interface ProxyDraft {
@@ -60,31 +61,57 @@ export const proxyOf = (draft: ProxyDraft): ProxyConfig | null => {
   return null;
 };
 
+/** What is wrong with a draft, for whoever fills it in; nothing where it can be kept. */
+export const proxyRules = (draft: ProxyDraft) => {
+  if (draft.mode === "quick") {
+    return /^[a-z][a-z\d+.-]*:\/\/\S+$/iu.test(draft.url.trim())
+      ? undefined
+      : "Enter the proxy's address, like socks5://host:1080";
+  }
+  if (draft.mode === "advanced") {
+    if (draft.upstreams.some((one) => (one.name.trim() === "") !== (one.url.trim() === ""))) {
+      return "An upstream needs both a name and an address";
+    }
+    if (draft.rules.some((rule) => (rule.match.trim() === "") !== (rule.via.trim() === ""))) {
+      return "A rule needs both what it matches and where that goes";
+    }
+  }
+  return undefined;
+};
+
+const MODES = [
+  { value: "direct", label: "Direct, from the node" },
+  { value: "quick", label: "Everything through one proxy" },
+  { value: "advanced", label: "By rules" },
+] as const;
+
 const replaced = <A,>(all: ReadonlyArray<A>, at: number, one: A) =>
   all.map((kept, index) => (index === at ? one : kept));
 const without = <A,>(all: ReadonlyArray<A>, at: number) => all.filter((_, index) => index !== at);
 
 type ProxyEditorProps = {
   draft: ProxyDraft;
+  /** What is wrong with the draft, where it was not kept for it. */
+  error?: string | undefined;
   onChange: (draft: ProxyDraft) => void;
 };
 
 /** How a session's connections are routed: direct, through one proxy, or by rules. */
-export function ProxyEditor({ draft, onChange }: ProxyEditorProps) {
+export function ProxyEditor({ draft, error, onChange }: ProxyEditorProps) {
   return (
-    <div data-console-proxy className="aperture:grid aperture:gap-3">
-      <NativeSelect
+    <div data-console-proxy className="aperture:grid aperture:min-w-0 aperture:gap-3">
+      <Choice
         aria-label="Routing"
+        className="aperture:w-full"
         value={draft.mode}
-        onChange={(event) => onChange({ ...draft, mode: event.target.value as ProxyDraft["mode"] })}
-      >
-        <NativeSelectOption value="direct">Direct, from the node</NativeSelectOption>
-        <NativeSelectOption value="quick">Everything through one proxy</NativeSelectOption>
-        <NativeSelectOption value="advanced">By rules</NativeSelectOption>
-      </NativeSelect>
+        options={MODES}
+        onChange={(mode) => onChange({ ...draft, mode })}
+      />
       {draft.mode === "quick" ? (
         <Input
           name="proxy-url"
+          aria-label="Proxy address"
+          aria-invalid={error !== undefined}
           placeholder="socks5://user:password@host:1080"
           value={draft.url}
           onChange={(event) => onChange({ ...draft, url: event.target.value })}
@@ -205,6 +232,7 @@ export function ProxyEditor({ draft, onChange }: ProxyEditorProps) {
           </section>
         </>
       ) : null}
+      <FieldError>{error}</FieldError>
     </div>
   );
 }

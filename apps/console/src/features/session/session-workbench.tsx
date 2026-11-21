@@ -1,20 +1,21 @@
 import type { Session } from "@aperture-browser/session-client";
 import { ApertureSession, type ApertureTheme } from "@aperture-browser/session-react";
 import { Button } from "@aperture-browser/ui/components/button";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Spinner } from "@aperture-browser/ui/components/spinner";
 import { useTheme } from "next-themes";
 import { useEffect } from "react";
+import { useNewSession } from "#/features/session/new-sessions.ts";
 import { noteOpened } from "#/features/session/recent-sessions.ts";
 import { useSessionActionMutation } from "#/features/session/session.mutations.ts";
 import { useSessionQuery } from "#/features/session/session.queries.ts";
 import { told } from "#/lib/api.ts";
 
-function State({ children }: { children: React.ReactNode }) {
+function State({ children, note }: { children: React.ReactNode; note?: string }) {
   return (
     <main
-      data-console-session-note
-      className="aperture:flex aperture:h-full aperture:flex-col aperture:items-center aperture:justify-center aperture:gap-3 aperture:p-4 aperture:text-sm aperture:text-muted-foreground"
+      data-console-session-note={note ?? ""}
+      className="aperture:flex aperture:min-h-0 aperture:flex-1 aperture:flex-col aperture:items-center aperture:justify-center aperture:gap-3 aperture:p-4 aperture:text-sm aperture:text-muted-foreground"
     >
       {children}
       <Button variant="outline" render={<Link to="/-/sessions" />}>
@@ -37,6 +38,41 @@ const expose = (session: Session | null) => {
 
 const isTheme = (theme: string | undefined): theme is ApertureTheme =>
   theme === "light" || theme === "dark" || theme === "system";
+
+/**
+ * A session that was asked for a moment ago, before it is there: it starts, and the address
+ * becomes the session's own once it has one. Going back does not lead here again.
+ */
+export function NewSessionWorkbench({ sessionKey }: { sessionKey: string }) {
+  const asked = useNewSession(sessionKey);
+  const navigate = useNavigate();
+  const made = asked?.state === "made" ? asked.id : undefined;
+
+  useEffect(() => {
+    if (made !== undefined) {
+      void navigate({ to: "/-/sessions/$sessionId", params: { sessionId: made }, replace: true });
+    }
+  }, [made, navigate]);
+
+  if (asked === undefined) {
+    return <State>This session was asked for on a page that is gone.</State>;
+  }
+  if (asked.state === "failed") {
+    return (
+      <State note="failed">
+        <span role="alert" className="aperture:text-destructive">
+          The session was not created: {told(asked.error)}
+        </span>
+      </State>
+    );
+  }
+  return (
+    <State note="asked">
+      <Spinner />
+      Starting…
+    </State>
+  );
+}
 
 /**
  * One session, opened: its workbench, connected at the session's path. The browser
