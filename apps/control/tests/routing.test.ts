@@ -83,12 +83,16 @@ const choose = (page: Viewer.Page, items: string, says: string) =>
   });
 
 /**
- * Names the token the dialog that is open makes, and makes it. The dialog takes its place
- * while it opens, so what is typed is waited for where it is to be before it is sent.
+ * Names the token the dialog that is open makes, and makes it. The dialog grows into its
+ * place while it opens, and a click meant for a field of it lands beside the field until it
+ * is there: so it is waited for, and what is typed is seen in the field before it is sent.
  */
 const nameToken = (page: Viewer.Page, name: string) =>
   Effect.gen(function* () {
     const field = `document.querySelector('[data-console-token-create] input[name="name"]')`;
+    yield* page.until(
+      `${field}?.closest('[data-slot="dialog-content"]').getAnimations().length === 0`,
+    );
     yield* page.click(`[data-console-token-create] input[name="name"]`);
     yield* page.until(`document.activeElement === ${field}`);
     yield* page.type(name);
