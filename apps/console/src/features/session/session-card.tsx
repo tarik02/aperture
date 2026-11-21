@@ -6,6 +6,7 @@ import {
   SessionContextMenu,
   useSessionActions,
 } from "#/features/session/session-actions-menu.tsx";
+import { mayTransition, sessionPictureName } from "#/lib/view-transition.ts";
 import { SessionPicture, useSessionPicture } from "#/features/session/session-picture.tsx";
 import type { Session } from "#/features/session/session.queries.ts";
 import { SessionStatusBadge } from "#/features/session/session-status-badge.tsx";
@@ -40,6 +41,12 @@ export function SessionCard({ session, selected, onSelect }: SessionCardProps) {
             to="/-/sessions/$sessionId"
             params={{ sessionId: session.id }}
             data-console-session-open
+            // Its picture grows into the workbench it opens.
+            viewTransition={mayTransition()}
+            style={{
+              viewTransitionName: sessionPictureName(session.id),
+              viewTransitionClass: "session-picture",
+            }}
             aria-label={`Open ${title}`}
             className="aperture:absolute aperture:inset-0 aperture:outline-none aperture:focus-visible:ring-3 aperture:focus-visible:ring-ring/50 aperture:focus-visible:ring-inset"
           >

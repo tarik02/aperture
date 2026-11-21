@@ -1,5 +1,6 @@
 import { Monitor, Moon, Sun, type LucideIcon } from "lucide-react";
 import { useTheme } from "next-themes";
+import { mayTransition } from "#/lib/view-transition.ts";
 
 export type ThemeMode = "system" | "light" | "dark";
 
@@ -22,9 +23,7 @@ export function useThemeMode() {
       applyThemeClass(value);
       setTheme(value);
     };
-    // Whoever asked for less motion gets the new theme at once.
-    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (!still && canStartViewTransition(document)) {
+    if (mayTransition() && canStartViewTransition(document)) {
       document.startViewTransition(apply);
     } else {
       apply();

@@ -7,10 +7,11 @@ import {
 import { Button } from "@aperture-browser/ui/components/button";
 import { SidebarTrigger } from "@aperture-browser/ui/components/sidebar";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Spinner } from "@aperture-browser/ui/components/spinner";
 import { useTheme } from "next-themes";
 import { useEffect } from "react";
 import { useNewSession } from "#/features/session/new-sessions.ts";
+import { WorkbenchSkeleton } from "#/features/session/workbench-skeleton.tsx";
+import { sessionPictureName } from "#/lib/view-transition.ts";
 import { noteOpened } from "#/features/session/recent-sessions.ts";
 import { useSessionActionMutation } from "#/features/session/session.mutations.ts";
 import {
@@ -123,12 +124,7 @@ export function NewSessionWorkbench({ sessionKey }: { sessionKey: string }) {
       </State>
     );
   }
-  return (
-    <State note="asked">
-      <Spinner />
-      Starting…
-    </State>
-  );
+  return <WorkbenchSkeleton note="asked">Starting…</WorkbenchSkeleton>;
 }
 
 /**
@@ -158,8 +154,13 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
     return <State>{told(session.error)}</State>;
   }
   if (session.data === undefined) {
-    return null;
+    // Its card's picture moves into this one's place while the session is asked for.
+    return <WorkbenchSkeleton sessionId={sessionId} />;
   }
+  const kept =
+    session.data.path === null
+      ? undefined
+      : `${session.data.path}/preview.png?at=${session.data.observedAt.epochMilliseconds}`;
   const { observedState, unreachableSince, failure } = session.data;
   // Asked to run: what follows is the wait for it, whatever the record still says.
   const starting = resume.isPending || resume.isSuccess;
@@ -201,21 +202,28 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
   }
   if (observedState !== "running") {
     return (
-      <State session={session.data} note="starting">
-        <Spinner />
+      <WorkbenchSkeleton note="starting" picture={kept} sessionId={sessionId}>
         Starting…
-      </State>
+      </WorkbenchSkeleton>
     );
   }
   // Connected anew when the session moves: its path is another then.
   return (
-    <ApertureSession
-      key={session.data.path}
-      url={session.data.path}
-      theme={isTheme(theme) ? theme : "system"}
-      onThemeChange={setTheme}
-      onSession={expose}
-      contributions={CONTRIBUTIONS}
-    />
+    <div
+      className="aperture:flex aperture:min-h-0 aperture:flex-1 aperture:flex-col"
+      style={{
+        viewTransitionName: sessionPictureName(sessionId),
+        viewTransitionClass: "session-picture",
+      }}
+    >
+      <ApertureSession
+        key={session.data.path}
+        url={session.data.path}
+        theme={isTheme(theme) ? theme : "system"}
+        onThemeChange={setTheme}
+        onSession={expose}
+        contributions={CONTRIBUTIONS}
+      />
+    </div>
   );
 }
