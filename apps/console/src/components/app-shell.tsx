@@ -7,6 +7,7 @@ import { useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
 import { AppSidebar } from "#/components/app-sidebar.tsx";
 import { PageHeaderActionsTarget } from "#/components/page-header-actions.tsx";
+import { useDocumentTitle } from "#/lib/document-title.ts";
 import { resolveNavItem } from "#/lib/navigation.ts";
 
 type AppShellProps = {
@@ -21,6 +22,9 @@ const FILLS = "aperture:h-svh";
 export function AppShell({ layout, children }: AppShellProps) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [headerActions, setHeaderActions] = useState<HTMLDivElement | null>(null);
+  const page = resolveNavItem(pathname)?.title ?? "Sessions";
+  // The workbench names the tab itself, after what its session shows.
+  useDocumentTitle(layout === "page" ? page : undefined, layout === "page");
 
   if (layout === "workbench") {
     return (
@@ -40,7 +44,7 @@ export function AppShell({ layout, children }: AppShellProps) {
         <header className="aperture:flex aperture:h-12 aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:border-b aperture:px-3">
           <SidebarTrigger className="aperture:-ml-1" />
           <h1 className="aperture:shrink-0 aperture:truncate aperture:pr-2 aperture:text-sm aperture:font-semibold aperture:max-sm:sr-only">
-            {resolveNavItem(pathname)?.title ?? "Sessions"}
+            {page}
           </h1>
           <div
             ref={setHeaderActions}

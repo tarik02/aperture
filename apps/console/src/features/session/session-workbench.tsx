@@ -8,9 +8,10 @@ import { Button } from "@aperture-browser/ui/components/button";
 import { SidebarTrigger } from "@aperture-browser/ui/components/sidebar";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useNewSession } from "#/features/session/new-sessions.ts";
 import { WorkbenchSkeleton } from "#/features/session/workbench-skeleton.tsx";
+import { useDocumentTitle } from "#/lib/document-title.ts";
 import { openedPicture } from "#/lib/view-transition.ts";
 import { noteOpened } from "#/features/session/recent-sessions.ts";
 import { useSessionActionMutation } from "#/features/session/session.mutations.ts";
@@ -127,6 +128,8 @@ export function NewSessionWorkbench({ sessionKey }: { sessionKey: string }) {
   return <WorkbenchSkeleton note="asked">Starting…</WorkbenchSkeleton>;
 }
 
+const idle = () => () => undefined;
+
 /** How long a session may take to draw itself before what stands in for it steps aside. */
 const DRAWN_WITHIN_MS = 15_000;
 
@@ -173,6 +176,19 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
   const resume = useSessionActionMutation("resume");
   const { theme, setTheme } = useTheme();
   const workbench = useRef<HTMLDivElement>(null);
+  const [client, setClient] = useState<Session | null>(null);
+  const watch = useCallback((opened: Session | null) => {
+    expose(opened);
+    setClient(opened);
+  }, []);
+  // The tab is named after the page that is watched; after the session until there is one.
+  const watched = useSyncExternalStore(
+    client?.subscribe ?? idle,
+    () =>
+      client?.getSnapshot().targets.find((target) => target.tab === client.getSnapshot().selected)
+        ?.title,
+  );
+  useDocumentTitle(watched || (session.data?.label ?? "Session"));
   const drawn = useDrawn(workbench, session.data?.path ?? null);
 
   useEffect(() => {
@@ -259,7 +275,7 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
         url={session.data.path}
         theme={isTheme(theme) ? theme : "system"}
         onThemeChange={setTheme}
-        onSession={expose}
+        onSession={watch}
         contributions={CONTRIBUTIONS}
       />
       {/* Until the session draws itself: no empty picture between the two. */}
