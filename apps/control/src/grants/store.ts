@@ -47,6 +47,8 @@ export interface NewToken {
 export interface GrantsStoreShape {
   readonly insertClient: (client: NewClient) => Effect.Effect<Client>;
   readonly findClient: (id: string) => Effect.Effect<Option.Option<Client>>;
+  /** Removes the apps that registered before then and were given no grant since, by anyone. */
+  readonly deleteClientsNeverGranted: (before: Date) => Effect.Effect<void>;
   /** Keeps a grant in place of any the account gave the same app before. */
   readonly insertGrant: (grant: NewGrant) => Effect.Effect<void>;
   readonly listGrants: (accountId: string) => Effect.Effect<ReadonlyArray<Grant>>;
@@ -61,6 +63,10 @@ export interface GrantsStoreShape {
   readonly takeRefreshToken: (tokenHash: string, now: Date) => Effect.Effect<Option.Option<Grant>>;
   /** The grant of an access token that is still good. */
   readonly findByAccessToken: (tokenHash: string, now: Date) => Effect.Effect<Option.Option<Grant>>;
+  /** The grant of a token of either kind that is still good. */
+  readonly findByToken: (tokenHash: string, now: Date) => Effect.Effect<Option.Option<Grant>>;
+  /** Removes the codes and tokens that ran out: they are good for nothing. */
+  readonly deleteExpired: (now: Date) => Effect.Effect<void>;
 }
 
 export class GrantsStore extends Context.Service<GrantsStore, GrantsStoreShape>()(

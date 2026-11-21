@@ -11,6 +11,8 @@ import * as Control from "./src/control.ts";
 import { signedIn } from "./src/person.ts";
 
 const REDIRECT = "http://127.0.0.1:9/callback";
+/** Where a page that is none of this program's is from. */
+const ELSEWHERE = "https://app.example";
 const VERIFIER = "a-verifier-the-app-made-and-keeps-to-itself-0123456789";
 
 const Challenge = Schema.Struct({
@@ -22,6 +24,7 @@ const Server = Schema.Struct({
   authorization_endpoint: Schema.String,
   token_endpoint: Schema.String,
   registration_endpoint: Schema.String,
+  revocation_endpoint: Schema.String,
   code_challenge_methods_supported: Schema.Array(Schema.String),
 });
 const Registered = Schema.Struct({ client_id: Schema.String, client_name: Schema.String });
@@ -301,6 +304,106 @@ for (const stores of Control.STORES) {
       }),
     );
 
+    it.effect("a page of anywhere calls as an app does, and never as whoever looks at it", () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const http = yield* HttpClient.HttpClient;
+        const asks = (method: "GET" | "POST" | "OPTIONS", url: string) =>
+          http.execute(
+            HttpClientRequest.make(method)(url).pipe(
+              HttpClientRequest.setHeaders({
+                origin: ELSEWHERE,
+                ...(method === "OPTIONS"
+                  ? {
+                      "access-control-request-method": "POST",
+                      "access-control-request-headers": "authorization,content-type",
+                    }
+                  : {}),
+              }),
+            ),
+          );
+        const revoke = `${control.url}/oauth/revoke`;
+        expect(server.revocation_endpoint).toBe(revoke);
+        for (const url of [server.registration_endpoint, server.token_endpoint, revoke]) {
+          const preflight = yield* asks("OPTIONS", url);
+          expect(preflight.status, url).toBe(204);
+          expect(preflight.headers["access-control-allow-origin"], url).toBe("*");
+          expect(preflight.headers["access-control-allow-headers"], url).toMatch(/content-type/u);
+          // Nothing a browser sends by itself is asked for: these take no cookies.
+          expect(preflight.headers["access-control-allow-credentials"], url).toBeUndefined();
+          expect((yield* asks("POST", url)).headers["access-control-allow-origin"], url).toBe("*");
+        }
+        for (const path of [
+          "/.well-known/oauth-authorization-server",
+          "/.well-known/oauth-protected-resource",
+          "/.well-known/oauth-protected-resource/mcp",
+        ]) {
+          const read = yield* asks("GET", `${control.url}${path}`);
+          expect(read.status, path).toBe(200);
+          expect(read.headers["access-control-allow-origin"], path).toBe("*");
+        }
+        // A person's browser goes to be asked itself: no page reads what it is answered.
+        const authorize = yield* asks("GET", server.authorization_endpoint);
+        expect(authorize.headers["access-control-allow-origin"]).toBeUndefined();
+
+        const preflight = yield* asks("OPTIONS", `${control.url}/mcp`);
+        expect(preflight.status).toBe(204);
+        expect(preflight.headers["access-control-allow-origin"]).toBe("*");
+        expect(preflight.headers["access-control-allow-headers"]).toMatch(/authorization/u);
+        expect(preflight.headers["access-control-allow-credentials"]).toBeUndefined();
+
+        /** A client's first message to the server, with whatever says who sends it. */
+        const greets = (headers: Record<string, string>) =>
+          http.execute(
+            HttpClientRequest.post(`${control.url}/mcp`).pipe(
+              HttpClientRequest.setHeaders({
+                accept: "application/json, text/event-stream",
+                ...headers,
+              }),
+              HttpClientRequest.bodyJsonUnsafe({
+                jsonrpc: "2.0",
+                id: 1,
+                method: "initialize",
+                params: {
+                  protocolVersion: "2025-06-18",
+                  capabilities: {},
+                  clientInfo: { name: "checks", version: "0" },
+                },
+              }),
+            ),
+          );
+        const app = yield* greets({
+          origin: ELSEWHERE,
+          authorization: `Bearer ${tokens.access_token}`,
+        });
+        expect(app.status).toBe(200);
+        expect(app.headers["access-control-allow-origin"]).toBe("*");
+        expect(app.headers["access-control-allow-credentials"]).toBeUndefined();
+
+        // The person's own pages call as the person, with what their browser carries.
+        expect((yield* greets({ cookie: ada.cookie })).status).toBe(200);
+        expect((yield* greets({ cookie: ada.cookie, origin: control.url })).status).toBe(200);
+        // A page of anywhere else is nobody with the same cookies, and is told so as a
+        // client without a token is: it reads where it gets one.
+        for (const origin of [ELSEWHERE, "null", `${control.url}.elsewhere.example`]) {
+          const page = yield* greets({ cookie: ada.cookie, origin });
+          expect(page.status, origin).toBe(401);
+          expect(page.headers["www-authenticate"], origin).toMatch(/resource_metadata=/u);
+          expect(page.headers["access-control-expose-headers"], origin).toMatch(
+            /www-authenticate/u,
+          );
+          expect(page.headers["access-control-allow-credentials"], origin).toBeUndefined();
+        }
+        // Even with a token beside them, the cookies are not what lets it in.
+        const both = yield* greets({
+          cookie: ada.cookie,
+          origin: ELSEWHERE,
+          authorization: "Bearer nobody's",
+        });
+        expect(both.status).toBe(401);
+      }),
+    );
+
     it.effect("a grant held to resources reaches those alone, and taking it back ends it", () =>
       Effect.gen(function* () {
         const control = yield* Control.Control;
@@ -355,6 +458,60 @@ for (const stores of Control.STORES) {
           client_id: client,
         });
         expect(refreshed).toMatchObject({ status: 400, body: { error: "invalid_grant" } });
+      }),
+    );
+
+    it.effect("an app gives its grant back with either of its tokens", () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const http = yield* HttpClient.HttpClient;
+        const giveBack = Effect.fn(function* (form: Record<string, string>) {
+          const answer = yield* http.execute(
+            HttpClientRequest.post(server.revocation_endpoint).pipe(
+              HttpClientRequest.bodyUrlParams(form),
+            ),
+          );
+          return answer.status;
+        });
+        const good = (token: string) =>
+          request(control.url, token, "GET", "/api/control/account").pipe(
+            Effect.map((answer) => answer.status === 200),
+          );
+        const granted = Effect.gen(function* () {
+          const redeemed = yield* redeem(yield* approve({ scopes: ["sessions:read"] }));
+          return yield* Schema.decodeUnknownEffect(Issued)(redeemed.body);
+        });
+
+        const first = yield* granted;
+        // A token nobody has is given back as well as any: there is nothing to tell of it.
+        expect(yield* giveBack({ token: "nobody's" })).toBe(200);
+        expect(yield* giveBack({})).toBe(400);
+        // Another app gives back none of this one's.
+        expect(yield* giveBack({ token: first.access_token, client_id: "another" })).toBe(400);
+        expect(yield* good(first.access_token)).toBe(true);
+
+        expect(
+          yield* giveBack({
+            token: first.access_token,
+            token_type_hint: "access_token",
+            client_id: client,
+          }),
+        ).toBe(200);
+        expect(yield* good(first.access_token)).toBe(false);
+        // The grant is gone with it: the refresh token gets nothing, and the person sees none.
+        expect(
+          yield* exchange({
+            grant_type: "refresh_token",
+            refresh_token: first.refresh_token,
+            client_id: client,
+          }),
+        ).toMatchObject({ status: 400, body: { error: "invalid_grant" } });
+        expect((yield* asPerson("GET", "/oauth/grants")).body).toEqual([]);
+
+        const second = yield* granted;
+        expect(yield* giveBack({ token: second.refresh_token })).toBe(200);
+        expect(yield* good(second.access_token)).toBe(false);
+        expect((yield* asPerson("GET", "/oauth/grants")).body).toEqual([]);
       }),
     );
   });

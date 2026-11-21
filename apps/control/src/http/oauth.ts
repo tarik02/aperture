@@ -8,18 +8,19 @@ import { Grants } from "../grants/service.ts";
 import type { Tokens } from "../grants/schemas.ts";
 import { Settings } from "../settings/service.ts";
 import { PATH as MCP_PATH, RESOURCE_METADATA_PATH } from "./mcp.ts";
-import { originOf } from "./origin.ts";
+import { anyOrigin, originOf } from "./origin.ts";
 
 const SERVER_METADATA_PATH = "/.well-known/oauth-authorization-server";
 const REGISTER_PATH = "/oauth/register";
 const AUTHORIZE_PATH = "/oauth/authorize";
 const TOKEN_PATH = "/oauth/token";
+const REVOKE_PATH = "/oauth/revoke";
 /** The console's page where a person decides what an app gets. */
 const CONSENT_PATH = "/oauth/consent";
+const OK = 200;
 const BAD_REQUEST = 400;
 const CREATED = 201;
 const CHALLENGE_METHOD = "S256";
-
 const Registration = Schema.Struct({
   redirect_uris: Schema.Array(Schema.String),
   client_name: Schema.optional(Schema.String),
@@ -49,6 +50,11 @@ const Exchange = Schema.Union([
     client_id: Schema.String,
   }),
 ]);
+
+const Revocation = Schema.Struct({
+  token: Schema.String,
+  client_id: Schema.optional(Schema.String),
+});
 
 /** A refusal as OAuth tells one: a code a client acts on, and words for whoever reads them. */
 const refused = (error: string, description: string) =>
@@ -99,6 +105,8 @@ export const layer = HttpRouter.use(
           authorization_endpoint: `${origin}${AUTHORIZE_PATH}`,
           token_endpoint: `${origin}${TOKEN_PATH}`,
           registration_endpoint: `${origin}${REGISTER_PATH}`,
+          revocation_endpoint: `${origin}${REVOKE_PATH}`,
+          revocation_endpoint_auth_methods_supported: ["none"],
           scopes_supported: Scope.literals,
           response_types_supported: ["code"],
           grant_types_supported: ["authorization_code", "refresh_token"],
@@ -197,11 +205,48 @@ export const layer = HttpRouter.use(
       ),
     );
 
-    yield* router.add("GET", RESOURCE_METADATA_PATH, resourceMetadata);
-    yield* router.add("GET", `${RESOURCE_METADATA_PATH}${MCP_PATH}`, resourceMetadata);
-    yield* router.add("GET", SERVER_METADATA_PATH, serverMetadata);
-    yield* router.add("POST", REGISTER_PATH, register);
+    // As RFC 7009 has it: a token that is none is given back as well as one that is.
+    const revoke = Effect.fn("OAuth.http.revoke")(
+      function* () {
+        const asked = yield* HttpServerRequest.schemaBodyUrlParams(Revocation);
+        yield* grants.giveBack({ token: asked.token, clientId: asked.client_id });
+        return HttpServerResponse.empty({
+          status: OK,
+          headers: { "cache-control": "no-store" },
+        });
+      },
+      Effect.catchTag("GrantRefused", (error) =>
+        Effect.succeed(refused("invalid_client", error.message)),
+      ),
+      Effect.catch(() =>
+        Effect.succeed(refused("invalid_request", "the request names no token to give back")),
+      ),
+    );
+
+    // An app in a browser asks first whether it may call, and is told it may.
+    const open = anyOrigin();
+    const opened = Effect.fn(function* (
+      method: "GET" | "POST",
+      path: HttpRouter.PathInput,
+      handler: (
+        request: HttpServerRequest.HttpServerRequest,
+      ) => Effect.Effect<
+        HttpServerResponse.HttpServerResponse,
+        never,
+        HttpServerRequest.HttpServerRequest
+      >,
+    ) {
+      yield* router.add(method, path, (request) => open(handler(request)));
+      yield* router.add("OPTIONS", path, open(Effect.succeed(HttpServerResponse.empty())));
+    });
+
+    yield* opened("GET", RESOURCE_METADATA_PATH, resourceMetadata);
+    yield* opened("GET", `${RESOURCE_METADATA_PATH}${MCP_PATH}`, resourceMetadata);
+    yield* opened("GET", SERVER_METADATA_PATH, serverMetadata);
+    yield* opened("POST", REGISTER_PATH, register);
+    // A person's browser goes there itself; no page calls it.
     yield* router.add("GET", AUTHORIZE_PATH, authorize);
-    yield* router.add("POST", TOKEN_PATH, token);
+    yield* opened("POST", TOKEN_PATH, token);
+    yield* opened("POST", REVOKE_PATH, revoke);
   }),
 );

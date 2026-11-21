@@ -53,6 +53,21 @@ export interface GrantsShape {
     readonly clientId: string;
     readonly refreshToken: string;
   }) => Effect.Effect<Tokens, GrantRefused>;
+  /**
+   * An app gives back the grant one of its tokens is of, access or refresh: the grant is
+   * gone as when the person takes it back, with every token of it, so that nothing the
+   * app left lying about is good for anything. A token that is none is given back too.
+   */
+  readonly giveBack: (given: {
+    readonly token: string;
+    /** The app that gives it back, where it says: it gives back no other's. */
+    readonly clientId: string | undefined;
+  }) => Effect.Effect<void, GrantRefused>;
+  /**
+   * Forgets what is good for nothing: the apps that registered a while ago and were never
+   * given a grant, and the codes and tokens that ran out.
+   */
+  readonly forget: () => Effect.Effect<void>;
   /** The grants of the caller's own account. */
   readonly list: (caller: Caller) => Effect.Effect<ReadonlyArray<Grant>, Forbidden>;
   /** Takes a grant back, and every token of it with it. */

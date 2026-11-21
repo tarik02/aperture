@@ -30,6 +30,8 @@ export interface MemoryShape {
   /** Who is in each workspace, by the workspace's id and then the account's. */
   readonly workspaceMembers: Map<string, Map<string, WorkspaceRole>>;
   readonly oauthClients: Map<string, Client>;
+  /** The apps that were given a grant at some time, by their ids. */
+  readonly oauthClientsGranted: Set<string>;
   readonly oauthGrants: Map<string, Grant>;
   /** By the code's digest. */
   readonly oauthCodes: Map<string, NewCode>;
@@ -54,6 +56,7 @@ export const layer = Layer.sync(Memory, () =>
     workspaces: new Map(),
     workspaceMembers: new Map(),
     oauthClients: new Map(),
+    oauthClientsGranted: new Set(),
     oauthGrants: new Map(),
     oauthCodes: new Map(),
     oauthTokens: new Map(),

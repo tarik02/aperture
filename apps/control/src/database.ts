@@ -145,10 +145,20 @@ const initial = statements([
   `CREATE INDEX oauth_tokens_grant_id ON oauth_tokens (grant_id)`,
 ]);
 
+// An app that was given a grant once is kept though the grant was taken back: it may ask
+// again as what it registered as. One that never was is forgotten after a while.
+const clientsGranted = statements([
+  `ALTER TABLE oauth_clients ADD COLUMN granted_at timestamptz`,
+  `UPDATE oauth_clients SET granted_at = (
+    SELECT min(created_at) FROM oauth_grants WHERE client_id = oauth_clients.id
+  )`,
+]);
+
 /** Brings the database to what this program expects; what was applied before is left alone. */
 export const migrate = Migrator.make({})({
   loader: Migrator.fromRecord({
     "0001_initial": initial,
+    "0002_clients_granted": clientsGranted,
   }),
   table: "control_migrations",
 });

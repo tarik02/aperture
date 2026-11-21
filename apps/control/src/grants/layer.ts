@@ -20,7 +20,7 @@ import {
   RedirectRefused,
 } from "../errors.ts";
 import * as Secrets from "../secrets.ts";
-import { after, now } from "../time.ts";
+import { after, ago, now } from "../time.ts";
 import type { Grant, Tokens } from "./schemas.ts";
 import { type Asked, Grants } from "./service.ts";
 import { GrantsStore } from "./store.ts";
@@ -29,6 +29,11 @@ const CODE_LASTS = Duration.minutes(5);
 const ACCESS_LASTS = Duration.hours(1);
 /** How long an app may stay away before the person is asked again. */
 const REFRESH_LASTS = Duration.days(60);
+/**
+ * How long an app that registered is kept before anyone gave it a grant: a person decides
+ * within the sitting they were asked in, and an app that is forgotten registers again.
+ */
+const UNGRANTED_LASTS = Duration.days(1);
 const MAX_REDIRECTS = 16;
 const MAX_LENGTH = 2048;
 const UNNAMED = "An MCP client";
@@ -198,6 +203,25 @@ export const makeGrants = Effect.fn("Grants.make")(function* () {
     return yield* issue(grant.value);
   }, Effect.provide(crypto));
 
+  const giveBack = Effect.fn("Grants.giveBack")(function* (given: {
+    readonly token: string;
+    readonly clientId: string | undefined;
+  }) {
+    const grant = yield* store.findByToken(yield* Secrets.hash(given.token), yield* now);
+    if (Option.isNone(grant)) {
+      return;
+    }
+    if (given.clientId !== undefined && given.clientId !== grant.value.clientId) {
+      return yield* new GrantRefused({ message: "the token is another app's" });
+    }
+    yield* store.deleteGrant(grant.value.id);
+  }, Effect.provide(crypto));
+
+  const forget = Effect.fn("Grants.forget")(function* () {
+    yield* store.deleteClientsNeverGranted(yield* ago(UNGRANTED_LASTS));
+    yield* store.deleteExpired(yield* now);
+  });
+
   const list = Effect.fn("Grants.list")(function* (caller: Caller) {
     const account = yield* accountOf(caller);
     return yield* store.listGrants(account.id);
@@ -213,7 +237,17 @@ export const makeGrants = Effect.fn("Grants.make")(function* () {
     yield* store.deleteGrant(grant.value.id);
   });
 
-  return Grants.of({ register, asking, approve, exchange, refresh, list, revoke });
+  return Grants.of({
+    register,
+    asking,
+    approve,
+    exchange,
+    refresh,
+    giveBack,
+    forget,
+    list,
+    revoke,
+  });
 });
 
 export const layer = Layer.effect(Grants, makeGrants());

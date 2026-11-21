@@ -5,6 +5,7 @@ import * as McpServer from "effect/ai/McpServer";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Headers from "effect/http/Headers";
 import * as HttpRouter from "effect/http/HttpRouter";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
@@ -20,7 +21,7 @@ import { Settings } from "../settings/service.ts";
 import { Snapshots } from "../snapshots/service.ts";
 import { callerOf } from "./caller.ts";
 import { told } from "./handlers.ts";
-import { originOf } from "./origin.ts";
+import { anyOrigin, originOf } from "./origin.ts";
 
 /** Where agents reach every session their token does, over MCP. */
 export const PATH = "/mcp";
@@ -28,6 +29,8 @@ export const PATH = "/mcp";
 /** Where a client learns what authorizes it for this server, as RFC 9728 has it. */
 export const RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource";
 const UNAUTHORIZED = 401;
+/** What a page of another origin reads of an answer beside its body. */
+const EXPOSED = ["www-authenticate", "mcp-session-id"];
 const SESSION_ID = "session_id";
 
 const INSTRUCTIONS = `Aperture runs isolated browser sessions that people and agents watch and control together.
@@ -228,10 +231,22 @@ export const layer = Layer.unwrap(
       }
     });
 
+    // An app that runs in a browser is a page of any origin, and calls with a token it
+    // was given. What a browser sends by itself, a person's cookies, is taken from the
+    // pages of this program alone: a page of anywhere else would act as whoever looks at
+    // it, so its request is read as if it carried none.
+    const open = anyOrigin(EXPOSED);
     const admitted = HttpRouter.middleware((handled) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
-        const caller = yield* Effect.result(callerOf(accounts, request));
+        const origin = request.headers["origin"];
+        const own = origin === undefined || origin === originOf(settings, request);
+        const caller = yield* Effect.result(
+          callerOf(
+            accounts,
+            own ? request : request.modify({ headers: Headers.remove(request.headers, "cookie") }),
+          ),
+        );
         if (caller._tag === "Failure") {
           return HttpServerResponse.jsonUnsafe(caller.failure, {
             status: UNAUTHORIZED,
@@ -242,8 +257,16 @@ export const layer = Layer.unwrap(
           });
         }
         yield* follow();
-        return yield* Effect.provideService(handled, CurrentCaller, caller.success);
-      }),
+        // Which origins may call is decided above, and the server below would refuse
+        // every one it is not told by name: it is not told where the request is from.
+        return yield* handled.pipe(
+          Effect.provideService(CurrentCaller, caller.success),
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            request.modify({ headers: Headers.remove(request.headers, "origin") }),
+          ),
+        );
+      }).pipe(open),
     ).layer;
 
     // What sessions have is known once one that runs was asked, and a client may have
@@ -301,11 +324,6 @@ export const layer = Layer.unwrap(
             McpProtocol.v2025_03_26,
             McpProtocol.v2024_11_05,
           ],
-          // A page of the console may call it; a page of anywhere else may not.
-          allowedOrigins: Option.match(settings.publicUrl, {
-            onNone: () => [],
-            onSome: (url) => [new URL(url).origin],
-          }),
         }).pipe(Layer.provide(admitted)),
       ),
     );

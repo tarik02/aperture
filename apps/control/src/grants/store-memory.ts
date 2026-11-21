@@ -1,3 +1,4 @@
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -41,8 +42,23 @@ export const makeGrantsStoreMemory = Effect.fn("GrantsStore.makeMemory")(functio
     Effect.sync(() => Option.fromUndefinedOr(memory.oauthClients.get(id))),
   );
 
+  const deleteClientsNeverGranted = Effect.fn("GrantsStore.deleteClientsNeverGranted")(
+    (before: Date) =>
+      Effect.sync(() => {
+        for (const client of memory.oauthClients.values()) {
+          if (
+            !memory.oauthClientsGranted.has(client.id) &&
+            DateTime.toEpochMillis(client.createdAt) < before.getTime()
+          ) {
+            memory.oauthClients.delete(client.id);
+          }
+        }
+      }),
+  );
+
   const insertGrant = Effect.fn("GrantsStore.insertGrant")((grant: NewGrant) =>
     Effect.sync(() => {
+      memory.oauthClientsGranted.add(grant.clientId);
       for (const before of memory.oauthGrants.values()) {
         if (before.accountId === grant.accountId && before.clientId === grant.clientId) {
           drop(before.id);
@@ -101,9 +117,11 @@ export const makeGrantsStoreMemory = Effect.fn("GrantsStore.makeMemory")(functio
     }),
   );
 
-  const good = (tokenHash: string, kind: NewToken["kind"], now: Date) =>
+  const good = (tokenHash: string, kind: NewToken["kind"] | undefined, now: Date) =>
     Option.fromUndefinedOr(memory.oauthTokens.get(tokenHash)).pipe(
-      Option.filter((token) => token.kind === kind && token.expiresAt > now),
+      Option.filter(
+        (token) => (kind === undefined || token.kind === kind) && token.expiresAt > now,
+      ),
       Option.flatMap((token) => Option.fromUndefinedOr(memory.oauthGrants.get(token.grantId))),
     );
 
@@ -122,9 +140,26 @@ export const makeGrantsStoreMemory = Effect.fn("GrantsStore.makeMemory")(functio
     (tokenHash: string, now: Date) => Effect.sync(() => good(tokenHash, "access", now)),
   );
 
+  const findByToken = Effect.fn("GrantsStore.findByToken")((tokenHash: string, now: Date) =>
+    Effect.sync(() => good(tokenHash, undefined, now)),
+  );
+
+  const deleteExpired = Effect.fn("GrantsStore.deleteExpired")((now: Date) =>
+    Effect.sync(() => {
+      for (const kept of [memory.oauthCodes, memory.oauthTokens]) {
+        for (const [hash, one] of kept) {
+          if (one.expiresAt <= now) {
+            kept.delete(hash);
+          }
+        }
+      }
+    }),
+  );
+
   return GrantsStore.of({
     insertClient,
     findClient,
+    deleteClientsNeverGranted,
     insertGrant,
     listGrants,
     findGrant,
@@ -134,6 +169,8 @@ export const makeGrantsStoreMemory = Effect.fn("GrantsStore.makeMemory")(functio
     insertToken,
     takeRefreshToken,
     findByAccessToken,
+    findByToken,
+    deleteExpired,
   });
 });
 

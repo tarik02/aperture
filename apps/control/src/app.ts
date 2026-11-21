@@ -11,6 +11,7 @@ import * as AccountsStoreMemory from "./accounts/store-memory.ts";
 import * as AccountsStoreSql from "./accounts/store-sql.ts";
 import * as Database from "./database.ts";
 import * as Following from "./following.ts";
+import * as Forgetting from "./grants/forgetting.ts";
 import * as Grants from "./grants/layer.ts";
 import * as GrantsStoreMemory from "./grants/store-memory.ts";
 import * as GrantsStoreSql from "./grants/store-sql.ts";
@@ -101,11 +102,13 @@ const serving = Layer.mergeAll(
     ),
   ),
   Following.layer,
+  Forgetting.layer,
 ).pipe(Layer.provide(services));
 
 /**
  * The control plane on whatever HTTP server it is given: its API, the service nodes call,
- * and the following of nodes, for as long as the layer lasts.
+ * the following of nodes and the forgetting of what apps left, for as long as the layer
+ * lasts.
  */
 export const layer = serving.pipe(
   Layer.provide(Layer.mergeAll(stores, Identity.layer)),

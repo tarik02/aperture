@@ -44,6 +44,14 @@ export const makeGrantsStore = Effect.fn("GrantsStore.make")(function* () {
     return yield* sql`SELECT * FROM oauth_clients WHERE id::text = ${id}`.pipe(first(Client));
   });
 
+  const deleteClientsNeverGranted = Effect.fn("GrantsStore.deleteClientsNeverGranted")(function* (
+    before: Date,
+  ) {
+    yield* sql`
+      DELETE FROM oauth_clients WHERE granted_at IS NULL AND created_at < ${before}
+    `.pipe(done);
+  });
+
   const insertGrant = Effect.fn("GrantsStore.insertGrant")(function* (grant: NewGrant) {
     yield* sql`
       DELETE FROM oauth_grants
@@ -57,6 +65,10 @@ export const makeGrantsStore = Effect.fn("GrantsStore.make")(function* () {
         ${grant.resources === null ? null : JSON.stringify(grant.resources)}::jsonb,
         ${grant.createdAt}
       )
+    `.pipe(done);
+    yield* sql`
+      UPDATE oauth_clients SET granted_at = ${grant.createdAt}
+      WHERE id = ${grant.clientId} AND granted_at IS NULL
     `.pipe(done);
   });
 
@@ -130,9 +142,26 @@ export const makeGrantsStore = Effect.fn("GrantsStore.make")(function* () {
     `.pipe(first(Grant));
   });
 
+  const findByToken = Effect.fn("GrantsStore.findByToken")(function* (
+    tokenHash: string,
+    now: Date,
+  ) {
+    return yield* sql`
+      ${grants}
+      JOIN oauth_tokens ON oauth_tokens.grant_id = oauth_grants.id
+      WHERE oauth_tokens.token_hash = ${tokenHash} AND oauth_tokens.expires_at > ${now}
+    `.pipe(first(Grant));
+  });
+
+  const deleteExpired = Effect.fn("GrantsStore.deleteExpired")(function* (now: Date) {
+    yield* sql`DELETE FROM oauth_codes WHERE expires_at <= ${now}`.pipe(done);
+    yield* sql`DELETE FROM oauth_tokens WHERE expires_at <= ${now}`.pipe(done);
+  });
+
   return GrantsStore.of({
     insertClient,
     findClient,
+    deleteClientsNeverGranted,
     insertGrant,
     listGrants,
     findGrant,
@@ -142,6 +171,8 @@ export const makeGrantsStore = Effect.fn("GrantsStore.make")(function* () {
     insertToken,
     takeRefreshToken,
     findByAccessToken,
+    findByToken,
+    deleteExpired,
   });
 });
 
