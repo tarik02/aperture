@@ -1,15 +1,15 @@
 //! A running session's own endpoints: requests go on to the session, which serves them on
 //! a socket of its own. The session's root answers with a page that shows it.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::SystemTime};
 
 use axum::{
     Extension, Router,
     body::{Body, Bytes},
-    extract::{Request, State, WebSocketUpgrade, ws::Message},
+    extract::{RawPathParams, Request, State, WebSocketUpgrade, ws::Message},
     http::{StatusCode, Uri, header},
     response::{Html, IntoResponse, Response},
-    routing::get,
+    routing::{delete, get},
 };
 use futures_util::{SinkExt, StreamExt};
 use http_body_util::BodyExt;
@@ -17,22 +17,57 @@ use hyper_util::rt::TokioIo;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
+    sync::broadcast,
 };
 use tracing::debug;
 
 use crate::{ACCESS_HEADER, NAME_HEADER, SUBJECT_HEADER, Sessions, Which, auth::Caller};
 
+/// A caller the operator dismissed from a session: the session's id, and the subject.
+type Dismissed = (String, String);
+
+/// Tells the session sockets that are open which callers are dismissed.
+#[derive(Clone)]
+struct Dismissals(broadcast::Sender<Dismissed>);
+
+/// Dismissals waiting for a socket that is slow to hear of them. One that falls further
+/// behind ends, as if it were dismissed: it cannot tell that it was not.
+const DISMISSALS: usize = 64;
+
+/// What a client is told its socket was closed for: nothing of the protocol is wrong.
+const CLOSED_BY_POLICY: u16 = 1008;
+
 pub fn router(sessions: Arc<dyn Sessions>, viewer: bool) -> Router {
     let routes = Router::new()
         .route("/ws", get(session_socket))
         .route("/tunnel", get(tunnel))
+        .route("/callers/{subject}", delete(dismiss))
         .fallback(forward);
     let routes = if viewer {
         routes.route("/", get(shown))
     } else {
         routes
     };
-    routes.with_state(sessions)
+    routes
+        .layer(Extension(Dismissals(broadcast::channel(DISMISSALS).0)))
+        .with_state(sessions)
+}
+
+/// Closes the session sockets of everyone who came into the session as `subject`: for
+/// whoever signs tickets, when what it gave them for is taken back. It is the operator's
+/// to ask, and a ticket that is still good lets its holder in again.
+async fn dismiss(
+    Which(id): Which,
+    Extension(dismissals): Extension<Dismissals>,
+    parameters: RawPathParams,
+) -> StatusCode {
+    let subject = parameters.iter().find(|(name, _)| *name == "subject");
+    let Some((_, subject)) = subject else {
+        return StatusCode::NOT_FOUND;
+    };
+    // Nobody listening is nobody to dismiss.
+    let _ = dismissals.0.send((id, subject.to_owned()));
+    StatusCode::NO_CONTENT
 }
 
 async fn shown() -> Html<&'static str> {
@@ -122,6 +157,7 @@ async fn session_socket(
     State(sessions): State<Arc<dyn Sessions>>,
     Which(id): Which,
     Extension(caller): Extension<Caller>,
+    Extension(dismissals): Extension<Dismissals>,
     upgrade: WebSocketUpgrade,
 ) -> Response {
     use tokio_tungstenite::tungstenite::{Message as RunnerMessage, client::IntoClientRequest};
@@ -142,11 +178,40 @@ async fn session_socket(
         Err(err) => return (StatusCode::BAD_GATEWAY, format!("{err:#}")).into_response(),
     };
     let here = sessions.present(&id);
+    // Before the client is answered: one dismissed while it comes in is dismissed.
+    let mut dismissed = dismissals.0.subscribe();
+    let out = async move {
+        let lapsed = async {
+            match caller.until {
+                Some(until) => {
+                    let left = until.duration_since(SystemTime::now()).unwrap_or_default();
+                    tokio::time::sleep(left).await;
+                }
+                None => std::future::pending().await,
+            }
+        };
+        let dismissed = async {
+            loop {
+                match dismissed.recv().await {
+                    Ok((session, subject)) if session == id && subject == caller.subject => break,
+                    Ok(_) => {}
+                    Err(broadcast::error::RecvError::Lagged(_)) => break,
+                    Err(broadcast::error::RecvError::Closed) => std::future::pending().await,
+                }
+            }
+        };
+        tokio::select! {
+            () = lapsed => "what let you in has run out",
+            () = dismissed => "what let you in was taken back",
+        }
+    };
     upgrade.on_upgrade(move |client| async move {
         let _here = here;
         // A side that fails is done, as one that closes is.
         let (mut to_runner, mut from_runner) = runner.split();
-        let (mut to_client, mut from_client) = client.split();
+        let (to_client, mut from_client) = client.split();
+        // Two tell the client things: what the runner says, and why it is put out.
+        let to_client = tokio::sync::Mutex::new(to_client);
         let up = async {
             while let Some(Ok(message)) = from_client.next().await {
                 let message = match message {
@@ -172,21 +237,32 @@ async fn session_socket(
                             reason: frame.reason.as_str().into(),
                         };
                         // A client that is gone already reads no reason.
-                        let _ = to_client.send(Message::Close(Some(frame))).await;
+                        let _ = to_client
+                            .lock()
+                            .await
+                            .send(Message::Close(Some(frame)))
+                            .await;
                         break;
                     }
                     RunnerMessage::Close(None) => break,
                     _ => continue,
                 };
-                if to_client.send(message).await.is_err() {
+                if to_client.lock().await.send(message).await.is_err() {
                     break;
                 }
             }
         };
-        // Either side ending ends the socket.
+        // Either side ending ends the socket, and so does its caller being put out.
         tokio::select! {
             () = up => {}
             () = down => {}
+            reason = out => {
+                let frame = axum::extract::ws::CloseFrame {
+                    code: CLOSED_BY_POLICY,
+                    reason: reason.into(),
+                };
+                let _ = to_client.lock().await.send(Message::Close(Some(frame))).await;
+            }
         }
     })
 }

@@ -58,6 +58,13 @@ export const Access = Schema.Record(
 export type Access = typeof Access.Type;
 
 /**
+ * What a share link lets a guest do in its session: watch it, or control it as well, which
+ * is giving input, opening and closing tabs, taking a tab, the clipboard and the sound.
+ */
+export const ShareRole = Schema.Literals(["watch", "control"]);
+export type ShareRole = typeof ShareRole.Type;
+
+/**
  * How a session's browser connections are routed. The first rule that matches a
  * connection decides; one no rule matches is made from the session's node.
  */

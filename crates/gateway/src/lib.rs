@@ -13,6 +13,7 @@
 //! - `/ws` is the session socket;
 //! - `/cdp` is its browser's DevTools endpoint;
 //! - `/tunnel` is where a client attaches the session's local tunnel;
+//! - `/callers/{subject}` is where the operator dismisses whoever came in as that subject;
 //! - the rest is the session's own to answer: `/mcp`, its automation, `/targets`,
 //!   `/files`, `/uploads`, `/recordings` and so on.
 

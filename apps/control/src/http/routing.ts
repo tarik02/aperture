@@ -8,10 +8,13 @@ import * as Redacted from "effect/Redacted";
 import { Accounts } from "../accounts/service.ts";
 import { Forbidden, Unauthorized } from "../errors.ts";
 import { bearerOf, callerOf, TOKEN_COOKIE } from "./caller.ts";
+import { clientAddress } from "./client-address.ts";
+import { guestOf, SHARE_COOKIE } from "./guest.ts";
 import { nodePath } from "../routing/paths.ts";
 import { ADMIT_PATH } from "../routing/layer.ts";
 import { Routing } from "../routing/service.ts";
 import { Settings } from "../settings/service.ts";
+import { Shares } from "../shares/service.ts";
 
 const COOKIE_PATH = `${PREFIX}/route/cookie`;
 const PROXY_CONFIG_PATH = `${PREFIX}/route/traefik`;
@@ -22,6 +25,8 @@ const STATUS = {
   SessionNotFound: 404,
   SessionHasNoNode: 409,
   SessionElsewhere: 409,
+  ShareRefused: 401,
+  TooManyTries: 429,
 } as const;
 
 const refused = (error: { readonly _tag: keyof typeof STATUS }) =>
@@ -33,13 +38,38 @@ export const layer = HttpRouter.use(
     const accounts = yield* Accounts;
     const routing = yield* Routing;
     const settings = yield* Settings;
+    const shares = yield* Shares;
 
     const admit = Effect.fn("Routing.http.admit")(function* (
       request: HttpServerRequest.HttpServerRequest,
     ) {
-      const caller = yield* callerOf(accounts, request);
       // The proxy asks with a request of its own, and says in this what it was asked.
-      const ticket = yield* routing.admit(caller, request.headers["x-forwarded-uri"] ?? "");
+      const uri = request.headers["x-forwarded-uri"] ?? "";
+      const asCaller = Effect.flatMap(callerOf(accounts, request), (caller) =>
+        routing.admit(caller, uri),
+      );
+      // Whoever reaches the session as themselves comes as themselves. A guest's link is
+      // looked at for whom that lets into nothing, and gets them into its own session.
+      const ticket = yield* Option.match(guestOf(request, SHARE_COOKIE), {
+        onNone: () => asCaller,
+        onSome: (guest) =>
+          Effect.catch(asCaller, (error) =>
+            shares
+              .admit(
+                uri,
+                guest,
+                clientAddress(
+                  settings.trustedProxies,
+                  request.remoteAddress,
+                  request.headers["x-forwarded-for"],
+                ),
+              )
+              .pipe(
+                // Who came as someone is told why that someone is not let in.
+                Effect.mapError((asGuest) => (error._tag === "Unauthorized" ? asGuest : error)),
+              ),
+          ),
+      });
       return HttpServerResponse.empty({ headers: { authorization: `Bearer ${ticket}` } });
     }, Effect.catch(refused));
 

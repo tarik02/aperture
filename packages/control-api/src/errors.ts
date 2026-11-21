@@ -131,3 +131,24 @@ export class GrantNotFound extends Schema.TaggedError<GrantNotFound>()(
   { id: Schema.String },
   { httpApiStatus: 404 },
 ) {}
+
+/** There is no such share link, or it is into another session: the two are told alike. */
+export class ShareNotFound extends Schema.TaggedError<ShareNotFound>()(
+  "ShareNotFound",
+  { id: Schema.String },
+  { httpApiStatus: 404 },
+) {}
+
+/** What a guest came with is no share link, or one that ran out or was taken back. */
+export class ShareRefused extends Schema.TaggedError<ShareRefused>()(
+  "ShareRefused",
+  { message: Schema.String },
+  { httpApiStatus: 401 },
+) {}
+
+/** Too many share links that are none came from one address in a while. */
+export class TooManyTries extends Schema.TaggedError<TooManyTries>()(
+  "TooManyTries",
+  { message: Schema.String },
+  { httpApiStatus: 429 },
+) {}

@@ -81,8 +81,12 @@ Whose sessions, snapshots and API tokens are, in the control plane. An admin acc
 _Avoid_: Tenant, user
 
 **Ticket**:
-A signed, expiring pass for one person into one session. It lets its holder watch, and says what else they may do as access. Whoever stands above the executor signs it; the gateway only checks it.
+A signed, expiring pass for one person into one session. It lets its holder watch, and says what else they may do as access. Whoever stands above the executor signs it; the gateway only checks it. A session socket opened with it stays open after the ticket ran out, but for one whose ticket says until when, and one whose holder the operator dismisses.
 _Avoid_: Session token, share link
+
+**Share link**:
+What lets someone with no account into one session: whoever has the session makes it, to watch or to control, for a time or until they take it back. Its secret is told once, in a link, and kept as a digest. Whoever opens the link is a guest: they say what the others are to call them, and are shown the session's workbench and nothing else. A guest who controls gives input, changes tabs, takes a tab, and has the clipboard and the sound; the session's files, routing, automation and DevTools endpoint are no guest's. Taking a link back puts its guests out at once, and so does its running out.
+_Avoid_: Invite, public link, session token
 
 **Access**:
 What a caller may do in a session, area by area: `input`, `tabs`, `lease`, `sound`, `clipboard`, `uploads`, `downloads`, `recordings`, `proxy`, `mcp`, `cdp`, `tunnel`, each read, written, both or neither. Watching takes none. The operator token gives all of it; a ticket gives what it says, and a feature that is off gives nothing to anyone.

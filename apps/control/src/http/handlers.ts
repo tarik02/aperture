@@ -2,6 +2,7 @@ import { Api, covers, CurrentCaller, Scope } from "@aperture-browser/control-api
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
+import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { accountOf } from "../accounts/caller.ts";
@@ -13,8 +14,11 @@ import { Nodes } from "../nodes/service.ts";
 import { sessionPath } from "../routing/paths.ts";
 import type { Session } from "../sessions/schemas.ts";
 import { Sessions } from "../sessions/service.ts";
+import { Settings } from "../settings/service.ts";
+import { Shares } from "../shares/service.ts";
 import { Snapshots } from "../snapshots/service.ts";
 import { type Joined, Workspaces } from "../workspaces/service.ts";
+import { originOf } from "./origin.ts";
 
 /** Goes on for an admin, and for nobody else. */
 const admin = Effect.gen(function* () {
@@ -290,6 +294,41 @@ const sessions = HttpApiBuilder.group(
   }),
 );
 
+const shares = HttpApiBuilder.group(
+  Api,
+  "shares",
+  Effect.fn(function* (handlers) {
+    const shares = yield* Shares;
+    const settings = yield* Settings;
+    return handlers
+      .handle("list", ({ params }) =>
+        Effect.flatMap(scoped("sessions:read"), (caller) => shares.list(caller, params.id)),
+      )
+      .handle(
+        "create",
+        Effect.fn(function* ({ params, payload }) {
+          const caller = yield* scoped("sessions:write");
+          const { share, secret } = yield* shares.create(caller, params.id, {
+            name: payload.name,
+            role: payload.role,
+            lasts:
+              payload.expiresInHours === undefined
+                ? undefined
+                : Duration.hours(payload.expiresInHours),
+          });
+          const origin = originOf(settings, yield* HttpServerRequest.HttpServerRequest);
+          // After the `#`, so the secret is sent nowhere when the link is opened.
+          return { ...share, url: `${origin}/share/${share.id}#${secret}` };
+        }),
+      )
+      .handle("revoke", ({ params }) =>
+        Effect.flatMap(scoped("sessions:write"), (caller) =>
+          shares.revoke(caller, params.id, params.shareId),
+        ),
+      );
+  }),
+);
+
 const snapshots = HttpApiBuilder.group(
   Api,
   "snapshots",
@@ -370,6 +409,7 @@ export const layer = Layer.mergeAll(
   grants,
   nodes,
   sessions,
+  shares,
   signIn,
   snapshots,
   workspaces,

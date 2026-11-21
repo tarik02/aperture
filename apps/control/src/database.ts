@@ -154,11 +154,28 @@ const clientsGranted = statements([
   )`,
 ]);
 
+// A link's secret is kept as its digest: whoever reads the database gets into no session.
+const sessionShares = statements([
+  `CREATE TABLE session_shares (
+    id uuid PRIMARY KEY,
+    session_id text NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+    account_id uuid NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    name text NOT NULL,
+    role text NOT NULL CHECK (role IN ('watch', 'control')),
+    token_hash text NOT NULL UNIQUE,
+    created_at timestamptz NOT NULL,
+    expires_at timestamptz,
+    last_used_at timestamptz
+  )`,
+  `CREATE INDEX session_shares_session_id ON session_shares (session_id)`,
+]);
+
 /** Brings the database to what this program expects; what was applied before is left alone. */
 export const migrate = Migrator.make({})({
   loader: Migrator.fromRecord({
     "0001_initial": initial,
     "0002_clients_granted": clientsGranted,
+    "0003_session_shares": sessionShares,
   }),
   table: "control_migrations",
 });

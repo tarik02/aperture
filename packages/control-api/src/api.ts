@@ -23,6 +23,7 @@ import {
   RedirectRefused,
   SessionHasNoNode,
   SessionNotFound,
+  ShareNotFound,
   SnapshotNotFound,
   Unauthorized,
   WorkspaceInUse,
@@ -35,6 +36,7 @@ import {
   Offers,
   ProxyConfig,
   Scope,
+  ShareRole,
   TokenResources,
 } from "./schemas.ts";
 
@@ -178,6 +180,22 @@ export const Admission = Schema.Struct({
   expiresAt: Schema.DateTimeUtcFromString,
   url: Schema.NullOr(Schema.String),
 });
+
+/** A share link as whoever has its session sees it: never its secret. */
+export const Share = Schema.Struct({
+  id: Schema.String,
+  sessionId: Schema.String,
+  /** The account that made it. */
+  accountId: Schema.String,
+  name: Schema.String,
+  role: ShareRole,
+  createdAt: Schema.DateTimeUtcFromString,
+  expiresAt: Schema.NullOr(Schema.DateTimeUtcFromString),
+  lastUsedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
+});
+
+/** A link as it is told once, when it is made: `url` is what a guest opens. */
+export const ShareCreated = Schema.Struct({ ...Share.fields, url: Schema.String });
 
 /** Who the request comes from, for what handles it. */
 export class CurrentCaller extends Context.Service<CurrentCaller, Caller>()(
@@ -349,6 +367,40 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
     }),
   ) {}
 
+export class SharesGroup extends HttpApiGroup.make("shares")
+  .add(
+    HttpApiEndpoint.get("list", "/sessions/:id/shares", {
+      params: session,
+      success: Schema.Array(Share),
+      error: [Forbidden, SessionNotFound],
+    }),
+    HttpApiEndpoint.post("create", "/sessions/:id/shares", {
+      params: session,
+      payload: Schema.Struct({
+        /** What whoever makes it knows it by; guests are not told. */
+        name: Schema.NonEmptyString.check(Schema.isMaxLength(100)),
+        role: ShareRole,
+        /** How many hours it is good for; for as long as it is not taken back, without. */
+        expiresInHours: Schema.optional(
+          Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 87_600 })),
+        ),
+      }),
+      success: ShareCreated.pipe(HttpApiSchema.status(201)),
+      error: [Forbidden, SessionNotFound],
+    }),
+    HttpApiEndpoint.delete("revoke", "/sessions/:id/shares/:shareId", {
+      params: { ...session, shareId: Schema.String },
+      error: [Forbidden, SessionNotFound, ShareNotFound],
+    }),
+  )
+  .annotateMerge(
+    OpenApi.annotations({
+      title: "Share links",
+      description:
+        "Links that let someone with no account into one session, to watch it or to control it.",
+    }),
+  ) {}
+
 export class SnapshotsGroup extends HttpApiGroup.make("snapshots")
   .add(
     HttpApiEndpoint.get("list", "/snapshots", {
@@ -493,7 +545,15 @@ export class SignInGroup extends HttpApiGroup.make("signIn")
   ) {}
 
 export class Api extends HttpApi.make("control")
-  .add(AccountsGroup, GrantsGroup, NodesGroup, SessionsGroup, SnapshotsGroup, WorkspacesGroup)
+  .add(
+    AccountsGroup,
+    GrantsGroup,
+    NodesGroup,
+    SessionsGroup,
+    SharesGroup,
+    SnapshotsGroup,
+    WorkspacesGroup,
+  )
   .middleware(Authorization)
   // After the middleware, so that it has none: it is asked before anyone is signed in.
   .add(SignInGroup)

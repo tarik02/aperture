@@ -24,12 +24,16 @@ import * as NodeServiceRoutes from "./http/nodeService.ts";
 import * as Identity from "./identity/layer.ts";
 import * as SessionTools from "./mcp/layer.ts";
 import * as RoutingRoutes from "./http/routing.ts";
+import * as ShareRoutes from "./http/shares.ts";
 import * as Nodes from "./nodes/layer.ts";
 import * as NodesStoreMemory from "./nodes/store-memory.ts";
 import * as NodesStoreSql from "./nodes/store-sql.ts";
 import * as Routing from "./routing/layer.ts";
 import * as Sessions from "./sessions/layer.ts";
 import { Settings } from "./settings/service.ts";
+import * as Shares from "./shares/layer.ts";
+import * as SharesStoreMemory from "./shares/store-memory.ts";
+import * as SharesStoreSql from "./shares/store-sql.ts";
 import * as SessionsStoreMemory from "./sessions/store-memory.ts";
 import * as SessionsStoreSql from "./sessions/store-sql.ts";
 import * as Snapshots from "./snapshots/layer.ts";
@@ -48,6 +52,7 @@ export const stores = Layer.mergeAll(
   GrantsStoreSql.layer,
   NodesStoreSql.layer,
   SessionsStoreSql.layer,
+  SharesStoreSql.layer,
   SnapshotsStoreSql.layer,
   WorkspacesStoreSql.layer,
 ).pipe(Layer.provide(Database.layer));
@@ -58,6 +63,7 @@ export const storesTest = Layer.mergeAll(
   GrantsStoreMemory.layerTest,
   NodesStoreMemory.layerTest,
   SessionsStoreMemory.layerTest,
+  SharesStoreMemory.layerTest,
   SnapshotsStoreMemory.layerTest,
   WorkspacesStoreMemory.layerTest,
 ).pipe(Layer.provide(Memory.layer));
@@ -67,7 +73,7 @@ export const services = Layer.mergeAll(
   Snapshots.layer,
   Routing.layer,
   Workspaces.layer,
-  SessionTools.layer.pipe(Layer.provide(NodeHttpClient.layerUndici)),
+  Layer.mergeAll(SessionTools.layer, Shares.layer).pipe(Layer.provide(NodeHttpClient.layerUndici)),
 ).pipe(
   Layer.provideMerge(Sessions.layer),
   Layer.provideMerge(Layer.mergeAll(Accounts.layer, Grants.layer, Nodes.layer, Tickets.layer)),
@@ -95,6 +101,7 @@ const serving = Layer.mergeAll(
       api,
       NodeServiceRoutes.layer,
       RoutingRoutes.layer,
+      ShareRoutes.layer,
       IdentityRoutes.layer,
       McpRoutes.layer,
       OAuthRoutes.layer,

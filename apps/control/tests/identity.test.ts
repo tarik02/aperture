@@ -10,6 +10,8 @@ import * as Control from "./src/control.ts";
 const TOO_MANY = 429;
 /** More than anyone is let try a password in a while. */
 const TRIES = 8;
+/** As many share links that are none as one address is let try in a while. */
+const SHARE_TRIES = 30;
 
 suite(Control.layer({ stores: "memory", rateLimit: true }))(
   "signing in, held to so many tries from one address",
@@ -44,6 +46,31 @@ suite(Control.layer({ stores: "memory", rateLimit: true }))(
         expect(yield* tryFrom("203.0.113.8")).not.toBe(TOO_MANY);
         // What an address says of proxies before it is its own word, and is not taken.
         expect(yield* tryFrom("198.51.100.1, 203.0.113.7")).toBe(TOO_MANY);
+      }),
+    );
+
+    it.effect("share links that are none are counted by where they came from as well", () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const http = yield* HttpClient.HttpClient;
+        const tryFrom = (forwardedFor: string) =>
+          http
+            .execute(
+              HttpClientRequest.post(
+                `${control.url}/api/control/share/0198c0de-0000-7000-8000-000000000000`,
+              ).pipe(
+                HttpClientRequest.setHeader("x-forwarded-for", forwardedFor),
+                HttpClientRequest.bodyJsonUnsafe({ token: "aps_a-guess" }),
+              ),
+            )
+            .pipe(Effect.map((answer) => answer.status));
+
+        const first = yield* Effect.forEach(Array.from({ length: SHARE_TRIES + 1 }), () =>
+          tryFrom("203.0.113.20"),
+        );
+        expect(first.slice(0, SHARE_TRIES).every((status) => status === 401)).toBe(true);
+        expect(first.at(-1)).toBe(TOO_MANY);
+        expect(yield* tryFrom("203.0.113.21")).toBe(401);
       }),
     );
 

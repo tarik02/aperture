@@ -24,6 +24,7 @@ import {
   Pause,
   Play,
   Plug,
+  Share2,
   Tags,
   Trash2,
   Waypoints,
@@ -35,6 +36,7 @@ import { DescribeDialog } from "#/components/describe-dialog.tsx";
 import { SessionMcpDialog } from "#/features/mcp/session-mcp-dialog.tsx";
 import { SessionProxyDialog } from "#/features/proxy/session-proxy-dialog.tsx";
 import { SessionDetailsDialog } from "#/features/session/session-details-dialog.tsx";
+import { SessionShareDialog } from "#/features/share/session-share-dialog.tsx";
 import type { Session } from "#/features/session/session.queries.ts";
 import {
   useDescribeSessionMutation,
@@ -65,7 +67,7 @@ export function useSessionActions(session: Session) {
   const remove = useSessionActionMutation("delete");
   const describe = useDescribeSessionMutation();
   const [dialog, setDialog] = useState<
-    "delete" | "snapshot" | "describe" | "proxy" | "details" | "mcp" | null
+    "delete" | "snapshot" | "describe" | "proxy" | "details" | "mcp" | "share" | null
   >(null);
   const placed = session.nodeId !== null;
 
@@ -83,6 +85,7 @@ export function useSessionActions(session: Session) {
         void navigate({ to: "/-/sessions/$sessionId", params: { sessionId: session.id } }),
     },
     { key: "copy", label: "Copy link", icon: Link2, onSelect: () => void copyLink() },
+    { key: "share", label: "Share", icon: Share2, onSelect: () => setDialog("share") },
     { key: "details", label: "Details", icon: Info, onSelect: () => setDialog("details") },
     { key: "describe", label: "Edit details", icon: Tags, onSelect: () => setDialog("describe") },
     {
@@ -169,6 +172,11 @@ export function useSessionActions(session: Session) {
         session={session}
         open={dialog === "mcp"}
         onOpenChange={(open) => setDialog(open ? "mcp" : null)}
+      />
+      <SessionShareDialog
+        session={session}
+        open={dialog === "share"}
+        onOpenChange={(open) => setDialog(open ? "share" : null)}
       />
       <SaveSnapshotDialog
         session={session}

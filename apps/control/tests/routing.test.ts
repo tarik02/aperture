@@ -1434,4 +1434,134 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         expect(page.errors()).toEqual([]);
       }),
   );
+
+  it.effect(
+    "the owner makes a share link, a guest with no account opens it under a name, and is out once it is revoked",
+    () =>
+      Effect.gen(function* () {
+        const proxy = yield* Proxy.Proxy;
+        const viewer = yield* Viewer.Viewer;
+        const fs = yield* FileSystem.FileSystem;
+        const control = yield* Control.Control;
+        const bootstrap = yield* control.as(control.bootstrapToken);
+        // A person, whom every page of the browser has signed in at once.
+        const person = yield* signedIn("Owner of the shared", "owner-of-the-shared@example.test");
+        const { token } = yield* bootstrap.accounts.createToken({
+          params: { id: person.account.id },
+          payload: { name: "checks", scopes: Control.ALL_SCOPES },
+        });
+        const owner = { api: yield* control.as(token) };
+        // The node may only now have told of itself, where no check ran before this one.
+        const made = yield* until(
+          "a node taking the shared session",
+          owner.api.sessions.create({ payload: { label: "Shared with a guest" } }),
+          "30 seconds",
+        );
+        yield* until(
+          "the shared session running",
+          owner.api.sessions
+            .get({ params: { id: made.id } })
+            .pipe(Effect.map((session) => session.observedState === "running")),
+          "60 seconds",
+        );
+
+        const page = yield* viewer.open(`${proxy.url}/-/sessions`);
+        // The browser is the one the checks before signed in with: nothing of that is left.
+        yield* page.evaluate(
+          `(localStorage.clear(), Promise.all([fetch("/api/auth/sign-out", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }), fetch("/api/control/route/cookie", { method: "DELETE" })]).then(() => true))`,
+        );
+        yield* page.evaluate("void location.reload()");
+        yield* page.until(`!!document.querySelector('[data-console-sign-in="password"]')`);
+        yield* page.click(`[data-console-sign-in] input[name="email"]`);
+        yield* page.type(person.email);
+        yield* page.click(`[data-console-sign-in] input[name="password"]`);
+        yield* page.type(person.password);
+        yield* page.key("Enter", "Enter", ENTER);
+        const card = `[data-console-session="${made.id}"]`;
+        yield* page.until(`!!document.querySelector(${JSON.stringify(card)})`);
+        yield* fromMenu(page, card, "Share");
+
+        const name = `[data-console-share-create] input[name="name"]`;
+        yield* page.until(
+          `document.querySelector(${JSON.stringify(name)})?.closest('[data-slot="dialog-content"]').getAnimations().length === 0`,
+        );
+        const height = () =>
+          page.evaluate(
+            `document.querySelector(${JSON.stringify(name)}).closest('[data-slot="dialog-content"]').getBoundingClientRect().height`,
+            Schema.Number,
+          );
+        const empty = yield* height();
+        yield* page.click(name);
+        yield* page.type("For the guest");
+        yield* pick(
+          page,
+          `[data-console-share-create] [aria-label="What it lets them do"]`,
+          "Control",
+        );
+        yield* choose(page, "[data-console-share-create] button", "New link");
+        yield* page.until(`!!document.querySelector("[data-console-secret]")`);
+        const link = (yield* page.text("[data-console-secret]")) ?? "";
+        expect(link).toMatch(new RegExp(`^${proxy.url}/share/[0-9a-f-]+#aps_`, "u"));
+        yield* shot(page, fs, "console-share-link");
+        yield* choose(page, `${DIALOG} button`, "Done");
+        yield* page.until(`!document.querySelector("[data-console-secret]")`);
+        yield* page.until(`!!document.querySelector('[data-console-share="For the guest"]')`);
+        expect(yield* page.text(`[data-console-share="For the guest"]`)).toContain("Control");
+        // The dialog is as tall with a link in it as it was with none.
+        expect(yield* height()).toBe(empty);
+        yield* shot(page, fs, "console-share");
+        yield* shotDark(page, fs, "console-share-dark");
+
+        // A browser of the guest's own: it carries nothing of the owner's.
+        const guests = yield* Viewer.start;
+        const guest = yield* guests.open(link);
+        yield* guest.until(`!!document.querySelector('[data-console-guest="name"] input')`);
+        // The secret is in the address no more, and nothing of the console is around.
+        expect(yield* guest.evaluate("location.pathname + location.hash", Schema.String)).toBe(
+          new URL(link).pathname,
+        );
+        expect(yield* guest.evaluate(`!!document.querySelector("[data-sidebar]")`)).toBe(false);
+        yield* shot(guest, fs, "console-guest-name");
+        yield* guest.click(`[data-console-guest="name"] input`);
+        yield* guest.type("Grace the guest");
+        yield* guest.key("Enter", "Enter", ENTER);
+        yield* guest.until(`!!document.querySelector('[data-console-guest="session"]')`);
+        yield* Viewer.ready(guest);
+        yield* guest.until(`!!document.querySelector("[data-aperture-drawn]")`, "30 seconds");
+        expect(yield* guest.evaluate(`!!document.querySelector("[data-sidebar]")`)).toBe(false);
+        // Shown again, the page needs no link in its address: the browser carries it.
+        yield* guest.evaluate("void location.reload()");
+        yield* guest.until(`!!document.querySelector('[data-console-guest="session"]')`);
+        yield* Viewer.ready(guest);
+        yield* guest.until(`!!document.querySelector("[data-aperture-drawn]")`, "30 seconds");
+        yield* shot(guest, fs, "console-guest-session");
+        // The API is none of a guest's.
+        expect(
+          yield* guest.evaluate(
+            `fetch("/api/control/sessions").then((answer) => answer.status)`,
+            Schema.Number,
+          ),
+        ).toBe(401);
+
+        // The owner sees them among the members, by the name they chose.
+        const opened = yield* viewer.open(`${proxy.url}/-/sessions/${made.id}`);
+        yield* Viewer.ready(opened, 2);
+        const members = `apertureSession.getSnapshot().presence.members.map((member) => member.name)`;
+        yield* opened.until(`${members}.includes("Grace the guest")`);
+        expect(yield* opened.evaluate(members, Schema.Array(Schema.String))).toEqual(
+          expect.arrayContaining(["Owner of the shared", "Grace the guest"]),
+        );
+
+        yield* page.click(`[data-console-share="For the guest"] button`);
+        yield* page.until(`!document.querySelector('[data-console-share="For the guest"]')`);
+        yield* guest.until(
+          `!!document.querySelector('[data-console-guest="refused"]')`,
+          "30 seconds",
+        );
+        yield* shot(guest, fs, "console-guest-refused");
+        yield* opened.until(`!${members}.includes("Grace the guest")`);
+        expect(page.errors()).toEqual([]);
+        yield* owner.api.sessions.delete({ params: { id: made.id } });
+      }),
+  );
 });

@@ -16,6 +16,7 @@ import { RegistrationTokensPage } from "#/features/node/registration-tokens-page
 import { isNewSession } from "#/features/session/new-sessions.ts";
 import { NewSessionWorkbench, SessionWorkbench } from "#/features/session/session-workbench.tsx";
 import { SessionsPage } from "#/features/session/sessions-page.tsx";
+import { GuestPage } from "#/features/share/guest-page.tsx";
 import { SnapshotsPage } from "#/features/snapshot/snapshots-page.tsx";
 import { TokensPage } from "#/features/token/tokens-page.tsx";
 import { WorkspacesPage } from "#/features/workspace/workspaces-page.tsx";
@@ -36,6 +37,16 @@ const root = createRootRoute();
 const signed = createRoute({ getParentRoute: () => root, id: "signed", component: Signed });
 
 const invite = createRoute({ getParentRoute: () => root, path: "/invite", component: InvitePage });
+
+// Bare, and outside what asks who is signed in: a guest has no account.
+const share = createRoute({
+  getParentRoute: () => root,
+  path: "/share/$shareId",
+  component: function Shared() {
+    const { shareId } = share.useParams();
+    return <GuestPage shareId={shareId} />;
+  },
+});
 
 const index = createRoute({
   getParentRoute: () => signed,
@@ -132,6 +143,7 @@ const session = createRoute({
 export const router = createRouter({
   routeTree: root.addChildren([
     invite,
+    share,
     signed.addChildren([
       index,
       pages.addChildren([

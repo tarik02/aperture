@@ -7,6 +7,11 @@ export interface TicketRequest {
   readonly subject: string;
   readonly name: string;
   readonly access: Access;
+  /**
+   * When what the ticket is given for ends: it is good no longer than that, and a session
+   * socket opened with it is closed then. Without, a socket stays for as long as its client.
+   */
+  readonly until?: DateTime.Utc | null;
 }
 
 export interface Issued {

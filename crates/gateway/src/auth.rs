@@ -4,9 +4,18 @@
 //! anything. Anyone else comes with a ticket, which whoever stands above signs for one
 //! person and one session: a JWT signed with Ed25519 (`EdDSA`), checked against the public
 //! key that was given. A ticket lets its holder watch the session it names, and do what
-//! its `access` says, area by area (see [`Access`]).
+//! its `access` says, area by area (see [`Access`]). It lets them in for as long as it is
+//! good: what was opened with it stays open after, but for a session socket whose ticket
+//! says `until` when, and one whose caller the operator dismisses.
 
-use std::{collections::HashMap, fs, os::unix::fs::PermissionsExt, path::Path, sync::Arc};
+use std::{
+    collections::HashMap,
+    fs,
+    os::unix::fs::PermissionsExt,
+    path::Path,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::Context;
 
@@ -35,6 +44,10 @@ struct Claims {
     /// What its holder may do besides watching: an area's name to `r`, `w` or `rw`.
     #[serde(default)]
     access: HashMap<String, String>,
+    /// When what let its holder in ends, in seconds since the epoch: a session socket
+    /// opened with the ticket is closed then. One opened with a ticket that says nothing
+    /// stays for as long as its client does.
+    until: Option<u64>,
 }
 
 /// Who a request comes from; with every request that got in.
@@ -43,6 +56,8 @@ pub struct Caller {
     pub subject: String,
     pub name: String,
     pub access: Access,
+    /// When the caller's session socket is closed whatever it does; never, without.
+    pub until: Option<SystemTime>,
 }
 
 impl Caller {
@@ -158,6 +173,7 @@ fn caller(keys: &Keys, request: &Request) -> Result<Caller, Refused> {
             subject: "operator".to_owned(),
             name: name.unwrap_or_else(|| "Operator".to_owned()),
             access: Access::ALL,
+            until: None,
         });
     }
     let key = keys
@@ -186,6 +202,9 @@ fn caller(keys: &Keys, request: &Request) -> Result<Caller, Refused> {
         name: claims.name.unwrap_or_else(|| claims.sub.clone()),
         subject: claims.sub,
         access,
+        until: claims
+            .until
+            .map(|seconds| UNIX_EPOCH + Duration::from_secs(seconds)),
     })
 }
 

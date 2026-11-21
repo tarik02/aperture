@@ -105,6 +105,12 @@ export const makeSessionsStoreMemory = Effect.fn("SessionsStore.makeMemory")(fun
     Effect.sync(() => {
       memory.sessions.delete(id);
       memory.sessionProxies.delete(id);
+      // Its share links go with it, as the database has them go.
+      for (const [hash, share] of memory.shares) {
+        if (share.sessionId === id) {
+          memory.shares.delete(hash);
+        }
+      }
     }),
   );
 

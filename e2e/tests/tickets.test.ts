@@ -153,6 +153,51 @@ suite(session)("tickets into a session served on its own", (it) => {
     }),
   );
 
+  it.effect("whoever the operator dismisses is put out of the session, and nobody else", () =>
+    Effect.gen(function* () {
+      const runner = yield* Runner.Runner;
+      const tickets = yield* Tickets.Tickets;
+      const guest = yield* Tickets.join(runner, yield* tickets.ticket({}, { sub: "share:one" }));
+      const other = yield* Tickets.join(runner, yield* tickets.ticket({}, { sub: "share:two" }));
+
+      // It is the operator's to ask, and no ticket's.
+      yield* answers(yield* tickets.ticket({ input: "rw", lease: "rw" }), [
+        ["DELETE", "/callers/share%3Aone", 403],
+      ]);
+      expect(guest.closed()).toBe(false);
+      yield* answers(runner.token, [["DELETE", "/callers/share%3Aone", 204]]);
+      yield* until(
+        "the dismissed one's socket ending",
+        Effect.sync(() => guest.closed()),
+      );
+      expect(
+        yield* happens(
+          Effect.sync(() => other.closed()),
+          "1 second",
+        ),
+      ).toBe(false);
+    }),
+  );
+
+  it.effect("a socket ends when its ticket says what let its holder in does", () =>
+    Effect.gen(function* () {
+      const runner = yield* Runner.Runner;
+      const tickets = yield* Tickets.Tickets;
+      const brief = yield* Tickets.join(
+        runner,
+        yield* tickets.ticket({}, { until: yield* Tickets.fromNow(2) }),
+      );
+      const staying = yield* Tickets.join(runner, yield* tickets.ticket({}));
+      expect(brief.closed()).toBe(false);
+      yield* until(
+        "the socket ending when its ticket said",
+        Effect.sync(() => brief.closed()),
+        "10 seconds",
+      );
+      expect(staying.closed()).toBe(false);
+    }),
+  );
+
   it.effect("with tabs:w a new tab opens, and what was done is not answered", () =>
     Effect.gen(function* () {
       const runner = yield* Runner.Runner;

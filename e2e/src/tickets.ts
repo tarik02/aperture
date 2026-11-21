@@ -22,6 +22,8 @@ export interface Claims {
   readonly sid?: string;
   /** When it runs out, in seconds since the epoch. */
   readonly exp?: number;
+  /** When a session socket opened with it is closed, in seconds since the epoch. */
+  readonly until?: number;
 }
 
 /** Whoever stands above the session and signs the tickets into it. */
@@ -136,13 +138,16 @@ export interface Member {
   readonly send: (message: object) => Effect.Effect<void, Socket.SocketError>;
   /** This member as the session's presence tells it, once it does. */
   readonly self: Effect.Effect<Present, import("./wait.ts").TimedOut>;
+  /** Whether the session socket has ended: closed by the session, or lost. */
+  readonly closed: () => boolean;
 }
 
 /** Joins a session with a token or a ticket, until the scope ends; waits for a watched tab. */
 export const join = Effect.fn("Tickets.join")(function* (
-  runner: Runner.RunnerService,
+  runner: { readonly url: string },
   token: string,
 ) {
+  let closed = false;
   const seen: Record<string, unknown> = {};
   const failures: Failure[] = [];
   const socket = yield* Socket.makeWebSocket(
@@ -168,6 +173,11 @@ export const join = Effect.fn("Tickets.join")(function* (
     ),
     Effect.forever,
     Effect.ignore,
+    Effect.ensuring(
+      Effect.sync(() => {
+        closed = true;
+      }),
+    ),
     Effect.forkScoped,
   );
   yield* send({ hello: { pixels: "PIXELS_TILES" } });
@@ -180,6 +190,7 @@ export const join = Effect.fn("Tickets.join")(function* (
     seen,
     failures,
     send,
+    closed: () => closed,
     self: until(
       "presence telling of the member itself",
       Schema.decodeUnknownEffect(Presence)(seen["presence"]).pipe(

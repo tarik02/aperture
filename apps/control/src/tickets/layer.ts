@@ -45,7 +45,14 @@ export const makeTickets = Effect.fn("Tickets.make")(function* () {
 
   const issue = Effect.fn("Tickets.issue")(function* (ticket: TicketRequest) {
     const now = yield* Clock.currentTimeMillis;
-    const expires = Math.floor((now + Duration.toMillis(settings.ticketLifetime)) / 1000);
+    const until =
+      ticket.until === undefined || ticket.until === null
+        ? undefined
+        : Math.floor(DateTime.toEpochMillis(ticket.until) / 1000);
+    const expires = Math.min(
+      Math.floor((now + Duration.toMillis(settings.ticketLifetime)) / 1000),
+      until ?? Infinity,
+    );
     const signed = [
       encoded({ alg: "EdDSA", typ: "JWT" }),
       encoded({
@@ -54,6 +61,7 @@ export const makeTickets = Effect.fn("Tickets.make")(function* () {
         sid: ticket.sessionId,
         exp: expires,
         access: ticket.access,
+        ...(until === undefined ? {} : { until }),
       }),
     ].join(".");
     const signature = yield* Effect.promise(() =>

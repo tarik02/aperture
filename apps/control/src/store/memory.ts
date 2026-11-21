@@ -6,6 +6,7 @@ import type { Client, Grant } from "../grants/schemas.ts";
 import type { NewCode, NewToken } from "../grants/store.ts";
 import type { NodeRecord, RegistrationToken } from "../nodes/schemas.ts";
 import type { Session } from "../sessions/schemas.ts";
+import type { Share } from "../shares/schemas.ts";
 import type { Snapshot } from "../snapshots/schemas.ts";
 import type { Workspace, WorkspaceRole } from "../workspaces/schemas.ts";
 
@@ -25,6 +26,8 @@ export interface MemoryShape {
   readonly sessions: Map<string, Session>;
   /** Sessions' routing, sealed, by the session's id. */
   readonly sessionProxies: Map<string, string>;
+  /** Share links, by the digest of each one's secret. */
+  readonly shares: Map<string, Share>;
   readonly snapshots: Map<string, Snapshot>;
   readonly workspaces: Map<string, Workspace>;
   /** Who is in each workspace, by the workspace's id and then the account's. */
@@ -52,6 +55,7 @@ export const layer = Layer.sync(Memory, () =>
     nodes: new Map(),
     sessions: new Map(),
     sessionProxies: new Map(),
+    shares: new Map(),
     snapshots: new Map(),
     workspaces: new Map(),
     workspaceMembers: new Map(),
