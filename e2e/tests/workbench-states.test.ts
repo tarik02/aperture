@@ -45,6 +45,23 @@ const SUSPENDED = "the session was suspended";
 const PRESSED = dataPage("<title>Automation's</title><button>press</button>");
 
 /** Whether the member whose page it is holds the tab, as its page knows. */
+/**
+ * The lease a page shows, once it shows the one that is expected; when it does not come,
+ * what the page shows and knows instead, for the check that fails to say.
+ */
+const leaseShown = (page: Page, state: string) =>
+  appears(page, lease(state)).pipe(
+    Effect.flatMap((there) =>
+      there
+        ? Effect.succeed<unknown>(state)
+        : page.evaluate(`JSON.stringify({
+            shown: document.querySelector("[data-session-lease]")?.dataset.sessionLease ?? null,
+            selected: apertureSession.getSnapshot().selected,
+            presence: apertureSession.getSnapshot().presence,
+          })`),
+    ),
+  );
+
 const holds = (page: Page, tab: number) =>
   comes(
     page,
@@ -175,7 +192,7 @@ suite(session)("the states the workbench shows", (it) => {
       yield* ada.clickAt(picture.x, picture.y);
       expect(yield* holds(ada, tab)).toBe(true);
 
-      expect(yield* appears(bob, lease("theirs"))).toBe(true);
+      expect(yield* leaseShown(bob, "theirs")).toBe("theirs");
       expect(yield* bob.text(LEASE)).toContain("Ada holds this tab");
       expect(yield* bob.text(LEASE)).toContain("Ask for the lease");
     }),
@@ -184,9 +201,9 @@ suite(session)("the states the workbench shows", (it) => {
   it.effect("asking tells the asker that it asked, and shows the holder a request", () =>
     Effect.gen(function* () {
       yield* bob.click(`${LEASE} button`);
-      expect(yield* appears(bob, lease("you-asked"))).toBe(true);
+      expect(yield* leaseShown(bob, "you-asked")).toBe("you-asked");
       expect(yield* bob.text(LEASE)).toContain("Asked");
-      expect(yield* appears(ada, lease("asked-of-you"))).toBe(true);
+      expect(yield* leaseShown(ada, "asked-of-you")).toBe("asked-of-you");
       expect(yield* ada.text(LEASE)).toContain("Bob asks for this tab");
     }),
   );
@@ -195,7 +212,7 @@ suite(session)("the states the workbench shows", (it) => {
     Effect.gen(function* () {
       yield* clickElement(ada, buttonWithin(LEASE, "Keep"));
       expect(yield* leaves(ada, LEASE)).toBe(true);
-      expect(yield* appears(bob, lease("theirs"))).toBe(true);
+      expect(yield* leaseShown(bob, "theirs")).toBe("theirs");
       expect(yield* holds(ada, tab)).toBe(true);
     }),
   );
@@ -203,7 +220,7 @@ suite(session)("the states the workbench shows", (it) => {
   it.effect("a request fits a narrow window, and the browser menu offers the same answers", () =>
     Effect.gen(function* () {
       yield* bob.click(`${LEASE} button`);
-      expect(yield* appears(ada, lease("asked-of-you"))).toBe(true);
+      expect(yield* leaseShown(ada, "asked-of-you")).toBe("asked-of-you");
 
       yield* resize(ada, 390, 700);
       yield* ada.until("innerWidth === 390");
@@ -222,7 +239,7 @@ suite(session)("the states the workbench shows", (it) => {
       yield* clickElement(ada, buttonWithin(LEASE, "Allow"));
       expect(yield* holds(bob, tab)).toBe(true);
       expect(yield* leaves(bob, LEASE)).toBe(true);
-      expect(yield* appears(ada, lease("theirs"))).toBe(true);
+      expect(yield* leaseShown(ada, "theirs")).toBe("theirs");
       expect(yield* ada.text(LEASE)).toContain("Bob holds this tab");
     }),
   );
@@ -235,7 +252,7 @@ suite(session)("the states the workbench shows", (it) => {
       yield* mcp.call("click", { tab: automated, selector: "button" });
 
       yield* bob.evaluate(`apertureSession.select(${automated})`);
-      expect(yield* appears(bob, lease("theirs"))).toBe(true);
+      expect(yield* leaseShown(bob, "theirs")).toBe("theirs");
       expect(yield* bob.text(LEASE)).toContain("Automation holds this tab");
       expect(yield* bob.text(LEASE)).toContain("Take the lease");
       yield* bob.click(`${LEASE} button`);
