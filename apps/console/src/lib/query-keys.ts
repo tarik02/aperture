@@ -10,4 +10,6 @@ export const queryKeys = {
   registrationTokens: ["registration-tokens"] as const,
   accounts: ["accounts"] as const,
   tokens: ["tokens"] as const,
+  workspaces: ["workspaces"] as const,
+  workspaceMembers: (id: string) => ["workspaces", id, "members"] as const,
 };

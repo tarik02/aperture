@@ -60,7 +60,7 @@ export function AccountsPage() {
               </TableCell>
               <TableCell>
                 <Badge variant={account.admin ? "default" : "outline"}>
-                  {account.admin ? "admin" : "account"}
+                  {account.admin ? "admin" : account.kind}
                 </Badge>
               </TableCell>
               <TableCell className="aperture:text-muted-foreground">

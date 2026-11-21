@@ -210,6 +210,19 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       );
       const made = (yield* ada.api.sessions.list()).find((one) => one.label === "Made in a dialog");
       expect(made).toBeDefined();
+
+      // A workspace is made and selected, and shows what is its own: nothing yet.
+      yield* page.evaluate(`void (location.href = "/-/workspaces")`);
+      const name = `input[placeholder="Workspace name"]`;
+      yield* page.until(`!!document.querySelector(${JSON.stringify(name)})`);
+      yield* page.click(name);
+      yield* page.type("Shop team");
+      yield* page.key("Enter", "Enter", ENTER);
+      yield* page.until(`!!document.querySelector('[data-console-workspace="Shop team"]')`);
+      expect(yield* page.text("[data-console-workspace-switcher]")).toContain("Shop team");
+      yield* shot(page, fs, "console-workspaces");
+      yield* page.click(`a[href="/-/sessions"]`);
+      yield* page.until(`!!document.querySelector("[data-console-empty]")`);
       expect(page.errors()).toEqual([]);
     }),
   );

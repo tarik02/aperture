@@ -13,6 +13,7 @@ import { SessionWorkbench } from "#/features/session/session-workbench.tsx";
 import { SessionsPage } from "#/features/session/sessions-page.tsx";
 import { SnapshotsPage } from "#/features/snapshot/snapshots-page.tsx";
 import { TokensPage } from "#/features/token/tokens-page.tsx";
+import { WorkspacesPage } from "#/features/workspace/workspaces-page.tsx";
 import { useToken } from "#/lib/token.ts";
 
 /** Nothing is shown to whoever is not signed in but the way in. */
@@ -58,6 +59,12 @@ const tokens = createRoute({
   component: TokensPage,
 });
 
+const workspaces = createRoute({
+  getParentRoute: () => pages,
+  path: "/-/workspaces",
+  component: WorkspacesPage,
+});
+
 const nodes = createRoute({ getParentRoute: () => pages, path: "/-/nodes", component: NodesPage });
 
 const accounts = createRoute({
@@ -81,7 +88,7 @@ const session = createRoute({
 export const router = createRouter({
   routeTree: root.addChildren([
     index,
-    pages.addChildren([sessions, snapshots, tokens, nodes, accounts]),
+    pages.addChildren([sessions, snapshots, tokens, workspaces, nodes, accounts]),
     session,
   ]),
 });

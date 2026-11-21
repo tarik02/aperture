@@ -18,6 +18,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { emptyDraft, ProxyEditor, proxyOf } from "#/features/proxy/proxy-editor.tsx";
 import { useCreateSessionMutation } from "#/features/session/session.mutations.ts";
+import { useSelectedWorkspace } from "#/features/workspace/workspace.queries.ts";
 import { useSnapshotsQuery } from "#/features/snapshot/snapshot.queries.ts";
 
 type SessionCreateDialogProps = {
@@ -39,6 +40,7 @@ export function SessionCreateDialog({ open, onOpenChange }: SessionCreateDialogP
 function CreateForm({ onDone }: { onDone: () => void }) {
   const navigate = useNavigate();
   const snapshots = useSnapshotsQuery();
+  const workspace = useSelectedWorkspace();
   const create = useCreateSessionMutation();
   const [label, setLabel] = useState("");
   const [snapshotId, setSnapshotId] = useState("");
@@ -53,6 +55,7 @@ function CreateForm({ onDone }: { onDone: () => void }) {
         ...(label.trim() === "" ? {} : { label: label.trim() }),
         ...(snapshotId === "" ? {} : { snapshotId }),
         ...(routed === null ? {} : { proxy: routed }),
+        ...(workspace === null ? {} : { workspaceId: workspace.id }),
         tags: entriesToTags(tags),
       },
       {
@@ -93,11 +96,13 @@ function CreateForm({ onDone }: { onDone: () => void }) {
               onChange={(event) => setSnapshotId(event.target.value)}
             >
               <NativeSelectOption value="">An empty profile</NativeSelectOption>
-              {snapshots.data?.map((snapshot) => (
-                <NativeSelectOption key={snapshot.id} value={snapshot.id}>
-                  {snapshot.name ?? snapshot.id}
-                </NativeSelectOption>
-              ))}
+              {snapshots.data
+                ?.filter((snapshot) => snapshot.workspaceId === (workspace?.id ?? null))
+                .map((snapshot) => (
+                  <NativeSelectOption key={snapshot.id} value={snapshot.id}>
+                    {snapshot.name ?? snapshot.id}
+                  </NativeSelectOption>
+                ))}
             </NativeSelect>
           </label>
         </TabsContent>

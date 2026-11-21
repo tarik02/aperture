@@ -12,6 +12,7 @@ export function useCreateSessionMutation() {
       options: {
         snapshotId?: string;
         label?: string;
+        workspaceId?: string;
         tags?: Record<string, string>;
         proxy?: ProxyConfig;
       } = {},

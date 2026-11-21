@@ -16,6 +16,7 @@ import { AuthMenu } from "#/components/auth-menu.tsx";
 import { ThemeToggle } from "#/components/theme-toggle.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
 import { RecentSessionsSidebarGroup } from "#/features/session/recent-sessions-sidebar-group.tsx";
+import { WorkspaceSwitcher } from "#/features/workspace/workspace-switcher.tsx";
 import { type NavItem, primaryNavItems, resolveNavItem } from "#/lib/navigation.ts";
 
 /**
@@ -47,6 +48,7 @@ export function AppSidebar({ collapsible }: { collapsible: "icon" | "offcanvas" 
             </span>
           </span>
         </div>
+        <WorkspaceSwitcher />
       </SidebarHeader>
       <SidebarContent>
         <NavGroup

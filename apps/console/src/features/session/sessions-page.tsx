@@ -13,6 +13,7 @@ import {
   useCreateSessionMutation,
 } from "#/features/session/session.mutations.ts";
 import { type Session, useSessionsQuery } from "#/features/session/session.queries.ts";
+import { useSelectedWorkspace } from "#/features/workspace/workspace.queries.ts";
 import { told } from "#/lib/api.ts";
 
 type Status = "all" | "active" | "suspended" | "failed";
@@ -45,6 +46,7 @@ export function SessionsPage() {
   const resume = useBulkSessionActionMutation("resume");
   const remove = useBulkSessionActionMutation("delete");
   const navigate = useNavigate();
+  const workspace = useSelectedWorkspace();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<Status>("all");
   const [order, setOrder] = useState<Order>("created");
@@ -57,7 +59,12 @@ export function SessionsPage() {
 
   const sought = search.trim().toLowerCase();
   const shown = (sessions.data ?? [])
-    .filter((session) => STATUS[status](session) && (sought === "" || matches(session, sought)))
+    .filter(
+      (session) =>
+        session.workspaceId === (workspace?.id ?? null) &&
+        STATUS[status](session) &&
+        (sought === "" || matches(session, sought)),
+    )
     .toSorted((one, other) =>
       order === "label"
         ? (one.label ?? one.id).localeCompare(other.label ?? other.id)
@@ -99,13 +106,10 @@ export function SessionsPage() {
   };
 
   const createAndOpen = () =>
-    create.mutate(
-      {},
-      {
-        onSuccess: (session) =>
-          navigate({ to: "/-/sessions/$sessionId", params: { sessionId: session.id } }),
-      },
-    );
+    create.mutate(workspace === null ? {} : { workspaceId: workspace.id }, {
+      onSuccess: (session) =>
+        navigate({ to: "/-/sessions/$sessionId", params: { sessionId: session.id } }),
+    });
 
   const busy = suspend.isPending || resume.isPending || remove.isPending;
   const clear = { onSettled: () => setSelected(new Set()) };

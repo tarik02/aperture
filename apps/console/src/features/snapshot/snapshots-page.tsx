@@ -20,6 +20,7 @@ import {
   useDescribeSnapshotMutation,
 } from "#/features/snapshot/snapshot.mutations.ts";
 import { type Snapshot, useSnapshotsQuery } from "#/features/snapshot/snapshot.queries.ts";
+import { useSelectedWorkspace } from "#/features/workspace/workspace.queries.ts";
 import { told } from "#/lib/api.ts";
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -34,7 +35,10 @@ function SnapshotRow({ snapshot }: { snapshot: Snapshot }) {
 
   const start = () =>
     create.mutate(
-      { snapshotId: snapshot.id },
+      {
+        snapshotId: snapshot.id,
+        ...(snapshot.workspaceId === null ? {} : { workspaceId: snapshot.workspaceId }),
+      },
       {
         onSuccess: (session) =>
           navigate({ to: "/-/sessions/$sessionId", params: { sessionId: session.id } }),
@@ -111,6 +115,10 @@ function SnapshotRow({ snapshot }: { snapshot: Snapshot }) {
 /** An account's snapshots: what its sessions are started from. */
 export function SnapshotsPage() {
   const snapshots = useSnapshotsQuery();
+  const workspace = useSelectedWorkspace();
+  const shown = snapshots.data?.filter(
+    (snapshot) => snapshot.workspaceId === (workspace?.id ?? null),
+  );
 
   if (snapshots.isError) {
     return (
@@ -119,7 +127,7 @@ export function SnapshotsPage() {
       </p>
     );
   }
-  if (snapshots.data?.length === 0) {
+  if (shown?.length === 0) {
     return (
       <p
         data-console-empty
@@ -141,7 +149,7 @@ export function SnapshotsPage() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {snapshots.data?.map((snapshot) => (
+          {shown?.map((snapshot) => (
             <SnapshotRow key={snapshot.id} snapshot={snapshot} />
           ))}
         </TableBody>
