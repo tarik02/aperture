@@ -1,5 +1,10 @@
 import { Button } from "@aperture-browser/ui/components/button";
-import { DialogFooter, DialogHeader, DialogTitle } from "@aperture-browser/ui/components/dialog";
+import {
+  DialogBody,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@aperture-browser/ui/components/dialog";
 import { Field, FieldLabel } from "@aperture-browser/ui/components/field";
 import {
   entriesToTags,
@@ -28,7 +33,12 @@ type SessionCreateDialogProps = {
 /** A session made as it is asked for: named, from a snapshot, routed, tagged. */
 export function SessionCreateDialog({ open, onOpenChange }: SessionCreateDialogProps) {
   return (
-    <FreshDialog open={open} onOpenChange={onOpenChange} className="aperture:sm:max-w-xl">
+    <FreshDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      className="aperture:sm:max-w-xl"
+      height="27rem"
+    >
       <CreateForm onDone={() => onOpenChange(false)} />
     </FreshDialog>
   );
@@ -78,7 +88,7 @@ function CreateForm({ onDone }: { onDone: () => void }) {
   return (
     <form
       data-console-session-create
-      className="aperture:grid aperture:min-w-0 aperture:gap-4"
+      className="aperture:contents"
       onSubmit={(event) => {
         event.preventDefault();
         void form.handleSubmit();
@@ -87,57 +97,66 @@ function CreateForm({ onDone }: { onDone: () => void }) {
       <DialogHeader>
         <DialogTitle>New session</DialogTitle>
       </DialogHeader>
-      <Tabs value={tab} onValueChange={(value) => setTab(String(value))}>
-        <TabsList>
+      <Tabs
+        value={tab}
+        onValueChange={(value) => setTab(String(value))}
+        className="aperture:min-h-0 aperture:flex-1 aperture:gap-4"
+      >
+        <TabsList className="aperture:shrink-0">
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="proxy">Routing</TabsTrigger>
           <TabsTrigger value="advanced">Advanced</TabsTrigger>
         </TabsList>
-        <TabsContent value="general" className="aperture:grid aperture:gap-4 aperture:pt-2">
-          <form.Field name="label">
-            {(field) => (
-              <TextField
-                field={field}
-                label="Label"
-                placeholder="Optional"
-                autoFocus
-                autoComplete="off"
-              />
-            )}
-          </form.Field>
-          <form.Field name="snapshotId">
-            {(field) => (
-              <Field>
-                <FieldLabel htmlFor={snapshotId}>Start from</FieldLabel>
-                <Choice
-                  id={snapshotId}
-                  className="aperture:w-full"
-                  value={field.state.value}
-                  options={from}
+        <DialogBody>
+          <TabsContent
+            value="general"
+            className="aperture:grid aperture:content-start aperture:gap-4"
+          >
+            <form.Field name="label">
+              {(field) => (
+                <TextField
+                  field={field}
+                  label="Label"
+                  placeholder="Optional"
+                  autoFocus
+                  autoComplete="off"
+                />
+              )}
+            </form.Field>
+            <form.Field name="snapshotId">
+              {(field) => (
+                <Field>
+                  <FieldLabel htmlFor={snapshotId}>Start from</FieldLabel>
+                  <Choice
+                    id={snapshotId}
+                    className="aperture:w-full"
+                    value={field.state.value}
+                    options={from}
+                    onChange={field.handleChange}
+                  />
+                </Field>
+              )}
+            </form.Field>
+          </TabsContent>
+          <TabsContent value="proxy">
+            <form.Field name="proxy">
+              {(field) => (
+                <ProxyEditor
+                  draft={field.state.value}
+                  error={
+                    field.state.meta.errors.length > 0 ? proxyRules(field.state.value) : undefined
+                  }
                   onChange={field.handleChange}
                 />
-              </Field>
-            )}
-          </form.Field>
-        </TabsContent>
-        <TabsContent value="proxy" className="aperture:pt-2">
-          <form.Field name="proxy">
-            {(field) => (
-              <ProxyEditor
-                draft={field.state.value}
-                error={
-                  field.state.meta.errors.length > 0 ? proxyRules(field.state.value) : undefined
-                }
-                onChange={field.handleChange}
-              />
-            )}
-          </form.Field>
-        </TabsContent>
-        <TabsContent value="advanced" className="aperture:pt-2">
-          <form.Field name="tags">
-            {(field) => <TagEditor entries={field.state.value} onChange={field.handleChange} />}
-          </form.Field>
-        </TabsContent>
+              )}
+            </form.Field>
+          </TabsContent>
+          <TabsContent value="advanced">
+            <form.Field name="tags">
+              {(field) => <TagEditor entries={field.state.value} onChange={field.handleChange} />}
+            </form.Field>
+          </TabsContent>
+        </DialogBody>
       </Tabs>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onDone}>

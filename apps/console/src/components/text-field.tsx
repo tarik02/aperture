@@ -2,6 +2,7 @@ import { Field, FieldError, FieldLabel } from "@aperture-browser/ui/components/f
 import { Input } from "@aperture-browser/ui/components/input";
 import type { AnyFieldApi } from "@tanstack/react-form";
 import { type ComponentProps, useId } from "react";
+import { reveal } from "#/lib/reveal.ts";
 
 type TextFieldProps = Omit<ComponentProps<typeof Input>, "value" | "onChange" | "onBlur"> & {
   field: AnyFieldApi;
@@ -30,7 +31,7 @@ export function TextField({ field, label, labelHidden = false, ...input }: TextF
         onBlur={field.handleBlur}
         {...input}
       />
-      <FieldError>{said}</FieldError>
+      <FieldError ref={reveal}>{said}</FieldError>
     </Field>
   );
 }

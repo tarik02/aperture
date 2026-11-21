@@ -2,6 +2,7 @@ import type { Scope } from "@aperture-browser/control-api";
 import { Button } from "@aperture-browser/ui/components/button";
 import { Checkbox } from "@aperture-browser/ui/components/checkbox";
 import {
+  DialogBody,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -27,6 +28,7 @@ import {
   TokenResourcesPicker,
 } from "#/features/token/token-resources-picker.tsx";
 import { useCreateTokenMutation } from "#/features/token/token.mutations.ts";
+import { reveal } from "#/lib/reveal.ts";
 import { required } from "#/lib/validation.ts";
 
 const EXPIRY = [
@@ -72,6 +74,7 @@ export function TokenCreateDialog({
       onOpenChange={onOpenChange}
       finalFocus={finalFocus}
       className="aperture:sm:max-w-xl"
+      height="44rem"
     >
       <CreateForm {...form} onDone={() => onOpenChange(false)} />
     </FreshDialog>
@@ -132,7 +135,7 @@ function CreateForm({
   return (
     <form
       data-console-token-create
-      className="aperture:grid aperture:gap-4"
+      className="aperture:contents"
       onSubmit={(event) => {
         event.preventDefault();
         void form.handleSubmit();
@@ -144,116 +147,118 @@ function CreateForm({
           <DialogDescription>For the service account {account.name}.</DialogDescription>
         )}
       </DialogHeader>
-      <form.Field name="name" validators={{ onSubmit: required("A name") }}>
-        {(field) => <TextField field={field} label="Name" autoFocus autoComplete="off" />}
-      </form.Field>
-      <form.Field
-        name="scopes"
-        validators={{
-          onSubmit: ({ value }) => (value.length === 0 ? "Tick at least one scope" : undefined),
-        }}
-      >
-        {(field) => {
-          const said = field.state.meta.errors.find((error) => typeof error === "string");
-          return (
-            <FieldSet
-              className="aperture:gap-2"
-              data-invalid={said === undefined ? undefined : true}
-            >
-              <FieldLegend variant="label">Scopes</FieldLegend>
-              <FieldDescription>
-                It does what is ticked and nothing else. Writing includes reading.
-              </FieldDescription>
-              <div
-                data-slot="checkbox-group"
-                className="aperture:grid aperture:gap-x-4 aperture:gap-y-2 aperture:sm:grid-cols-2"
+      <DialogBody>
+        <form.Field name="name" validators={{ onSubmit: required("A name") }}>
+          {(field) => <TextField field={field} label="Name" autoFocus autoComplete="off" />}
+        </form.Field>
+        <form.Field
+          name="scopes"
+          validators={{
+            onSubmit: ({ value }) => (value.length === 0 ? "Tick at least one scope" : undefined),
+          }}
+        >
+          {(field) => {
+            const said = field.state.meta.errors.find((error) => typeof error === "string");
+            return (
+              <FieldSet
+                className="aperture:gap-2"
+                data-invalid={said === undefined ? undefined : true}
               >
-                {SCOPES.filter((one) => admin || one.scope !== "admin").map((one) => (
-                  <label
-                    key={one.scope}
-                    className="aperture:flex aperture:items-start aperture:gap-2.5 aperture:text-sm"
-                  >
-                    <Checkbox
-                      data-console-scope={one.scope}
-                      className="aperture:mt-0.5"
-                      aria-invalid={said !== undefined}
-                      checked={field.state.value.includes(one.scope)}
-                      onCheckedChange={(checked) =>
-                        field.handleChange(
-                          SCOPES.map((each) => each.scope).filter((scope) =>
-                            scope === one.scope ? checked : field.state.value.includes(scope),
-                          ),
-                        )
-                      }
+                <FieldLegend variant="label">Scopes</FieldLegend>
+                <FieldDescription>
+                  It does what is ticked and nothing else. Writing includes reading.
+                </FieldDescription>
+                <div
+                  data-slot="checkbox-group"
+                  className="aperture:grid aperture:gap-x-4 aperture:gap-y-2 aperture:sm:grid-cols-2"
+                >
+                  {SCOPES.filter((one) => admin || one.scope !== "admin").map((one) => (
+                    <label
+                      key={one.scope}
+                      className="aperture:flex aperture:items-start aperture:gap-2.5 aperture:text-sm"
+                    >
+                      <Checkbox
+                        data-console-scope={one.scope}
+                        className="aperture:mt-0.5"
+                        aria-invalid={said !== undefined}
+                        checked={field.state.value.includes(one.scope)}
+                        onCheckedChange={(checked) =>
+                          field.handleChange(
+                            SCOPES.map((each) => each.scope).filter((scope) =>
+                              scope === one.scope ? checked : field.state.value.includes(scope),
+                            ),
+                          )
+                        }
+                      />
+                      <span className="aperture:grid aperture:gap-0.5">
+                        <span className="aperture:font-mono aperture:text-xs">{one.scope}</span>
+                        <span className="aperture:text-muted-foreground">{one.lets}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <FieldError ref={reveal}>{said}</FieldError>
+              </FieldSet>
+            );
+          }}
+        </form.Field>
+        <form.Field
+          name="resources"
+          validators={{
+            onSubmit: ({ value }) =>
+              value !== null && value.length === 0
+                ? "Choose at least one workspace, session or snapshot"
+                : undefined,
+          }}
+        >
+          {(field) => {
+            const said = field.state.meta.errors.find((error) => typeof error === "string");
+            return (
+              <Field data-console-token-reach data-invalid={said === undefined ? undefined : true}>
+                <FieldLabel htmlFor={reachId}>Resources</FieldLabel>
+                <Choice
+                  id={reachId}
+                  className="aperture:w-full"
+                  value={field.state.value === null ? "all" : "chosen"}
+                  options={REACH}
+                  onChange={(reach) =>
+                    field.handleChange(reach === "all" ? null : (field.state.value ?? []))
+                  }
+                />
+                {field.state.value === null ? null : (
+                  <>
+                    <TokenResourcesPicker
+                      id={resourcesId}
+                      chosen={field.state.value}
+                      invalid={said !== undefined}
+                      onChange={field.handleChange}
                     />
-                    <span className="aperture:grid aperture:gap-0.5">
-                      <span className="aperture:font-mono aperture:text-xs">{one.scope}</span>
-                      <span className="aperture:text-muted-foreground">{one.lets}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-              <FieldError>{said}</FieldError>
-            </FieldSet>
-          );
-        }}
-      </form.Field>
-      <form.Field
-        name="resources"
-        validators={{
-          onSubmit: ({ value }) =>
-            value !== null && value.length === 0
-              ? "Choose at least one workspace, session or snapshot"
-              : undefined,
-        }}
-      >
-        {(field) => {
-          const said = field.state.meta.errors.find((error) => typeof error === "string");
-          return (
-            <Field data-console-token-reach data-invalid={said === undefined ? undefined : true}>
-              <FieldLabel htmlFor={reachId}>Resources</FieldLabel>
+                    <FieldDescription>
+                      A workspace stands for all the sessions and snapshots in it, those made later
+                      as well.
+                    </FieldDescription>
+                  </>
+                )}
+                <FieldError ref={reveal}>{said}</FieldError>
+              </Field>
+            );
+          }}
+        </form.Field>
+        <form.Field name="expiry">
+          {(field) => (
+            <Field>
+              <FieldLabel htmlFor={expiryId}>Expires in</FieldLabel>
               <Choice
-                id={reachId}
+                id={expiryId}
                 className="aperture:w-full"
-                value={field.state.value === null ? "all" : "chosen"}
-                options={REACH}
-                onChange={(reach) =>
-                  field.handleChange(reach === "all" ? null : (field.state.value ?? []))
-                }
+                value={field.state.value}
+                options={EXPIRY}
+                onChange={field.handleChange}
               />
-              {field.state.value === null ? null : (
-                <>
-                  <TokenResourcesPicker
-                    id={resourcesId}
-                    chosen={field.state.value}
-                    invalid={said !== undefined}
-                    onChange={field.handleChange}
-                  />
-                  <FieldDescription>
-                    A workspace stands for all the sessions and snapshots in it, those made later as
-                    well.
-                  </FieldDescription>
-                </>
-              )}
-              <FieldError>{said}</FieldError>
             </Field>
-          );
-        }}
-      </form.Field>
-      <form.Field name="expiry">
-        {(field) => (
-          <Field>
-            <FieldLabel htmlFor={expiryId}>Expires in</FieldLabel>
-            <Choice
-              id={expiryId}
-              className="aperture:w-full"
-              value={field.state.value}
-              options={EXPIRY}
-              onChange={field.handleChange}
-            />
-          </Field>
-        )}
-      </form.Field>
+          )}
+        </form.Field>
+      </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onDone}>
           Cancel

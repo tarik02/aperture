@@ -1,5 +1,10 @@
 import { Button } from "@aperture-browser/ui/components/button";
-import { DialogFooter, DialogHeader, DialogTitle } from "@aperture-browser/ui/components/dialog";
+import {
+  DialogBody,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@aperture-browser/ui/components/dialog";
 import { Field, FieldLabel } from "@aperture-browser/ui/components/field";
 import {
   entriesToTags,
@@ -38,7 +43,12 @@ type DescribeDialogProps = {
 /** Changes what something is called, said to be and tagged with. */
 export function DescribeDialog({ open, onOpenChange, ...form }: DescribeDialogProps) {
   return (
-    <FreshDialog open={open} onOpenChange={onOpenChange} className="aperture:sm:max-w-lg">
+    <FreshDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      className="aperture:sm:max-w-lg"
+      height={form.withDescription === true ? "32rem" : "26rem"}
+    >
       <DescribeForm {...form} onDone={() => onOpenChange(false)} />
     </FreshDialog>
   );
@@ -78,7 +88,7 @@ function DescribeForm({
   return (
     <form
       data-console-describe
-      className="aperture:grid aperture:gap-4"
+      className="aperture:contents"
       onSubmit={(event) => {
         event.preventDefault();
         void form.handleSubmit();
@@ -87,27 +97,29 @@ function DescribeForm({
       <DialogHeader>
         <DialogTitle>{title}</DialogTitle>
       </DialogHeader>
-      <form.Field name="name">
-        {(field) => <TextField field={field} label={nameLabel} autoFocus autoComplete="off" />}
-      </form.Field>
-      {withDescription ? (
-        <form.Field name="description">
-          {(field) => (
-            <Field>
-              <FieldLabel htmlFor={descriptionId}>Description</FieldLabel>
-              <Textarea
-                id={descriptionId}
-                name={field.name}
-                value={field.state.value}
-                onChange={(event) => field.handleChange(event.target.value)}
-              />
-            </Field>
-          )}
+      <DialogBody>
+        <form.Field name="name">
+          {(field) => <TextField field={field} label={nameLabel} autoFocus autoComplete="off" />}
         </form.Field>
-      ) : null}
-      <form.Field name="tags">
-        {(field) => <TagEditor entries={field.state.value} onChange={field.handleChange} />}
-      </form.Field>
+        {withDescription ? (
+          <form.Field name="description">
+            {(field) => (
+              <Field>
+                <FieldLabel htmlFor={descriptionId}>Description</FieldLabel>
+                <Textarea
+                  id={descriptionId}
+                  name={field.name}
+                  value={field.state.value}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                />
+              </Field>
+            )}
+          </form.Field>
+        ) : null}
+        <form.Field name="tags">
+          {(field) => <TagEditor entries={field.state.value} onChange={field.handleChange} />}
+        </form.Field>
+      </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onDone}>
           Cancel

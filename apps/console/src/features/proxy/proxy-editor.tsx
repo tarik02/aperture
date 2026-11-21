@@ -4,6 +4,7 @@ import { Input } from "@aperture-browser/ui/components/input";
 import { FieldError } from "@aperture-browser/ui/components/field";
 import { Plus, Trash2 } from "lucide-react";
 import { Choice } from "#/components/choice.tsx";
+import { reveal } from "#/lib/reveal.ts";
 
 /** A session's routing while it is edited: with rows that are not filled in yet. */
 export interface ProxyDraft {
@@ -287,7 +288,7 @@ export function ProxyEditor({ draft, error, onChange }: ProxyEditorProps) {
           </section>
         </>
       ) : null}
-      <FieldError>{error}</FieldError>
+      <FieldError ref={reveal}>{error}</FieldError>
     </div>
   );
 }

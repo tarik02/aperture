@@ -1,5 +1,6 @@
 import { Button } from "@aperture-browser/ui/components/button";
 import {
+  DialogBody,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -22,7 +23,11 @@ type NameDialogProps = {
 /** Makes something that needs nothing but a name. */
 export function NameDialog({ open, onOpenChange, ...form }: NameDialogProps) {
   return (
-    <FreshDialog open={open} onOpenChange={onOpenChange}>
+    <FreshDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      height={form.description === undefined ? "14rem" : "17rem"}
+    >
       <NameForm {...form} onDone={() => onOpenChange(false)} />
     </FreshDialog>
   );
@@ -51,7 +56,7 @@ function NameForm({
   return (
     <form
       data-console-name-dialog
-      className="aperture:grid aperture:gap-4"
+      className="aperture:contents"
       onSubmit={(event) => {
         event.preventDefault();
         void form.handleSubmit();
@@ -61,9 +66,11 @@ function NameForm({
         <DialogTitle>{title}</DialogTitle>
         {description === undefined ? null : <DialogDescription>{description}</DialogDescription>}
       </DialogHeader>
-      <form.Field name="name" validators={{ onSubmit: required("A name") }}>
-        {(field) => <TextField field={field} label="Name" autoFocus autoComplete="off" />}
-      </form.Field>
+      <DialogBody>
+        <form.Field name="name" validators={{ onSubmit: required("A name") }}>
+          {(field) => <TextField field={field} label="Name" autoFocus autoComplete="off" />}
+        </form.Field>
+      </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onDone}>
           Cancel

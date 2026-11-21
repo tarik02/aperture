@@ -2,6 +2,7 @@ import { Badge } from "@aperture-browser/ui/components/badge";
 import { Button } from "@aperture-browser/ui/components/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -59,42 +60,16 @@ export function WorkspaceMembersDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="aperture:sm:max-w-lg">
+      <DialogContent className="aperture:sm:max-w-lg" height="28rem">
         <DialogHeader>
           <DialogTitle>{workspace.name}</DialogTitle>
           <DialogDescription>Its members all have its sessions and snapshots.</DialogDescription>
         </DialogHeader>
-        <ul data-console-members className="aperture:grid aperture:gap-2">
-          {members.data?.map((member) => (
-            <li
-              key={member.accountId}
-              className="aperture:flex aperture:items-center aperture:gap-2 aperture:text-sm"
-            >
-              <span className="aperture:grid aperture:min-w-0 aperture:flex-1">
-                <span className="aperture:truncate aperture:font-medium">{member.name}</span>
-                <span className="aperture:truncate aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
-                  {member.accountId}
-                </span>
-              </span>
-              <Badge variant={member.role === "admin" ? "default" : "outline"}>{member.role}</Badge>
-              {administers ? (
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label={`Remove ${member.name}`}
-                  disabled={dismiss.isPending}
-                  onClick={() => dismiss.mutate(member.accountId)}
-                >
-                  <Trash2 />
-                </Button>
-              ) : null}
-            </li>
-          ))}
-        </ul>
+        {/* Above the members, so that it stays where it is as they come and go. */}
         {administers ? (
           <form
             data-console-member-add
-            className="aperture:flex aperture:items-start aperture:gap-2"
+            className="aperture:flex aperture:shrink-0 aperture:items-start aperture:gap-2"
             onSubmit={(event) => {
               event.preventDefault();
               void form.handleSubmit();
@@ -126,6 +101,37 @@ export function WorkspaceMembersDialog({
             </Button>
           </form>
         ) : null}
+        <DialogBody>
+          <ul data-console-members className="aperture:grid aperture:gap-2">
+            {members.data?.map((member) => (
+              <li
+                key={member.accountId}
+                className="aperture:flex aperture:items-center aperture:gap-2 aperture:text-sm"
+              >
+                <span className="aperture:grid aperture:min-w-0 aperture:flex-1">
+                  <span className="aperture:truncate aperture:font-medium">{member.name}</span>
+                  <span className="aperture:truncate aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
+                    {member.accountId}
+                  </span>
+                </span>
+                <Badge variant={member.role === "admin" ? "default" : "outline"}>
+                  {member.role}
+                </Badge>
+                {administers ? (
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={`Remove ${member.name}`}
+                    disabled={dismiss.isPending}
+                    onClick={() => dismiss.mutate(member.accountId)}
+                  >
+                    <Trash2 />
+                  </Button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </DialogBody>
       </DialogContent>
     </Dialog>
   );

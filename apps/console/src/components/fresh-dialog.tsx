@@ -5,6 +5,8 @@ type FreshDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   className?: string;
+  /** How tall it stays, where what it holds changes while it is open. */
+  height?: string;
   /** What has the focus once it has closed, where that is not what had it before. */
   finalFocus?: React.RefObject<HTMLElement | null> | undefined;
   children: React.ReactNode;
@@ -18,6 +20,7 @@ export function FreshDialog({
   open,
   onOpenChange,
   className,
+  height,
   finalFocus,
   children,
 }: FreshDialogProps) {
@@ -38,7 +41,7 @@ export function FreshDialog({
         }
       }}
     >
-      <DialogContent className={className} finalFocus={finalFocus}>
+      <DialogContent className={className} height={height} finalFocus={finalFocus}>
         {shown ? <Fragment key={opened}>{children}</Fragment> : null}
       </DialogContent>
     </Dialog>

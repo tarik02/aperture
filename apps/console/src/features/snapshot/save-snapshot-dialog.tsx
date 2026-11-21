@@ -1,5 +1,6 @@
 import { Button } from "@aperture-browser/ui/components/button";
 import {
+  DialogBody,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -35,9 +36,27 @@ type SaveSnapshotDialogProps = {
 export function SaveSnapshotDialog({ session, open, onOpenChange }: SaveSnapshotDialogProps) {
   const snapshots = useSnapshotsQuery();
   return (
-    <FreshDialog open={open} onOpenChange={onOpenChange} className="aperture:sm:max-w-lg">
+    <FreshDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      className="aperture:sm:max-w-lg"
+      height="40rem"
+    >
       {/* What may be replaced decides how the form starts, so the form waits for it. */}
-      {snapshots.isPending ? null : (
+      {snapshots.isPending ? (
+        <>
+          <SaveHeader />
+          <DialogBody />
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="button" disabled>
+              Save snapshot
+            </Button>
+          </DialogFooter>
+        </>
+      ) : (
         <SaveForm
           session={session}
           // A snapshot takes the place of another of the same workspace, newest first.
@@ -50,6 +69,18 @@ export function SaveSnapshotDialog({ session, open, onOpenChange }: SaveSnapshot
         />
       )}
     </FreshDialog>
+  );
+}
+
+function SaveHeader() {
+  return (
+    <DialogHeader>
+      <DialogTitle>Save to snapshot</DialogTitle>
+      <DialogDescription>
+        The session's profile as it is now: its cookies, storage and extensions. New sessions start
+        from it.
+      </DialogDescription>
+    </DialogHeader>
   );
 }
 
@@ -105,98 +136,96 @@ function SaveForm({ session, replaceable, onDone }: SaveFormProps) {
   return (
     <form
       data-console-save-snapshot
-      className="aperture:grid aperture:gap-4"
+      className="aperture:contents"
       onSubmit={(event) => {
         event.preventDefault();
         void form.handleSubmit();
       }}
     >
-      <DialogHeader>
-        <DialogTitle>Save to snapshot</DialogTitle>
-        <DialogDescription>
-          The session's profile as it is now: its cookies, storage and extensions. New sessions
-          start from it.
-        </DialogDescription>
-      </DialogHeader>
-      {replaceable.length === 0 ? null : (
-        <form.Field name="mode">
-          {(field) => (
-            <RadioGroup
-              value={field.state.value}
-              disabled={submitting}
-              onValueChange={(value) => {
-                const next = value === "replace" ? "replace" : "new";
-                field.handleChange(next);
-                describeAs(next === "replace" ? chosen(form.getFieldValue("replaces")) : undefined);
-              }}
-            >
-              <Label className="aperture:font-normal">
-                <RadioGroupItem value="replace" data-console-save-snapshot-mode="replace" />
-                Replace a snapshot
-              </Label>
-              <Label className="aperture:font-normal">
-                <RadioGroupItem value="new" data-console-save-snapshot-mode="new" />
-                Save as a new snapshot
-              </Label>
-            </RadioGroup>
-          )}
-        </form.Field>
-      )}
-      {mode === "replace" ? (
-        <form.Field name="replaces">
+      <SaveHeader />
+      <DialogBody>
+        {replaceable.length === 0 ? null : (
+          <form.Field name="mode">
+            {(field) => (
+              <RadioGroup
+                value={field.state.value}
+                disabled={submitting}
+                onValueChange={(value) => {
+                  const next = value === "replace" ? "replace" : "new";
+                  field.handleChange(next);
+                  describeAs(
+                    next === "replace" ? chosen(form.getFieldValue("replaces")) : undefined,
+                  );
+                }}
+              >
+                <Label className="aperture:font-normal">
+                  <RadioGroupItem value="replace" data-console-save-snapshot-mode="replace" />
+                  Replace a snapshot
+                </Label>
+                <Label className="aperture:font-normal">
+                  <RadioGroupItem value="new" data-console-save-snapshot-mode="new" />
+                  Save as a new snapshot
+                </Label>
+              </RadioGroup>
+            )}
+          </form.Field>
+        )}
+        {mode === "replace" ? (
+          <form.Field name="replaces">
+            {(field) => (
+              <Field>
+                <FieldLabel htmlFor={replacesId}>Snapshot</FieldLabel>
+                <Choice
+                  id={replacesId}
+                  className="aperture:w-full"
+                  value={field.state.value}
+                  options={replaceable.map((snapshot) => ({
+                    value: snapshot.id,
+                    label: `${snapshot.name ?? "Unnamed"} · ${when.format(new Date(snapshot.createdAt.epochMilliseconds))}`,
+                  }))}
+                  onChange={(id) => {
+                    field.handleChange(id);
+                    describeAs(chosen(id));
+                  }}
+                />
+                <FieldDescription>
+                  It is deleted once this one is saved, which keeps its name. Sessions started from
+                  it keep working.
+                </FieldDescription>
+              </Field>
+            )}
+          </form.Field>
+        ) : (
+          <form.Field name="name">
+            {(field) => (
+              <TextField
+                field={field}
+                label="Name"
+                placeholder="Optional"
+                autoFocus
+                autoComplete="off"
+              />
+            )}
+          </form.Field>
+        )}
+        <form.Field name="description">
           {(field) => (
             <Field>
-              <FieldLabel htmlFor={replacesId}>Snapshot</FieldLabel>
-              <Choice
-                id={replacesId}
-                className="aperture:w-full"
+              <FieldLabel htmlFor={descriptionId}>Description</FieldLabel>
+              <Textarea
+                id={descriptionId}
+                name={field.name}
+                placeholder="What is signed in, and what it is for"
                 value={field.state.value}
-                options={replaceable.map((snapshot) => ({
-                  value: snapshot.id,
-                  label: `${snapshot.name ?? "Unnamed"} · ${when.format(new Date(snapshot.createdAt.epochMilliseconds))}`,
-                }))}
-                onChange={(id) => {
-                  field.handleChange(id);
-                  describeAs(chosen(id));
-                }}
+                onChange={(event) => field.handleChange(event.target.value)}
               />
-              <FieldDescription>
-                It is deleted once this one is saved, which keeps its name. Sessions started from it
-                keep working.
-              </FieldDescription>
             </Field>
           )}
         </form.Field>
-      ) : (
-        <form.Field name="name">
-          {(field) => (
-            <TextField
-              field={field}
-              label="Name"
-              placeholder="Optional"
-              autoFocus
-              autoComplete="off"
-            />
-          )}
+        <form.Field name="tags">
+          {(field) => <TagEditor entries={field.state.value} onChange={field.handleChange} />}
         </form.Field>
-      )}
-      <form.Field name="description">
-        {(field) => (
-          <Field>
-            <FieldLabel htmlFor={descriptionId}>Description</FieldLabel>
-            <Textarea
-              id={descriptionId}
-              name={field.name}
-              placeholder="What is signed in, and what it is for"
-              value={field.state.value}
-              onChange={(event) => field.handleChange(event.target.value)}
-            />
-          </Field>
-        )}
-      </form.Field>
-      <form.Field name="tags">
-        {(field) => <TagEditor entries={field.state.value} onChange={field.handleChange} />}
-      </form.Field>
+      </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onDone}>
           Cancel

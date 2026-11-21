@@ -8,10 +8,14 @@ import { until } from "@aperture-browser/e2e/src/wait.ts";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Base64 from "effect/encoding/Base64";
+import * as Base64Url from "effect/encoding/Base64Url";
 import * as FileSystem from "effect/FileSystem";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Control from "./src/control.ts";
+import { signedIn } from "./src/person.ts";
 import * as Proxy from "./src/proxy.ts";
 import { totp } from "./src/totp.ts";
 
@@ -69,7 +73,9 @@ const choose = (page: Viewer.Page, items: string, says: string) =>
   Effect.gen(function* () {
     const found = `[...document.querySelectorAll(${JSON.stringify(items)})].find((one) => one.textContent.includes(${JSON.stringify(says)}))`;
     yield* page.until(`!!${found}`);
-    yield* page.evaluate(`void ${found}.setAttribute("data-chosen-by-checks", "")`);
+    yield* page.evaluate(
+      `void (${found}.scrollIntoView({ block: "nearest" }), ${found}.setAttribute("data-chosen-by-checks", ""))`,
+    );
     yield* page.click("[data-chosen-by-checks]");
     yield* page.evaluate(
       `void document.querySelector("[data-chosen-by-checks]")?.removeAttribute("data-chosen-by-checks")`,
@@ -78,6 +84,65 @@ const choose = (page: Viewer.Page, items: string, says: string) =>
 
 const DARK = theme("Dark");
 const AUTO = theme("Auto");
+
+/** Keeps what a page shows in the dark as well. */
+const shotDark = (page: Viewer.Page, fs: FileSystem.FileSystem, name: string) =>
+  Effect.gen(function* () {
+    yield* page.evaluate(DARK);
+    yield* shot(page, fs, name);
+    yield* page.evaluate(AUTO);
+  });
+
+/** Chooses among what a select offers. */
+const pick = (page: Viewer.Page, trigger: string, says: string) =>
+  Effect.gen(function* () {
+    yield* page.evaluate(
+      `void document.querySelector(${JSON.stringify(trigger)}).scrollIntoView({ block: "nearest" })`,
+    );
+    yield* page.click(trigger);
+    yield* page.until(`!!document.querySelector('[data-slot="select-item"]')`);
+    // A list that opened under the pointer takes no press of it for a moment.
+    yield* Effect.sleep("600 millis");
+    yield* choose(page, `[data-slot="select-item"]`, says);
+    yield* page.until(
+      `document.querySelector(${JSON.stringify(trigger)}).textContent.includes(${JSON.stringify(says)}) && !document.querySelector('[data-slot="select-content"][data-open]')`,
+    );
+  });
+
+const DIALOG = `[data-slot="dialog-content"]`;
+const BODY = `${DIALOG} [data-slot="dialog-body"] [data-slot="scroll-area-viewport"]`;
+const BUTTONS = `${DIALOG} [data-slot="dialog-footer"]`;
+
+/**
+ * Where the open dialog is, and its buttons or what else is to stay put in it, once it has
+ * come to rest. A dialog keeps its height whatever it holds, so its states are placed alike.
+ */
+const placed = (page: Viewer.Page, part = BUTTONS) =>
+  Effect.gen(function* () {
+    yield* page.until(
+      `document.querySelector('${DIALOG}')?.getAnimations().every((one) => one.playState === "finished")`,
+    );
+    const dialog = yield* page.box(DIALOG);
+    const kept = yield* page.box(part);
+    return { top: dialog.top, height: dialog.height, part: [kept.left, kept.top, kept.height] };
+  });
+
+const alike = (states: ReadonlyArray<unknown>) =>
+  expect(states).toEqual(states.map(() => states[0]));
+
+/** Opens what a session's menu offers, by what it says. */
+const fromMenu = (page: Viewer.Page, card: string, says: string) =>
+  Effect.gen(function* () {
+    yield* page.click(`${card} [aria-label="Session actions"]`);
+    yield* choose(page, `[data-slot="dropdown-menu-item"]`, says);
+    yield* page.until(`!!document.querySelector('${DIALOG}')`);
+  });
+
+const closed = (page: Viewer.Page) =>
+  Effect.gen(function* () {
+    yield* page.key("Escape", "Escape", ESCAPE);
+    yield* page.until(`!document.querySelector('${DIALOG}')`);
+  });
 
 /** A node that registers itself, and takes the tickets the control plane signs. */
 const node = Layer.effect(
@@ -356,10 +421,12 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* shot(page, fs, "console-tokens-dark");
       yield* page.evaluate(AUTO);
 
-      // How an MCP client reaches the session is told from the sidebar.
+      // How an MCP client reaches every session is told from the sidebar: by signing in.
       yield* page.click("[data-console-mcp-open]");
-      yield* page.until(`!!document.querySelector("[data-console-mcp] code")`);
-      expect(yield* page.text("[data-console-mcp]")).toContain(`${path}/mcp`);
+      yield* page.until(`!!document.querySelector('[data-console-mcp-auth="oauth"] code')`);
+      const signingIn = (yield* page.text("[data-console-mcp]")) ?? "";
+      expect(signingIn).toContain(`claude mcp add --transport http aperture '${proxy.url}/mcp'`);
+      expect(signingIn).not.toContain("Bearer");
       yield* shot(page, fs, "console-mcp");
       yield* page.evaluate(DARK);
       yield* shot(page, fs, "console-mcp-dark");
@@ -371,11 +438,19 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       );
       yield* shot(page, fs, "console-mcp-cursor");
       yield* page.click(`[data-console-mcp-client="claude-code"]`);
-      // A token made from there is for that session, and is put where the steps want one.
+      // The other way in is a token, and the dialog is as tall for it.
+      const tall = `document.querySelector('[data-slot="dialog-content"]').getBoundingClientRect().height`;
+      const signingInTall = yield* page.evaluate(tall);
+      yield* page.click(`[data-console-mcp-way="token"]`);
+      yield* page.until(`!!document.querySelector('[data-console-mcp-auth="token"]')`);
+      expect(yield* page.text("[data-console-mcp]")).toContain(
+        "Authorization: Bearer $APERTURE_TOKEN",
+      );
+      expect(yield* page.evaluate(tall)).toBe(signingInTall);
+      // A token made from there is put where the steps want one, and reaches every session.
       yield* page.click("[data-console-mcp-token]");
-      yield* page.until(`!!document.querySelector("[data-console-token-create] input")`);
       yield* page.until(
-        `!!document.querySelector('[data-console-token-resource-chosen="sessions:${id}"]')`,
+        `document.querySelector('[data-console-token-create] [data-console-scope="sessions:write"]')?.hasAttribute("data-checked") === true`,
       );
       yield* page.click(`[data-console-token-create] input[name="name"]`);
       yield* page.type("for an MCP client");
@@ -386,10 +461,39 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.until(`!document.querySelector("[data-console-token-create]")`);
       yield* shot(page, fs, "console-mcp-token");
       const forMcp = /Bearer (apc_[\w-]+)/u.exec((yield* page.text("[data-console-mcp]")) ?? "");
-      const client = yield* Mcp.connect(`${proxy.url}${path}`, forMcp?.[1] ?? "");
-      expect((yield* client.tools).length).toBeGreaterThan(0);
+      const everywhere = yield* Mcp.connect(proxy.url, forMcp?.[1] ?? "");
+      expect(yield* everywhere.tools).toEqual(
+        expect.arrayContaining(["sessions.create", "navigate"]),
+      );
       yield* page.key("Escape", "Escape", ESCAPE);
       yield* page.until(`!document.querySelector("[data-console-mcp]")`);
+
+      // A session's own server is told from the session, with a token for that session.
+      yield* page.click(`a[href="/-/sessions"]`);
+      yield* page.until(`!!document.querySelector(${JSON.stringify(card)})`);
+      yield* page.click(`${card} [aria-label="Session actions"]`);
+      yield* choose(page, `[data-slot="dropdown-menu-item"]`, "Connect MCP");
+      yield* page.until(`!!document.querySelector("[data-console-session-mcp]")`);
+      expect(yield* page.text("[data-console-mcp-endpoint]")).toBe(`${proxy.url}${path}/mcp`);
+      yield* page.click("[data-console-mcp-token]");
+      yield* page.until(
+        `!!document.querySelector('[data-console-token-resource-chosen="sessions:${id}"]')`,
+      );
+      yield* page.click(`[data-console-token-create] input[name="name"]`);
+      yield* page.type("for one session");
+      yield* page.key("Enter", "Enter", ENTER);
+      yield* page.until(
+        `/Bearer apc_/u.test(document.querySelector('[data-slot="dialog-body"]')?.textContent ?? "")`,
+      );
+      yield* page.until(`!document.querySelector("[data-console-token-create]")`);
+      yield* shot(page, fs, "console-session-mcp");
+      const forSession = /Bearer (apc_[\w-]+)/u.exec(
+        (yield* page.text(`[data-slot="dialog-body"]`)) ?? "",
+      );
+      const client = yield* Mcp.connect(`${proxy.url}${path}`, forSession?.[1] ?? "");
+      expect((yield* client.tools).length).toBeGreaterThan(0);
+      yield* page.key("Escape", "Escape", ESCAPE);
+      yield* page.until(`!document.querySelector("[data-console-session-mcp]")`);
 
       yield* ada.api.snapshots.take({ params: { id }, payload: { name: "signed in" } });
       yield* page.click(`a[href="/-/snapshots"]`);
@@ -520,7 +624,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       // Its tags are edited within the dialog's width, with nothing to scroll sideways for.
       yield* page.click(`[data-console-session-create] [role="tab"]:nth-of-type(3)`);
       yield* page.until(`!!document.querySelector('[aria-label="Add tag"]')`);
-      // The dialog moves as its tab changes, so the button is pressed until it is hit.
+      // A press right after the tab changes is not always taken, so it is pressed until it is.
       yield* until(
         "a tag to fill in",
         page
@@ -590,6 +694,280 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* shot(page, fs, "console-workspaces");
       yield* page.click(`a[href="/-/sessions"]`);
       yield* page.until(`!!document.querySelector("[data-console-empty]")`);
+      expect(page.errors()).toEqual([]);
+    }),
+  );
+
+  it.effect("a dialog keeps its height and its buttons their place, whatever it shows", () =>
+    Effect.gen(function* () {
+      const proxy = yield* Proxy.Proxy;
+      const viewer = yield* Viewer.Viewer;
+      const fs = yield* FileSystem.FileSystem;
+      const id = path.split("/").at(-1) ?? "";
+      const card = `[data-console-session="${id}"]`;
+      const page = yield* viewer.open(`${proxy.url}/-/sessions`);
+      // The session is none of the workspace that was made and selected.
+      yield* page.until(`!!document.querySelector("[data-console-workspace-switcher]")`);
+      yield* page.click("[data-console-workspace-switcher]");
+      yield* choose(page, `[role="menuitemradio"]`, "Personal");
+      yield* page.until(`!!document.querySelector(${JSON.stringify(card)})`);
+      yield* page.key("Escape", "Escape", ESCAPE);
+      yield* page.until(`!document.querySelector('[role="menuitemradio"]')`);
+
+      // What is known of the session is in tabs of one dialog, which is as tall for each.
+      const tabs = `${DIALOG} [data-slot="tabs-list"]`;
+      yield* fromMenu(page, card, "Details");
+      const details = [yield* placed(page, tabs)];
+      yield* shot(page, fs, "console-details");
+      yield* page.click(`${DIALOG} [role="tab"]:nth-of-type(2)`);
+      yield* page.until(
+        `(document.querySelector('${DIALOG}')?.textContent ?? "").includes("DevTools")`,
+      );
+      yield* shot(page, fs, "console-details-connection");
+      details.push(yield* placed(page, tabs));
+      alike(details);
+      yield* closed(page);
+
+      // Its label and tags are edited with the buttons where they were, however many tags.
+      yield* fromMenu(page, card, "Edit details");
+      yield* page.until(`!!document.querySelector("[data-console-describe] input")`);
+      const describing = [yield* placed(page)];
+      yield* shot(page, fs, "console-describe");
+      for (const rows of [2, 3, 4, 5]) {
+        yield* page.click(`${DIALOG} [aria-label="Add tag"]`);
+        yield* page.until(
+          `document.querySelectorAll('${DIALOG} input[placeholder="key"]').length === ${rows}`,
+        );
+      }
+      yield* shot(page, fs, "console-describe-tags");
+      describing.push(yield* placed(page));
+      alike(describing);
+      yield* closed(page);
+
+      // Its routing is asked for and then edited in a dialog that is as tall all along.
+      yield* fromMenu(page, card, "Edit routing");
+      const routed = [yield* placed(page)];
+      const proxied = "[data-console-session-proxy] [data-console-proxy]";
+      const routing = `${DIALOG} [data-console-proxy] > [data-slot="select-trigger"]`;
+      yield* page.until(`!!document.querySelector('${proxied}')`);
+      yield* shot(page, fs, "console-routing");
+      routed.push(yield* placed(page));
+      yield* pick(page, routing, "one proxy");
+      yield* page.until(`!!document.querySelector('${DIALOG} input[name="proxy-url"]')`);
+      routed.push(yield* placed(page));
+      yield* page.click(`${DIALOG} button[type="submit"]`);
+      yield* page.until(`!!document.querySelector('${proxied} [data-slot="field-error"]')`);
+      yield* shot(page, fs, "console-routing-proxy-invalid");
+      routed.push(yield* placed(page));
+      yield* pick(page, routing, "By rules");
+      for (const says of ["Upstream", "Upstream", "Rule", "Rule", "Rule"]) {
+        yield* choose(page, `${proxied} button`, says);
+      }
+      yield* page.until(`document.querySelectorAll('[aria-label="Rule match"]').length === 3`);
+      yield* shot(page, fs, "console-routing-rules");
+      routed.push(yield* placed(page));
+      alike(routed);
+      yield* closed(page);
+
+      // Replacing a snapshot asks for other things than saving a new one does.
+      yield* fromMenu(page, card, "Save to snapshot");
+      const save = "[data-console-save-snapshot]";
+      yield* page.until(`!!document.querySelector('${save} [data-console-save-snapshot-mode]')`);
+      const saving = [yield* placed(page)];
+      yield* shot(page, fs, "console-save-snapshot-states");
+      const other = yield* page.evaluate(
+        `document.querySelector('${save} input[name="name"]') ? "replace" : "new"`,
+        Schema.String,
+      );
+      yield* page.click(`${save} [data-console-save-snapshot-mode="${other}"]`);
+      yield* page.until(
+        `!!document.querySelector('${save} input[name="name"]') === ${JSON.stringify(other === "new")}`,
+      );
+      yield* shot(page, fs, `console-save-snapshot-${other}`);
+      saving.push(yield* placed(page));
+      const tags = yield* page.evaluate(
+        `document.querySelectorAll('${DIALOG} input[placeholder="key"]').length`,
+        Schema.Number,
+      );
+      for (const rows of [1, 2, 3, 4]) {
+        yield* page.click(`${DIALOG} [aria-label="Add tag"]`);
+        yield* page.until(
+          `document.querySelectorAll('${DIALOG} input[placeholder="key"]').length === ${tags + rows}`,
+        );
+      }
+      yield* shot(page, fs, "console-save-snapshot-tags");
+      saving.push(yield* placed(page));
+      alike(saving);
+      yield* closed(page);
+
+      // A new session is asked for in a dialog that is as tall, with its buttons where they
+      // were, whatever tab and routing it shows.
+      yield* page.click("[data-console-create-custom]");
+      const create = "[data-console-session-create]";
+      yield* page.until(`!!document.querySelector("${create} input")`);
+      yield* page.click(`${create} input`);
+      yield* page.type("Made in a dialog");
+      yield* shot(page, fs, "console-create-general");
+      yield* shotDark(page, fs, "console-create-general-dark");
+      const creating = [yield* placed(page)];
+      const tab = (at: number) => page.click(`${DIALOG} [role="tab"]:nth-of-type(${at})`);
+      yield* tab(2);
+      yield* page.until(`!!document.querySelector("${create} [data-console-proxy]")`);
+      yield* shot(page, fs, "console-create-routing");
+      yield* shotDark(page, fs, "console-create-routing-dark");
+      creating.push(yield* placed(page));
+      yield* pick(page, routing, "one proxy");
+      yield* page.until(`!!document.querySelector('${create} input[name="proxy-url"]')`);
+      yield* shot(page, fs, "console-create-routing-proxy");
+      creating.push(yield* placed(page));
+      yield* pick(page, routing, "By rules");
+      for (const says of ["Upstream", "Upstream", "Rule", "Rule", "Rule"]) {
+        yield* choose(page, `${create} [data-console-proxy] button`, says);
+      }
+      yield* page.until(`document.querySelectorAll('[aria-label="Rule match"]').length === 3`);
+      yield* shot(page, fs, "console-create-rules");
+      yield* shotDark(page, fs, "console-create-rules-dark");
+      creating.push(yield* placed(page));
+      // Rules that are not filled in are not kept, which is said where it is seen.
+      yield* page.click(`${DIALOG} button[type="submit"]`);
+      yield* page.until(`!!document.querySelector('${create} [data-slot="field-error"]')`);
+      expect(
+        yield* page.evaluate(
+          `(() => {
+            const said = document.querySelector('${create} [data-slot="field-error"]').getBoundingClientRect();
+            const body = document.querySelector('${BODY}').getBoundingClientRect();
+            return said.top >= body.top && said.bottom <= body.bottom;
+          })()`,
+        ),
+      ).toBe(true);
+      yield* shot(page, fs, "console-create-rules-invalid");
+      creating.push(yield* placed(page));
+      yield* pick(page, routing, "Direct");
+      yield* tab(3);
+      yield* page.until(`!!document.querySelector('[aria-label="Add tag"]')`);
+      creating.push(yield* placed(page));
+      // A press right after the tab changes is not always taken.
+      yield* Effect.sleep("600 millis");
+      for (const rows of [1, 2, 3, 4]) {
+        yield* page.click(`[aria-label="Add tag"]`);
+        yield* page.until(
+          `document.querySelectorAll('${create} input[placeholder="key"]').length === ${rows}`,
+        );
+      }
+      yield* shot(page, fs, "console-create-many-tags");
+      creating.push(yield* placed(page));
+      alike(creating);
+      yield* closed(page);
+
+      yield* page.click(`a[href="/-/workspaces"]`);
+      yield* page.until(`!!document.querySelector('[data-console-workspace="Shop team"]')`);
+
+      // What is wrong with a name is said with the buttons where they were.
+      yield* page.click("[data-console-workspace-new]");
+      yield* page.until(`!!document.querySelector("[data-console-name-dialog] input")`);
+      const naming = [yield* placed(page)];
+      yield* page.key("Enter", "Enter", ENTER);
+      yield* page.until(
+        `!!document.querySelector('[data-console-name-dialog] [data-slot="field-error"]')`,
+      );
+      yield* shot(page, fs, "console-name-invalid");
+      naming.push(yield* placed(page));
+      alike(naming);
+      yield* closed(page);
+      // A workspace's members come and go under the way to add one, which stays where it is.
+      yield* choose(page, `[data-console-workspace="Shop team"] button`, "Members");
+      const adding = `[data-console-member-add] button[type="submit"]`;
+      const members = (count: number) =>
+        page.until(`document.querySelectorAll("[data-console-members] li").length === ${count}`);
+      yield* page.until(`!!document.querySelector("[data-console-member-add] input")`);
+      const admitting = [yield* placed(page, adding)];
+      yield* members(1);
+      admitting.push(yield* placed(page, adding));
+      yield* page.click(adding);
+      yield* page.until(
+        `!!document.querySelector('[data-console-member-add] [data-slot="field-error"]')`,
+      );
+      yield* shot(page, fs, "console-members-invalid");
+      admitting.push(yield* placed(page, adding));
+      for (const [at, name] of ["Bo", "Cy", "Di", "Ed", "Flo", "Gus"].entries()) {
+        const { account } = yield* Control.account(name);
+        yield* page.click("[data-console-member-add] input");
+        yield* page.type(account.id);
+        yield* page.key("Enter", "Enter", ENTER);
+        yield* members(at + 2);
+      }
+      yield* shot(page, fs, "console-members");
+      yield* shotDark(page, fs, "console-members-dark");
+      admitting.push(yield* placed(page, adding));
+      alike(admitting);
+      yield* closed(page);
+
+      // A token is held to what is ticked and chosen in a dialog that is as tall for each.
+      yield* page.click(`a[href="/-/tokens"]`);
+      yield* page.until(`!!document.querySelector("[data-console-token-new]")`);
+      yield* page.click("[data-console-token-new]");
+      yield* page.until(`!!document.querySelector("[data-console-token-create] input")`);
+      const token = [yield* placed(page)];
+      yield* shot(page, fs, "console-token-create-empty");
+      yield* page.key("Enter", "Enter", ENTER);
+      yield* page.until(
+        `!!document.querySelector('[data-console-token-create] fieldset [data-slot="field-error"]')`,
+      );
+      token.push(yield* placed(page));
+      yield* pick(page, `[data-console-token-reach] [data-slot="select-trigger"]`, "Only chosen");
+      yield* page.until(`!!document.querySelector("[data-console-token-resources] input")`);
+      token.push(yield* placed(page));
+      // Nothing chosen is told as well: the dialog then says all it ever does.
+      yield* page.click(`${DIALOG} button[type="submit"]`);
+      yield* page.until(
+        `document.querySelectorAll('[data-console-token-create] [data-slot="field-error"]').length === 3`,
+      );
+      yield* shot(page, fs, "console-token-create-full");
+      yield* shotDark(page, fs, "console-token-create-full-dark");
+      token.push(yield* placed(page));
+      alike(token);
+      yield* closed(page);
+
+      // A window too short for the dialog has all of it: it scrolls between its header and
+      // its buttons, and what it is told is wrong is brought into view.
+      const short = yield* viewer.open(`${proxy.url}/-/tokens`, {
+        width: 1280,
+        height: 560,
+      });
+      yield* short.until(`!!document.querySelector("[data-console-token-new]")`);
+      yield* short.click("[data-console-token-new]");
+      yield* short.until(`!!document.querySelector("[data-console-token-create] input")`);
+      const fits = `(() => {
+        const box = (one) => document.querySelector(one).getBoundingClientRect();
+        const body = document.querySelector('${BODY}');
+        const [dialog, buttons] = [box('${DIALOG}'), box('${BUTTONS}')];
+        return {
+          within: dialog.top >= 0 && dialog.bottom <= innerHeight && Math.abs(buttons.bottom - dialog.bottom) <= 1,
+          scrolls: body.scrollHeight > body.clientHeight,
+        };
+      })()`;
+      const cramped = [yield* placed(short)];
+      expect(yield* short.evaluate(fits)).toEqual({ within: true, scrolls: true });
+      yield* shot(short, fs, "console-token-create-short");
+      yield* short.key("Enter", "Enter", ENTER);
+      yield* short.until(
+        `!!document.querySelector('[data-console-token-create] fieldset [data-slot="field-error"]')`,
+      );
+      expect(
+        yield* short.evaluate(
+          `(() => {
+            const said = document.querySelector('[data-console-token-create] fieldset [data-slot="field-error"]').getBoundingClientRect();
+            const body = document.querySelector('${BODY}').getBoundingClientRect();
+            return said.top >= body.top && said.bottom <= body.bottom;
+          })()`,
+        ),
+      ).toBe(true);
+      yield* shot(short, fs, "console-token-create-short-invalid");
+      cramped.push(yield* placed(short));
+      alike(cramped);
+      expect(yield* short.evaluate(fits)).toEqual({ within: true, scrolls: true });
+      expect(short.errors()).toEqual([]);
+      yield* short.close;
       expect(page.errors()).toEqual([]);
     }),
   );
@@ -690,27 +1068,38 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.click("[data-console-security]");
       const dialog = (step: string) => `[data-console-security-dialog="${step}"]`;
       yield* page.until(`!!document.querySelector('${dialog("none")} input')`);
+      // The dialog is as tall at each step, with its buttons where they were.
+      const steps = [yield* placed(page)];
       yield* page.click(`${dialog("none")} input`);
+      yield* page.key("Enter", "Enter", ENTER);
+      yield* page.until(`!!document.querySelector('${dialog("none")} [data-slot="field-error"]')`);
+      yield* shot(page, fs, "console-security-invalid");
+      steps.push(yield* placed(page));
       yield* page.type(password);
       yield* page.key("Enter", "Enter", ENTER);
       yield* page.until(`!!document.querySelector('${dialog("confirm")} input')`);
-      yield* page.until(`!!document.querySelector("[data-console-totp-manual]")`);
-      yield* shot(page, yield* FileSystem.FileSystem, "console-totp");
-      yield* page.click("[data-console-totp-manual]");
-      yield* page.until(`!!document.querySelector("[data-console-totp-uri] code")`);
-      const uri = (yield* page.text("[data-console-totp-uri] code")) ?? "";
-      // The same address as a picture, for an authenticator's camera.
+      // The address as a picture, for an authenticator's camera.
       yield* page.until(
         `(document.querySelector("[data-console-totp-qr] path")?.getAttribute("d")?.length ?? 0) > 100`,
       );
-      yield* shot(page, yield* FileSystem.FileSystem, "console-totp-manual");
+      yield* shot(page, fs, "console-totp");
+      yield* shotDark(page, fs, "console-totp-dark");
+      steps.push(yield* placed(page));
+      // And as text in the picture's place, for whoever cannot scan it.
+      yield* page.click("[data-console-totp-manual]");
+      yield* page.until(`!!document.querySelector("[data-console-totp-uri] code")`);
+      const uri = (yield* page.text("[data-console-totp-uri] code")) ?? "";
+      yield* shot(page, fs, "console-totp-manual");
+      steps.push(yield* placed(page));
       expect(uri).toMatch(/^otpauth:\/\/totp\/Aperture:/u);
-      yield* shot(page, fs, "console-second-factor");
       yield* page.click(`${dialog("confirm")} input`);
       // The whole code gives itself: nothing is left to press.
       yield* page.type(yield* totp(uri));
       yield* page.until(`!!document.querySelector('${dialog("backup-codes")}')`);
       expect(yield* page.text("[data-console-backup-codes] code")).toMatch(/\w{5}-\w{5}/u);
+      yield* shot(page, fs, "console-backup-codes");
+      steps.push(yield* placed(page));
+      alike(steps);
 
       // The password alone leads to the code, and nowhere further.
       expect(yield* asked("/sign-out", {})).toBe(200);
@@ -757,10 +1146,13 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.click("[data-console-person-new]");
       const person = "[data-console-person-create]";
       yield* page.until(`!!document.querySelector('${person} input[name="name"]')`);
+      const inviting = [yield* placed(page)];
       yield* page.click(`${person} input[name="name"]`);
       yield* page.type("Lin");
       yield* page.key("Enter", "Enter", ENTER);
       yield* page.until(`!!document.querySelector('${person} [data-slot="field-error"]')`);
+      inviting.push(yield* placed(page));
+      alike(inviting);
       yield* shot(page, fs, "console-person-create");
       yield* page.evaluate(DARK);
       yield* shot(page, fs, "console-person-create-dark");
@@ -795,6 +1187,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.until(`!!document.querySelector("[data-console-name-dialog] input")`);
       yield* page.click("[data-console-name-dialog] input");
       yield* page.type("Deploy bot");
+      yield* shot(page, fs, "console-name");
       yield* page.key("Enter", "Enter", ENTER);
       const bot = `[data-console-service="Deploy bot"]`;
       yield* page.until(`!!document.querySelector('${bot}')`);
@@ -832,6 +1225,109 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       ).toBe(false);
       yield* shot(page, fs, "console-nodes");
       expect(page.errors()).toEqual([]);
+    }),
+  );
+
+  it.effect("an app sends a person to say what it gets, who signs in first and is sent back", () =>
+    Effect.gen(function* () {
+      const proxy = yield* Proxy.Proxy;
+      const viewer = yield* Viewer.Viewer;
+      const fs = yield* FileSystem.FileSystem;
+      const lin = yield* signedIn("Lin", "lin@example.test");
+      const registered = yield* request(proxy.url, "", "POST", "/oauth/register", {
+        client_name: "An agent of the checks",
+        redirect_uris: [`${proxy.url}/callback`],
+      });
+      const app = yield* Schema.decodeUnknownEffect(Schema.Struct({ client_id: Schema.String }))(
+        registered.body,
+      );
+      const verifier = "what-the-app-keeps-to-itself-0123456789-0123456789";
+      const challenge = Base64Url.encode(
+        new Uint8Array(
+          yield* Effect.promise(() =>
+            crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)),
+          ),
+        ),
+      );
+      const asked = new URLSearchParams({
+        response_type: "code",
+        client_id: app.client_id,
+        redirect_uri: `${proxy.url}/callback`,
+        state: "the app's own",
+        scope: "sessions:read",
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+      });
+
+      const page = yield* viewer.open(`${proxy.url}/oauth/authorize?${asked.toString()}`);
+      yield* page.until(`location.pathname === "/oauth/consent"`);
+      // The browser is the one the checks before signed in with: nothing of that is left.
+      yield* page.evaluate(
+        `(localStorage.clear(), fetch("/api/auth/sign-out", { method: "POST" }).then((answer) => answer.status))`,
+      );
+      yield* page.evaluate("void location.reload()");
+      yield* page.until(`!!document.querySelector('[data-console-sign-in="password"]')`);
+      yield* page.click(`[data-console-sign-in] input[name="email"]`);
+      yield* page.type(lin.email);
+      yield* page.click(`[data-console-sign-in] input[name="password"]`);
+      yield* page.type(lin.password);
+      yield* page.key("Enter", "Enter", ENTER);
+
+      // Signed in, they are where the app sent them, and are asked what the app asked for.
+      yield* page.until(`!!document.querySelector("[data-console-consent-allow]")`);
+      expect(yield* page.text("[data-console-consent]")).toContain(
+        "Connect An agent of the checks?",
+      );
+      expect(
+        yield* page.evaluate(
+          `[...document.querySelectorAll("[data-console-consent] [data-console-scope][data-checked]")].map((one) => one.dataset.consoleScope)`,
+        ),
+      ).toEqual(["sessions:read"]);
+      yield* shot(page, fs, "console-consent");
+      yield* page.evaluate(DARK);
+      yield* shot(page, fs, "console-consent-dark");
+      yield* page.evaluate(AUTO);
+      expect(page.errors()).toEqual([]);
+      yield* page.click("[data-console-consent-allow]");
+      yield* page.until(`location.pathname === "/callback"`);
+      const back = new URLSearchParams(yield* page.evaluate("location.search", Schema.String));
+      expect(back.get("state")).toBe("the app's own");
+
+      const http = yield* HttpClient.HttpClient;
+      const tokens = yield* http
+        .execute(
+          HttpClientRequest.post(`${proxy.url}/oauth/token`).pipe(
+            HttpClientRequest.bodyUrlParams({
+              grant_type: "authorization_code",
+              code: back.get("code") ?? "",
+              client_id: app.client_id,
+              redirect_uri: `${proxy.url}/callback`,
+              code_verifier: verifier,
+            }),
+          ),
+        )
+        .pipe(
+          Effect.flatMap((answer) => answer.json),
+          Effect.flatMap(
+            Schema.decodeUnknownEffect(Schema.Struct({ access_token: Schema.String })),
+          ),
+        );
+      const agent = yield* Mcp.connect(proxy.url, tokens.access_token);
+      yield* agent.call("sessions.list", {});
+      expect((yield* Effect.flip(agent.call("sessions.create", {}))).reason).toMatch(
+        /not for sessions:write/u,
+      );
+
+      // What they gave is theirs to see, and to take back.
+      yield* page.evaluate(`void (location.href = "/-/connected-apps")`);
+      yield* page.until(
+        `!!document.querySelector('[data-console-grant="An agent of the checks"] [data-console-grant-scope="sessions:read"]')`,
+      );
+      yield* shot(page, fs, "console-connected-apps");
+      yield* page.click(`[data-console-grant] button`);
+      yield* choose(page, `[data-slot="dialog-footer"] button`, "Disconnect");
+      yield* page.until(`!document.querySelector("[data-console-grant]")`);
+      expect((yield* request(proxy.url, tokens.access_token, "POST", "/mcp", {})).status).toBe(401);
     }),
   );
 });

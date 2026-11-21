@@ -1,5 +1,6 @@
 import { Button } from "@aperture-browser/ui/components/button";
 import {
+  DialogBody,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -19,7 +20,7 @@ type PersonCreateDialogProps = {
 /** A new account of a person's, who signs in with their address. */
 export function PersonCreateDialog({ open, onOpenChange }: PersonCreateDialogProps) {
   return (
-    <FreshDialog open={open} onOpenChange={onOpenChange}>
+    <FreshDialog open={open} onOpenChange={onOpenChange} height="23rem">
       <CreateForm onDone={() => onOpenChange(false)} />
     </FreshDialog>
   );
@@ -45,7 +46,7 @@ function CreateForm({ onDone }: { onDone: () => void }) {
     <form
       data-console-person-create
       noValidate
-      className="aperture:grid aperture:gap-4"
+      className="aperture:contents"
       onSubmit={(event) => {
         event.preventDefault();
         void form.handleSubmit();
@@ -57,12 +58,14 @@ function CreateForm({ onDone }: { onDone: () => void }) {
           They sign in once they set a password with a setup link, which you give them.
         </DialogDescription>
       </DialogHeader>
-      <form.Field name="name" validators={{ onSubmit: required("A name") }}>
-        {(field) => <TextField field={field} label="Name" autoFocus autoComplete="off" />}
-      </form.Field>
-      <form.Field name="email" validators={{ onSubmit: all(required("An email"), email) }}>
-        {(field) => <TextField field={field} label="Email" type="email" autoComplete="off" />}
-      </form.Field>
+      <DialogBody>
+        <form.Field name="name" validators={{ onSubmit: required("A name") }}>
+          {(field) => <TextField field={field} label="Name" autoFocus autoComplete="off" />}
+        </form.Field>
+        <form.Field name="email" validators={{ onSubmit: all(required("An email"), email) }}>
+          {(field) => <TextField field={field} label="Email" type="email" autoComplete="off" />}
+        </form.Field>
+      </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onDone}>
           Cancel

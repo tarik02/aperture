@@ -1,5 +1,6 @@
 import { Button } from "@aperture-browser/ui/components/button";
 import {
+  DialogBody,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -31,15 +32,30 @@ export function SessionProxyDialog({ sessionId, open, onOpenChange }: SessionPro
   const kept = useSessionProxyQuery(sessionId, open);
 
   return (
-    <FreshDialog open={open} onOpenChange={onOpenChange} className="aperture:sm:max-w-xl">
+    <FreshDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      className="aperture:sm:max-w-xl"
+      height="26rem"
+    >
       {/* What was kept when the dialog last opened is not what is edited from. */}
       {kept.data === undefined || (open && kept.isFetching) ? (
-        <DialogHeader>
-          <DialogTitle>Routing</DialogTitle>
-          <DialogDescription>
-            {kept.isError ? told(kept.error) : "Asking how it is routed now…"}
-          </DialogDescription>
-        </DialogHeader>
+        <>
+          <ProxyHeader />
+          <DialogBody>
+            <p className="aperture:text-sm aperture:text-muted-foreground">
+              {kept.isError ? told(kept.error) : "Asking how it is routed now…"}
+            </p>
+          </DialogBody>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="button" disabled>
+              Save
+            </Button>
+          </DialogFooter>
+        </>
       ) : (
         <ProxyForm
           sessionId={sessionId}
@@ -48,6 +64,17 @@ export function SessionProxyDialog({ sessionId, open, onOpenChange }: SessionPro
         />
       )}
     </FreshDialog>
+  );
+}
+
+function ProxyHeader() {
+  return (
+    <DialogHeader>
+      <DialogTitle>Routing</DialogTitle>
+      <DialogDescription>
+        Where the session's browser connections go. It takes effect for new connections.
+      </DialogDescription>
+    </DialogHeader>
   );
 }
 
@@ -78,27 +105,24 @@ function ProxyForm({
   return (
     <form
       data-console-session-proxy
-      className="aperture:grid aperture:min-w-0 aperture:gap-4"
+      className="aperture:contents"
       onSubmit={(event) => {
         event.preventDefault();
         void form.handleSubmit();
       }}
     >
-      <DialogHeader>
-        <DialogTitle>Routing</DialogTitle>
-        <DialogDescription>
-          Where the session's browser connections go. It takes effect for new connections.
-        </DialogDescription>
-      </DialogHeader>
-      <form.Field name="proxy" validators={{ onSubmit: ({ value }) => proxyRules(value) }}>
-        {(field) => (
-          <ProxyEditor
-            draft={field.state.value}
-            error={field.state.meta.errors.length > 0 ? proxyRules(field.state.value) : undefined}
-            onChange={field.handleChange}
-          />
-        )}
-      </form.Field>
+      <ProxyHeader />
+      <DialogBody>
+        <form.Field name="proxy" validators={{ onSubmit: ({ value }) => proxyRules(value) }}>
+          {(field) => (
+            <ProxyEditor
+              draft={field.state.value}
+              error={field.state.meta.errors.length > 0 ? proxyRules(field.state.value) : undefined}
+              onChange={field.handleChange}
+            />
+          )}
+        </form.Field>
+      </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onDone}>
           Cancel

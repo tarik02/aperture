@@ -1,6 +1,7 @@
 import { Badge } from "@aperture-browser/ui/components/badge";
 import { Button } from "@aperture-browser/ui/components/button";
 import {
+  DialogBody,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -47,7 +48,7 @@ type AccountSecurityDialogProps = {
 export function AccountSecurityDialog({ person, open, onOpenChange }: AccountSecurityDialogProps) {
   return (
     // What was typed and told is gone with the dialog: the codes are shown once.
-    <FreshDialog open={open} onOpenChange={onOpenChange}>
+    <FreshDialog open={open} onOpenChange={onOpenChange} height="28rem">
       <Security person={person} onDone={() => onOpenChange(false)} />
     </FreshDialog>
   );
@@ -57,22 +58,27 @@ function Security({ person, onDone }: { person: Person; onDone: () => void }) {
   const [enrolling, setEnrolling] = useState<Enrolling>({ step: "none" });
 
   return (
-    <div className="aperture:grid aperture:min-w-0 aperture:gap-4">
+    <>
       <DialogHeader>
         <DialogTitle>Account security</DialogTitle>
         <DialogDescription>{person.email}</DialogDescription>
       </DialogHeader>
       {enrolling.step === "backup-codes" ? (
-        <div data-console-security-dialog="backup-codes" className="aperture:grid aperture:gap-4">
-          <div data-console-backup-codes>
-            <CopyField label="Backup codes, shown once" value={enrolling.backupCodes.join("\n")} />
-          </div>
+        <>
+          <DialogBody data-console-security-dialog="backup-codes">
+            <div data-console-backup-codes>
+              <CopyField
+                label="Backup codes, shown once"
+                value={enrolling.backupCodes.join("\n")}
+              />
+            </div>
+          </DialogBody>
           <DialogFooter>
             <Button type="button" onClick={onDone}>
               Done
             </Button>
           </DialogFooter>
-        </div>
+        </>
       ) : enrolling.step === "confirm" ? (
         <Confirm
           enrolling={enrolling}
@@ -84,7 +90,7 @@ function Security({ person, onDone }: { person: Person; onDone: () => void }) {
       ) : (
         <WithPassword person={person} onEnrolling={setEnrolling} onDone={onDone} />
       )}
-    </div>
+    </>
   );
 }
 
@@ -126,31 +132,33 @@ function WithPassword({
   return (
     <form
       data-console-security-dialog="none"
-      className="aperture:grid aperture:gap-4"
+      className="aperture:contents"
       onSubmit={(event) => {
         event.preventDefault();
         void form.handleSubmit({ renew: false });
       }}
     >
-      <div className="aperture:flex aperture:items-center aperture:justify-between aperture:gap-2 aperture:text-sm">
-        Two-factor sign-in
-        <Badge
-          data-console-second-factor={person.secondFactor ? "on" : "off"}
-          variant={person.secondFactor ? "default" : "outline"}
-        >
-          {person.secondFactor ? "On" : "Off"}
-        </Badge>
-      </div>
-      <form.Field name="password" validators={{ onSubmit: required("Your password") }}>
-        {(field) => (
-          <TextField
-            field={field}
-            label="Password"
-            type="password"
-            autoComplete="current-password"
-          />
-        )}
-      </form.Field>
+      <DialogBody>
+        <div className="aperture:flex aperture:items-center aperture:justify-between aperture:gap-2 aperture:text-sm">
+          Two-factor sign-in
+          <Badge
+            data-console-second-factor={person.secondFactor ? "on" : "off"}
+            variant={person.secondFactor ? "default" : "outline"}
+          >
+            {person.secondFactor ? "On" : "Off"}
+          </Badge>
+        </div>
+        <form.Field name="password" validators={{ onSubmit: required("Your password") }}>
+          {(field) => (
+            <TextField
+              field={field}
+              label="Password"
+              type="password"
+              autoComplete="current-password"
+            />
+          )}
+        </form.Field>
+      </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onDone}>
           Close
@@ -189,7 +197,7 @@ function Confirm({
   onDone: () => void;
 }) {
   const confirm = useConfirmEnrolmentMutation();
-  /** Whether what the picture says is shown as text as well, for whoever cannot scan it. */
+  /** Whether what the picture says is shown as text in its place, for whoever cannot scan it. */
   const [manual, setManual] = useState(false);
   const form = useForm({
     defaultValues: { code: "" },
@@ -210,46 +218,48 @@ function Confirm({
   return (
     <form
       data-console-security-dialog="confirm"
-      className="aperture:grid aperture:min-w-0 aperture:gap-4"
+      className="aperture:contents"
       onSubmit={(event) => {
         event.preventDefault();
         void form.handleSubmit();
       }}
     >
-      <QrCode
-        data-console-totp-qr
-        value={enrolling.uri}
-        label="Setup address for an authenticator"
-        className="aperture:size-auto aperture:w-full"
-      />
-      {manual ? (
-        <>
-          <div data-console-totp-uri>
-            <CopyField label="Setup address" value={enrolling.uri} />
-          </div>
-          <CopyField label="Secret" value={enrolling.secret} />
-        </>
-      ) : (
+      <DialogBody>
+        {manual ? (
+          <>
+            <div data-console-totp-uri>
+              <CopyField label="Setup address" value={enrolling.uri} />
+            </div>
+            <CopyField label="Secret" value={enrolling.secret} />
+          </>
+        ) : (
+          <QrCode
+            data-console-totp-qr
+            value={enrolling.uri}
+            label="Setup address for an authenticator"
+            className="aperture:shrink-0 aperture:self-center"
+          />
+        )}
         <Button
           type="button"
           variant="link"
           data-console-totp-manual
-          className="aperture:h-auto aperture:justify-self-start aperture:p-0"
-          onClick={() => setManual(true)}
+          className="aperture:h-auto aperture:self-start aperture:p-0"
+          onClick={() => setManual(!manual)}
         >
-          Can't scan it?
+          {manual ? "Scan it instead" : "Can't scan it?"}
         </Button>
-      )}
-      <form.Field name="code" validators={{ onSubmit: required("The code") }}>
-        {(field) => (
-          <CodeInput
-            value={field.state.value}
-            onChange={field.handleChange}
-            error={field.state.meta.errors.find((error) => typeof error === "string")}
-            onComplete={() => (submitting ? undefined : void form.handleSubmit())}
-          />
-        )}
-      </form.Field>
+        <form.Field name="code" validators={{ onSubmit: required("The code") }}>
+          {(field) => (
+            <CodeInput
+              value={field.state.value}
+              onChange={field.handleChange}
+              error={field.state.meta.errors.find((error) => typeof error === "string")}
+              onComplete={() => (submitting ? undefined : void form.handleSubmit())}
+            />
+          )}
+        </form.Field>
+      </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onDone}>
           Cancel

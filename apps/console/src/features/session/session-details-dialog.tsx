@@ -1,5 +1,6 @@
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -34,57 +35,66 @@ export function SessionDetailsDialog({ session, open, onOpenChange }: SessionDet
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="aperture:sm:max-w-xl">
+      <DialogContent className="aperture:sm:max-w-xl" height="29rem">
         <DialogHeader>
           <DialogTitle>{session.label ?? "Session"}</DialogTitle>
         </DialogHeader>
-        <Tabs defaultValue="details">
-          <TabsList>
+        <Tabs defaultValue="details" className="aperture:min-h-0 aperture:flex-1 aperture:gap-4">
+          <TabsList className="aperture:shrink-0">
             <TabsTrigger value="details">Details</TabsTrigger>
             <TabsTrigger value="connection">Connection</TabsTrigger>
           </TabsList>
-          <TabsContent value="details" className="aperture:pt-2">
-            <dl className="aperture:grid aperture:grid-cols-[auto_1fr] aperture:gap-x-4 aperture:gap-y-2 aperture:text-sm">
-              <Fact name="State">
-                <SessionStatusBadge session={session} />
-              </Fact>
-              <Fact name="Id">
-                <span className="aperture:font-mono aperture:text-xs">{session.id}</span>
-              </Fact>
-              <Fact name="Snapshot">{session.snapshotId ?? "None"}</Fact>
-              <Fact name="Node">{session.nodeId ?? "None"}</Fact>
-              <Fact name="Created">
-                {when.format(new Date(session.createdAt.epochMilliseconds))}
-              </Fact>
-              <Fact name="Last heard of">
-                {when.format(new Date(session.observedAt.epochMilliseconds))}
-              </Fact>
-              {session.failure === null ? null : <Fact name="Failure">{session.failure}</Fact>}
-              <Fact name="Tags">
-                {Object.keys(session.tags).length === 0 ? "None" : <TagList tags={session.tags} />}
-              </Fact>
-            </dl>
-          </TabsContent>
-          <TabsContent value="connection" className="aperture:grid aperture:gap-4 aperture:pt-2">
-            {base === null || mcp === null ? (
-              <p className="aperture:text-sm aperture:text-muted-foreground">
-                This session is on no node, so nothing reaches it.
-              </p>
-            ) : (
-              <>
+          <DialogBody>
+            <TabsContent value="details">
+              <dl className="aperture:grid aperture:grid-cols-[auto_1fr] aperture:gap-x-4 aperture:gap-y-2 aperture:text-sm">
+                <Fact name="State">
+                  <SessionStatusBadge session={session} />
+                </Fact>
+                <Fact name="Id">
+                  <span className="aperture:font-mono aperture:text-xs">{session.id}</span>
+                </Fact>
+                <Fact name="Snapshot">{session.snapshotId ?? "None"}</Fact>
+                <Fact name="Node">{session.nodeId ?? "None"}</Fact>
+                <Fact name="Created">
+                  {when.format(new Date(session.createdAt.epochMilliseconds))}
+                </Fact>
+                <Fact name="Last heard of">
+                  {when.format(new Date(session.observedAt.epochMilliseconds))}
+                </Fact>
+                {session.failure === null ? null : <Fact name="Failure">{session.failure}</Fact>}
+                <Fact name="Tags">
+                  {Object.keys(session.tags).length === 0 ? (
+                    "None"
+                  ) : (
+                    <TagList tags={session.tags} />
+                  )}
+                </Fact>
+              </dl>
+            </TabsContent>
+            <TabsContent
+              value="connection"
+              className="aperture:grid aperture:content-start aperture:gap-4"
+            >
+              {base === null || mcp === null ? (
                 <p className="aperture:text-sm aperture:text-muted-foreground">
-                  Each takes an API token of this account as a bearer token, where the session
-                  offers it.
+                  This session is on no node, so nothing reaches it.
                 </p>
-                <CopyField label="MCP" value={mcp} />
-                <CopyField label="DevTools (CDP)" value={`${base.replace(/^http/u, "ws")}/cdp`} />
-                <CopyField
-                  label="Claude Code"
-                  value={`claude mcp add --transport http aperture ${mcp} --header "Authorization: Bearer <API token>"`}
-                />
-              </>
-            )}
-          </TabsContent>
+              ) : (
+                <>
+                  <p className="aperture:text-sm aperture:text-muted-foreground">
+                    Each takes an API token of this account as a bearer token, where the session
+                    offers it.
+                  </p>
+                  <CopyField label="MCP" value={mcp} />
+                  <CopyField label="DevTools (CDP)" value={`${base.replace(/^http/u, "ws")}/cdp`} />
+                  <CopyField
+                    label="Claude Code"
+                    value={`claude mcp add --transport http aperture ${mcp} --header "Authorization: Bearer <API token>"`}
+                  />
+                </>
+              )}
+            </TabsContent>
+          </DialogBody>
         </Tabs>
       </DialogContent>
     </Dialog>
