@@ -8,6 +8,7 @@ import {
   TableRow,
 } from "@aperture-browser/ui/components/table";
 import { Link } from "@tanstack/react-router";
+import { TablePage } from "#/components/table-page.tsx";
 import { useNodesQuery } from "#/features/node/node.queries.ts";
 import { told } from "#/lib/api.ts";
 
@@ -39,8 +40,8 @@ export function NodesPage() {
     );
   }
   return (
-    <div className="aperture:p-4">
-      <Table scrollable={false}>
+    <TablePage>
+      <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Node</TableHead>
@@ -72,6 +73,6 @@ export function NodesPage() {
           ))}
         </TableBody>
       </Table>
-    </div>
+    </TablePage>
   );
 }

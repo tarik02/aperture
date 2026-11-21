@@ -47,7 +47,7 @@ export function AppShell({ layout, children }: AppShellProps) {
             className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:justify-end aperture:gap-2"
           />
         </header>
-        <div className="aperture:min-h-0 aperture:flex-1 aperture:overflow-auto">
+        <div className="aperture:relative aperture:min-h-0 aperture:flex-1">
           <PageHeaderActionsTarget.Provider value={headerActions}>
             {children}
           </PageHeaderActionsTarget.Provider>

@@ -28,7 +28,7 @@ export function SecretDialog({ title, secret, onClose }: SecretDialogProps) {
 
   return (
     <Dialog open={secret !== undefined} onOpenChange={(open) => (open ? undefined : onClose())}>
-      <DialogContent>
+      <DialogContent className="aperture:sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>Copy it now: it is not shown again.</DialogDescription>

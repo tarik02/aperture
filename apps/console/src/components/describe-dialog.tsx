@@ -38,7 +38,7 @@ type DescribeDialogProps = {
 /** Changes what something is called, said to be and tagged with. */
 export function DescribeDialog({ open, onOpenChange, ...form }: DescribeDialogProps) {
   return (
-    <FreshDialog open={open} onOpenChange={onOpenChange}>
+    <FreshDialog open={open} onOpenChange={onOpenChange} className="aperture:sm:max-w-lg">
       <DescribeForm {...form} onDone={() => onOpenChange(false)} />
     </FreshDialog>
   );

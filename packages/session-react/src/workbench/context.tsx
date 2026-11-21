@@ -89,6 +89,7 @@ export function WorkbenchProvider({
 
   const [viewed, view] = useState<string | undefined>(undefined);
   const [drawing, setDrawing] = useState(false);
+  useEscapeEndsDrawing(drawing, setDrawing);
 
   const value = useMemo(
     () => ({
@@ -105,6 +106,32 @@ export function WorkbenchProvider({
     [features, recordings, contributions, viewed, drawing, appearance, targetFaviconUrl],
   );
   return <WorkbenchContext.Provider value={value}>{children}</WorkbenchContext.Provider>;
+}
+
+/**
+ * Escape puts the pencil down. It is heard before the session's keyboard is, so the page
+ * gets none of it; a menu or dialog that is open keeps its own Escape.
+ */
+function useEscapeEndsDrawing(drawing: boolean, setDrawing: (drawing: boolean) => void) {
+  useEffect(() => {
+    if (!drawing) {
+      return undefined;
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (
+        event.key !== "Escape" ||
+        (event.target instanceof Element &&
+          event.target.closest("[role=menu], [role=dialog], [role=listbox]") !== null)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      setDrawing(false);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [drawing, setDrawing]);
 }
 
 export function useWorkbench(): Workbench {

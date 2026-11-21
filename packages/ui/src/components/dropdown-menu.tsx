@@ -27,12 +27,19 @@ function DropdownMenuContent({
   sideOffset = 4,
   anchor,
   collisionPadding,
+  collisionAvoidance,
   className,
   ...props
 }: MenuPrimitive.Popup.Props &
   Pick<
     MenuPrimitive.Positioner.Props,
-    "align" | "alignOffset" | "side" | "sideOffset" | "anchor" | "collisionPadding"
+    | "align"
+    | "alignOffset"
+    | "side"
+    | "sideOffset"
+    | "anchor"
+    | "collisionPadding"
+    | "collisionAvoidance"
   >) {
   return (
     <MenuPrimitive.Portal container={usePortalContainer()}>
@@ -45,6 +52,7 @@ function DropdownMenuContent({
         // A menu without a trigger, such as one shown where a click was, is told its place.
         anchor={anchor}
         collisionPadding={collisionPadding}
+        collisionAvoidance={collisionAvoidance}
       >
         <MenuPrimitive.Popup
           data-slot="dropdown-menu-content"

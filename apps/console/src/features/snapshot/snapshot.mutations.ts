@@ -7,17 +7,17 @@ import { queryKeys } from "#/lib/query-keys.ts";
 export function useTakeSnapshotMutation() {
   const queries = useQueryClient();
   return useMutation({
-    mutationFn: (taken: {
+    mutationFn: ({
+      sessionId,
+      ...taken
+    }: {
       sessionId: string;
       name: string | undefined;
-      description?: string | undefined;
-    }) =>
-      call((api) =>
-        api.snapshots.take({
-          params: { id: taken.sessionId },
-          payload: { name: taken.name, description: taken.description },
-        }),
-      ),
+      description: string | undefined;
+      tags: Record<string, string>;
+      /** The snapshot this one takes the place of, which is deleted once this is taken. */
+      replaces: string | undefined;
+    }) => call((api) => api.snapshots.take({ params: { id: sessionId }, payload: taken })),
     onSuccess: () => toast.success("Snapshot saved"),
     onError: (error) => toastMutationError(error, "The snapshot was not saved"),
     onSettled: () => queries.invalidateQueries({ queryKey: queryKeys.snapshots }),

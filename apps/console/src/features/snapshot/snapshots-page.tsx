@@ -12,6 +12,7 @@ import { Pencil, Play, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { DescribeDialog } from "#/components/describe-dialog.tsx";
+import { TablePage } from "#/components/table-page.tsx";
 import { TagList } from "#/components/tag-list.tsx";
 import { useOpenNewSession } from "#/features/session/session.mutations.ts";
 import {
@@ -43,7 +44,7 @@ function SnapshotRow({ snapshot }: { snapshot: Snapshot }) {
         <div className="aperture:grid aperture:gap-0.5">
           <span className="aperture:font-medium">{snapshot.name ?? "Unnamed"}</span>
           {snapshot.description === null ? null : (
-            <span className="aperture:text-sm aperture:text-muted-foreground">
+            <span className="aperture:max-w-96 aperture:truncate aperture:text-sm aperture:text-muted-foreground">
               {snapshot.description}
             </span>
           )}
@@ -132,14 +133,14 @@ export function SnapshotsPage() {
     );
   }
   return (
-    <div className="aperture:p-4">
-      <Table scrollable={false}>
+    <TablePage>
+      <Table stickyActionColumn>
         <TableHeader>
           <TableRow>
             <TableHead>Snapshot</TableHead>
             <TableHead>Kept</TableHead>
             <TableHead>Created</TableHead>
-            <TableHead />
+            <TableHead className="aperture:w-px" />
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -148,6 +149,6 @@ export function SnapshotsPage() {
           ))}
         </TableBody>
       </Table>
-    </div>
+    </TablePage>
   );
 }

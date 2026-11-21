@@ -13,6 +13,7 @@ import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { NameDialog } from "#/components/name-dialog.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
+import { TablePage } from "#/components/table-page.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
 import { WorkspaceMembersDialog } from "#/features/workspace/workspace-members-dialog.tsx";
 import {
@@ -86,7 +87,7 @@ export function WorkspacesPage() {
   const [creating, setCreating] = useState(false);
 
   return (
-    <div className="aperture:p-4">
+    <TablePage>
       <PageHeaderActions>
         <Button data-console-workspace-new size="sm" onClick={() => setCreating(true)}>
           <Plus />
@@ -108,13 +109,13 @@ export function WorkspacesPage() {
           No workspaces yet. Make one to keep sessions and snapshots with others.
         </p>
       ) : (
-        <Table scrollable={false}>
+        <Table stickyActionColumn>
           <TableHeader>
             <TableRow>
               <TableHead>Workspace</TableHead>
               <TableHead>Role</TableHead>
               <TableHead>Created</TableHead>
-              <TableHead />
+              <TableHead className="aperture:w-px" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -124,6 +125,6 @@ export function WorkspacesPage() {
           </TableBody>
         </Table>
       )}
-    </div>
+    </TablePage>
   );
 }

@@ -34,7 +34,7 @@ export function SessionDetailsDialog({ session, open, onOpenChange }: SessionDet
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="aperture:sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{session.label ?? "Session"}</DialogTitle>
         </DialogHeader>

@@ -13,6 +13,7 @@ import { useState } from "react";
 import { NameDialog } from "#/components/name-dialog.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { SecretDialog } from "#/components/secret-dialog.tsx";
+import { TablePage } from "#/components/table-page.tsx";
 import { AccountCell } from "#/features/account/account-cell.tsx";
 import { useCreateAccountMutation } from "#/features/account/account.mutations.ts";
 import { type Account, useAccountsQuery } from "#/features/account/account.queries.ts";
@@ -33,7 +34,7 @@ export function ServiceAccountsPage() {
   const services = accounts.data?.filter((account) => account.kind === "service");
 
   return (
-    <div className="aperture:p-4">
+    <TablePage>
       <PageHeaderActions>
         <Button data-console-service-new size="sm" onClick={() => setCreating(true)}>
           <Plus />
@@ -52,13 +53,13 @@ export function ServiceAccountsPage() {
           No service accounts yet. One is for automation: it has API tokens and no password.
         </p>
       ) : (
-        <Table scrollable={false}>
+        <Table stickyActionColumn>
           <TableHeader>
             <TableRow>
               <TableHead>Service account</TableHead>
               <TableHead>Role</TableHead>
               <TableHead>Created</TableHead>
-              <TableHead />
+              <TableHead className="aperture:w-px" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -107,6 +108,6 @@ export function ServiceAccountsPage() {
         onCreated={setSecret}
       />
       <SecretDialog title="API token" secret={secret} onClose={() => setSecret(undefined)} />
-    </div>
+    </TablePage>
   );
 }

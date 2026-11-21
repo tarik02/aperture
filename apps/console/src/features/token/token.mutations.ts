@@ -1,4 +1,4 @@
-import type { Scope } from "@aperture-browser/control-api";
+import type { Scope, TokenResources } from "@aperture-browser/control-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { call } from "#/lib/api.ts";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
@@ -7,8 +7,10 @@ import { queryKeys } from "#/lib/query-keys.ts";
 type NewToken = {
   name: string;
   expiresInDays: number | undefined;
-  /** What it is held to; whatever its account does, without. */
-  scopes: ReadonlyArray<Scope> | undefined;
+  /** What it does: at least one thing. */
+  scopes: readonly [Scope, ...Scope[]];
+  /** What it reaches; all that its account does, without. */
+  resources: TokenResources | undefined;
 };
 
 /** Makes a token of the account that is signed in, or of another's for an admin. */

@@ -10,6 +10,7 @@ import {
 import {
   Field,
   FieldDescription,
+  FieldError,
   FieldLabel,
   FieldLegend,
   FieldSet,
@@ -21,6 +22,10 @@ import { FreshDialog } from "#/components/fresh-dialog.tsx";
 import { TextField } from "#/components/text-field.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
 import { SCOPES } from "#/features/token/scopes.ts";
+import {
+  type ChosenResource,
+  TokenResourcesPicker,
+} from "#/features/token/token-resources-picker.tsx";
 import { useCreateTokenMutation } from "#/features/token/token.mutations.ts";
 import { required } from "#/lib/validation.ts";
 
@@ -33,11 +38,21 @@ const EXPIRY = [
 ] as const;
 type Expiry = (typeof EXPIRY)[number]["value"];
 
+const REACH = [
+  { value: "all", label: "All this account reaches" },
+  { value: "chosen", label: "Only chosen workspaces, sessions and snapshots" },
+] as const;
+
+const idsOf = (chosen: ReadonlyArray<ChosenResource>, kind: ChosenResource["kind"]) =>
+  chosen.filter((one) => one.kind === kind).map((one) => one.id);
+
 type TokenCreateDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Whose token it is, where it is not the one's who is signed in: a service account's. */
   account?: { readonly id: string; readonly name: string; readonly admin: boolean } | undefined;
+  /** What it starts held to, where what asks for the token knows what it is for. */
+  initial?: { scopes: ReadonlyArray<Scope>; resources: ReadonlyArray<ChosenResource> } | undefined;
   /** What has the focus once it has closed, where it is opened from within another dialog. */
   finalFocus?: React.RefObject<HTMLElement | null>;
   /** Hears the secret, the one time it is told. */
@@ -52,7 +67,12 @@ export function TokenCreateDialog({
   ...form
 }: TokenCreateDialogProps) {
   return (
-    <FreshDialog open={open} onOpenChange={onOpenChange} finalFocus={finalFocus}>
+    <FreshDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      finalFocus={finalFocus}
+      className="aperture:sm:max-w-xl"
+    >
       <CreateForm {...form} onDone={() => onOpenChange(false)} />
     </FreshDialog>
   );
@@ -60,21 +80,44 @@ export function TokenCreateDialog({
 
 function CreateForm({
   account,
+  initial,
   onCreated,
   onDone,
-}: Pick<TokenCreateDialogProps, "account" | "onCreated"> & { onDone: () => void }) {
+}: Pick<TokenCreateDialogProps, "account" | "initial" | "onCreated"> & { onDone: () => void }) {
   const signedIn = useAccountQuery();
   const create = useCreateTokenMutation(account?.id);
   const expiryId = useId();
+  const reachId = useId();
+  const resourcesId = useId();
   // A scope that its account has nothing of holds a token to nothing more.
   const admin = account === undefined ? signedIn.data?.admin === true : account.admin;
   const form = useForm({
-    defaultValues: { name: "", scopes: [] as Scope[], expiry: "30" as Expiry },
+    defaultValues: {
+      name: "",
+      scopes: [...(initial?.scopes ?? [])],
+      // None for a token that reaches all its account does.
+      resources: (initial === undefined || initial.resources.length === 0
+        ? null
+        : initial.resources) as ReadonlyArray<ChosenResource> | null,
+      expiry: "30" as Expiry,
+    },
     onSubmit: async ({ value }) => {
+      const [first, ...others] = value.scopes;
+      if (first === undefined) {
+        return;
+      }
       try {
         const made = await create.mutateAsync({
           name: value.name.trim(),
-          scopes: value.scopes.length === 0 ? undefined : value.scopes,
+          scopes: [first, ...others],
+          resources:
+            value.resources === null
+              ? undefined
+              : {
+                  workspaces: idsOf(value.resources, "workspaces"),
+                  sessions: idsOf(value.resources, "sessions"),
+                  snapshots: idsOf(value.resources, "snapshots"),
+                },
           expiresInDays: value.expiry === "never" ? undefined : Number(value.expiry),
         });
         onDone();
@@ -104,42 +147,98 @@ function CreateForm({
       <form.Field name="name" validators={{ onSubmit: required("A name") }}>
         {(field) => <TextField field={field} label="Name" autoFocus autoComplete="off" />}
       </form.Field>
-      <form.Field name="scopes">
-        {(field) => (
-          <FieldSet className="aperture:gap-2">
-            <FieldLegend variant="label">Scopes</FieldLegend>
-            <FieldDescription>
-              {field.state.value.length === 0
-                ? "With none ticked, it does everything this account does."
-                : "It does what is ticked and nothing else. Writing includes reading."}
-            </FieldDescription>
-            <div data-slot="checkbox-group" className="aperture:grid aperture:gap-2">
-              {SCOPES.filter((one) => admin || one.scope !== "admin").map((one) => (
-                <label
-                  key={one.scope}
-                  className="aperture:flex aperture:items-start aperture:gap-2.5 aperture:text-sm"
-                >
-                  <Checkbox
-                    data-console-scope={one.scope}
-                    className="aperture:mt-0.5"
-                    checked={field.state.value.includes(one.scope)}
-                    onCheckedChange={(checked) =>
-                      field.handleChange(
-                        SCOPES.map((each) => each.scope).filter((scope) =>
-                          scope === one.scope ? checked : field.state.value.includes(scope),
-                        ),
-                      )
-                    }
+      <form.Field
+        name="scopes"
+        validators={{
+          onSubmit: ({ value }) => (value.length === 0 ? "Tick at least one scope" : undefined),
+        }}
+      >
+        {(field) => {
+          const said = field.state.meta.errors.find((error) => typeof error === "string");
+          return (
+            <FieldSet
+              className="aperture:gap-2"
+              data-invalid={said === undefined ? undefined : true}
+            >
+              <FieldLegend variant="label">Scopes</FieldLegend>
+              <FieldDescription>
+                It does what is ticked and nothing else. Writing includes reading.
+              </FieldDescription>
+              <div
+                data-slot="checkbox-group"
+                className="aperture:grid aperture:gap-x-4 aperture:gap-y-2 aperture:sm:grid-cols-2"
+              >
+                {SCOPES.filter((one) => admin || one.scope !== "admin").map((one) => (
+                  <label
+                    key={one.scope}
+                    className="aperture:flex aperture:items-start aperture:gap-2.5 aperture:text-sm"
+                  >
+                    <Checkbox
+                      data-console-scope={one.scope}
+                      className="aperture:mt-0.5"
+                      aria-invalid={said !== undefined}
+                      checked={field.state.value.includes(one.scope)}
+                      onCheckedChange={(checked) =>
+                        field.handleChange(
+                          SCOPES.map((each) => each.scope).filter((scope) =>
+                            scope === one.scope ? checked : field.state.value.includes(scope),
+                          ),
+                        )
+                      }
+                    />
+                    <span className="aperture:grid aperture:gap-0.5">
+                      <span className="aperture:font-mono aperture:text-xs">{one.scope}</span>
+                      <span className="aperture:text-muted-foreground">{one.lets}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <FieldError>{said}</FieldError>
+            </FieldSet>
+          );
+        }}
+      </form.Field>
+      <form.Field
+        name="resources"
+        validators={{
+          onSubmit: ({ value }) =>
+            value !== null && value.length === 0
+              ? "Choose at least one workspace, session or snapshot"
+              : undefined,
+        }}
+      >
+        {(field) => {
+          const said = field.state.meta.errors.find((error) => typeof error === "string");
+          return (
+            <Field data-console-token-reach data-invalid={said === undefined ? undefined : true}>
+              <FieldLabel htmlFor={reachId}>Resources</FieldLabel>
+              <Choice
+                id={reachId}
+                className="aperture:w-full"
+                value={field.state.value === null ? "all" : "chosen"}
+                options={REACH}
+                onChange={(reach) =>
+                  field.handleChange(reach === "all" ? null : (field.state.value ?? []))
+                }
+              />
+              {field.state.value === null ? null : (
+                <>
+                  <TokenResourcesPicker
+                    id={resourcesId}
+                    chosen={field.state.value}
+                    invalid={said !== undefined}
+                    onChange={field.handleChange}
                   />
-                  <span className="aperture:grid aperture:gap-0.5">
-                    <span className="aperture:font-mono aperture:text-xs">{one.scope}</span>
-                    <span className="aperture:text-muted-foreground">{one.lets}</span>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </FieldSet>
-        )}
+                  <FieldDescription>
+                    A workspace stands for all the sessions and snapshots in it, those made later as
+                    well.
+                  </FieldDescription>
+                </>
+              )}
+              <FieldError>{said}</FieldError>
+            </Field>
+          );
+        }}
       </form.Field>
       <form.Field name="expiry">
         {(field) => (

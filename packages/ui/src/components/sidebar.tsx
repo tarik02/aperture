@@ -37,7 +37,15 @@ function Sidebar({
   peekOnHover?: boolean;
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
-  const peek = useSidebarPeek(peekOnHover && collapsible === "offcanvas" && state === "collapsed");
+  const peek = useSidebarPeek(
+    peekOnHover && collapsible === "offcanvas" && (isMobile ? !openMobile : state === "collapsed"),
+  );
+  // A narrow window has the sidebar as a sheet, which the edge opens like its button does.
+  React.useEffect(() => {
+    if (isMobile && peek.open) {
+      setOpenMobile(true);
+    }
+  }, [isMobile, peek.open, setOpenMobile]);
 
   if (collapsible === "none") {
     return (
@@ -57,6 +65,19 @@ function Sidebar({
   if (isMobile) {
     return (
       <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
+        {peek.enabled ? (
+          <div
+            aria-hidden
+            data-slot="sidebar-peek-zone"
+            className="aperture:fixed aperture:inset-y-0 aperture:z-10 aperture:w-1.5 aperture:data-[side=left]:left-0 aperture:data-[side=right]:right-0"
+            data-side={side}
+            // A finger at the edge is a swipe of the browser's, not a pointer that rests.
+            onPointerEnter={(event) =>
+              event.pointerType === "mouse" ? peek.handlers.onPointerEnter() : undefined
+            }
+            onPointerLeave={peek.handlers.onPointerLeave}
+          />
+        ) : null}
         <SheetContent
           dir={dir}
           data-sidebar="sidebar"

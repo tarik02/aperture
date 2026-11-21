@@ -13,6 +13,7 @@ import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { SecretDialog } from "#/components/secret-dialog.tsx";
+import { TablePage } from "#/components/table-page.tsx";
 import { AccountCell } from "#/features/account/account-cell.tsx";
 import {
   useResetSecondFactorMutation,
@@ -37,7 +38,7 @@ export function PeoplePage() {
   const people = accounts.data?.filter((account) => account.kind === "person");
 
   return (
-    <div className="aperture:p-4">
+    <TablePage>
       <PageHeaderActions>
         <Button data-console-person-new size="sm" onClick={() => setCreating(true)}>
           <Plus />
@@ -56,13 +57,13 @@ export function PeoplePage() {
           Nobody yet. A person signs in with their email, once they set a password.
         </p>
       ) : (
-        <Table scrollable={false}>
+        <Table stickyActionColumn>
           <TableHeader>
             <TableRow>
               <TableHead>Person</TableHead>
               <TableHead>Role</TableHead>
               <TableHead>Created</TableHead>
-              <TableHead />
+              <TableHead className="aperture:w-px" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -123,6 +124,6 @@ export function PeoplePage() {
       />
       <PersonCreateDialog open={creating} onOpenChange={setCreating} />
       <SecretDialog title="Setup link" secret={link} onClose={() => setLink(undefined)} />
-    </div>
+    </TablePage>
   );
 }

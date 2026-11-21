@@ -1,6 +1,11 @@
 import type { Session } from "@aperture-browser/session-client";
-import { ApertureSession, type ApertureTheme } from "@aperture-browser/session-react";
+import {
+  ApertureSession,
+  type ApertureTheme,
+  type WorkbenchContribution,
+} from "@aperture-browser/session-react";
 import { Button } from "@aperture-browser/ui/components/button";
+import { SidebarTrigger } from "@aperture-browser/ui/components/sidebar";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Spinner } from "@aperture-browser/ui/components/spinner";
 import { useTheme } from "next-themes";
@@ -35,6 +40,23 @@ declare global {
 const expose = (session: Session | null) => {
   window.apertureSession = session ?? undefined;
 };
+
+/**
+ * The way to the sidebar from the workbench, which has no title bar of the console's: it
+ * stands before the tabs, where a narrow window and a finger find it as well.
+ */
+const CONTRIBUTIONS: ReadonlyArray<WorkbenchContribution> = [
+  {
+    id: "console.sidebar",
+    slot: "titlebar.start",
+    component: () => (
+      <SidebarTrigger
+        data-console-sidebar-trigger
+        className="aperture:aspect-square aperture:h-full aperture:w-auto aperture:shrink-0 aperture:rounded-none"
+      />
+    ),
+  },
+];
 
 const isTheme = (theme: string | undefined): theme is ApertureTheme =>
   theme === "light" || theme === "dark" || theme === "system";
@@ -140,6 +162,7 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
       theme={isTheme(theme) ? theme : "system"}
       onThemeChange={setTheme}
       onSession={expose}
+      contributions={CONTRIBUTIONS}
     />
   );
 }

@@ -49,6 +49,12 @@ const THEMES: Readonly<Record<ApertureTheme, string>> = {
   dark: "Dark",
 };
 
+/**
+ * A toolbar's menu opens below it and stays there: where the window is short it scrolls
+ * in the room there is, and never turns up over the toolbar it was opened from.
+ */
+const BELOW = { side: "none", align: "shift" } as const;
+
 const isTheme = (value: unknown): value is ApertureTheme =>
   typeof value === "string" && value in THEMES;
 
@@ -108,7 +114,7 @@ export function RecordingAction() {
       >
         <Circle fill={active ? "currentColor" : "none"} />
       </MenuButton>
-      <DropdownMenuContent align="end" className="aperture:w-72">
+      <DropdownMenuContent align="end" collisionAvoidance={BELOW} className="aperture:w-72">
         <WorkbenchMenuSlot name="menu.recording" />
       </DropdownMenuContent>
     </DropdownMenu>
@@ -122,7 +128,7 @@ export function PictureAction() {
       <MenuButton label="Picture and viewport" data-workbench-picture="">
         <Monitor />
       </MenuButton>
-      <DropdownMenuContent align="end" className="aperture:w-64">
+      <DropdownMenuContent align="end" collisionAvoidance={BELOW} className="aperture:w-64">
         <WorkbenchMenuSlot name="menu.picture" />
       </DropdownMenuContent>
     </DropdownMenu>
@@ -136,7 +142,7 @@ export function BrowserMenuAction() {
       <MenuButton label="Browser menu" data-workbench-menu="">
         <MoreVertical />
       </MenuButton>
-      <DropdownMenuContent align="end" className="aperture:w-60">
+      <DropdownMenuContent align="end" collisionAvoidance={BELOW} className="aperture:w-60">
         <WorkbenchMenuSlot name="menu.browser" />
       </DropdownMenuContent>
     </DropdownMenu>

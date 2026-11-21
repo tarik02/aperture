@@ -139,7 +139,7 @@ export function SessionActionsMenu({ session }: { session: Session }) {
         onOpenChange={(open) => setDialog(open ? "proxy" : null)}
       />
       <SaveSnapshotDialog
-        sessionId={session.id}
+        session={session}
         open={dialog === "snapshot"}
         onOpenChange={(open) => setDialog(open ? "snapshot" : null)}
       />

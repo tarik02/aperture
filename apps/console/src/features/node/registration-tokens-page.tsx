@@ -12,6 +12,7 @@ import { useState } from "react";
 import { NameDialog } from "#/components/name-dialog.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { SecretDialog } from "#/components/secret-dialog.tsx";
+import { TablePage } from "#/components/table-page.tsx";
 import { useCreateRegistrationTokenMutation } from "#/features/node/node.mutations.ts";
 import { useRegistrationTokensQuery } from "#/features/node/node.queries.ts";
 import { told } from "#/lib/api.ts";
@@ -26,7 +27,7 @@ export function RegistrationTokensPage() {
   const [secret, setSecret] = useState<string>();
 
   return (
-    <div className="aperture:p-4">
+    <TablePage>
       <PageHeaderActions>
         <Button data-console-registration-token-new size="sm" onClick={() => setCreating(true)}>
           <Plus />
@@ -45,7 +46,7 @@ export function RegistrationTokensPage() {
           No registration tokens yet. A node registers itself with one.
         </p>
       ) : (
-        <Table scrollable={false}>
+        <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
@@ -76,6 +77,6 @@ export function RegistrationTokensPage() {
         secret={secret}
         onClose={() => setSecret(undefined)}
       />
-    </div>
+    </TablePage>
   );
 }

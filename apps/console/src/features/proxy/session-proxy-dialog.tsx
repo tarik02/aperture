@@ -31,7 +31,7 @@ export function SessionProxyDialog({ sessionId, open, onOpenChange }: SessionPro
   const kept = useSessionProxyQuery(sessionId, open);
 
   return (
-    <FreshDialog open={open} onOpenChange={onOpenChange}>
+    <FreshDialog open={open} onOpenChange={onOpenChange} className="aperture:sm:max-w-xl">
       {/* What was kept when the dialog last opened is not what is edited from. */}
       {kept.data === undefined || (open && kept.isFetching) ? (
         <DialogHeader>

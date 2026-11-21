@@ -28,7 +28,7 @@ type SessionCreateDialogProps = {
 /** A session made as it is asked for: named, from a snapshot, routed, tagged. */
 export function SessionCreateDialog({ open, onOpenChange }: SessionCreateDialogProps) {
   return (
-    <FreshDialog open={open} onOpenChange={onOpenChange}>
+    <FreshDialog open={open} onOpenChange={onOpenChange} className="aperture:sm:max-w-xl">
       <CreateForm onDone={() => onOpenChange(false)} />
     </FreshDialog>
   );

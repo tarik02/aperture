@@ -1,5 +1,7 @@
 import { Button } from "@aperture-browser/ui/components/button";
 import { Input } from "@aperture-browser/ui/components/input";
+import { ScrollArea } from "@aperture-browser/ui/components/scroll-area";
+import { Separator } from "@aperture-browser/ui/components/separator";
 import { ChevronDown, Pause, Play, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Choice } from "#/components/choice.tsx";
@@ -121,7 +123,7 @@ export function SessionsPage() {
   const clear = { onSettled: () => setSelected(new Set()) };
 
   return (
-    <div className="aperture:flex aperture:flex-col aperture:gap-4 aperture:p-4">
+    <div className="aperture:relative aperture:h-full">
       <PageHeaderActions>
         <Input
           ref={searchInput}
@@ -160,80 +162,96 @@ export function SessionsPage() {
           </Button>
         </div>
       </PageHeaderActions>
+      <ScrollArea className="aperture:h-full">
+        <div className="aperture:flex aperture:flex-col aperture:gap-4 aperture:p-4">
+          {sessions.isError ? (
+            <p role="alert" className="aperture:text-sm aperture:text-destructive">
+              {told(sessions.error)}
+            </p>
+          ) : null}
+          {sessions.data !== undefined && shown.length === 0 ? (
+            <p
+              data-console-empty
+              className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
+            >
+              {sessions.data.length === 0 ? "No sessions yet." : "No session matches."}
+            </p>
+          ) : (
+            <div className="aperture:grid aperture:grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] aperture:gap-4">
+              {shown.map((session) => (
+                <SessionCard
+                  key={session.id}
+                  session={session}
+                  selected={selected.has(session.id)}
+                  onSelect={(on, range) => select(session.id, on, range)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </ScrollArea>
       {chosen.length > 0 ? (
-        <div
-          data-console-bulk
-          role="toolbar"
-          aria-label="Selected sessions"
-          // Floats over the sessions, where it is at hand however far the page is scrolled.
-          className="aperture:fixed aperture:bottom-6 aperture:left-1/2 aperture:z-40 aperture:flex aperture:max-w-[calc(100vw-2rem)] aperture:-translate-x-1/2 aperture:animate-in aperture:items-center aperture:gap-2 aperture:rounded-full aperture:border aperture:bg-popover aperture:py-1.5 aperture:pr-1.5 aperture:pl-4 aperture:text-sm aperture:text-popover-foreground aperture:shadow-lg aperture:duration-150 aperture:fade-in-0 aperture:slide-in-from-bottom-4"
-        >
-          <span className="aperture:pr-2 aperture:whitespace-nowrap">{chosen.length} selected</span>
-          <Button
-            size="sm"
-            className="aperture:rounded-full"
-            variant="outline"
-            disabled={busy}
-            onClick={() => suspend.mutate(chosen, clear)}
+        // Over the middle of the page, whatever the sidebar takes of the window, and at
+        // hand however far the sessions are scrolled.
+        <div className="aperture:pointer-events-none aperture:absolute aperture:inset-x-3 aperture:bottom-5 aperture:z-40 aperture:flex aperture:justify-center">
+          <div
+            data-console-bulk
+            role="toolbar"
+            aria-label="Selected sessions"
+            className="aperture:pointer-events-auto aperture:flex aperture:min-h-9 aperture:max-w-full aperture:animate-in aperture:flex-wrap aperture:items-center aperture:gap-2 aperture:rounded-lg aperture:bg-popover aperture:px-2 aperture:py-1 aperture:text-popover-foreground aperture:shadow-md aperture:ring-1 aperture:ring-foreground/10 aperture:duration-150 aperture:fade-in-0 aperture:slide-in-from-bottom-2"
           >
-            <Pause />
-            Suspend
-          </Button>
-          <Button
-            size="sm"
-            className="aperture:rounded-full"
-            variant="outline"
-            disabled={busy}
-            onClick={() => resume.mutate(chosen, clear)}
-          >
-            <Play />
-            Resume
-          </Button>
-          <Button
-            size="sm"
-            className="aperture:rounded-full"
-            variant="destructive"
-            disabled={busy}
-            onClick={() => setConfirming(chosen.length)}
-          >
-            <Trash2 />
-            Delete
-          </Button>
-          <Button
-            size="icon-sm"
-            className="aperture:rounded-full"
-            variant="ghost"
-            aria-label="Clear selection"
-            onClick={() => setSelected(new Set())}
-          >
-            <X />
-          </Button>
-        </div>
-      ) : null}
-      {sessions.isError ? (
-        <p role="alert" className="aperture:text-sm aperture:text-destructive">
-          {told(sessions.error)}
-        </p>
-      ) : null}
-      {sessions.data !== undefined && shown.length === 0 ? (
-        <p
-          data-console-empty
-          className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
-        >
-          {sessions.data.length === 0 ? "No sessions yet." : "No session matches."}
-        </p>
-      ) : (
-        <div className="aperture:grid aperture:grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] aperture:gap-4">
-          {shown.map((session) => (
-            <SessionCard
-              key={session.id}
-              session={session}
-              selected={selected.has(session.id)}
-              onSelect={(on, range) => select(session.id, on, range)}
+            <span className="aperture:pl-1 aperture:text-sm aperture:whitespace-nowrap aperture:text-muted-foreground">
+              {chosen.length} selected
+            </span>
+            <Separator
+              orientation="vertical"
+              className="aperture:data-vertical:h-5 aperture:data-vertical:self-center"
             />
-          ))}
+            <div className="aperture:flex aperture:flex-wrap aperture:items-center aperture:gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => suspend.mutate(chosen, clear)}
+              >
+                <Pause />
+                Suspend
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => resume.mutate(chosen, clear)}
+              >
+                <Play />
+                Resume
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={busy}
+                onClick={() => setConfirming(chosen.length)}
+              >
+                <Trash2 />
+                Delete
+              </Button>
+            </div>
+            <Separator
+              orientation="vertical"
+              className="aperture:data-vertical:h-5 aperture:data-vertical:self-center"
+            />
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label="Clear selection"
+              onClick={() => setSelected(new Set())}
+            >
+              <X />
+              Clear
+            </Button>
+          </div>
         </div>
-      )}
+      ) : null}
       <SessionCreateDialog open={creating} onOpenChange={setCreating} />
       <ConfirmDialog
         open={confirming !== undefined}

@@ -59,7 +59,7 @@ export function WorkspaceMembersDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="aperture:sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{workspace.name}</DialogTitle>
           <DialogDescription>Its members all have its sessions and snapshots.</DialogDescription>
