@@ -33,6 +33,9 @@ export interface SessionsStoreShape {
   readonly on: (nodeId: string) => Effect.Effect<ReadonlyArray<string>>;
   /** Writes what its owner calls a session and tags it with; what is left out stays. */
   readonly describe: (id: string, said: SessionDescription) => Effect.Effect<void>;
+  /** A session's routing as it is kept: sealed. None for one that has none. */
+  readonly proxyOf: (id: string) => Effect.Effect<Option.Option<string>>;
+  readonly keepProxy: (id: string, sealed: string | null) => Effect.Effect<void>;
   readonly desire: (id: string, state: DesiredState) => Effect.Effect<void>;
   readonly delete: (id: string) => Effect.Effect<void>;
   /** Writes what a node said of a session that is on it; the node is in reach, then. */

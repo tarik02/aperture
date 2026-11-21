@@ -1,6 +1,7 @@
 import type { DesiredState } from "@aperture-browser/control-api";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import { all, done, first, one } from "../store/rows.ts";
@@ -62,6 +63,20 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     }
   });
 
+  const proxyOf = Effect.fn("SessionsStore.proxyOf")(function* (id: string) {
+    const row = yield* sql`SELECT proxy_sealed FROM sessions WHERE id = ${id}`.pipe(
+      first(Schema.Struct({ proxySealed: Schema.NullOr(Schema.String) })),
+    );
+    return Option.flatMapNullishOr(row, (found) => found.proxySealed);
+  });
+
+  const keepProxy = Effect.fn("SessionsStore.keepProxy")(function* (
+    id: string,
+    sealed: string | null,
+  ) {
+    yield* sql`UPDATE sessions SET proxy_sealed = ${sealed} WHERE id = ${id}`.pipe(done);
+  });
+
   const desire = Effect.fn("SessionsStore.desire")(function* (id: string, state: DesiredState) {
     yield* sql`UPDATE sessions SET desired_state = ${state} WHERE id = ${id}`.pipe(done);
   });
@@ -121,6 +136,8 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     listOf,
     on,
     describe,
+    proxyOf,
+    keepProxy,
     desire,
     delete: delete_,
     observe,

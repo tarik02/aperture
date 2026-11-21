@@ -1,4 +1,4 @@
-import type { Access, Caller } from "@aperture-browser/control-api";
+import type { Access, Caller, ProxyConfig } from "@aperture-browser/control-api";
 import type { ExecutorError, proto } from "@aperture-browser/executor-client";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
@@ -19,6 +19,7 @@ export interface NewSessionOptions {
   readonly suspended: boolean;
   readonly snapshotId: string | undefined;
   readonly label: string | undefined;
+  readonly proxy: ProxyConfig | undefined;
   readonly tags: Readonly<Record<string, string>>;
 }
 
@@ -54,6 +55,17 @@ export interface SessionsShape {
     { readonly session: Session; readonly node: Node },
     SessionNotFound | SessionHasNoNode
   >;
+  /** A session's routing as it was last set here; none where everything goes direct. */
+  readonly proxy: (
+    caller: Caller,
+    id: string,
+  ) => Effect.Effect<ProxyConfig | null, SessionNotFound>;
+  /** Sets how the session's browser connections are routed; with none, all go direct. */
+  readonly setProxy: (
+    caller: Caller,
+    id: string,
+    proxy: ProxyConfig | null,
+  ) => Effect.Effect<void, NodeError>;
   readonly suspend: (caller: Caller, id: string) => Effect.Effect<Session, NodeError>;
   readonly resume: (caller: Caller, id: string) => Effect.Effect<Session, NodeError>;
   readonly delete: (caller: Caller, id: string) => Effect.Effect<void, NodeError>;

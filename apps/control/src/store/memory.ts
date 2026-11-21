@@ -18,6 +18,8 @@ export interface MemoryShape {
   readonly registrationTokens: Map<string, RegistrationToken>;
   readonly nodes: Map<string, NodeRecord>;
   readonly sessions: Map<string, Session>;
+  /** Sessions' routing, sealed, by the session's id. */
+  readonly sessionProxies: Map<string, string>;
   readonly snapshots: Map<string, Snapshot>;
 }
 
@@ -32,6 +34,7 @@ export const layer = Layer.sync(Memory, () =>
     registrationTokens: new Map(),
     nodes: new Map(),
     sessions: new Map(),
+    sessionProxies: new Map(),
     snapshots: new Map(),
   }),
 );

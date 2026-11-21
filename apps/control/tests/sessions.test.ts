@@ -225,6 +225,26 @@ for (const stores of Control.STORES) {
           tags: { team: "shop" },
         });
 
+        // A session's routing is set through the control plane, and read back from it.
+        const routed = {
+          proxy: {
+            upstreams: { office: { url: "socks5://user:secret@127.0.0.1:9" } },
+            rules: [{ match: "*.internal.test", via: "office" }],
+          },
+        };
+        expect(yield* ada.api.sessions.proxy({ params: { id: session } })).toEqual({ proxy: null });
+        yield* ada.api.sessions.setProxy({ params: { id: session }, payload: routed });
+        expect(yield* ada.api.sessions.proxy({ params: { id: session } })).toEqual(routed);
+        yield* ada.api.sessions.setProxy({ params: { id: session }, payload: { proxy: null } });
+        expect(yield* ada.api.sessions.proxy({ params: { id: session } })).toEqual({ proxy: null });
+        const refusedRoute = yield* Effect.flip(
+          ada.api.sessions.setProxy({
+            params: { id: session },
+            payload: { proxy: { rules: [{ match: "*", via: "nowhere-named" }] } },
+          }),
+        );
+        expect(refusedRoute._tag).toBe("NodeRefused");
+
         yield* ada.api.snapshots.delete(at);
         expect(yield* ada.api.snapshots.list()).toEqual([]);
         expect((yield* Effect.flip(executor.client.snapshots.get(taken.id))).code).toBe(

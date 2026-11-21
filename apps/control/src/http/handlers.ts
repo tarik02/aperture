@@ -137,6 +137,7 @@ const sessions = HttpApiBuilder.group(
             suspended: payload.suspended ?? false,
             snapshotId: payload.snapshotId,
             label: payload.label,
+            proxy: payload.proxy,
             tags: payload.tags ?? {},
           }),
         ).pipe(Effect.map(told)),
@@ -150,6 +151,16 @@ const sessions = HttpApiBuilder.group(
         Effect.flatMap(CurrentCaller, (caller) =>
           sessions.describe(caller, params.id, payload),
         ).pipe(Effect.map(told)),
+      )
+      .handle("proxy", ({ params }) =>
+        Effect.flatMap(CurrentCaller, (caller) => sessions.proxy(caller, params.id)).pipe(
+          Effect.map((proxy) => ({ proxy })),
+        ),
+      )
+      .handle("setProxy", ({ params, payload }) =>
+        Effect.flatMap(CurrentCaller, (caller) =>
+          sessions.setProxy(caller, params.id, payload.proxy),
+        ).pipe(Effect.as(payload)),
       )
       .handle("suspend", ({ params }) =>
         Effect.flatMap(CurrentCaller, (caller) => sessions.suspend(caller, params.id)).pipe(

@@ -1,9 +1,15 @@
-import type { Access, Caller, ObservedState } from "@aperture-browser/control-api";
-import { type ExecutorError, proto } from "@aperture-browser/executor-client";
+import {
+  type Access,
+  type Caller,
+  type ObservedState,
+  ProxyConfig,
+} from "@aperture-browser/control-api";
+import { type ExecutorError, proto, type ProxyConfigInit } from "@aperture-browser/executor-client";
 import * as UrlPath from "@aperture-browser/shared/url-path";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import { accountOf, reaches } from "../accounts/caller.ts";
 import {
@@ -20,6 +26,7 @@ import { Nodes } from "../nodes/service.ts";
 import { SnapshotsStore } from "../snapshots/store.ts";
 import { Tickets } from "../tickets/service.ts";
 import { now } from "../time.ts";
+import { Vault } from "../vault/service.ts";
 import type { Admission, Observation } from "./schemas.ts";
 import { type NewSessionOptions, Sessions } from "./service.ts";
 import { type SessionDescription, SessionsStore } from "./store.ts";
@@ -41,11 +48,27 @@ const observationOf = (session: proto.Session): Observation | undefined => {
     : { id: session.id, state, failure: session.failure ?? null };
 };
 
+/** A session's routing as its node's executor takes it. */
+const toExecutor = (proxy: ProxyConfig): ProxyConfigInit => ({
+  upstreams: Object.fromEntries(
+    Object.entries(proxy.upstreams ?? {}).map(([name, upstream]) => [name, { ...upstream }]),
+  ),
+  rules: proxy.rules.map((rule) => ({ ...rule })),
+});
+
+const ProxyJson = Schema.fromJsonString(ProxyConfig);
+const encodeProxy = Schema.encodeSync(ProxyJson);
+const decodeProxy = Schema.decodeUnknownEffect(ProxyJson);
+
 export const makeSessions = Effect.fn("Sessions.make")(function* () {
   const store = yield* SessionsStore;
   const snapshots = yield* SnapshotsStore;
   const nodes = yield* Nodes;
   const tickets = yield* Tickets;
+  const vault = yield* Vault;
+
+  const seal = (id: string, proxy: ProxyConfig | null) =>
+    proxy === null ? Effect.succeed(null) : vault.seal(encodeProxy(proxy), id);
 
   // What a node says of a session comes two ways: in answer to a request made here,
   // and in the stream the node is followed by. One at a time for each node, and asked
@@ -135,7 +158,11 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
 
   const place = (
     candidates: ReadonlyArray<Node>,
-    wanted: { readonly suspended: boolean; readonly snapshotId: string | undefined },
+    wanted: {
+      readonly suspended: boolean;
+      readonly snapshotId: string | undefined;
+      readonly proxy: ProxyConfig | undefined;
+    },
   ): Effect.Effect<readonly [Node, proto.Session], NoNode | NodeRefused> => {
     const [node, ...rest] = candidates;
     if (node === undefined) {
@@ -143,7 +170,11 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     }
     return nodes
       .executor(node)
-      .sessions.create(wanted)
+      .sessions.create({
+        suspended: wanted.suspended,
+        snapshotId: wanted.snapshotId,
+        ...(wanted.proxy === undefined ? {} : { proxy: toExecutor(wanted.proxy) }),
+      })
       .pipe(
         asked(node),
         Effect.map((session) => [node, session] as const),
@@ -166,6 +197,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     const [node, session] = yield* place(candidates, {
       suspended: options.suspended,
       snapshotId: options.snapshotId,
+      proxy: options.proxy,
     });
     const created = session.createdAt;
     yield* store.insert({
@@ -181,6 +213,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       createdAt: created === undefined ? yield* now : new Date(Number(created.seconds) * 1000),
       now: yield* now,
     });
+    yield* store.keepProxy(session.id, yield* seal(session.id, options.proxy ?? null));
     // What the node said of the session while there was no record of it was dropped.
     yield* Effect.ignore(refresh(node, session.id));
     return yield* Effect.orDie(current(session.id));
@@ -208,6 +241,33 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     yield* owned(caller, id);
     yield* store.describe(id, said);
     return yield* current(id);
+  });
+
+  const proxy = Effect.fn("Sessions.proxy")(function* (caller: Caller, id: string) {
+    yield* owned(caller, id);
+    const sealed = yield* store.proxyOf(id);
+    if (Option.isNone(sealed)) {
+      return null;
+    }
+    // One that does not open, as after the master key changed, is told as none: the
+    // session's node still routes by it, and setting it again makes it known here.
+    return yield* vault.open(sealed.value, id).pipe(
+      Effect.flatMap(decodeProxy),
+      Effect.catch(() => Effect.succeed(null)),
+    );
+  });
+
+  const setProxy = Effect.fn("Sessions.setProxy")(function* (
+    caller: Caller,
+    id: string,
+    given: ProxyConfig | null,
+  ) {
+    const { node } = yield* placed(caller, id);
+    yield* nodes
+      .executor(node)
+      .sessions.setProxy(id, given === null ? undefined : toExecutor(given))
+      .pipe(asked(node));
+    yield* store.keepProxy(id, yield* seal(id, given));
   });
 
   const suspend = Effect.fn("Sessions.suspend")(function* (caller: Caller, id: string) {
@@ -305,6 +365,8 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     list,
     get,
     describe,
+    proxy,
+    setProxy,
     placed,
     suspend,
     resume,

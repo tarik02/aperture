@@ -56,3 +56,33 @@ export const Access = Schema.Record(
   Schema.optional(Schema.Literals(["r", "w", "rw"])),
 );
 export type Access = typeof Access.Type;
+
+/**
+ * How a session's browser connections are routed. The first rule that matches a
+ * connection decides; one no rule matches is made from the session's node.
+ */
+export const ProxyConfig = Schema.Struct({
+  /** The upstreams rules can route through, by name. */
+  upstreams: Schema.optional(
+    Schema.Record(
+      Schema.NonEmptyString,
+      Schema.Struct({
+        /** A proxy, with its credentials in the URL: `socks5://`, `http://`, `https://`. */
+        url: Schema.NonEmptyString,
+        /** The secret a tunnel is dialed with. */
+        auth: Schema.optional(Schema.String),
+      }),
+    ),
+  ),
+  rules: Schema.Array(
+    Schema.Struct({
+      /** `host` or `host:port`; the host is exact, `*.suffix`, or `*` for any. */
+      match: Schema.NonEmptyString,
+      /** `direct`, `refuse`, `local`, an upstream's name, or a proxy's URL. */
+      via: Schema.NonEmptyString,
+      to: Schema.optional(Schema.String),
+      tls: Schema.optional(Schema.Boolean),
+    }),
+  ),
+});
+export type ProxyConfig = typeof ProxyConfig.Type;

@@ -20,7 +20,7 @@ import {
   SnapshotNotFound,
   Unauthorized,
 } from "./errors.ts";
-import { Access, DesiredState, ObservedState, Offers } from "./schemas.ts";
+import { Access, DesiredState, ObservedState, Offers, ProxyConfig } from "./schemas.ts";
 
 /** Where the control plane's API is, apart from the routes of sessions and of nodes. */
 export const PREFIX = "/api/control";
@@ -131,6 +131,8 @@ export class Authorization extends HttpApiMiddleware.Service<
 const session = { id: Schema.String };
 /** What a session or a snapshot is found by: names, each with what it is set to. */
 const Tags = Schema.Record(Schema.NonEmptyString, Schema.String);
+/** A session's routing as it was last set through the control plane; none goes direct. */
+const SessionProxy = Schema.Struct({ proxy: Schema.NullOr(ProxyConfig) });
 const ofNode = [SessionNotFound, SessionHasNoNode, NodeUnreachable, NodeRefused] as const;
 
 export class AccountsGroup extends HttpApiGroup.make("accounts")
@@ -201,6 +203,7 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
         snapshotId: Schema.optional(Schema.NonEmptyString),
         label: Schema.optional(Schema.NonEmptyString),
         tags: Schema.optional(Tags),
+        proxy: Schema.optional(ProxyConfig),
       }),
       success: Session.pipe(HttpApiSchema.status(201)),
       error: [Forbidden, SnapshotNotFound, NoNode, NodeRefused],
@@ -218,6 +221,17 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
       }),
       success: Session,
       error: SessionNotFound,
+    }),
+    HttpApiEndpoint.get("proxy", "/sessions/:id/proxy", {
+      params: session,
+      success: SessionProxy,
+      error: SessionNotFound,
+    }),
+    HttpApiEndpoint.put("setProxy", "/sessions/:id/proxy", {
+      params: session,
+      payload: SessionProxy,
+      success: SessionProxy,
+      error: ofNode,
     }),
     HttpApiEndpoint.post("suspend", "/sessions/:id/suspend", {
       params: session,

@@ -72,6 +72,20 @@ export const makeSessionsStoreMemory = Effect.fn("SessionsStore.makeMemory")(fun
     ),
   );
 
+  const proxyOf = Effect.fn("SessionsStore.proxyOf")((id: string) =>
+    Effect.sync(() => Option.fromUndefinedOr(memory.sessionProxies.get(id))),
+  );
+
+  const keepProxy = Effect.fn("SessionsStore.keepProxy")((id: string, sealed: string | null) =>
+    Effect.sync(() => {
+      if (sealed === null) {
+        memory.sessionProxies.delete(id);
+      } else {
+        memory.sessionProxies.set(id, sealed);
+      }
+    }),
+  );
+
   const desire = Effect.fn("SessionsStore.desire")((id: string, state: DesiredState) =>
     change(
       (session) => session.id === id,
@@ -82,6 +96,7 @@ export const makeSessionsStoreMemory = Effect.fn("SessionsStore.makeMemory")(fun
   const delete_ = Effect.fn("SessionsStore.delete")((id: string) =>
     Effect.sync(() => {
       memory.sessions.delete(id);
+      memory.sessionProxies.delete(id);
     }),
   );
 
@@ -137,6 +152,8 @@ export const makeSessionsStoreMemory = Effect.fn("SessionsStore.makeMemory")(fun
     listOf,
     on,
     describe,
+    proxyOf,
+    keepProxy,
     desire,
     delete: delete_,
     observe,

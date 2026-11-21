@@ -83,6 +83,8 @@ const initial = statements([
     snapshot_id text,
     label text,
     tags jsonb NOT NULL DEFAULT '{}',
+    -- Its routing names proxies with their credentials, so it is sealed as a secret is.
+    proxy_sealed text,
     created_at timestamptz NOT NULL,
     observed_at timestamptz NOT NULL
   )`,
