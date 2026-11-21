@@ -24,7 +24,7 @@ import * as Secrets from "../secrets.ts";
 import { Settings } from "../settings/service.ts";
 import { Tickets } from "../tickets/service.ts";
 import { after, ago, now } from "../time.ts";
-import type { Entered, Guest, Share } from "./schemas.ts";
+import { type Entered, type Guest, guestsOf, type Share } from "./schemas.ts";
 import { Shares } from "./service.ts";
 import { SharesStore } from "./store.ts";
 
@@ -61,9 +61,6 @@ export const guestName = (given: string) => {
   const kept = Array.from(letters.segment(line), (letter) => letter.segment).slice(0, NAME_MOST);
   return kept.join("").trim() || UNNAMED;
 };
-
-/** Who a guest of a link is to the session's node. */
-const subjectOf = (share: Share) => `share:${share.id}`;
 
 export const makeShares = Effect.fn("Shares.make")(function* () {
   const store = yield* SharesStore;
@@ -123,7 +120,7 @@ export const makeShares = Effect.fn("Shares.make")(function* () {
     if (Option.isNone(node)) {
       return;
     }
-    const url = UrlPath.make`${UrlPath.raw(node.value.internalUrl)}/sessions/${share.sessionId}/callers/${subjectOf(share)}`;
+    const url = UrlPath.make`${UrlPath.raw(node.value.internalUrl)}/sessions/${share.sessionId}/callers/${guestsOf(share.id)}`;
     yield* client
       .execute(
         HttpClientRequest.delete(url).pipe(HttpClientRequest.bearerToken(node.value.operatorToken)),
@@ -235,7 +232,7 @@ export const makeShares = Effect.fn("Shares.make")(function* () {
     yield* noted(share);
     const issued = yield* tickets.issue({
       sessionId: share.sessionId,
-      subject: subjectOf(share),
+      subject: guestsOf(share.id),
       name: guestName(guest.name),
       access: ACCESS[share.role],
       until: share.expiresAt,

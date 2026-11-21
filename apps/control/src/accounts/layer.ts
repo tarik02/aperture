@@ -28,6 +28,8 @@ import { Nodes } from "../nodes/service.ts";
 import { SessionsStore } from "../sessions/store.ts";
 import { SnapshotsStore } from "../snapshots/store.ts";
 import * as Secrets from "../secrets.ts";
+import { guestsOf, type Share } from "../shares/schemas.ts";
+import { SharesStore } from "../shares/store.ts";
 import { Settings } from "../settings/service.ts";
 import { after, now } from "../time.ts";
 import { accountOf, reaches } from "./caller.ts";
@@ -50,6 +52,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
   const nodes = yield* Nodes;
   const client = yield* HttpClient.HttpClient;
   const grants = yield* GrantsStore;
+  const shares = yield* SharesStore;
   const workspaces = yield* WorkspacesStore;
   const identity = yield* Identity;
   const settings = yield* Settings;
@@ -197,19 +200,28 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
   });
 
   /**
-   * Has the nodes close the sockets someone has open into sessions as the account: what
-   * was opened with a ticket stays open after the ticket otherwise.
+   * Has the nodes close the sockets someone has open into sessions as the account, and
+   * those of the guests of the links it made: what was opened with a ticket stays open
+   * after the ticket otherwise.
    */
-  const dismiss = Effect.fn(function* (id: string) {
+  const dismiss = Effect.fn(function* (id: string, links: ReadonlyArray<Share>) {
     const running = (yield* sessions.list()).filter((session) => session.nodeId !== null);
+    const out = [
+      ...running.map((session) => ({ session, subject: id })),
+      ...links.flatMap((link) =>
+        running
+          .filter((session) => session.id === link.sessionId)
+          .map((session) => ({ session, subject: guestsOf(link.id) })),
+      ),
+    ];
     yield* Effect.forEach(
-      running,
-      Effect.fn(function* (session) {
+      out,
+      Effect.fn(function* ({ session, subject }) {
         const node = session.nodeId === null ? Option.none() : yield* nodes.find(session.nodeId);
         if (Option.isNone(node)) {
           return;
         }
-        const url = UrlPath.make`${UrlPath.raw(node.value.internalUrl)}/sessions/${session.id}/callers/${id}`;
+        const url = UrlPath.make`${UrlPath.raw(node.value.internalUrl)}/sessions/${session.id}/callers/${subject}`;
         yield* client
           .execute(
             HttpClientRequest.delete(url).pipe(
@@ -238,7 +250,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
       // Someone a provider vouched for may not have come since their account was made.
       yield* identity.signOut(account.email).pipe(Effect.ignore);
     }
-    yield* dismiss(id);
+    yield* dismiss(id, yield* shares.listBy(id));
     return disabled;
   });
 
@@ -265,8 +277,10 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
       // Gone already where removing was tried before and did not end.
       yield* identity.remove(account.email).pipe(Effect.ignore);
     }
-    yield* dismiss(id);
+    // Its links go with it, and nobody is told which they were afterwards.
+    const links = yield* shares.listBy(id);
     yield* store.delete(id);
+    yield* dismiss(id, links);
   });
 
   const createToken = Effect.fn("Accounts.createToken")(function* (

@@ -33,6 +33,14 @@ export const makeSharesStoreMemory = Effect.fn("SharesStore.makeMemory")(functio
     ),
   );
 
+  const listBy = Effect.fn("SharesStore.listBy")((accountId: string) =>
+    Effect.sync(() =>
+      ordered(memory.shares.values(), (share) => share.createdAt).filter(
+        (share) => share.accountId === accountId,
+      ),
+    ),
+  );
+
   const find = Effect.fn("SharesStore.find")((id: string) =>
     Effect.sync(() => Option.fromUndefinedOr(byId(id)?.[1])),
   );
@@ -40,7 +48,11 @@ export const makeSharesStoreMemory = Effect.fn("SharesStore.makeMemory")(functio
   const findByTokenHash = Effect.fn("SharesStore.findByTokenHash")((tokenHash: string, now: Date) =>
     Effect.sync(() =>
       Option.fromUndefinedOr(memory.shares.get(tokenHash)).pipe(
-        Option.filter((share) => share.expiresAt === null || isAfter(share.expiresAt, now)),
+        Option.filter(
+          (share) =>
+            (share.expiresAt === null || isAfter(share.expiresAt, now)) &&
+            (memory.accounts.get(share.accountId)?.disabledAt ?? null) === null,
+        ),
       ),
     ),
   );
@@ -66,7 +78,15 @@ export const makeSharesStoreMemory = Effect.fn("SharesStore.makeMemory")(functio
     }),
   );
 
-  return SharesStore.of({ insert, listOf, find, findByTokenHash, delete: delete_, used });
+  return SharesStore.of({
+    insert,
+    listOf,
+    listBy,
+    find,
+    findByTokenHash,
+    delete: delete_,
+    used,
+  });
 });
 
 export const layerTest = Layer.effect(SharesStore, makeSharesStoreMemory());

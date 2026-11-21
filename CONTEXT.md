@@ -81,11 +81,11 @@ Where a session is reached through a proxy that stands before the nodes, below t
 The one secret a control plane is given beside its database: what it has to read again, such as a node's operator token, is kept sealed with a key made of it. It is not in the database, and stays the same for as long as what was sealed is to be read.
 
 **Account**:
-Whose sessions, snapshots and API tokens are, in the control plane. An admin account also makes accounts and registration tokens, disables accounts and removes them. An account is removed once no session and no snapshot names it, and its API tokens, its grants, the share links it made and its places in workspaces go with it.
+Whose sessions, snapshots and API tokens are, in the control plane. An admin account also makes accounts and registration tokens, disables accounts and removes them. An account is removed once no session and no snapshot names it, and its API tokens, its grants, the share links it made and its places in workspaces go with it, and the guests of those links are put out.
 _Avoid_: Tenant, user
 
 **Disabled**:
-Said of an account an admin took out of use without removing it: nothing signs in as it, whatever it proves itself by, its cookies, its API tokens and the tokens of its grants are nobody's at once, and whoever is in a session as it is put out. All that is its own stays, and it is as it was once an admin enables it. Nobody disables or removes their own account, and the last admin stays.
+Said of an account an admin took out of use without removing it: nothing signs in as it, whatever it proves itself by, its cookies, its API tokens and the tokens of its grants are nobody's at once, and whoever is in a session as it is put out. The share links it made let nobody in while it is, and their guests are put out with it. All that is its own stays, and it is as it was once an admin enables it. Nobody disables or removes their own account, and the last admin stays.
 _Avoid_: Blocked, banned, suspended (which is a session's)
 
 **Ticket**:
@@ -93,7 +93,7 @@ A signed, expiring pass for one person into one session. It lets its holder watc
 _Avoid_: Session token, share link
 
 **Share link**:
-What lets someone with no account into one session: whoever has the session makes it, to watch or to control, for a time or until they take it back. Its secret is told once, in a link, and kept as a digest. Whoever opens the link is a guest: they say what the others are to call them, and are shown the session's workbench and nothing else. A guest who controls gives input, changes tabs, takes a tab, and has the clipboard and the sound; the session's files, routing, automation and DevTools endpoint are no guest's. Taking a link back puts its guests out at once, and so does its running out.
+What lets someone with no account into one session: whoever has the session makes it, to watch or to control, for a time or until they take it back. Its secret is told once, in a link, and kept as a digest. Whoever opens the link is a guest: they say what the others are to call them, and are shown the session's workbench and nothing else. A guest who controls gives input, changes tabs, takes a tab, and has the clipboard and the sound; the session's files, routing, automation and DevTools endpoint are no guest's. Taking a link back puts its guests out at once, and so does its running out, and the disabling or removing of the account that made it.
 _Avoid_: Invite, public link, session token
 
 **Access**:

@@ -33,6 +33,13 @@ export const makeSharesStore = Effect.fn("SharesStore.make")(function* () {
     `.pipe(all(Share));
   });
 
+  const listBy = Effect.fn("SharesStore.listBy")(function* (accountId: string) {
+    return yield* sql`
+      SELECT ${share} FROM session_shares WHERE account_id = ${accountId}
+      ORDER BY created_at, id
+    `.pipe(all(Share));
+  });
+
   const find = Effect.fn("SharesStore.find")(function* (id: string) {
     return yield* sql`SELECT ${share} FROM session_shares WHERE id::text = ${id}`.pipe(
       first(Share),
@@ -46,6 +53,10 @@ export const makeSharesStore = Effect.fn("SharesStore.make")(function* () {
     return yield* sql`
       SELECT ${share} FROM session_shares
       WHERE token_hash = ${tokenHash} AND (expires_at IS NULL OR expires_at > ${now})
+        AND NOT EXISTS (
+          SELECT 1 FROM accounts
+          WHERE accounts.id = session_shares.account_id AND accounts.disabled_at IS NOT NULL
+        )
     `.pipe(first(Share));
   });
 
@@ -60,7 +71,15 @@ export const makeSharesStore = Effect.fn("SharesStore.make")(function* () {
     `.pipe(done);
   });
 
-  return SharesStore.of({ insert, listOf, find, findByTokenHash, delete: delete_, used });
+  return SharesStore.of({
+    insert,
+    listOf,
+    listBy,
+    find,
+    findByTokenHash,
+    delete: delete_,
+    used,
+  });
 });
 
 export const layer = Layer.effect(SharesStore, makeSharesStore());

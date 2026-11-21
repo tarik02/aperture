@@ -45,8 +45,9 @@ export interface AccountsShape {
   /**
    * Disables an account: nothing signs in as it, and its cookies, API tokens and the
    * tokens of its grants are nobody's from then on, while all that is its own stays.
-   * Whoever is in a session as it is put out. Nobody disables their own account, and
-   * the last admin stays.
+   * Whoever is in a session as it is put out, and so are the guests of the share links
+   * it made, which let nobody in until it is in use again. Nobody disables their own
+   * account, and the last admin stays.
    */
   readonly disable: (
     caller: Caller,
@@ -56,8 +57,8 @@ export interface AccountsShape {
   readonly enable: (id: string) => Effect.Effect<Account, AccountNotFound>;
   /**
    * Removes an account with its person, its API tokens, its grants, the share links it
-   * made and its places in workspaces. Not while a session or a snapshot names it: those
-   * are removed first. Nobody removes their own account, and the last admin stays.
+   * made, whose guests are put out, and its places in workspaces. Not while a session or
+   * a snapshot names it: those are removed first. Nobody removes their own account, and the last admin stays.
    */
   readonly remove: (
     caller: Caller,

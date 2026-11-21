@@ -19,6 +19,9 @@ export const Share = Schema.Struct({
 });
 export type Share = typeof Share.Type;
 
+/** Who the guests of a link are to the session's node: by that it puts them out. */
+export const guestsOf = (shareId: string) => `share:${shareId}`;
+
 /** A guest as their browser carries them: the link's secret, and what they chose to be called. */
 export interface Guest {
   readonly token: string;

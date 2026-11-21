@@ -453,6 +453,59 @@ for (const stores of Control.STORES) {
         }),
     );
 
+    it.effect(
+      "the links of an account that is disabled let nobody in while it is, and one that is removed takes them with it; their guests are put out",
+      () =>
+        Effect.gen(function* () {
+          const control = yield* Control.Control;
+          const executor = yield* Executor.Executor;
+          const bootstrap = yield* control.as(control.bootstrapToken);
+          const at = { url: `${executor.url}/sessions/${session}` };
+          // An admin reaches the session, and so makes a link into it that is their own.
+          const root = yield* Control.account(`Root-of-links-${stores}`, true);
+          // The last admin stays, so there is another beside them.
+          yield* Control.account(`Another-admin-${stores}`, true);
+          const made = yield* root.api.shares.create({
+            params: { id: session },
+            payload: { name: "An admin's", role: "watch" },
+          });
+          const link = linkOf(made.url);
+          const whose = { params: { id: root.account.id } };
+          const asked = `/api/control/share/${link.id}`;
+
+          const grace = yield* enter(link, "Grace");
+          const first = yield* Tickets.join(
+            at,
+            (yield* ticketFor(grace.cookie, `${path}/ws`)).ticket,
+          );
+          yield* bootstrap.accounts.disable(whose);
+          yield* until(
+            "the guest of a disabled account's link being put out",
+            Effect.sync(() => first.closed()),
+          );
+          expect((yield* browse("GET", `${path}/targets`, grace.cookie)).status).toBe(401);
+          expect((yield* browse("POST", asked, grace.cookie, {})).status).toBe(401);
+          expect((yield* ticketFor(grace.cookie, `${path}/ws`)).status).toBe(401);
+
+          // In use again, the account's links are as they were.
+          yield* bootstrap.accounts.enable(whose);
+          expect((yield* browse("POST", asked, grace.cookie, {})).status).toBe(200);
+          const again = yield* Tickets.join(
+            at,
+            (yield* ticketFor(grace.cookie, `${path}/ws`)).ticket,
+          );
+          yield* bootstrap.accounts.remove(whose);
+          yield* until(
+            "the guest of a removed account's link being put out",
+            Effect.sync(() => again.closed()),
+          );
+          expect((yield* browse("GET", `${path}/targets`, grace.cookie)).status).toBe(401);
+          expect(
+            (yield* ada.api.shares.list({ params: { id: session } })).map((one) => one.id),
+          ).not.toContain(link.id);
+        }),
+    );
+
     it.effect("a session that is deleted takes its links with it", () =>
       Effect.gen(function* () {
         const made = yield* ada.api.shares.create({
