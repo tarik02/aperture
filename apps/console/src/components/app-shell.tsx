@@ -51,15 +51,15 @@ export function AppShell({ layout, children }: AppShellProps) {
       <SidebarInset className={INSET}>
         <header
           data-app-titlebar=""
-          className="aperture:flex aperture:h-[calc(3rem+env(safe-area-inset-top))] aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:border-b aperture:px-3 aperture:pt-[env(safe-area-inset-top)]"
+          className="aperture:flex aperture:h-[calc(3rem+env(safe-area-inset-top))] aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:border-b aperture:px-3 aperture:pt-[env(safe-area-inset-top)] aperture:max-sm:gap-1 aperture:max-sm:px-2"
         >
           <SidebarTrigger className="aperture:-ml-1" />
-          <h1 className="aperture:min-w-0 aperture:shrink-0 aperture:truncate aperture:pr-2 aperture:text-sm aperture:font-semibold aperture:max-sm:flex-1 aperture:max-sm:shrink">
+          <h1 className="aperture:min-w-0 aperture:shrink-0 aperture:truncate aperture:pr-2 aperture:text-sm aperture:font-semibold aperture:max-sm:shrink">
             {page}
           </h1>
           <div
             ref={setHeaderActions}
-            className="aperture:flex aperture:min-w-0 aperture:items-center aperture:justify-end aperture:gap-2 aperture:max-sm:shrink-0 aperture:max-sm:gap-1 aperture:sm:flex-1"
+            className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:justify-end aperture:gap-2 aperture:max-sm:min-w-min aperture:max-sm:gap-1"
           />
         </header>
         <div className="aperture:relative aperture:min-h-0 aperture:flex-1">
