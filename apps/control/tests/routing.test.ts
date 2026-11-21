@@ -232,6 +232,15 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* shot(page, fs, "console-sessions-dark");
       yield* page.evaluate(AUTO);
 
+      // A right click on the card offers what its button does.
+      const at = yield* page.box(card);
+      yield* page.clickAt(at.x, at.y - 40, "right");
+      yield* page.until(`!!document.querySelector("[data-console-session-context]")`);
+      expect(yield* page.text("[data-console-session-context]")).toContain("Save to snapshot");
+      yield* shot(page, fs, "console-context-menu");
+      yield* page.key("Escape", "Escape", ESCAPE);
+      yield* page.until(`!document.querySelector("[data-console-session-context]")`);
+
       // What is selected is acted on from a bar that floats over the sessions.
       yield* page.click(`${card} input[type="checkbox"]`);
       yield* page.until(`!!document.querySelector("[data-console-bulk]")`);

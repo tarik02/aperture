@@ -11,7 +11,13 @@ export interface ProxyDraft {
   /** One proxy for everything. */
   readonly url: string;
   readonly upstreams: ReadonlyArray<{ readonly name: string; readonly url: string }>;
-  readonly rules: ReadonlyArray<{ readonly match: string; readonly via: string }>;
+  readonly rules: ReadonlyArray<{
+    readonly match: string;
+    /** `direct`, `refuse`, `local`, an upstream's name, or a proxy's address. */
+    readonly via: string;
+    /** Whether `via` is a proxy's address typed in, and not one of the ways there are. */
+    readonly typed?: boolean;
+  }>;
 }
 
 export const emptyDraft: ProxyDraft = { mode: "direct", url: "", upstreams: [], rules: [] };
@@ -38,7 +44,11 @@ export const draftOf = (proxy: ProxyConfig | null): ProxyDraft => {
     mode: "advanced",
     url: "",
     upstreams,
-    rules: proxy.rules.map((rule) => ({ match: rule.match, via: rule.via })),
+    rules: proxy.rules.map((rule) => ({
+      match: rule.match,
+      via: rule.via,
+      typed: !WAYS.includes(rule.via) && !(rule.via in (proxy.upstreams ?? {})),
+    })),
   };
 };
 
@@ -72,12 +82,23 @@ export const proxyRules = (draft: ProxyDraft) => {
     if (draft.upstreams.some((one) => (one.name.trim() === "") !== (one.url.trim() === ""))) {
       return "An upstream needs both a name and an address";
     }
-    if (draft.rules.some((rule) => (rule.match.trim() === "") !== (rule.via.trim() === ""))) {
+    if (draft.rules.some((rule) => rule.match.trim() === "" || rule.via.trim() === "")) {
       return "A rule needs both what it matches and where that goes";
+    }
+    const upstreams = draft.upstreams.map((one) => one.name.trim());
+    const lost = draft.rules.find(
+      (rule) => rule.typed !== true && !WAYS.includes(rule.via) && !upstreams.includes(rule.via),
+    );
+    if (lost !== undefined) {
+      return `A rule goes through ${lost.via}, which is no upstream above`;
     }
   }
   return undefined;
 };
+
+/** The ways a rule sends connections that need no upstream. */
+const WAYS: ReadonlyArray<string> = ["direct", "refuse", "local"];
+const TYPED = "\u0000typed";
 
 const MODES = [
   { value: "direct", label: "Direct, from the node" },
@@ -195,17 +216,51 @@ export function ProxyEditor({ draft, error, onChange }: ProxyEditorProps) {
                     })
                   }
                 />
-                <Input
+                <Choice
                   aria-label="Rule route"
-                  placeholder="direct, refuse, local or an upstream"
-                  value={rule.via}
-                  onChange={(event) =>
+                  className="aperture:w-44 aperture:shrink-0"
+                  value={rule.typed === true ? TYPED : rule.via}
+                  options={[
+                    { value: "direct", label: "Direct" },
+                    { value: "refuse", label: "Refuse" },
+                    { value: "local", label: "Local tunnel" },
+                    ...draft.upstreams
+                      .filter((one) => one.name.trim() !== "")
+                      .map((one) => ({ value: one.name.trim(), label: one.name.trim() })),
+                    // One that names an upstream which is gone still says which.
+                    ...(rule.typed !== true &&
+                    !WAYS.includes(rule.via) &&
+                    !draft.upstreams.some((one) => one.name.trim() === rule.via)
+                      ? [{ value: rule.via, label: `${rule.via} (missing)` }]
+                      : []),
+                    { value: TYPED, label: "Proxy address…" },
+                  ]}
+                  onChange={(via) =>
                     onChange({
                       ...draft,
-                      rules: replaced(draft.rules, at, { ...rule, via: event.target.value }),
+                      rules: replaced(
+                        draft.rules,
+                        at,
+                        via === TYPED
+                          ? { match: rule.match, via: "", typed: true }
+                          : { match: rule.match, via },
+                      ),
                     })
                   }
                 />
+                {rule.typed === true ? (
+                  <Input
+                    aria-label="Proxy address"
+                    placeholder="socks5://host:1080"
+                    value={rule.via}
+                    onChange={(event) =>
+                      onChange({
+                        ...draft,
+                        rules: replaced(draft.rules, at, { ...rule, via: event.target.value }),
+                      })
+                    }
+                  />
+                ) : null}
                 <Button
                   type="button"
                   size="icon"
@@ -223,7 +278,7 @@ export function ProxyEditor({ draft, error, onChange }: ProxyEditorProps) {
               variant="outline"
               className="aperture:justify-self-start"
               onClick={() =>
-                onChange({ ...draft, rules: [...draft.rules, { match: "", via: "" }] })
+                onChange({ ...draft, rules: [...draft.rules, { match: "", via: "direct" }] })
               }
             >
               <Plus />

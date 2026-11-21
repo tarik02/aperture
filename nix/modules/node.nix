@@ -51,6 +51,17 @@ in
       default = "${keys.directory}/ticket.pub.pem";
       description = "The public key of the control plane's tickets, as PEM.";
     };
+    rtcPorts = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "60000-60999";
+      description = "The UDP ports sessions' video and sound use, for a firewall that opens only some. Any port by default. Clients reach them directly, not through the proxy.";
+    };
+    openFirewall = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = "Open `rtcPorts` in the firewall.";
+    };
     features = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [
@@ -83,6 +94,18 @@ in
     # in software where it has none: either way the drivers are the system's.
     hardware.graphics.enable = lib.mkDefault true;
 
+    networking.firewall.allowedUDPPortRanges = lib.mkIf (cfg.openFirewall && cfg.rtcPorts != null) (
+      let
+        ends = map lib.toInt (lib.splitString "-" cfg.rtcPorts);
+      in
+      [
+        {
+          from = lib.head ends;
+          to = lib.last ends;
+        }
+      ]
+    );
+
     systemd.services.aperture-node = {
       description = "Aperture node";
       wantedBy = [ "multi-user.target" ];
@@ -103,6 +126,7 @@ in
         APERTURE_FEATURES = lib.concatStringsSep "," cfg.features;
       }
       // lib.optionalAttrs (cfg.internalUrl != null) { APERTURE_INTERNAL_URL = cfg.internalUrl; }
+      // lib.optionalAttrs (cfg.rtcPorts != null) { APERTURE_RTC_PORTS = cfg.rtcPorts; }
       // cfg.environment;
       serviceConfig = {
         ExecStart = lib.getExe' cfg.package "aperture-executor";

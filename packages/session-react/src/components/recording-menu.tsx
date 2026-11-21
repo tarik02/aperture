@@ -121,20 +121,14 @@ export function RecordItem() {
   };
 
   return (
-    <Tooltip>
-      <TooltipTrigger render={<DropdownMenuItem disabled={!canStart} onClick={start} />}>
-        <Circle />
-        {allowed ? (
-          "Record this tab"
-        ) : (
-          <Described title="Record this tab">Not yours to make here</Described>
-        )}
-      </TooltipTrigger>
-      <TooltipContent side="left">
-        Records the watched tab's picture and sound until it is stopped. The raw recording is kept
-        in the session's files, and so is the edit made of it with the settings below.
-      </TooltipContent>
-    </Tooltip>
+    <DropdownMenuItem disabled={!canStart} onClick={start}>
+      <Circle />
+      {allowed ? (
+        "Record this tab"
+      ) : (
+        <Described title="Record this tab">Not yours to make here</Described>
+      )}
+    </DropdownMenuItem>
   );
 }
 

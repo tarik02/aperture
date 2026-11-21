@@ -13,19 +13,54 @@ import { useEffect } from "react";
 import { useNewSession } from "#/features/session/new-sessions.ts";
 import { noteOpened } from "#/features/session/recent-sessions.ts";
 import { useSessionActionMutation } from "#/features/session/session.mutations.ts";
-import { useSessionQuery } from "#/features/session/session.queries.ts";
+import {
+  type Session as SessionRecord,
+  useSessionQuery,
+} from "#/features/session/session.queries.ts";
 import { told } from "#/lib/api.ts";
 
-function State({ children, note }: { children: React.ReactNode; note?: string }) {
+type StateProps = {
+  children: React.ReactNode;
+  note?: string;
+  /** The session it is of, where there is one: what it showed last stands behind. */
+  session?: SessionRecord | undefined;
+  /** What is done about it, before the way back. */
+  action?: React.ReactNode;
+};
+
+/** Why a session's workbench is not shown, in the workbench's place. */
+function State({ children, note, session, action }: StateProps) {
   return (
     <main
       data-console-session-note={note ?? ""}
-      className="aperture:flex aperture:min-h-0 aperture:flex-1 aperture:flex-col aperture:items-center aperture:justify-center aperture:gap-3 aperture:p-4 aperture:text-sm aperture:text-muted-foreground"
+      className="aperture:relative aperture:flex aperture:min-h-0 aperture:flex-1 aperture:items-center aperture:justify-center aperture:overflow-hidden aperture:p-4"
     >
-      {children}
-      <Button variant="outline" render={<Link to="/-/sessions" />}>
-        All sessions
-      </Button>
+      {session === undefined || session.path === null ? null : (
+        <img
+          alt=""
+          aria-hidden
+          src={`${session.path}/preview.png?at=${session.observedAt.epochMilliseconds}`}
+          // One that has no picture shows none.
+          onError={(event) => event.currentTarget.remove()}
+          className="aperture:absolute aperture:inset-0 aperture:size-full aperture:scale-105 aperture:object-cover aperture:object-top aperture:opacity-40 aperture:blur-md"
+        />
+      )}
+      <section className="aperture:relative aperture:flex aperture:w-full aperture:max-w-sm aperture:flex-col aperture:items-center aperture:gap-4 aperture:rounded-xl aperture:border aperture:bg-card/90 aperture:p-6 aperture:text-center aperture:shadow-sm aperture:backdrop-blur">
+        {session === undefined ? null : (
+          <h1 className="aperture:max-w-full aperture:truncate aperture:text-base aperture:font-semibold">
+            {session.label ?? "Session"}
+          </h1>
+        )}
+        <div className="aperture:flex aperture:flex-col aperture:items-center aperture:gap-2 aperture:text-sm aperture:text-muted-foreground">
+          {children}
+        </div>
+        <div className="aperture:flex aperture:gap-2">
+          {action}
+          <Button variant="outline" render={<Link to="/-/sessions" />}>
+            All sessions
+          </Button>
+        </div>
+      </section>
     </main>
   );
 }
@@ -111,6 +146,14 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
     }
   }, [session.data !== undefined, sessionId]);
 
+  // It runs: asking it to is done with, and a later rest is told as one.
+  const runs = session.data?.observedState === "running";
+  useEffect(() => {
+    if (runs) {
+      resume.reset();
+    }
+  }, [runs, resume.reset]);
+
   if (session.isError) {
     return <State>{told(session.error)}</State>;
   }
@@ -118,37 +161,47 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
     return null;
   }
   const { observedState, unreachableSince, failure } = session.data;
+  // Asked to run: what follows is the wait for it, whatever the record still says.
+  const starting = resume.isPending || resume.isSuccess;
   if (session.data.path === null || observedState === "gone") {
-    return <State>This session is on no node any more.</State>;
+    return <State session={session.data}>This session is on no node any more.</State>;
   }
   if (unreachableSince !== null) {
     return (
-      <State>The session's node is out of reach. It is shown again when the node is back.</State>
+      <State session={session.data} note="unreachable">
+        The session's node is out of reach. It is shown again when the node is back.
+      </State>
     );
   }
-  if (observedState === "failed") {
+  if (observedState === "failed" && !starting) {
     return (
-      <State>
+      <State
+        session={session.data}
+        note="failed"
+        action={<Button onClick={() => resume.mutate(sessionId)}>Start again</Button>}
+      >
         The session failed{failure === null ? "." : `: ${failure}`}
-        <Button disabled={resume.isPending} onClick={() => resume.mutate(sessionId)}>
-          Start again
-        </Button>
       </State>
     );
   }
-  if (session.data.desiredState === "suspended") {
+  if (session.data.desiredState === "suspended" && !starting) {
     return (
-      <State>
-        This session is suspended.
-        <Button disabled={resume.isPending} onClick={() => resume.mutate(sessionId)}>
-          Resume
-        </Button>
+      <State
+        session={session.data}
+        note="suspended"
+        action={
+          <Button data-console-resume onClick={() => resume.mutate(sessionId)}>
+            Resume
+          </Button>
+        }
+      >
+        Suspended
       </State>
     );
   }
-  if (observedState === "starting" || observedState === "suspended") {
+  if (observedState !== "running") {
     return (
-      <State>
+      <State session={session.data} note="starting">
         <Spinner />
         Starting…
       </State>

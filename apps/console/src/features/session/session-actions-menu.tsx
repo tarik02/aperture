@@ -6,6 +6,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@aperture-browser/ui/components/dropdown-menu";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@aperture-browser/ui/components/context-menu";
 import { useNavigate } from "@tanstack/react-router";
 import {
   Camera,
@@ -13,13 +20,14 @@ import {
   ExternalLink,
   Info,
   Link2,
+  type LucideIcon,
   Pause,
   Play,
   Tags,
   Trash2,
   Waypoints,
 } from "lucide-react";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { DescribeDialog } from "#/components/describe-dialog.tsx";
@@ -32,8 +40,23 @@ import {
 } from "#/features/session/session.mutations.ts";
 import { SaveSnapshotDialog } from "#/features/snapshot/save-snapshot-dialog.tsx";
 
-/** What is done with one session. */
-export function SessionActionsMenu({ session }: { session: Session }) {
+/** One thing done with a session, as a menu of either kind offers it. */
+interface SessionAction {
+  readonly key: string;
+  readonly label: string;
+  readonly icon: LucideIcon;
+  readonly onSelect: () => void;
+  readonly disabled?: boolean;
+  readonly destructive?: boolean;
+  /** A line before it, where another kind of thing begins. */
+  readonly parted?: boolean;
+}
+
+/**
+ * What is done with one session, for its menus: the button's and the one a right click
+ * opens offer the same, and share the dialogs those lead to.
+ */
+export function useSessionActions(session: Session) {
   const navigate = useNavigate();
   const suspend = useSessionActionMutation("suspend");
   const resume = useSessionActionMutation("resume");
@@ -49,65 +72,60 @@ export function SessionActionsMenu({ session }: { session: Session }) {
     toast.success("Link copied");
   };
 
-  return (
+  const actions: ReadonlyArray<SessionAction> = [
+    {
+      key: "open",
+      label: "Open",
+      icon: ExternalLink,
+      onSelect: () =>
+        void navigate({ to: "/-/sessions/$sessionId", params: { sessionId: session.id } }),
+    },
+    { key: "copy", label: "Copy link", icon: Link2, onSelect: () => void copyLink() },
+    { key: "details", label: "Details", icon: Info, onSelect: () => setDialog("details") },
+    { key: "describe", label: "Edit details", icon: Tags, onSelect: () => setDialog("describe") },
+    {
+      key: "proxy",
+      label: "Edit routing",
+      icon: Waypoints,
+      disabled: !placed,
+      onSelect: () => setDialog("proxy"),
+    },
+    session.desiredState === "suspended"
+      ? {
+          key: "resume",
+          label: "Resume",
+          icon: Play,
+          disabled: !placed,
+          parted: true,
+          onSelect: () => resume.mutate(session.id),
+        }
+      : {
+          key: "suspend",
+          label: "Suspend",
+          icon: Pause,
+          disabled: !placed,
+          parted: true,
+          onSelect: () => suspend.mutate(session.id),
+        },
+    {
+      key: "snapshot",
+      label: "Save to snapshot",
+      icon: Camera,
+      disabled: !placed,
+      onSelect: () => setDialog("snapshot"),
+    },
+    {
+      key: "delete",
+      label: "Delete",
+      icon: Trash2,
+      destructive: true,
+      parted: true,
+      onSelect: () => setDialog("delete"),
+    },
+  ];
+
+  const dialogs = (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={<Button size="icon-sm" variant="ghost" aria-label="Session actions" />}
-        >
-          <EllipsisVertical />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          className="aperture:w-auto aperture:min-w-44 aperture:whitespace-nowrap"
-        >
-          <DropdownMenuItem
-            onClick={() =>
-              navigate({ to: "/-/sessions/$sessionId", params: { sessionId: session.id } })
-            }
-          >
-            <ExternalLink />
-            Open
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => void copyLink()}>
-            <Link2 />
-            Copy link
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setDialog("details")}>
-            <Info />
-            Details
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setDialog("describe")}>
-            <Tags />
-            Edit details
-          </DropdownMenuItem>
-          <DropdownMenuItem disabled={!placed} onClick={() => setDialog("proxy")}>
-            <Waypoints />
-            Edit routing
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {session.desiredState === "suspended" ? (
-            <DropdownMenuItem disabled={!placed} onClick={() => resume.mutate(session.id)}>
-              <Play />
-              Resume
-            </DropdownMenuItem>
-          ) : (
-            <DropdownMenuItem disabled={!placed} onClick={() => suspend.mutate(session.id)}>
-              <Pause />
-              Suspend
-            </DropdownMenuItem>
-          )}
-          <DropdownMenuItem disabled={!placed} onClick={() => setDialog("snapshot")}>
-            <Camera />
-            Save to snapshot
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onClick={() => setDialog("delete")}>
-            <Trash2 />
-            Delete
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
       <ConfirmDialog
         open={dialog === "delete"}
         title="Delete this session?"
@@ -144,5 +162,67 @@ export function SessionActionsMenu({ session }: { session: Session }) {
         onOpenChange={(open) => setDialog(open ? "snapshot" : null)}
       />
     </>
+  );
+
+  return { actions, dialogs };
+}
+
+const MENU = "aperture:w-auto aperture:min-w-44 aperture:whitespace-nowrap";
+
+/** The session's actions behind a button. */
+export function SessionActionsMenu({ actions }: { actions: ReadonlyArray<SessionAction> }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={<Button size="icon-sm" variant="ghost" aria-label="Session actions" />}
+      >
+        <EllipsisVertical />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className={MENU}>
+        {actions.map((action) => (
+          <Fragment key={action.key}>
+            {action.parted === true ? <DropdownMenuSeparator /> : null}
+            <DropdownMenuItem
+              disabled={action.disabled === true}
+              variant={action.destructive === true ? "destructive" : "default"}
+              onClick={action.onSelect}
+            >
+              <action.icon />
+              {action.label}
+            </DropdownMenuItem>
+          </Fragment>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** The same actions where a right click was, on whatever it wraps. */
+export function SessionContextMenu({
+  actions,
+  children,
+}: {
+  actions: ReadonlyArray<SessionAction>;
+  children: React.ReactElement;
+}) {
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger render={children} />
+      <ContextMenuContent data-console-session-context className={MENU}>
+        {actions.map((action) => (
+          <Fragment key={action.key}>
+            {action.parted === true ? <ContextMenuSeparator /> : null}
+            <ContextMenuItem
+              disabled={action.disabled === true}
+              variant={action.destructive === true ? "destructive" : "default"}
+              onClick={action.onSelect}
+            >
+              <action.icon />
+              {action.label}
+            </ContextMenuItem>
+          </Fragment>
+        ))}
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
