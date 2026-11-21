@@ -16,7 +16,7 @@ mod tools;
 use std::{
     collections::HashMap,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
     time::Duration,
 };
 
@@ -47,6 +47,10 @@ use crate::{
 
 const TAB_READY_WITHIN: Duration = Duration::from_secs(15);
 const LOAD_WITHIN: Duration = Duration::from_secs(30);
+/// A caller is in the session until they called nothing for this long: an agent thinks
+/// between its calls, and is not gone meanwhile.
+const CALLER_STAYS_FOR: Duration = Duration::from_secs(120);
+const CALLERS_SETTLE_EVERY: Duration = Duration::from_secs(10);
 
 /// `browse`'s recorder films the page through DevTools; the session records its targets
 /// itself, under the same name.
@@ -71,10 +75,25 @@ const INSTRUCTIONS: &str = "A browser session. Its pages are tabs: `tabs` lists 
     look at it with `screenshot`. People may be watching the session and using it too.";
 
 /// The session's tools, and what they act on.
+///
+/// Whoever calls with the session's own token is the automation itself among the session's
+/// members. A caller someone vouches for is a member of their own, under their name and
+/// marked as automation: one for each of them, however many connections their calls come
+/// over, since one connection carries the calls of many where the control plane sends
+/// them on.
 pub struct Automation {
     tools: Vec<Arc<dyn Tool>>,
-    context: ToolContext,
+    session: Arc<Session>,
+    files: PathBuf,
     recordings: Recordings,
+    callers: Arc<Mutex<HashMap<String, Calling>>>,
+}
+
+/// A caller as a member of the session.
+struct Calling {
+    name: String,
+    member: Arc<Membership>,
+    called: Instant,
 }
 
 impl Automation {
@@ -88,8 +107,7 @@ impl Automation {
         let agent = Identity {
             subject: "agent".to_owned(),
             name: "Agent".to_owned(),
-            // The automation gives input and asks for the tabs it wants, as a person does.
-            access: Access::default().writing(Area::Input),
+            access: acting(),
         };
         let session = Arc::new(Session {
             browser,
@@ -109,14 +127,47 @@ impl Automation {
             .filter(|tool| !LEFT_OUT.contains(&tool.spec().name.as_str()));
         tools.extend(theirs);
         tools.extend(browse_script::tools(&tools));
+
+        let callers: Arc<Mutex<HashMap<String, Calling>>> = Arc::default();
+        let settled = Arc::downgrade(&callers);
+        tokio::spawn(settle(settled));
         Self {
             tools,
-            context: ToolContext {
-                browser: session,
-                file_roots: vec![files],
-            },
+            session,
+            files,
             recordings,
+            callers,
         }
+    }
+
+    /// The member a call is made as: the automation itself for the operator, and for
+    /// anyone else a member of their own, who joins with their first call.
+    fn member(&self, caller: Option<&Identity>) -> Arc<Membership> {
+        let Some(caller) = caller.filter(|caller| !caller.is_operator()) else {
+            return self.session.agent.clone();
+        };
+        let mut callers = self.callers.lock().expect("not poisoned");
+        let known = callers
+            .get_mut(&caller.subject)
+            .filter(|known| known.name == caller.name);
+        if let Some(known) = known {
+            known.called = Instant::now();
+            return known.member.clone();
+        }
+        let identity = Identity {
+            subject: caller.subject.clone(),
+            name: caller.name.clone(),
+            access: acting(),
+        };
+        let member = Arc::new(self.session.presence.join(identity, true));
+        let calling = Calling {
+            name: caller.name.clone(),
+            member: member.clone(),
+            called: Instant::now(),
+        };
+        // One who was here under another name leaves with it.
+        callers.insert(caller.subject.clone(), calling);
+        member
     }
 
     pub fn instructions(&self) -> &'static str {
@@ -131,13 +182,12 @@ impl Automation {
     /// edge, the page is put there in one step, which a recording at a pace would show as
     /// a jump; by a distance, the wheel turns in steps. None for a scroll that is to go as
     /// it is.
-    async fn travel_to_edge(&self, arguments: &Value) -> Option<Value> {
+    async fn travel_to_edge(&self, browser: &Acting, arguments: &Value) -> Option<Value> {
         let edge = arguments["to"].as_str()?;
         let tab = arguments["tab"].as_i64()?;
         let within = ["ref", "selector"]
             .iter()
             .any(|key| !arguments[*key].is_null());
-        let browser = &self.context.browser;
         if within || !browser.human_input(tab).await {
             return None;
         }
@@ -170,15 +220,28 @@ impl Automation {
             .then(|| json!({ "tab": tab, "deltaX": dx, "deltaY": dy }))
     }
 
-    /// Calls a tool. What goes wrong comes back as the tool's result, where a model reads
-    /// it.
-    pub async fn call(&self, name: &str, mut arguments: Value) -> ToolOutput {
+    /// Calls a tool as `caller`, or as the operator. What goes wrong comes back as the
+    /// tool's result, where a model reads it.
+    pub async fn call(
+        &self,
+        caller: Option<&Identity>,
+        name: &str,
+        mut arguments: Value,
+    ) -> ToolOutput {
         let Some(tool) = self.tools.iter().find(|tool| tool.spec().name == name) else {
             return ToolOutput::error(format!("no tool named {name}"));
         };
+        let browser = Arc::new(Acting {
+            session: self.session.clone(),
+            member: self.member(caller),
+        });
+        let context = ToolContext {
+            browser: browser.clone(),
+            file_roots: vec![self.files.clone()],
+        };
         // Tools take a tab by its number; a target id names one too.
         if let Some(tab) = arguments.get("tab").filter(|tab| tab.is_string()) {
-            match self.context.browser.resolve_tab(tab) {
+            match browser.resolve_tab(tab) {
                 Ok(tab) => arguments["tab"] = tab.into(),
                 Err(err) => return ToolOutput::error(format!("{err:#}")),
             }
@@ -190,23 +253,55 @@ impl Automation {
         }
         let started = self.recordings.now();
         if name == "scroll"
-            && let Some(travel) = self.travel_to_edge(&arguments).await
+            && let Some(travel) = self.travel_to_edge(&browser, &arguments).await
         {
             // The page travels there first; the call itself then finds it there, and says
             // where that is.
-            if let Err(err) = tool.call(self.context.clone(), travel).await {
+            if let Err(err) = tool.call(context.clone(), travel).await {
                 warn!("a scroll to an edge goes there in one step: {err:#}");
             }
         }
-        let output = match tool.call(self.context.clone(), arguments).await {
+        let output = match tool.call(context, arguments).await {
             Ok(output) => output,
             Err(err) => ToolOutput::error(format!("{err:#}")),
         };
+        // A call that took long is no silence of its caller's.
+        if let Some(caller) = caller
+            && let Some(known) = self
+                .callers
+                .lock()
+                .expect("not poisoned")
+                .get_mut(&caller.subject)
+        {
+            known.called = Instant::now();
+        }
         if !READS_ONLY.contains(&name) {
             let fields = json!({ "tool": name, "ok": !output.is_error, "tab": tab });
             self.recordings.note(None, "call", started, fields);
         }
         output
+    }
+}
+
+/// What the automation may do among the session's members, whoever it acts for: give
+/// input and ask for the tabs it wants, as a person does.
+fn acting() -> Access {
+    Access::default().writing(Area::Input)
+}
+
+/// Lets the callers that called nothing for a while leave the session, for as long as
+/// there is an automation they call.
+async fn settle(callers: Weak<Mutex<HashMap<String, Calling>>>) {
+    loop {
+        sleep(CALLERS_SETTLE_EVERY).await;
+        let Some(callers) = callers.upgrade() else {
+            return;
+        };
+        let now = Instant::now();
+        callers.lock().expect("not poisoned").retain(|_, calling| {
+            // A call that is still made holds the member too.
+            Arc::strong_count(&calling.member) > 1 || now - calling.called < CALLER_STAYS_FOR
+        });
     }
 }
 
@@ -217,7 +312,15 @@ struct Session {
     tabs: Mutex<Tabs>,
     presence: Arc<Presence>,
     /// The automation as one of those in the session: its input takes turns with theirs.
+    /// What it does for nobody in particular is this member's.
     agent: Arc<Membership>,
+}
+
+/// The session as one of the automation's callers has it: what they do in a tab is theirs
+/// among the session's members.
+struct Acting {
+    session: Arc<Session>,
+    member: Arc<Membership>,
 }
 
 #[derive(Default)]
@@ -265,6 +368,36 @@ impl Session {
             .find(|target| target.id == id)
             .cloned()
             .with_context(|| format!("tab {tab} is closed"))
+    }
+
+    /// The tab's DevTools session: the same one for as long as it lasts and whoever acts
+    /// in the tab, as the page tools keep what they know of the page with it.
+    async fn attached(&self, tab: TabId) -> anyhow::Result<Arc<TabSession>> {
+        let target = self.target_of(tab)?;
+        let attached = self
+            .tabs
+            .lock()
+            .expect("not poisoned")
+            .by_id
+            .get(&tab)
+            .and_then(|tab| tab.cdp.clone())
+            .filter(|session| session.is_attached());
+        if let Some(session) = attached {
+            return Ok(session);
+        }
+        let session = TabSession::attach(
+            self.browser.clone(),
+            self.targets.clone(),
+            self.recordings.clone(),
+            target.id,
+            self.presence.clone(),
+            self.agent.id,
+        )
+        .await?;
+        if let Some(tab) = self.tabs.lock().expect("not poisoned").by_id.get_mut(&tab) {
+            tab.cdp = Some(session.clone());
+        }
+        Ok(session)
     }
 
     fn info(&self, target: &Target) -> TabInfo {
@@ -357,34 +490,8 @@ impl Browser for Session {
         Ok(())
     }
 
-    /// The tab's DevTools session: the same one for as long as it lasts, as the page tools
-    /// keep what they know of the page with it.
     async fn cdp(&self, tab: TabId) -> anyhow::Result<Arc<dyn Cdp>> {
-        let target = self.target_of(tab)?;
-        let attached = self
-            .tabs
-            .lock()
-            .expect("not poisoned")
-            .by_id
-            .get(&tab)
-            .and_then(|tab| tab.cdp.clone())
-            .filter(|session| session.is_attached());
-        if let Some(session) = attached {
-            return Ok(session);
-        }
-        let session = TabSession::attach(
-            self.browser.clone(),
-            self.targets.clone(),
-            self.recordings.clone(),
-            target.id,
-            self.presence.clone(),
-            self.agent.clone(),
-        )
-        .await?;
-        if let Some(tab) = self.tabs.lock().expect("not poisoned").by_id.get_mut(&tab) {
-            tab.cdp = Some(session.clone());
-        }
-        Ok(session)
+        Ok(self.attached(tab).await?)
     }
 
     async fn state(&self, tab: TabId) -> anyhow::Result<Arc<TabState>> {
@@ -434,5 +541,49 @@ impl Browser for Session {
             bail!("no tab {name}; `tabs` lists the tabs there are");
         };
         Ok(self.tab_of(&named))
+    }
+}
+
+#[async_trait]
+impl Browser for Acting {
+    async fn open_tab(&self, url: Option<&str>, options: &TabOptions) -> anyhow::Result<TabInfo> {
+        self.session.open_tab(url, options).await
+    }
+
+    async fn tabs(&self) -> anyhow::Result<Vec<TabInfo>> {
+        self.session.tabs().await
+    }
+
+    async fn close_tab(&self, tab: TabId) -> anyhow::Result<()> {
+        self.session.close_tab(tab).await
+    }
+
+    /// The tab's one DevTools session, which whoever asks for it acts in from then on: a
+    /// tool asks for it before it does anything in the tab. Two who call tools on one tab
+    /// at once are told apart no further than that, and get in each other's way anyhow.
+    async fn cdp(&self, tab: TabId) -> anyhow::Result<Arc<dyn Cdp>> {
+        let attached = self.session.attached(tab).await?;
+        attached.acts_as(self.member.id);
+        Ok(attached)
+    }
+
+    async fn state(&self, tab: TabId) -> anyhow::Result<Arc<TabState>> {
+        self.session.state(tab).await
+    }
+
+    async fn handoff(&self, tab: TabId, message: &str) -> anyhow::Result<HandoffResult> {
+        self.session.handoff(tab, message).await
+    }
+
+    async fn human_input(&self, tab: TabId) -> bool {
+        self.session.human_input(tab).await
+    }
+
+    async fn read_only(&self, tab: TabId) -> bool {
+        self.session.read_only(tab).await
+    }
+
+    fn resolve_tab(&self, value: &Value) -> anyhow::Result<TabId> {
+        self.session.resolve_tab(value)
     }
 }

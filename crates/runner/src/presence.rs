@@ -46,14 +46,21 @@ pub struct Identity {
     pub access: Access,
 }
 
+/// The subject of whoever holds the executor's own token.
+const OPERATOR: &str = "operator";
+
 impl Identity {
     /// Whoever holds the executor's own token.
     pub fn operator() -> Self {
         Self {
-            subject: "operator".to_owned(),
+            subject: OPERATOR.to_owned(),
             name: "Operator".to_owned(),
             access: Access::ALL,
         }
+    }
+
+    pub fn is_operator(&self) -> bool {
+        self.subject == OPERATOR
     }
 
     /// What the access comes to among the session's members.
@@ -72,7 +79,8 @@ impl Identity {
 pub struct Member {
     pub id: MemberId,
     pub identity: Identity,
-    /// The session's automation rather than a person.
+    /// The session's automation rather than a person: under its own name, or under that
+    /// of whoever it acts for.
     pub agent: bool,
     /// The tab the member watches.
     pub tab: Option<u32>,

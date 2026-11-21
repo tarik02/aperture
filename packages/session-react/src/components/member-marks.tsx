@@ -4,7 +4,7 @@ import type { Member, Target } from "@aperture-browser/session-client";
 import { useSession, useSessionSnapshot } from "../session.tsx";
 import { useShownPointers } from "../hooks/use-pointers.ts";
 import { useWorkbench } from "../workbench/context.tsx";
-import { memberColor } from "./session-presence.tsx";
+import { automationName, memberColor } from "./session-presence.tsx";
 import { pictureBox } from "./session-viewport.tsx";
 
 /** How long a stroke that ended takes to fade. */
@@ -298,7 +298,7 @@ export function MemberMarks() {
                 className="aperture:mt-3 aperture:max-w-32 aperture:truncate aperture:rounded-full aperture:px-1.5 aperture:py-0.5 aperture:text-[0.625rem] aperture:leading-none aperture:font-medium aperture:text-white aperture:shadow"
                 style={{ backgroundColor: memberColor(member) }}
               >
-                {member.agent ? "Automation" : member.name}
+                {member.agent ? automationName(member) : member.name}
               </span>
             </div>
           );

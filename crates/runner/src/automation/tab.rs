@@ -21,7 +21,7 @@ use super::keys::evdev_code;
 use crate::{
     cdp,
     live::{edit::plan::Pace, record::Recordings},
-    presence::{Membership, Presence},
+    presence::{MemberId, Presence},
     targets::Target,
 };
 
@@ -45,7 +45,8 @@ pub(super) struct TabSession {
     target: String,
     session: String,
     presence: Arc<Presence>,
-    agent: Arc<Membership>,
+    /// The member the automation acts as in the tab: whoever called a tool on it last.
+    actor: Mutex<MemberId>,
     /// Where the tab's events go; none once the session ended, which closes the streams of
     /// those who listen.
     events: Mutex<Option<broadcast::Sender<CdpEvent>>>,
@@ -58,7 +59,7 @@ impl TabSession {
         recordings: Recordings,
         target: String,
         presence: Arc<Presence>,
-        agent: Arc<Membership>,
+        actor: MemberId,
     ) -> anyhow::Result<Arc<Self>> {
         // Before attaching, so no event of the session is missed.
         let mut browser_events = browser.events();
@@ -80,7 +81,7 @@ impl TabSession {
             target,
             session,
             presence,
-            agent,
+            actor: Mutex::new(actor),
             events: Mutex::new(Some(events.clone())),
         });
 
@@ -125,6 +126,15 @@ impl TabSession {
 
     pub fn is_attached(&self) -> bool {
         self.events.lock().expect("not poisoned").is_some()
+    }
+
+    /// What the automation does in the tab from now on is this member's.
+    pub fn acts_as(&self, actor: MemberId) {
+        *self.actor.lock().expect("not poisoned") = actor;
+    }
+
+    fn actor(&self) -> MemberId {
+        *self.actor.lock().expect("not poisoned")
     }
 
     /// The tab's number.
@@ -242,7 +252,7 @@ impl TabSession {
             _ => {}
         }
         let travelled = matches!(input, Input::PointerMotion { .. });
-        self.presence.input(self.agent.id, self.tab()?, input);
+        self.presence.input(self.actor(), self.tab()?, input);
         // A slow pace takes each step of the pointer's way about twice as long.
         if travelled && self.recordings.pace(&self.target) == Some(Pace::Slow) {
             sleep(SLOW_STEP).await;
@@ -285,15 +295,15 @@ impl Cdp for TabSession {
         session_id: Option<&str>,
     ) -> Result<Value, CdpError> {
         // Input is the tab's holder's: the automation takes a tab nobody holds, and waits
-        // for one a person drives until they are done with it.
+        // for one a person drives, or another of its callers, until they are done with it.
         if method.starts_with("Input.")
             && session_id.is_none()
             && let Some(tab) = self.tab()
         {
             let waited = Instant::now();
-            while !self.presence.hold(self.agent.id, tab, true) {
+            while !self.presence.hold(self.actor(), tab, true) {
                 if waited.elapsed() >= TAB_FREE_WITHIN {
-                    let holder = self.presence.held_by_another(self.agent.id, tab);
+                    let holder = self.presence.held_by_another(self.actor(), tab);
                     let holder = holder.unwrap_or_else(|| "someone".to_owned());
                     return Err(CdpError::Protocol(format!(
                         "tab {tab} is driven by {holder} right now; try again when they are done"

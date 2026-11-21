@@ -42,6 +42,7 @@ import { useWorkbench } from "../workbench/context.tsx";
 import { WorkbenchMenuSlot } from "../workbench/slot.tsx";
 import { ToolbarButton, useCompactToolbar } from "./browser-toolbar.tsx";
 import { MenuButton } from "./menu-parts.tsx";
+import { automationName } from "./session-presence.tsx";
 
 const THEMES: Readonly<Record<ApertureTheme, string>> = {
   system: "As the system",
@@ -334,7 +335,10 @@ export function LeaseItems() {
   const lease = useLease();
   const snapshot = useSessionSnapshot();
   const watches = snapshot.connection.state === "open" && snapshot.selected !== undefined;
-  const holder = lease.holder?.agent ? "automation" : (lease.holder?.name ?? "someone");
+  const holder =
+    lease.holder?.agent === true
+      ? automationName(lease.holder, false)
+      : (lease.holder?.name ?? "someone");
 
   if (!features.presence) {
     return null;

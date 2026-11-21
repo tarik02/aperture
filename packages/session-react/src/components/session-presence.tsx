@@ -228,7 +228,7 @@ export function LeaseOverlay() {
     return null;
   }
 
-  const name = holder?.agent ? "Automation" : (holder?.name ?? "Someone");
+  const name = holder?.agent ? automationName(holder) : (holder?.name ?? "Someone");
   // An admin's asking takes the tab, and so does a person's from the automation.
   const takes = lease.role === "admin" || holder?.agent === true;
 
@@ -325,6 +325,21 @@ function LeaseRequest({
       />
     </div>
   );
+}
+
+/** What the automation is called when it acts for nobody: with the session's own token. */
+const OWN_AUTOMATION = "Agent";
+
+/**
+ * What the automation is called where it holds a tab or points at something: automation
+ * as such, and whose it is where it acts for someone. `opens` where a sentence starts
+ * with it.
+ */
+export function automationName(member: Member, opens = true): string {
+  if (member.name !== OWN_AUTOMATION) {
+    return `${member.name}'s automation`;
+  }
+  return opens ? "Automation" : "automation";
 }
 
 // None near the green that marks who holds a lease.

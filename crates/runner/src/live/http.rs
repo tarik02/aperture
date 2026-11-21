@@ -117,6 +117,16 @@ async fn session_socket(
     headers: HeaderMap,
     upgrade: WebSocketUpgrade,
 ) -> Response {
+    let identity = match vouched(&headers) {
+        Ok(identity) => identity.unwrap_or_else(Identity::operator),
+        Err(why) => return (StatusCode::BAD_REQUEST, why).into_response(),
+    };
+    upgrade.on_upgrade(move |socket| client::serve(live, socket, identity))
+}
+
+/// Who a request comes from, as whoever let it in says: nobody, for one that comes without,
+/// which is the operator's.
+pub(super) fn vouched(headers: &HeaderMap) -> Result<Option<Identity>, &'static str> {
     // What vouches for a caller is told in full or the caller is refused: one that half of
     // it is missing of would pass for the operator.
     let vouched = [
@@ -131,18 +141,14 @@ async fn session_socket(
                 .is_some_and(|value| value.to_str().is_ok())
         })
     {
-        return (
-            StatusCode::BAD_REQUEST,
-            "who the request comes from is not told in full",
-        )
-            .into_response();
+        return Err("who the request comes from is not told in full");
     }
     let said = |name: &str| {
         let value = headers.get(name)?.to_str().ok()?;
         Some(percent_decode_str(value).decode_utf8_lossy().into_owned())
     };
-    let identity = match said(aperture_runner::SUBJECT_HEADER) {
-        Some(subject) => Identity {
+    Ok(
+        said(aperture_runner::SUBJECT_HEADER).map(|subject| Identity {
             name: said(aperture_runner::NAME_HEADER)
                 .filter(|name| !name.is_empty())
                 .unwrap_or_else(|| subject.clone()),
@@ -151,10 +157,8 @@ async fn session_socket(
             access: said(aperture_runner::ACCESS_HEADER)
                 .and_then(|access| access.parse().ok())
                 .unwrap_or_default(),
-        },
-        None => Identity::operator(),
-    };
-    upgrade.on_upgrade(move |socket| client::serve(live, socket, identity))
+        }),
+    )
 }
 
 /// Why a route does not do what was asked of it, as it answers.

@@ -1,7 +1,11 @@
 //! The session's automation as an MCP server, for agents, over Streamable HTTP.
+//!
+//! Who calls a tool is told with each request, by whoever let it in: one connection may
+//! carry the calls of many, as the control plane's does.
 
 use std::sync::Arc;
 
+use axum::http::request::Parts;
 use browse_core::Content;
 use rmcp::{
     ErrorData, RoleServer, ServerHandler,
@@ -16,6 +20,7 @@ use rmcp::{
 };
 use serde_json::Value;
 
+use super::http::vouched;
 use crate::automation::Automation;
 
 #[derive(Clone)]
@@ -61,10 +66,16 @@ impl ServerHandler for Agent {
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
+        let caller = match context.extensions.get::<Parts>() {
+            Some(parts) => {
+                vouched(&parts.headers).map_err(|why| ErrorData::invalid_request(why, None))?
+            }
+            None => None,
+        };
         let arguments = Value::Object(request.arguments.unwrap_or_default());
-        let output = self.0.call(&request.name, arguments).await;
+        let output = self.0.call(caller.as_ref(), &request.name, arguments).await;
         let content = output
             .content
             .into_iter()

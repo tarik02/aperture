@@ -2,13 +2,16 @@ import * as UrlPath from "@aperture-browser/shared/url-path";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import { Executor } from "../src/executor.ts";
 import * as Mcp from "../src/mcp.ts";
 import * as Node from "../src/node.ts";
+import * as Runner from "../src/runner.ts";
 import { suite } from "../src/suite.ts";
+import * as Tickets from "../src/tickets.ts";
 import { type Page, snapshot, Viewer } from "../src/viewer.ts";
 import * as ViewerLive from "../src/viewer.ts";
-import { happens } from "../src/wait.ts";
+import { happens, until } from "../src/wait.ts";
 import { openByAutomation, tabsOfAutomation } from "../src/workbench.ts";
 
 const node = Layer.mergeAll(
@@ -153,6 +156,114 @@ suite(node)("automation of a session of a node, over MCP", (it) => {
         Node.targets(executor, session).pipe(Effect.map((all) => all.length === 2)),
       );
       expect(closed).toBe(true);
+    }),
+  );
+});
+
+/** Who is in the session and who holds which tab, as far as these checks look. */
+const Present = Schema.Struct({
+  members: Schema.Array(
+    Schema.Struct({
+      id: Schema.Unknown,
+      name: Schema.optional(Schema.String),
+      agent: Schema.optional(Schema.Boolean),
+    }),
+  ),
+  held: Schema.optional(
+    Schema.Array(Schema.Struct({ tab: Schema.Number, holder: Schema.Unknown })),
+  ),
+});
+
+const PRESSED = "data:text/html,<title>pressed by automation</title><button>press</button>";
+
+suite(Tickets.layer({ features: ["mcp"] }))("who acts through a session's MCP", (it) => {
+  let ada: Mcp.Mcp;
+
+  /** Someone who watches the session for as long as a check lasts, and sees who is in it. */
+  const watching = Effect.gen(function* () {
+    const runner = yield* Runner.Runner;
+    return yield* Tickets.join(runner, runner.token);
+  });
+
+  /** What the session's presence tells the watcher at the moment it is looked at. */
+  const present = (watcher: Tickets.Member) =>
+    Effect.suspend(() => Schema.decodeUnknownEffect(Present)(watcher.seen["presence"]));
+
+  /** Waits for the automation's members to be the ones of these names. */
+  const automation = (watcher: Tickets.Member, what: string, expected: readonly string[]) =>
+    until(
+      what,
+      present(watcher).pipe(
+        Effect.map(
+          (presence) =>
+            presence.members
+              .filter((member) => member.agent === true)
+              .map((member) => member.name)
+              .toSorted()
+              .join() === expected.join(),
+        ),
+      ),
+    );
+
+  const calling = Effect.fn(function* (claims: Tickets.Claims) {
+    const runner = yield* Runner.Runner;
+    const tickets = yield* Tickets.Tickets;
+    return yield* Mcp.connect(runner.url, yield* tickets.ticket({ mcp: "rw" }, claims));
+  });
+
+  it.effect("the session's own token acts as the automation itself", () =>
+    Effect.gen(function* () {
+      const runner = yield* Runner.Runner;
+      const watcher = yield* watching;
+      const operator = yield* Mcp.connect(runner.url, runner.token);
+      yield* operator.call("tabs", {});
+      yield* automation(watcher, "the automation alone being there", ["Agent"]);
+    }),
+  );
+
+  it.effect("whoever calls with a ticket is there under their name, as automation", () =>
+    Effect.gen(function* () {
+      const watcher = yield* watching;
+      ada = yield* calling({ sub: "ada", name: "Ada" });
+      // Asking what tools there are is no acting in the session.
+      yield* ada.tools;
+      yield* automation(watcher, "nobody having joined before a call", ["Agent"]);
+      yield* ada.call("tabs", {});
+      yield* automation(watcher, "Ada's automation having joined", ["Ada", "Agent"]);
+    }),
+  );
+
+  it.effect("a caller is one member over however many connections, and each caller their own", () =>
+    Effect.gen(function* () {
+      const watcher = yield* watching;
+      const again = yield* calling({ sub: "ada", name: "Ada" });
+      yield* again.call("tabs", {});
+      const grace = yield* calling({ sub: "grace", name: "Grace" });
+      yield* grace.call("tabs", {});
+      yield* automation(watcher, "Grace's automation having joined beside Ada's one", [
+        "Ada",
+        "Agent",
+        "Grace",
+      ]);
+    }),
+  );
+
+  it.effect("a tab is held by whoever's automation gives it input", () =>
+    Effect.gen(function* () {
+      const watcher = yield* watching;
+      const tab = yield* openByAutomation(ada, PRESSED);
+      yield* ada.call("click", { tab, selector: "button" });
+      const lease = yield* until(
+        "the tab being held",
+        present(watcher).pipe(
+          Effect.map((presence) => presence.held?.find((held) => held.tab === tab)),
+        ),
+      );
+      const { members } = yield* present(watcher);
+      expect(members.find((member) => member.id === lease.holder)).toMatchObject({
+        name: "Ada",
+        agent: true,
+      });
     }),
   );
 });
