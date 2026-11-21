@@ -27,6 +27,14 @@ export const makeAccountsStoreMemory = Effect.fn("AccountsStore.makeMemory")(fun
     }),
   );
 
+  const insertForPerson = Effect.fn("AccountsStore.insertForPerson")(
+    (account: NewAccount & { readonly person: NonNullable<NewAccount["person"]> }) =>
+      Effect.suspend(() => {
+        const theirs = memory.accounts.get(memory.accountsOfPeople.get(account.person.id) ?? "");
+        return theirs === undefined ? insert(account) : Effect.succeed(theirs);
+      }),
+  );
+
   const list = Effect.fn("AccountsStore.list")(() =>
     Effect.sync(() => ordered(memory.accounts.values(), (account) => account.createdAt)),
   );
@@ -108,6 +116,7 @@ export const makeAccountsStoreMemory = Effect.fn("AccountsStore.makeMemory")(fun
 
   return AccountsStore.of({
     insert,
+    insertForPerson,
     list,
     find,
     findByPerson,

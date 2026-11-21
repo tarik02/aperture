@@ -53,6 +53,16 @@ export class SecretFileUnusable extends Schema.TaggedError<SecretFileUnusable>()
   }
 }
 
+/** The providers people sign in through are not said as they are read. */
+export class ProvidersUnusable extends Schema.TaggedError<ProvidersUnusable>()(
+  "ProvidersUnusable",
+  { reason: Schema.String },
+) {
+  override get message() {
+    return `the providers in APERTURE_CONTROL_SSO_PROVIDERS cannot be used: ${this.reason}`;
+  }
+}
+
 /** What an app says of itself when it registers is nothing to register it by. */
 export class ClientInvalid extends Schema.TaggedError<ClientInvalid>()("ClientInvalid", {
   message: Schema.String,

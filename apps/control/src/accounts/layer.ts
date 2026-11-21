@@ -103,14 +103,29 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
 
   const ofPerson = Effect.fn("Accounts.ofPerson")(function* (headers: Headers) {
     const person = yield* identity.personOf(headers);
-    const account = Option.isNone(person)
-      ? Option.none<Account>()
-      : yield* store.findByPerson(person.value.id);
-    if (Option.isNone(account)) {
+    if (Option.isNone(person)) {
       return yield* new Unauthorized({ message: "nobody is signed in" });
     }
-    return yield* callerOf(account.value);
-  });
+    const account = yield* store.findByPerson(person.value.id);
+    if (Option.isSome(account)) {
+      return yield* callerOf(account.value);
+    }
+    // Someone no admin made a person is one a provider vouched for, where that makes
+    // people: their account is made when they first come.
+    if (!settings.provisionPeople) {
+      return yield* new Unauthorized({ message: "nobody is signed in" });
+    }
+    return yield* callerOf(
+      yield* store.insertForPerson({
+        id: yield* Secrets.id,
+        name: person.value.name.trim() || person.value.email,
+        admin: false,
+        kind: "person",
+        person: { id: person.value.id, email: person.value.email },
+        createdAt: yield* now,
+      }),
+    );
+  }, Effect.provide(crypto));
 
   const list = Effect.fn("Accounts.list")(function* () {
     return yield* store.list();

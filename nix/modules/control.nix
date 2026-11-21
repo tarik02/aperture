@@ -78,6 +78,66 @@ in
       default = fromKeys "registration-token";
       description = "A registration token that is good without being made, for nodes set up together with the control plane.";
     };
+    sso = {
+      providers = lib.mkOption {
+        default = { };
+        description = ''
+          The OpenID Connect providers people sign in through beside their passwords, by
+          what each is known by in addresses. A provider is told to send people back to
+          `<publicUrl>/api/auth/callback/<name>`.
+        '';
+        example = lib.literalExpression ''
+          {
+            company = {
+              name = "Company";
+              issuer = "https://id.example.com";
+              clientId = "aperture";
+              clientSecretFile = "/run/secrets/aperture-oidc";
+            };
+          }
+        '';
+        type = lib.types.attrsOf (
+          lib.types.submodule (
+            { name, ... }:
+            {
+              options = {
+                name = lib.mkOption {
+                  type = lib.types.str;
+                  default = name;
+                  description = "What the page that signs people in calls it.";
+                };
+                issuer = lib.mkOption {
+                  type = lib.types.nullOr lib.types.str;
+                  default = null;
+                  description = "Its issuer, below which its discovery document is.";
+                };
+                discoveryUrl = lib.mkOption {
+                  type = lib.types.nullOr lib.types.str;
+                  default = null;
+                  description = "Its discovery document, where that is not below the issuer.";
+                };
+                clientId = lib.mkOption { type = lib.types.str; };
+                clientSecretFile = lib.mkOption {
+                  type = lib.types.path;
+                  description = "A file with the client secret, which the control plane's user reads.";
+                };
+              };
+            }
+          )
+        );
+      };
+      provision = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = "Make whoever a provider vouches for a person when they first sign in. Without, a provider signs in only the people an admin made.";
+      };
+      domains = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        example = [ "example.com" ];
+        description = "The domains of the email addresses people are made for so; any, where none is named.";
+      };
+    };
     environment = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       default = { };
@@ -86,6 +146,11 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = lib.mapAttrsToList (id: provider: {
+      assertion = provider.issuer != null || provider.discoveryUrl != null;
+      message = "services.aperture.control.sso.providers.${id} names neither its issuer nor its discovery document.";
+    }) cfg.sso.providers;
+
     users.users.aperture-control = {
       isSystemUser = true;
       group = "aperture-control";
@@ -128,6 +193,21 @@ in
       }
       // lib.optionalAttrs (cfg.registrationTokenFile != null) {
         APERTURE_CONTROL_REGISTRATION_TOKEN_FILE = cfg.registrationTokenFile;
+      }
+      // lib.optionalAttrs (cfg.sso.providers != { }) {
+        APERTURE_CONTROL_SSO_PROVIDERS = builtins.toJSON (
+          lib.mapAttrsToList (
+            id: provider:
+            {
+              inherit id;
+              inherit (provider) name clientId clientSecretFile;
+            }
+            // lib.optionalAttrs (provider.issuer != null) { inherit (provider) issuer; }
+            // lib.optionalAttrs (provider.discoveryUrl != null) { inherit (provider) discoveryUrl; }
+          ) cfg.sso.providers
+        );
+        APERTURE_CONTROL_SSO_PROVISION = lib.boolToString cfg.sso.provision;
+        APERTURE_CONTROL_SSO_DOMAINS = lib.concatStringsSep "," cfg.sso.domains;
       }
       // cfg.environment;
       serviceConfig = {

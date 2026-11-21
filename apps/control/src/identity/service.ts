@@ -3,7 +3,10 @@ import type * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
 import type { EmailTaken, PersonNotFound } from "../errors.ts";
 
-/** Someone who signs in: known by an email address, and proven by what they sign in with. */
+/**
+ * Someone who signs in: known by an email address, and proven by what they sign in with,
+ * which is a password of their own or the word of a provider.
+ */
 export interface Person {
   readonly id: string;
   readonly email: string;
@@ -17,6 +20,10 @@ export interface Person {
 export interface IdentityShape {
   /** Where its own routes are, which a browser asks to sign in and out. */
   readonly path: `/${string}`;
+  /** The providers people sign in through, by what each is known as. */
+  readonly providers: () => Effect.Effect<
+    ReadonlyArray<{ readonly id: string; readonly name: string }>
+  >;
   /**
    * Answers a request to its own routes. `from` is where the request came from, by which
    * tries at signing in are counted; nobody's count without.

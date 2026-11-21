@@ -15,6 +15,7 @@ import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Control from "./src/control.ts";
+import * as Dex from "./src/dex.ts";
 import { signedIn } from "./src/person.ts";
 import * as Proxy from "./src/proxy.ts";
 import { totp } from "./src/totp.ts";
@@ -192,9 +193,12 @@ const node = Layer.effect(
   }),
 );
 
-const needs = Layer.mergeAll(Proxy.layer, Viewer.layer).pipe(
+// The provider after the proxy: people come back from it to the proxy's address.
+const needs = Dex.layer.pipe(
+  Layer.provideMerge(Layer.mergeAll(Proxy.layer, Viewer.layer)),
   Layer.provideMerge(node),
-  Layer.provideMerge(Control.layer({ stores: "memory", console: true })),
+  Layer.provideMerge(Control.layer({ stores: "memory", console: true, sso: {} })),
+  Layer.provideMerge(Dex.address),
 );
 
 suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
@@ -1364,5 +1368,70 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.until(`!document.querySelector("[data-console-grant]")`);
       expect((yield* request(proxy.url, tokens.access_token, "POST", "/mcp", {})).status).toBe(401);
     }),
+  );
+
+  it.effect(
+    "a person signs in through a provider from the sign-in page, and one it is none for is told",
+    () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const proxy = yield* Proxy.Proxy;
+        const viewer = yield* Viewer.Viewer;
+        const fs = yield* FileSystem.FileSystem;
+        const bootstrap = yield* control.as(control.bootstrapToken);
+        const [ada, bob] = Dex.VERIFIED;
+        yield* bootstrap.accounts.create({
+          payload: { name: "Ada of the provider", email: ada.email },
+        });
+
+        const page = yield* viewer.open(`${proxy.url}/-/snapshots`);
+        // The browser is the one the checks before signed in with: nothing of that is left.
+        yield* page.evaluate(
+          `(localStorage.clear(), Promise.all([fetch("/api/auth/sign-out", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }), fetch("/api/control/route/cookie", { method: "DELETE" })]).then(() => true))`,
+        );
+        yield* page.evaluate("void location.reload()");
+
+        /** Goes to the provider by the button, and signs in there with a password. */
+        const through = (email: string) =>
+          Effect.gen(function* () {
+            yield* page.until(`!!document.querySelector('[data-console-sso="${Dex.PROVIDER}"]')`);
+            expect(yield* page.text(`[data-console-sso="${Dex.PROVIDER}"]`)).toBe(
+              `Continue with ${Dex.PROVIDER_NAME}`,
+            );
+            yield* page.click(`[data-console-sso="${Dex.PROVIDER}"]`);
+            // The provider has more ways than one, and asks which.
+            yield* page.until(`!!document.querySelector('a[href*="/dex/auth/local"]')`);
+            yield* page.click(`a[href*="/dex/auth/local"]`);
+            yield* page.until(`!!document.querySelector('input[name="login"]')`);
+            yield* page.click(`input[name="login"]`);
+            yield* page.type(email);
+            yield* page.click(`input[name="password"]`);
+            yield* page.type(Dex.PASSWORD);
+            yield* page.key("Enter", "Enter", ENTER);
+          });
+
+        yield* through(bob.email);
+        yield* page.until(`!!document.querySelector("[data-console-sso-refused]")`);
+        expect(yield* page.text("[data-console-sso-refused]")).toMatch(/No account here/u);
+        // They are where they were going, and why not is in the address no more.
+        expect(yield* page.evaluate("location.pathname + location.search", Schema.String)).toBe(
+          "/-/snapshots",
+        );
+        yield* shot(page, fs, "console-sign-in-provider");
+
+        yield* through(ada.email);
+        yield* page.until(
+          `location.origin === ${JSON.stringify(proxy.url)} && !document.querySelector("[data-console-sign-in]") && !!document.querySelector("[data-sidebar]")`,
+          "30 seconds",
+        );
+        expect(yield* page.evaluate("location.pathname", Schema.String)).toBe("/-/snapshots");
+        expect(
+          yield* page.evaluate(
+            `fetch("/api/control/account").then((answer) => answer.json()).then((account) => account.email)`,
+            Schema.String,
+          ),
+        ).toBe(ada.email);
+        expect(page.errors()).toEqual([]);
+      }),
   );
 });

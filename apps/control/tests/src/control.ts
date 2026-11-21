@@ -21,6 +21,7 @@ import type * as SqlClient from "effect/sql/SqlClient";
 import * as App from "../../src/app.ts";
 import * as Server from "../../src/server.ts";
 import * as Settings from "../../src/settings/layer.ts";
+import * as Dex from "./dex.ts";
 import * as Postgres from "./postgres.ts";
 
 /** Where a control plane keeps what it knows: a database of its own, or nothing but memory. */
@@ -35,6 +36,11 @@ export interface ControlOptions {
   readonly console?: boolean;
   /** Hold signing in to so many tries a while from one address, as a deployment does. */
   readonly rateLimit?: boolean;
+  /**
+   * Sign people in through the suite's provider, whose address is given beside this. With
+   * `provision`, whoever it vouches for is made a person; of `domains` alone, where named.
+   */
+  readonly sso?: { readonly provision?: boolean; readonly domains?: ReadonlyArray<string> };
 }
 
 /** What a node says of itself in a keepalive, as JSON has it. */
@@ -128,6 +134,13 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
     Base64.encode(crypto.getRandomValues(new Uint8Array(MASTER_KEY_BYTES))),
   );
 
+  const provider =
+    options.sso === undefined ? Option.none() : yield* Effect.serviceOption(Dex.Address);
+  const clientSecret = `${dir}/provider.secret`;
+  if (Option.isSome(provider)) {
+    yield* fs.writeFileString(clientSecret, `${provider.value.clientSecret}\n`);
+  }
+
   // Its own address is what it tells a proxy to ask it at.
   const port = yield* freePort;
   const environment = ConfigProvider.fromEnvRecord({
@@ -139,6 +152,21 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
     APERTURE_CONTROL_BOOTSTRAP_TOKEN: BOOTSTRAP,
     APERTURE_CONTROL_TICKET_KEY: signingKey,
     ...(options.console === true ? { APERTURE_CONTROL_CONSOLE_DIR: CONSOLE } : {}),
+    ...(Option.isNone(provider)
+      ? {}
+      : {
+          APERTURE_CONTROL_SSO_PROVIDERS: JSON.stringify([
+            {
+              id: Dex.PROVIDER,
+              name: Dex.PROVIDER_NAME,
+              issuer: provider.value.issuer,
+              clientId: provider.value.clientId,
+              clientSecretFile: clientSecret,
+            },
+          ]),
+          APERTURE_CONTROL_SSO_PROVISION: String(options.sso?.provision ?? false),
+          APERTURE_CONTROL_SSO_DOMAINS: (options.sso?.domains ?? []).join(","),
+        }),
     ...(options.nodeSilentAfter === undefined
       ? {}
       : { APERTURE_CONTROL_NODE_SILENT_AFTER: options.nodeSilentAfter }),

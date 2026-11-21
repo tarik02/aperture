@@ -45,6 +45,22 @@ export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
     return yield* sql`SELECT * FROM accounts WHERE person_id = ${personId}`.pipe(first(Account));
   });
 
+  const insertForPerson = Effect.fn("AccountsStore.insertForPerson")(function* (
+    account: NewAccount & { readonly person: NonNullable<NewAccount["person"]> },
+  ) {
+    yield* sql`
+      INSERT INTO accounts (id, name, admin, kind, person_id, email, created_at)
+      VALUES (
+        ${account.id}, ${account.name}, ${account.admin}, ${account.kind},
+        ${account.person.id}, ${account.person.email}, ${account.createdAt}
+      )
+      ON CONFLICT (person_id) DO NOTHING
+    `.pipe(done);
+    return yield* sql`SELECT * FROM accounts WHERE person_id = ${account.person.id}`.pipe(
+      one(Account),
+    );
+  });
+
   const insertToken = Effect.fn("AccountsStore.insertToken")(function* (given: NewApiToken) {
     return yield* sql`
       INSERT INTO api_tokens (
@@ -96,6 +112,7 @@ export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
 
   return AccountsStore.of({
     insert,
+    insertForPerson,
     list,
     find,
     findByPerson,

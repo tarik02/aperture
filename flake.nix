@@ -404,6 +404,7 @@
             pkgs.buf
             pkgs.postgresql
             pkgs.traefik
+            pkgs.dex-oidc
             pkgs.pkg-config
             nodeRuntime
             pnpmLatest

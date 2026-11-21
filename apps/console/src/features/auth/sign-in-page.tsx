@@ -1,10 +1,12 @@
 import { Button } from "@aperture-browser/ui/components/button";
 import { useForm, useStore } from "@tanstack/react-form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRouter } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { CodeInput } from "#/components/code-input.tsx";
 import { TextField } from "#/components/text-field.tsx";
 import { AuthCard } from "#/features/auth/auth-card.tsx";
+import { continueWith, refusal, useProvidersQuery } from "#/features/auth/sso.ts";
 import { callAs, carry, told } from "#/lib/api.ts";
 import { giveBackupCode, giveCode, signIn } from "#/lib/identity.ts";
 import { queryKeys } from "#/lib/query-keys.ts";
@@ -40,8 +42,8 @@ const useSignedIn = () => {
 };
 
 /**
- * Signs a person in with their password, and a code where they turned a second factor on, or
- * anyone with an account's API token.
+ * Signs a person in with their password, and a code where they turned a second factor on,
+ * or through a provider; or anyone with an account's API token.
  */
 export function SignInPage() {
   const [way, setWay] = useState<Way>("password");
@@ -53,6 +55,48 @@ export function SignInPage() {
   }
   // Each way of the second factor starts with nothing typed.
   return <WithCode key={way} way={way} onWay={setWay} />;
+}
+
+/** The providers there are, each a way in beside the password; why one signed nobody in. */
+function Providers() {
+  const router = useRouter();
+  const providers = useProvidersQuery();
+  const [refused] = useState(refusal);
+  const leaving = useMutation({ mutationFn: continueWith });
+
+  // What a provider answered is told once, and is not in the address for the next try.
+  useEffect(() => {
+    if (refused !== undefined) {
+      router.history.replace(refused.without);
+    }
+  }, [refused, router]);
+
+  return (
+    <>
+      {(providers.data ?? []).map((provider) => (
+        <Button
+          key={provider.id}
+          type="button"
+          variant="outline"
+          data-console-sso={provider.id}
+          disabled={leaving.isPending || leaving.isSuccess}
+          onClick={() => leaving.mutate(provider.id)}
+        >
+          Continue with {provider.name}
+        </Button>
+      ))}
+      {leaving.isError ? <Refused error={leaving.error} /> : null}
+      {refused === undefined || leaving.isError ? null : (
+        <p
+          role="alert"
+          data-console-sso-refused
+          className="aperture:text-sm aperture:text-destructive"
+        >
+          {refused.message}
+        </p>
+      )}
+    </>
+  );
 }
 
 function WithPassword({ onWay }: { onWay: (way: Way) => void }) {
@@ -98,6 +142,7 @@ function WithPassword({ onWay }: { onWay: (way: Way) => void }) {
       <Button type="submit" disabled={submitting}>
         Sign in
       </Button>
+      <Providers />
       <div className="aperture:flex aperture:justify-center aperture:gap-4">
         <Another data-console-sign-in-way onClick={() => onWay("token")}>
           Use an API token

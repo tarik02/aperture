@@ -61,7 +61,11 @@ Where accounts keep sessions and snapshots together: what is a workspace's is al
 An account for something that is not a person: it comes with API tokens alone. It holds sessions and snapshots and is let into workspaces as a person's account is.
 
 **Person**:
-Someone who signs in: known by an email address and proven by a password of their own, which they set with a setup link an admin gives them. A person has one account, and nobody makes themselves a person.
+Someone who signs in: known by an email address, and proven by a password of their own, which they set with a setup link an admin gives them, or by the word of a provider. A person has one account. Nobody makes themselves a person: an admin does, or a provider's word where the control plane is set to take it.
+
+**Provider**:
+An OpenID Connect issuer the control plane lets people sign in through, beside their passwords. It signs in the person who has the email address it says it verified, and no second factor is asked after it. Where the control plane is set to, someone it vouches for whom no admin made a person is made one when they first come, with no password until they set one.
+_Avoid_: IdP, SSO, social login
 
 **Grant**:
 What a person lets an app do in their name, as OAuth has it: scopes and, where they chose, the sessions, snapshots and workspaces it reaches. An app's access token is told to be a caller exactly as an API token is. A person sees their grants as connected apps and takes any back, which ends the app's tokens with it. An app gives its grant back itself as well, by handing in either of its tokens.

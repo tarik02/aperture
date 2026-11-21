@@ -28,6 +28,13 @@ export interface NewApiToken {
 /** Where accounts and their API tokens are kept. */
 export interface AccountsStoreShape {
   readonly insert: (account: NewAccount) => Effect.Effect<Account>;
+  /**
+   * Keeps an account for a person who has none, and gives the one they have: the first
+   * requests of someone new may come together.
+   */
+  readonly insertForPerson: (
+    account: NewAccount & { readonly person: NonNullable<NewAccount["person"]> },
+  ) => Effect.Effect<Account>;
   readonly list: () => Effect.Effect<ReadonlyArray<Account>>;
   readonly find: (id: string) => Effect.Effect<Option.Option<Account>>;
   /** The account someone signs in as. */

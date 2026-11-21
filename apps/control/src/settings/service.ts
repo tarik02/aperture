@@ -3,6 +3,18 @@ import * as Duration from "effect/Duration";
 import type * as Option from "effect/Option";
 import type * as Redacted from "effect/Redacted";
 
+/** A provider people sign in through: an OpenID Connect issuer this program is a client of. */
+export interface Provider {
+  /** What it is known by in addresses, such as that of its callback. */
+  readonly id: string;
+  /** What the page that signs people in calls it. */
+  readonly name: string;
+  /** Where it says how it is reached: its `/.well-known/openid-configuration`. */
+  readonly discoveryUrl: string;
+  readonly clientId: string;
+  readonly clientSecret: Redacted.Redacted;
+}
+
 /** What the control plane is told when it starts. */
 export interface SettingsShape {
   /** The PostgreSQL database, as `postgres://user:password@host:port/database`. */
@@ -33,6 +45,21 @@ export interface SettingsShape {
   readonly trustedProxies: ReadonlyArray<string>;
   /** Whether signing in is held to so many tries a while from one address. */
   readonly rateLimit: boolean;
+  /**
+   * The providers people sign in through beside their passwords; none where there are
+   * none. A provider is told to send people back to `/api/auth/callback/<id>`.
+   */
+  readonly providers: ReadonlyArray<Provider>;
+  /**
+   * Whether someone a provider vouches for, whom no admin made a person, is made one when
+   * they first sign in. Without, a provider signs in only the people there are.
+   */
+  readonly provisionPeople: boolean;
+  /**
+   * The domains of the email addresses people are made for so, as `example.com`; any
+   * address where none is named.
+   */
+  readonly provisionDomains: ReadonlyArray<string>;
   /** Lets its holder do what an admin does before there is any account. */
   readonly bootstrapToken: Redacted.Redacted;
   /**

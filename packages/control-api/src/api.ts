@@ -166,6 +166,13 @@ export const Grant = Schema.Struct({
   createdAt: Schema.DateTimeUtcFromString,
 });
 
+/** A provider people sign in through, as the page that signs them in names it. */
+export const Provider = Schema.Struct({
+  /** What it is known by in addresses. */
+  id: Schema.String,
+  name: Schema.String,
+});
+
 export const Admission = Schema.Struct({
   ticket: Schema.String,
   expiresAt: Schema.DateTimeUtcFromString,
@@ -475,9 +482,21 @@ export class GrantsGroup extends HttpApiGroup.make("grants")
     }),
   ) {}
 
+export class SignInGroup extends HttpApiGroup.make("signIn")
+  .add(HttpApiEndpoint.get("providers", "/sign-in/providers", { success: Schema.Array(Provider) }))
+  .annotateMerge(
+    OpenApi.annotations({
+      title: "Signing in",
+      description:
+        "What whoever is not signed in yet is told: the providers people sign in through.",
+    }),
+  ) {}
+
 export class Api extends HttpApi.make("control")
   .add(AccountsGroup, GrantsGroup, NodesGroup, SessionsGroup, SnapshotsGroup, WorkspacesGroup)
   .middleware(Authorization)
+  // After the middleware, so that it has none: it is asked before anyone is signed in.
+  .add(SignInGroup)
   .prefix(PREFIX)
   .annotateMerge(
     OpenApi.annotations({

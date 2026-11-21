@@ -8,6 +8,7 @@ import { accountOf } from "../accounts/caller.ts";
 import { Accounts } from "../accounts/service.ts";
 import { Forbidden } from "../errors.ts";
 import { Grants } from "../grants/service.ts";
+import { Identity } from "../identity/service.ts";
 import { Nodes } from "../nodes/service.ts";
 import { sessionPath } from "../routing/paths.ts";
 import type { Session } from "../sessions/schemas.ts";
@@ -167,6 +168,15 @@ const grants = HttpApiBuilder.group(
       .handle("revoke", ({ params }) =>
         Effect.flatMap(scoped("tokens:write"), (caller) => grants.revoke(caller, params.id)),
       );
+  }),
+);
+
+const signIn = HttpApiBuilder.group(
+  Api,
+  "signIn",
+  Effect.fn(function* (handlers) {
+    const identity = yield* Identity;
+    return handlers.handle("providers", () => identity.providers());
   }),
 );
 
@@ -355,4 +365,12 @@ const workspaces = HttpApiBuilder.group(
   }),
 );
 
-export const layer = Layer.mergeAll(accounts, grants, nodes, sessions, snapshots, workspaces);
+export const layer = Layer.mergeAll(
+  accounts,
+  grants,
+  nodes,
+  sessions,
+  signIn,
+  snapshots,
+  workspaces,
+);

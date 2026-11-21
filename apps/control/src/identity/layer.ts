@@ -1,6 +1,8 @@
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
+import { APIError } from "better-auth/api";
 import { getMigrations } from "better-auth/db/migration";
+import { genericOAuth } from "better-auth/plugins/generic-oauth";
 import { twoFactor } from "better-auth/plugins/two-factor";
 import type * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -17,6 +19,8 @@ import { Identity, type Person } from "./service.ts";
 const PATH = "/api/auth" as const;
 /** Nobody makes themselves a person: an admin makes people, each of whom sets a password. */
 const SIGN_UP = `${PATH}/sign-up/`;
+/** The route of better-auth's own an admin's making of a person goes through. */
+const MADE_BY_ADMIN = "/sign-up/email";
 const NOT_FOUND = 404;
 /** What an authenticator shows its codes under. */
 const ISSUER = "Aperture";
@@ -33,6 +37,9 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
   const context = yield* Effect.context<Crypto.Crypto>();
   /** Setup tokens on their way: better-auth hands one to whoever sends it, which is this. */
   const sent = new Map<string, string>();
+
+  /** Why a provider's word makes nobody a person; the code is told to the page that asked. */
+  const refused = (code: string, message: string) => new APIError("FORBIDDEN", { code, message });
 
   const options = {
     basePath: PATH,
@@ -52,7 +59,52 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
     },
     // A second factor is a person's own to turn on, with an authenticator's codes. Its secret
     // and backup codes are kept in its own table, sealed with the secret above.
-    plugins: [twoFactor({ issuer: ISSUER })],
+    plugins: [
+      twoFactor({ issuer: ISSUER }),
+      // No second factor is asked after a provider: who it signs in is its to prove.
+      genericOAuth({
+        config: settings.providers.map((provider) => ({
+          providerId: provider.id,
+          name: provider.name,
+          discoveryUrl: provider.discoveryUrl,
+          clientId: provider.clientId,
+          clientSecret: Redacted.value(provider.clientSecret),
+          scopes: ["openid", "email", "profile"],
+          // Who someone is, is read from a token: one that is not checked says nothing.
+          requireIdTokenVerification: true,
+          disableSignUp: !settings.provisionPeople,
+        })),
+      }),
+    ],
+    // A provider signs in the person who has the address it vouches for, and no provider's
+    // word is taken for an address it does not say it verified. The person's own address
+    // was never verified here: an admin gave it, which is what a letter to it would show.
+    account: { accountLinking: { requireLocalEmailVerified: false } },
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user, context) => {
+            if (context?.path === MADE_BY_ADMIN) {
+              return;
+            }
+            // Whoever else is made a person came through a provider.
+            if (!settings.provisionPeople) {
+              throw refused("signup_disabled", "nobody is made a person by signing in");
+            }
+            if (user.emailVerified !== true) {
+              throw refused("email_not_verified", "the provider did not verify the address");
+            }
+            const domain = user.email.slice(user.email.lastIndexOf("@") + 1).toLowerCase();
+            if (
+              settings.provisionDomains.length > 0 &&
+              !settings.provisionDomains.includes(domain)
+            ) {
+              throw refused("email_domain_refused", "people of that domain are not made here");
+            }
+          },
+        },
+      },
+    },
     rateLimit: { enabled: settings.rateLimit },
     advanced: { ipAddress: { ipAddressHeaders: [FROM_HEADER] } },
     telemetry: { enabled: false },
@@ -75,6 +127,10 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
     }
     return yield* Effect.promise(() => auth.handler(new Request(request, { headers })));
   });
+
+  const providers = Effect.fn("Identity.providers")(() =>
+    Effect.succeed(settings.providers.map(({ id, name }) => ({ id, name }))),
+  );
 
   const personOf = Effect.fn("Identity.personOf")(function* (headers: Headers) {
     const session = yield* Effect.tryPromise(() => auth.api.getSession({ headers })).pipe(
@@ -139,7 +195,15 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
   return {
     auth,
     options,
-    service: Identity.of({ path: PATH, handle, personOf, create, setupToken, resetSecondFactor }),
+    service: Identity.of({
+      path: PATH,
+      providers,
+      handle,
+      personOf,
+      create,
+      setupToken,
+      resetSecondFactor,
+    }),
   };
 });
 
