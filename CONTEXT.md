@@ -64,7 +64,7 @@ An account for something that is not a person: it comes with API tokens alone. I
 Someone who signs in: known by an email address and proven by a password of their own, which they set with a setup link an admin gives them. A person has one account, and nobody makes themselves a person.
 
 **Grant**:
-What a person lets an app do in their name, as OAuth has it: scopes and, where they chose, the sessions, snapshots and workspaces it reaches. An app's access token is told to be a caller exactly as an API token is. A person sees their grants as connected apps and takes any back, which ends the app's tokens with it.
+What a person lets an app do in their name, as OAuth has it: scopes and, where they chose, the sessions, snapshots and workspaces it reaches. An app's access token is told to be a caller exactly as an API token is. A person sees their grants as connected apps and takes any back, which ends the app's tokens with it. An app gives its grant back itself as well, by handing in either of its tokens.
 
 **Session path**:
 Where a session is reached through a proxy that stands before the nodes, below the proxy's own address: `/n/<node>/sessions/<id>`. The proxy sends what comes there on to the node, once the control plane told it the request may pass and gave it a ticket to put on it; the ticket goes no further than the proxy. The path changes when the session moves to another node.
