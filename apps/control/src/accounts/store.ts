@@ -1,3 +1,4 @@
+import type { Scope } from "@aperture-browser/control-api";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
@@ -20,6 +21,7 @@ export interface NewApiToken {
   readonly tokenHash: string;
   readonly createdAt: Date;
   readonly expiresAt: Date | null;
+  readonly scopes: ReadonlyArray<Scope> | null;
 }
 
 /** Where accounts and their API tokens are kept. */
@@ -36,7 +38,12 @@ export interface AccountsStoreShape {
   /** Takes a token back; one that was taken back before stays as it was. */
   readonly revokeToken: (id: string, now: Date) => Effect.Effect<void>;
   /** The account a token is of, by the token's digest, while the token is good. */
-  readonly findByTokenHash: (tokenHash: string, now: Date) => Effect.Effect<Option.Option<Account>>;
+  readonly findByTokenHash: (
+    tokenHash: string,
+    now: Date,
+  ) => Effect.Effect<
+    Option.Option<{ readonly account: Account; readonly scopes: ReadonlyArray<Scope> | null }>
+  >;
 }
 
 export class AccountsStore extends Context.Service<AccountsStore, AccountsStoreShape>()(

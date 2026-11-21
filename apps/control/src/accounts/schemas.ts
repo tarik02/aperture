@@ -1,3 +1,4 @@
+import { Scope } from "@aperture-browser/control-api";
 import * as Schema from "effect/Schema";
 
 /**
@@ -28,5 +29,7 @@ export const ApiToken = Schema.Struct({
   expiresAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
   /** When it was taken back; it is kept so that its account sees it was. */
   revokedAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
+  /** What it is held to; none for a token that does whatever its account does. */
+  scopes: Schema.NullOr(Schema.Array(Scope)),
 });
 export type ApiToken = typeof ApiToken.Type;

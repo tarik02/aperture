@@ -1,15 +1,20 @@
 import * as Effect from "effect/Effect";
+import { Scope } from "@aperture-browser/control-api";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import { all, done, first, one } from "../store/rows.ts";
 import { Account, ApiToken } from "./schemas.ts";
 import { AccountsStore, type NewAccount, type NewApiToken } from "./store.ts";
 
+const Held = Schema.Struct({ ...Account.fields, scopes: Schema.NullOr(Schema.Array(Scope)) });
+
 /** Accounts in the SQL database. */
 export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
   const sql = yield* SqlClient.SqlClient;
   // Never the digest: a token is known by it, and it is told to nobody.
-  const token = sql.literal("id, account_id, name, created_at, expires_at, revoked_at");
+  const token = sql.literal("id, account_id, name, created_at, expires_at, revoked_at, scopes");
 
   const insert = Effect.fn("AccountsStore.insert")(function* (account: NewAccount) {
     return yield* sql`
@@ -36,10 +41,12 @@ export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
 
   const insertToken = Effect.fn("AccountsStore.insertToken")(function* (given: NewApiToken) {
     return yield* sql`
-      INSERT INTO api_tokens (id, account_id, name, token_hash, created_at, expires_at)
+      INSERT INTO api_tokens (
+        id, account_id, name, token_hash, created_at, expires_at, scopes
+      )
       VALUES (
         ${given.id}, ${given.accountId}, ${given.name}, ${given.tokenHash}, ${given.createdAt},
-        ${given.expiresAt}
+        ${given.expiresAt}, ${given.scopes === null ? null : JSON.stringify(given.scopes)}::jsonb
       )
       RETURNING ${token}
     `.pipe(one(ApiToken));
@@ -65,14 +72,15 @@ export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
     tokenHash: string,
     now: Date,
   ) {
-    return yield* sql`
-      SELECT accounts.*
+    const found = yield* sql`
+      SELECT accounts.*, api_tokens.scopes
       FROM accounts
       JOIN api_tokens ON api_tokens.account_id = accounts.id
       WHERE api_tokens.token_hash = ${tokenHash}
         AND api_tokens.revoked_at IS NULL
         AND (api_tokens.expires_at IS NULL OR api_tokens.expires_at > ${now})
-    `.pipe(first(Account));
+    `.pipe(first(Held));
+    return Option.map(found, ({ scopes, ...account }) => ({ account, scopes }));
   });
 
   return AccountsStore.of({

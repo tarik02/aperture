@@ -1,4 +1,4 @@
-import { Api, CurrentCaller } from "@aperture-browser/control-api";
+import { Api, covers, CurrentCaller, Scope } from "@aperture-browser/control-api";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
@@ -22,6 +22,18 @@ const admin = Effect.gen(function* () {
   }
   return caller;
 });
+
+const ALL_SCOPES = Scope.literals;
+
+/** Goes on for a caller whose token covers the scope, with the caller. */
+const scoped = (scope: Scope) =>
+  Effect.gen(function* () {
+    const caller = yield* CurrentCaller;
+    if (!covers(caller.scopes, scope)) {
+      return yield* new Forbidden({ message: `this token is not for ${scope}` });
+    }
+    return caller;
+  });
 
 const lasting = (days: number | undefined) =>
   days === undefined ? undefined : Duration.days(days);
@@ -62,6 +74,7 @@ const accounts = HttpApiBuilder.group(
             params.id,
             payload.name,
             lasting(payload.expiresInDays),
+            payload.scopes,
           );
           return { ...token, token: secret };
         }),
@@ -80,19 +93,32 @@ const accounts = HttpApiBuilder.group(
           yield* accounts.resetSecondFactor(params.id);
         }),
       )
-      .handle("tokens", () => Effect.flatMap(CurrentCaller, accounts.tokens))
+      .handle("tokens", () => Effect.flatMap(scoped("tokens:write"), accounts.tokens))
       .handle(
         "createOwnToken",
         Effect.fn(function* ({ payload }) {
-          const account = yield* accountOf(yield* CurrentCaller);
+          const caller = yield* scoped("tokens:write");
+          const account = yield* accountOf(caller);
+          // A token makes none that does more than itself.
+          const beyond = (payload.scopes ?? ALL_SCOPES).find(
+            (scope) => !covers(caller.scopes, scope),
+          );
+          if (beyond !== undefined) {
+            return yield* new Forbidden({ message: `this token is not for ${beyond} itself` });
+          }
           const { token, secret } = yield* accounts
-            .createToken(account.id, payload.name, lasting(payload.expiresInDays))
+            .createToken(
+              account.id,
+              payload.name,
+              lasting(payload.expiresInDays),
+              payload.scopes ?? caller.scopes ?? undefined,
+            )
             .pipe(Effect.orDie);
           return { ...token, token: secret };
         }),
       )
       .handle("revokeToken", ({ params }) =>
-        Effect.flatMap(CurrentCaller, (caller) => accounts.revokeToken(caller, params.id)),
+        Effect.flatMap(scoped("tokens:write"), (caller) => accounts.revokeToken(caller, params.id)),
       );
   }),
 );
@@ -146,13 +172,13 @@ const sessions = HttpApiBuilder.group(
     const sessions = yield* Sessions;
     return handlers
       .handle("list", () =>
-        CurrentCaller.pipe(
+        scoped("sessions:read").pipe(
           Effect.flatMap(sessions.list),
           Effect.map((all) => all.map(told)),
         ),
       )
       .handle("create", ({ payload }) =>
-        Effect.flatMap(CurrentCaller, (caller) =>
+        Effect.flatMap(scoped("sessions:write"), (caller) =>
           sessions.create(caller, {
             suspended: payload.suspended ?? false,
             snapshotId: payload.snapshotId,
@@ -164,40 +190,40 @@ const sessions = HttpApiBuilder.group(
         ).pipe(Effect.map(told)),
       )
       .handle("get", ({ params }) =>
-        Effect.flatMap(CurrentCaller, (caller) => sessions.get(caller, params.id)).pipe(
+        Effect.flatMap(scoped("sessions:read"), (caller) => sessions.get(caller, params.id)).pipe(
           Effect.map(told),
         ),
       )
       .handle("describe", ({ params, payload }) =>
-        Effect.flatMap(CurrentCaller, (caller) =>
+        Effect.flatMap(scoped("sessions:write"), (caller) =>
           sessions.describe(caller, params.id, payload),
         ).pipe(Effect.map(told)),
       )
       .handle("proxy", ({ params }) =>
-        Effect.flatMap(CurrentCaller, (caller) => sessions.proxy(caller, params.id)).pipe(
+        Effect.flatMap(scoped("sessions:read"), (caller) => sessions.proxy(caller, params.id)).pipe(
           Effect.map((proxy) => ({ proxy })),
         ),
       )
       .handle("setProxy", ({ params, payload }) =>
-        Effect.flatMap(CurrentCaller, (caller) =>
+        Effect.flatMap(scoped("sessions:write"), (caller) =>
           sessions.setProxy(caller, params.id, payload.proxy),
         ).pipe(Effect.as(payload)),
       )
       .handle("suspend", ({ params }) =>
-        Effect.flatMap(CurrentCaller, (caller) => sessions.suspend(caller, params.id)).pipe(
-          Effect.map(told),
-        ),
+        Effect.flatMap(scoped("sessions:write"), (caller) =>
+          sessions.suspend(caller, params.id),
+        ).pipe(Effect.map(told)),
       )
       .handle("resume", ({ params }) =>
-        Effect.flatMap(CurrentCaller, (caller) => sessions.resume(caller, params.id)).pipe(
-          Effect.map(told),
-        ),
+        Effect.flatMap(scoped("sessions:write"), (caller) =>
+          sessions.resume(caller, params.id),
+        ).pipe(Effect.map(told)),
       )
       .handle("delete", ({ params }) =>
-        Effect.flatMap(CurrentCaller, (caller) => sessions.delete(caller, params.id)),
+        Effect.flatMap(scoped("sessions:write"), (caller) => sessions.delete(caller, params.id)),
       )
       .handle("createTicket", ({ params, payload }) =>
-        Effect.flatMap(CurrentCaller, (caller) =>
+        Effect.flatMap(scoped("sessions:write"), (caller) =>
           sessions.admit(caller, params.id, {
             name: payload.name,
             access: payload.access ?? {},
@@ -213,9 +239,9 @@ const snapshots = HttpApiBuilder.group(
   Effect.fn(function* (handlers) {
     const snapshots = yield* Snapshots;
     return handlers
-      .handle("list", () => Effect.flatMap(CurrentCaller, snapshots.list))
+      .handle("list", () => Effect.flatMap(scoped("snapshots:read"), snapshots.list))
       .handle("take", ({ params, payload }) =>
-        Effect.flatMap(CurrentCaller, (caller) =>
+        Effect.flatMap(scoped("snapshots:write"), (caller) =>
           snapshots.take(caller, params.id, {
             name: payload.name,
             description: payload.description,
@@ -224,13 +250,15 @@ const snapshots = HttpApiBuilder.group(
         ),
       )
       .handle("get", ({ params }) =>
-        Effect.flatMap(CurrentCaller, (caller) => snapshots.get(caller, params.id)),
+        Effect.flatMap(scoped("snapshots:read"), (caller) => snapshots.get(caller, params.id)),
       )
       .handle("describe", ({ params, payload }) =>
-        Effect.flatMap(CurrentCaller, (caller) => snapshots.describe(caller, params.id, payload)),
+        Effect.flatMap(scoped("snapshots:write"), (caller) =>
+          snapshots.describe(caller, params.id, payload),
+        ),
       )
       .handle("delete", ({ params }) =>
-        Effect.flatMap(CurrentCaller, (caller) => snapshots.delete(caller, params.id)),
+        Effect.flatMap(scoped("snapshots:write"), (caller) => snapshots.delete(caller, params.id)),
       );
   }),
 );
@@ -249,28 +277,30 @@ const workspaces = HttpApiBuilder.group(
         ),
       )
       .handle("create", ({ payload }) =>
-        Effect.flatMap(CurrentCaller, (caller) => workspaces.create(caller, payload.name)).pipe(
-          Effect.map(shown),
-        ),
+        Effect.flatMap(scoped("workspaces:write"), (caller) =>
+          workspaces.create(caller, payload.name),
+        ).pipe(Effect.map(shown)),
       )
       .handle("rename", ({ params, payload }) =>
-        Effect.flatMap(CurrentCaller, (caller) =>
+        Effect.flatMap(scoped("workspaces:write"), (caller) =>
           workspaces.rename(caller, params.id, payload.name),
         ).pipe(Effect.map(shown)),
       )
       .handle("delete", ({ params }) =>
-        Effect.flatMap(CurrentCaller, (caller) => workspaces.delete(caller, params.id)),
+        Effect.flatMap(scoped("workspaces:write"), (caller) =>
+          workspaces.delete(caller, params.id),
+        ),
       )
       .handle("members", ({ params }) =>
         Effect.flatMap(CurrentCaller, (caller) => workspaces.members(caller, params.id)),
       )
       .handle("admit", ({ params, payload }) =>
-        Effect.flatMap(CurrentCaller, (caller) =>
+        Effect.flatMap(scoped("workspaces:write"), (caller) =>
           workspaces.admit(caller, params.id, params.accountId, payload.role),
         ),
       )
       .handle("dismiss", ({ params }) =>
-        Effect.flatMap(CurrentCaller, (caller) =>
+        Effect.flatMap(scoped("workspaces:write"), (caller) =>
           workspaces.dismiss(caller, params.id, params.accountId),
         ),
       );

@@ -86,3 +86,25 @@ export const ProxyConfig = Schema.Struct({
   ),
 });
 export type ProxyConfig = typeof ProxyConfig.Type;
+
+/**
+ * What an API token may be held to: with scopes it does what they name and nothing else,
+ * and without any it does whatever its account does. Writing something includes reading
+ * it; `admin` is what an admin's token keeps an admin's with.
+ */
+export const Scope = Schema.Literals([
+  "sessions:read",
+  "sessions:write",
+  "snapshots:read",
+  "snapshots:write",
+  "workspaces:write",
+  "tokens:write",
+  "admin",
+]);
+export type Scope = typeof Scope.Type;
+
+/** Whether scopes cover one that is asked for; no scopes at all cover everything. */
+export const covers = (held: ReadonlyArray<Scope> | null, asked: Scope) =>
+  held === null ||
+  held.includes(asked) ||
+  (asked.endsWith(":read") && held.includes(asked.replace(":read", ":write") as Scope));

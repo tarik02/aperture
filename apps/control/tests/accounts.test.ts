@@ -273,6 +273,45 @@ for (const stores of Control.STORES) {
         }),
     );
 
+    it.effect("a token held to scopes does what they name, and makes none that does more", () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const root = yield* Control.account(`Root-${stores}`, true);
+        const reader = yield* root.api.accounts.createOwnToken({
+          payload: { name: "reader", scopes: ["sessions:read"] },
+        });
+        expect(reader.scopes).toEqual(["sessions:read"]);
+        const asReader = yield* control.as(reader.token);
+
+        expect(yield* asReader.sessions.list()).toEqual([]);
+        const writes = yield* Effect.flip(asReader.sessions.create({ payload: {} }));
+        expect(writes).toMatchObject({ _tag: "Forbidden" });
+        expect((yield* Effect.flip(asReader.snapshots.list()))._tag).toBe("Forbidden");
+        // It is of an admin's account, and not an admin's: it was not made for that.
+        expect((yield* Effect.flip(asReader.accounts.list()))._tag).toBe("Forbidden");
+        expect((yield* Effect.flip(asReader.accounts.tokens()))._tag).toBe("Forbidden");
+
+        const maker = yield* root.api.accounts.createOwnToken({
+          payload: { name: "maker", scopes: ["tokens:write", "snapshots:write"] },
+        });
+        const asMaker = yield* control.as(maker.token);
+        // Writing snapshots includes reading them.
+        expect(yield* asMaker.snapshots.list()).toEqual([]);
+        const more = yield* Effect.flip(
+          asMaker.accounts.createOwnToken({ payload: { name: "more", scopes: ["admin"] } }),
+        );
+        expect(more._tag).toBe("Forbidden");
+        const unheld = yield* Effect.flip(
+          asMaker.accounts.createOwnToken({ payload: { name: "all" } }),
+        );
+        expect(unheld._tag).toBe("Forbidden");
+        const less = yield* asMaker.accounts.createOwnToken({
+          payload: { name: "less", scopes: ["snapshots:read"] },
+        });
+        expect(less.scopes).toEqual(["snapshots:read"]);
+      }),
+    );
+
     it.effect("an account that is no admin makes neither accounts nor tokens", () =>
       Effect.gen(function* () {
         const ada = yield* Control.account("Ada");

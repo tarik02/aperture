@@ -25,7 +25,7 @@ import {
   WorkspaceInUse,
   WorkspaceNotFound,
 } from "./errors.ts";
-import { Access, DesiredState, ObservedState, Offers, ProxyConfig } from "./schemas.ts";
+import { Access, DesiredState, ObservedState, Offers, ProxyConfig, Scope } from "./schemas.ts";
 
 /** Where the control plane's API is, apart from the routes of sessions and of nodes. */
 export const PREFIX = "/api/control";
@@ -65,6 +65,8 @@ export const ApiToken = Schema.Struct({
   createdAt: Schema.DateTimeUtcFromString,
   expiresAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   revokedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
+  /** What it is held to; none for a token that does whatever its account does. */
+  scopes: Schema.NullOr(Schema.Array(Scope)),
 });
 
 /** A token as it is told once, when it is made. */
@@ -73,6 +75,8 @@ export const ApiTokenCreated = Schema.Struct({ ...ApiToken.fields, token: Schema
 const NewApiToken = Schema.Struct({
   name: Schema.NonEmptyString,
   /** How many days it is good for; for as long as it is not taken back, without. */
+  /** What it is held to; whatever its account does, without. */
+  scopes: Schema.optional(Schema.Array(Scope)),
   expiresInDays: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 3650 }))),
 });
 
@@ -160,7 +164,13 @@ const session = { id: Schema.String };
 const Tags = Schema.Record(Schema.NonEmptyString, Schema.String);
 /** A session's routing as it was last set through the control plane; none goes direct. */
 const SessionProxy = Schema.Struct({ proxy: Schema.NullOr(ProxyConfig) });
-const ofNode = [SessionNotFound, SessionHasNoNode, NodeUnreachable, NodeRefused] as const;
+const ofNode = [
+  Forbidden,
+  SessionNotFound,
+  SessionHasNoNode,
+  NodeUnreachable,
+  NodeRefused,
+] as const;
 
 export class AccountsGroup extends HttpApiGroup.make("accounts")
   .add(
@@ -176,7 +186,7 @@ export class AccountsGroup extends HttpApiGroup.make("accounts")
     }),
     HttpApiEndpoint.delete("revokeToken", "/account/tokens/:id", {
       params: { id: Schema.String },
-      error: ApiTokenNotFound,
+      error: [Forbidden, ApiTokenNotFound],
     }),
     HttpApiEndpoint.get("list", "/accounts", { success: Schema.Array(Account), error: Forbidden }),
     HttpApiEndpoint.post("create", "/accounts", {
@@ -235,7 +245,10 @@ export class NodesGroup extends HttpApiGroup.make("nodes")
 
 export class SessionsGroup extends HttpApiGroup.make("sessions")
   .add(
-    HttpApiEndpoint.get("list", "/sessions", { success: Schema.Array(Session) }),
+    HttpApiEndpoint.get("list", "/sessions", {
+      success: Schema.Array(Session),
+      error: Forbidden,
+    }),
     HttpApiEndpoint.post("create", "/sessions", {
       payload: Schema.Struct({
         suspended: Schema.optional(Schema.Boolean),
@@ -252,7 +265,7 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
     HttpApiEndpoint.get("get", "/sessions/:id", {
       params: session,
       success: Session,
-      error: SessionNotFound,
+      error: [Forbidden, SessionNotFound],
     }),
     HttpApiEndpoint.patch("describe", "/sessions/:id", {
       params: session,
@@ -261,12 +274,12 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
         tags: Schema.optional(Tags),
       }),
       success: Session,
-      error: SessionNotFound,
+      error: [Forbidden, SessionNotFound],
     }),
     HttpApiEndpoint.get("proxy", "/sessions/:id/proxy", {
       params: session,
       success: SessionProxy,
-      error: SessionNotFound,
+      error: [Forbidden, SessionNotFound],
     }),
     HttpApiEndpoint.put("setProxy", "/sessions/:id/proxy", {
       params: session,
@@ -304,7 +317,10 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
 
 export class SnapshotsGroup extends HttpApiGroup.make("snapshots")
   .add(
-    HttpApiEndpoint.get("list", "/snapshots", { success: Schema.Array(Snapshot) }),
+    HttpApiEndpoint.get("list", "/snapshots", {
+      success: Schema.Array(Snapshot),
+      error: Forbidden,
+    }),
     HttpApiEndpoint.post("take", "/sessions/:id/snapshots", {
       params: session,
       payload: Schema.Struct({
@@ -318,7 +334,7 @@ export class SnapshotsGroup extends HttpApiGroup.make("snapshots")
     HttpApiEndpoint.get("get", "/snapshots/:id", {
       params: { id: Schema.String },
       success: Snapshot,
-      error: SnapshotNotFound,
+      error: [Forbidden, SnapshotNotFound],
     }),
     HttpApiEndpoint.patch("describe", "/snapshots/:id", {
       params: { id: Schema.String },
@@ -328,11 +344,11 @@ export class SnapshotsGroup extends HttpApiGroup.make("snapshots")
         tags: Schema.optional(Tags),
       }),
       success: Snapshot,
-      error: SnapshotNotFound,
+      error: [Forbidden, SnapshotNotFound],
     }),
     HttpApiEndpoint.delete("delete", "/snapshots/:id", {
       params: { id: Schema.String },
-      error: [SnapshotNotFound, NodeUnreachable, NodeRefused],
+      error: [Forbidden, SnapshotNotFound, NodeUnreachable, NodeRefused],
     }),
   )
   .annotateMerge(

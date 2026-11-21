@@ -1,8 +1,8 @@
-import { PREFIX, type Access, type Caller } from "@aperture-browser/control-api";
+import { PREFIX, type Access, type Caller, covers } from "@aperture-browser/control-api";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { accountOf } from "../accounts/caller.ts";
-import { SessionElsewhere, SessionNotFound } from "../errors.ts";
+import { Forbidden, SessionElsewhere, SessionNotFound } from "../errors.ts";
 import { Nodes } from "../nodes/service.ts";
 import { Sessions } from "../sessions/service.ts";
 import { Settings } from "../settings/service.ts";
@@ -44,6 +44,9 @@ export const makeRouting = Effect.fn("Routing.make")(function* () {
     if (at === undefined) {
       return yield* new SessionNotFound({ id: uri });
     }
+    if (!covers(caller.scopes, "sessions:read")) {
+      return yield* new Forbidden({ message: "this token is not for sessions" });
+    }
     const account = yield* accountOf(caller);
     const { node } = yield* sessions.placed(caller, at.sessionId);
     if (node.id !== at.nodeId) {
@@ -56,7 +59,8 @@ export const makeRouting = Effect.fn("Routing.make")(function* () {
       sessionId: at.sessionId,
       subject: account.id,
       name: account.name,
-      access: EVERYTHING,
+      // A token that only reads sessions watches, and gives no input.
+      access: covers(caller.scopes, "sessions:write") ? EVERYTHING : {},
     });
     return issued.ticket;
   });
