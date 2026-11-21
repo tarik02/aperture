@@ -8,9 +8,10 @@ import { Button } from "@aperture-browser/ui/components/button";
 import { SidebarTrigger } from "@aperture-browser/ui/components/sidebar";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNewSession } from "#/features/session/new-sessions.ts";
 import { WorkbenchSkeleton } from "#/features/session/workbench-skeleton.tsx";
+import { openedPicture } from "#/lib/view-transition.ts";
 import { noteOpened } from "#/features/session/recent-sessions.ts";
 import { useSessionActionMutation } from "#/features/session/session.mutations.ts";
 import {
@@ -126,6 +127,43 @@ export function NewSessionWorkbench({ sessionKey }: { sessionKey: string }) {
   return <WorkbenchSkeleton note="asked">Starting…</WorkbenchSkeleton>;
 }
 
+/** How long a session may take to draw itself before what stands in for it steps aside. */
+const DRAWN_WITHIN_MS = 15_000;
+
+/**
+ * Whether the workbench below has a picture of the session, or has said why it has none:
+ * then nothing stands in for it any more. Asked anew for each place the session is at.
+ */
+function useDrawn(workbench: React.RefObject<HTMLElement | null>, path: string | null) {
+  const [drawn, setDrawn] = useState<string | null>(null);
+  useEffect(() => {
+    const element = workbench.current;
+    if (element === null || path === null) {
+      return undefined;
+    }
+    const look = () => {
+      if (element.querySelector("[data-aperture-drawn], [data-session-closed]") !== null) {
+        setDrawn(path);
+      }
+    };
+    look();
+    const changes = new MutationObserver(look);
+    changes.observe(element, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["data-aperture-drawn", "data-session-closed"],
+    });
+    const late = setTimeout(() => setDrawn(path), DRAWN_WITHIN_MS);
+    return () => {
+      changes.disconnect();
+      clearTimeout(late);
+    };
+    // The element is there once the session's record is, which gives the path.
+  }, [workbench, path]);
+  return drawn !== null && drawn === path;
+}
+
 /**
  * One session, opened: its workbench, connected at the session's path. The browser
  * carries what lets it in, and the proxy before the nodes turns that into a ticket.
@@ -134,6 +172,8 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
   const session = useSessionQuery(sessionId);
   const resume = useSessionActionMutation("resume");
   const { theme, setTheme } = useTheme();
+  const workbench = useRef<HTMLDivElement>(null);
+  const drawn = useDrawn(workbench, session.data?.path ?? null);
 
   useEffect(() => {
     if (session.data !== undefined) {
@@ -154,12 +194,14 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
   }
   if (session.data === undefined) {
     // Its card's picture moves into this one's place while the session is asked for.
-    return <WorkbenchSkeleton />;
+    return <WorkbenchSkeleton picture={openedPicture(sessionId)} />;
   }
+  // What it was opened from, or what it showed when it last rested.
   const kept =
-    session.data.path === null
+    openedPicture(sessionId) ??
+    (session.data.path === null
       ? undefined
-      : `${session.data.path}/preview.png?at=${session.data.observedAt.epochMilliseconds}`;
+      : `${session.data.path}/preview.png?at=${session.data.observedAt.epochMilliseconds}`);
   const { observedState, unreachableSince, failure } = session.data;
   // Asked to run: what follows is the wait for it, whatever the record still says.
   const starting = resume.isPending || resume.isSuccess;
@@ -208,13 +250,20 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
   }
   // Connected anew when the session moves: its path is another then.
   return (
-    <ApertureSession
-      key={session.data.path}
-      url={session.data.path}
-      theme={isTheme(theme) ? theme : "system"}
-      onThemeChange={setTheme}
-      onSession={expose}
-      contributions={CONTRIBUTIONS}
-    />
+    <div
+      ref={workbench}
+      className="aperture:relative aperture:flex aperture:min-h-0 aperture:flex-1 aperture:flex-col"
+    >
+      <ApertureSession
+        key={session.data.path}
+        url={session.data.path}
+        theme={isTheme(theme) ? theme : "system"}
+        onThemeChange={setTheme}
+        onSession={expose}
+        contributions={CONTRIBUTIONS}
+      />
+      {/* Until the session draws itself: no empty picture between the two. */}
+      {drawn ? null : <WorkbenchSkeleton over note="connecting" picture={kept} />}
+    </div>
   );
 }

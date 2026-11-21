@@ -26,7 +26,7 @@ export function SessionCard({ session, selected, onSelect }: SessionCardProps) {
   const picture = useSessionPicture(session, THUMBNAIL_WIDTH);
   const { target, more } = picture;
   const { actions, dialogs } = useSessionActions(session);
-  const open = useOpenSession(session.id);
+  const open = useOpenSession(session.id, picture.source);
   const title = session.label ?? (target?.title || "Session");
 
   return (

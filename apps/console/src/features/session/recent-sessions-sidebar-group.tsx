@@ -18,7 +18,7 @@ const THUMBNAIL_WIDTH = 120;
 /** A session among the last opened: a glimpse of the page it shows, and what it is called. */
 function RecentSession({ session, active }: { session: Session; active: boolean }) {
   const { source, target } = useSessionPicture(session, THUMBNAIL_WIDTH);
-  const open = useOpenSession(session.id);
+  const open = useOpenSession(session.id, source);
 
   return (
     <SidebarMenuItem>

@@ -15,10 +15,6 @@
 
 /* A session's picture, softened on its card, grows into where the workbench shows the
    session, and sharpens there. */
-[data-aperture-stage] {
-  view-transition-name: session-picture;
-}
-
 ::view-transition-group(session-picture) {
   animation-duration: 280ms;
   animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);

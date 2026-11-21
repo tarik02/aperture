@@ -162,6 +162,8 @@ export function SessionViewport({ className, style, children }: SessionViewportP
       ref={stageRef}
       className={className}
       data-aperture-stage=""
+      // For whatever stands in for the picture until there is one.
+      data-aperture-drawn={drawn.width > 0 ? "" : undefined}
       style={{
         position: "relative",
         display: "flex",

@@ -1,18 +1,25 @@
 import { useNavigate } from "@tanstack/react-router";
 import { type CSSProperties, type MouseEvent, useState } from "react";
-import { mayTransition, SESSION_PICTURE, SOFTEN_MS } from "#/lib/view-transition.ts";
+import {
+  mayTransition,
+  noteOpenedPicture,
+  SESSION_PICTURE,
+  SOFTEN_MS,
+} from "#/lib/view-transition.ts";
 
 /**
  * Opens a session from a picture of it: the picture softens, then grows into where the
  * workbench shows the session. For a link that leads there, which still is one to
  * whoever opens it in another tab, and where nothing may move.
  */
-export function useOpenSession(sessionId: string) {
+export function useOpenSession(sessionId: string, picture: string | undefined) {
   const navigate = useNavigate();
   /** Pressed, and on its way into the workbench. */
   const [opening, setOpening] = useState(false);
 
   const onClick = (event: MouseEvent) => {
+    // The workbench goes on showing it until the session draws itself.
+    noteOpenedPicture(sessionId, picture);
     if (!mayTransition() || event.metaKey || event.ctrlKey || event.shiftKey) {
       return;
     }

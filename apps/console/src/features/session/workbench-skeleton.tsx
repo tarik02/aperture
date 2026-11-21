@@ -1,3 +1,4 @@
+import { cn } from "@aperture-browser/ui/utils";
 import { Skeleton } from "@aperture-browser/ui/components/skeleton";
 import { Spinner } from "@aperture-browser/ui/components/spinner";
 import { SESSION_PICTURE } from "#/lib/view-transition.ts";
@@ -8,18 +9,29 @@ type WorkbenchSkeletonProps = {
   /** A picture of what the session showed last, to stand behind the wait. */
   picture?: string | undefined;
   note?: string;
+  /** Whether it lies over a workbench that is not drawn yet, in place of standing for one. */
+  over?: boolean;
 };
 
 /**
  * The workbench as it will be, before there is a session to fill it: its tabs, its
  * toolbar and its picture are where they will be, so that nothing jumps when it comes.
  */
-export function WorkbenchSkeleton({ children, picture, note }: WorkbenchSkeletonProps) {
+export function WorkbenchSkeleton({
+  children,
+  picture,
+  note,
+  over = false,
+}: WorkbenchSkeletonProps) {
   return (
     <main
       data-console-session-note={note ?? "loading"}
       aria-busy
-      className="aperture:flex aperture:min-h-0 aperture:flex-1 aperture:flex-col aperture:bg-background"
+      className={cn(
+        "aperture:flex aperture:min-h-0 aperture:flex-1 aperture:flex-col aperture:bg-background",
+        // Over the workbench that is filling in below it.
+        over && "aperture:absolute aperture:inset-0 aperture:z-30",
+      )}
     >
       <div className="aperture:flex aperture:h-8 aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:bg-muted/40 aperture:px-2">
         <Skeleton className="aperture:h-5 aperture:w-44 aperture:rounded-md" />
@@ -47,7 +59,7 @@ export function WorkbenchSkeleton({ children, picture, note }: WorkbenchSkeleton
             src={picture}
             // One that has no picture shows none.
             onError={(event) => event.currentTarget.remove()}
-            className="aperture:absolute aperture:inset-0 aperture:size-full aperture:scale-105 aperture:object-cover aperture:object-top aperture:opacity-60 aperture:blur-md"
+            className="aperture:absolute aperture:inset-0 aperture:size-full aperture:scale-105 aperture:object-cover aperture:object-top aperture:blur-md"
           />
         )}
         <div className="aperture:absolute aperture:inset-0 aperture:flex aperture:flex-col aperture:items-center aperture:justify-center aperture:gap-2 aperture:text-sm aperture:text-muted-foreground">
