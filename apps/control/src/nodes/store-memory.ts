@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { isAfter, Memory, moment, ordered } from "../store/memory.ts";
-import type { Node, Offers, RegistrationToken } from "./schemas.ts";
+import type { NodeRecord, Offers, RegistrationToken } from "./schemas.ts";
 import { type NewRegistrationToken, NodesStore, type SeenNode } from "./store.ts";
 
 /** Nodes kept in memory. */
@@ -36,13 +36,13 @@ export const makeNodesStoreMemory = Effect.fn("NodesStore.makeMemory")(function*
   const seen = Effect.fn("NodesStore.seen")((node: SeenNode) =>
     Effect.sync(() => {
       const known = [...memory.nodes.values()].find((one) => one.name === node.name);
-      const kept: Node = {
+      const kept: NodeRecord = {
         id: known?.id ?? node.id,
         name: node.name,
         internalUrl: node.internalUrl,
         balancerUrl: node.balancerUrl,
         publicUrl: node.publicUrl,
-        operatorToken: node.operatorToken,
+        operatorTokenSealed: node.operatorTokenSealed,
         offers: known?.offers ?? null,
         registeredAt: known?.registeredAt ?? moment(node.now),
         lastSeenAt: moment(node.now),
@@ -73,7 +73,7 @@ export const makeNodesStoreMemory = Effect.fn("NodesStore.makeMemory")(function*
 
   const candidates = Effect.fn("NodesStore.candidates")((since: Date) =>
     Effect.sync(() => {
-      const sessions = (node: Node) =>
+      const sessions = (node: NodeRecord) =>
         [...memory.sessions.values()].filter((session) => session.nodeId === node.id).length;
       // The sort keeps the order of those that have as many sessions: the oldest first.
       return registered()

@@ -45,6 +45,7 @@ export interface Keepalive {
 
 const BOOTSTRAP = "bootstrap-token-of-the-checks";
 const PEM_LINE = 64;
+const MASTER_KEY_BYTES = 32;
 
 const pem = (what: string, key: ArrayBuffer) => {
   const lines = Base64.encode(new Uint8Array(key)).match(new RegExp(`.{1,${PEM_LINE}}`, "gu"));
@@ -107,7 +108,14 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
     ),
   );
 
+  const masterKey = `${dir}/master.key`;
+  yield* fs.writeFileString(
+    masterKey,
+    Base64.encode(crypto.getRandomValues(new Uint8Array(MASTER_KEY_BYTES))),
+  );
+
   const environment = ConfigProvider.fromEnvRecord({
+    APERTURE_CONTROL_MASTER_KEY: masterKey,
     APERTURE_CONTROL_DATABASE_URL: postgres?.url ?? "postgres://nowhere",
     APERTURE_CONTROL_BOOTSTRAP_TOKEN: BOOTSTRAP,
     APERTURE_CONTROL_TICKET_KEY: signingKey,

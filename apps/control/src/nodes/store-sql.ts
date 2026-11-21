@@ -3,7 +3,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import { all, done, first, one } from "../store/rows.ts";
-import { Node, Offers, RegistrationToken } from "./schemas.ts";
+import { NodeRecord, Offers, RegistrationToken } from "./schemas.ts";
 import { type NewRegistrationToken, NodesStore, type SeenNode } from "./store.ts";
 
 const encodeOffers = Schema.encodeSync(Schema.fromJsonString(Offers));
@@ -39,23 +39,23 @@ export const makeNodesStore = Effect.fn("NodesStore.make")(function* () {
   const seen = Effect.fn("NodesStore.seen")(function* (node: SeenNode) {
     return yield* sql`
       INSERT INTO nodes (
-        id, name, internal_url, balancer_url, public_url, operator_token,
+        id, name, internal_url, balancer_url, public_url, operator_token_sealed,
         registration_token_id, registered_at, last_seen_at
       )
       VALUES (
         ${node.id}, ${node.name}, ${node.internalUrl}, ${node.balancerUrl},
-        ${node.publicUrl}, ${node.operatorToken}, ${node.registrationTokenId},
+        ${node.publicUrl}, ${node.operatorTokenSealed}, ${node.registrationTokenId},
         ${node.now}, ${node.now}
       )
       ON CONFLICT (name) DO UPDATE SET
         internal_url = EXCLUDED.internal_url,
         balancer_url = EXCLUDED.balancer_url,
         public_url = EXCLUDED.public_url,
-        operator_token = EXCLUDED.operator_token,
+        operator_token_sealed = EXCLUDED.operator_token_sealed,
         registration_token_id = EXCLUDED.registration_token_id,
         last_seen_at = EXCLUDED.last_seen_at
       RETURNING *
-    `.pipe(one(Node));
+    `.pipe(one(NodeRecord));
   });
 
   const describe = Effect.fn("NodesStore.describe")(function* (id: string, offers: Offers) {
@@ -65,17 +65,17 @@ export const makeNodesStore = Effect.fn("NodesStore.make")(function* () {
   });
 
   const list = Effect.fn("NodesStore.list")(function* () {
-    return yield* sql`SELECT * FROM nodes ORDER BY registered_at, id`.pipe(all(Node));
+    return yield* sql`SELECT * FROM nodes ORDER BY registered_at, id`.pipe(all(NodeRecord));
   });
 
   const find = Effect.fn("NodesStore.find")(function* (id: string) {
-    return yield* sql`SELECT * FROM nodes WHERE id = ${id}`.pipe(first(Node));
+    return yield* sql`SELECT * FROM nodes WHERE id = ${id}`.pipe(first(NodeRecord));
   });
 
   const seenSince = Effect.fn("NodesStore.seenSince")(function* (since: Date) {
     return yield* sql`
       SELECT * FROM nodes WHERE last_seen_at > ${since} ORDER BY registered_at, id
-    `.pipe(all(Node));
+    `.pipe(all(NodeRecord));
   });
 
   const candidates = Effect.fn("NodesStore.candidates")(function* (since: Date) {
@@ -86,7 +86,7 @@ export const makeNodesStore = Effect.fn("NodesStore.make")(function* () {
       WHERE nodes.last_seen_at > ${since} AND nodes.offers IS NOT NULL
       GROUP BY nodes.id
       ORDER BY count(sessions.id), nodes.registered_at, nodes.id
-    `.pipe(all(Node));
+    `.pipe(all(NodeRecord));
   });
 
   return NodesStore.of({

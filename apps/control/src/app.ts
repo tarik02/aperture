@@ -18,6 +18,7 @@ import * as SessionsStoreMemory from "./sessions/store-memory.ts";
 import * as SessionsStoreSql from "./sessions/store-sql.ts";
 import * as Memory from "./store/memory.ts";
 import * as Tickets from "./tickets/layer.ts";
+import * as Vault from "./vault/layer.ts";
 
 /** The stores on the database the settings name, migrated before anything is asked of it. */
 export const stores = Layer.mergeAll(
@@ -36,6 +37,7 @@ export const storesTest = Layer.mergeAll(
 /** What the control plane knows and does, whoever asks: over HTTP, or by itself. */
 export const services = Sessions.layer.pipe(
   Layer.provideMerge(Layer.mergeAll(Accounts.layer, Nodes.layer, Tickets.layer)),
+  Layer.provide(Vault.layer),
 );
 
 const api = HttpApiBuilder.layer(Api, { openapiPath: `${PREFIX}/openapi.json` }).pipe(

@@ -75,3 +75,23 @@ export class TicketKeyUnusable extends Schema.TaggedError<TicketKeyUnusable>()(
     return `the ticket key ${this.file} cannot be used: ${this.reason}`;
   }
 }
+
+/** The file given as the master key holds nothing to make keys of. */
+export class MasterKeyUnusable extends Schema.TaggedError<MasterKeyUnusable>()(
+  "MasterKeyUnusable",
+  { file: Schema.String, reason: Schema.String },
+) {
+  override get message() {
+    return `the master key ${this.file} cannot be used: ${this.reason}`;
+  }
+}
+
+/** A sealed secret that does not open. */
+export class Unsealable extends Schema.TaggedError<Unsealable>()("Unsealable", {
+  of: Schema.String,
+  reason: Schema.String,
+}) {
+  override get message() {
+    return `the secret of ${this.of} does not open: ${this.reason}`;
+  }
+}

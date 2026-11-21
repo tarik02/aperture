@@ -10,6 +10,12 @@ export interface SettingsShape {
   readonly listenPort: number;
   /** Lets its holder do what an admin does before there is any account. */
   readonly bootstrapToken: Redacted.Redacted;
+  /**
+   * A file with the master key: at least 32 bytes nobody guesses, such as what
+   * `openssl rand -base64 32` gives. Secrets the control plane has to read again are
+   * sealed with it, so it stays the same for as long as they are to be read.
+   */
+  readonly masterKeyFile: string;
   /** The Ed25519 private key tickets are signed with: PKCS#8, as PEM. */
   readonly ticketKeyFile: string;
   /** How long a ticket is good for. */

@@ -9,6 +9,7 @@ const environment = Config.all({
   listenHost: Config.String("APERTURE_CONTROL_LISTEN_HOST").pipe(Config.withDefault("127.0.0.1")),
   listenPort: Config.Port("APERTURE_CONTROL_LISTEN_PORT").pipe(Config.withDefault(7800)),
   bootstrapToken: Config.Redacted("APERTURE_CONTROL_BOOTSTRAP_TOKEN"),
+  masterKeyFile: Config.NonEmptyString("APERTURE_CONTROL_MASTER_KEY"),
   ticketKeyFile: Config.NonEmptyString("APERTURE_CONTROL_TICKET_KEY"),
   ticketLifetime: Config.Duration("APERTURE_CONTROL_TICKET_LIFETIME").pipe(
     Config.withDefault(Duration.minutes(10)),

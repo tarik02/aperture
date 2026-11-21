@@ -38,15 +38,15 @@ const initial = statements([
     token_hash text NOT NULL UNIQUE,
     created_at timestamptz NOT NULL
   )`,
-  // The operator token is kept as it is: the control plane has to send it to the node,
-  // so no digest of it would do. What keeps it from others is who may read this database.
+  // The control plane has to send the operator token to the node, so no digest of it
+  // would do: it is sealed with the master key, which is not here.
   `CREATE TABLE nodes (
     id uuid PRIMARY KEY,
     name text NOT NULL UNIQUE,
     internal_url text NOT NULL,
     balancer_url text,
     public_url text,
-    operator_token text NOT NULL,
+    operator_token_sealed text NOT NULL,
     offers jsonb,
     registration_token_id uuid REFERENCES registration_tokens (id) ON DELETE SET NULL,
     registered_at timestamptz NOT NULL,

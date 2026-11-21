@@ -2,7 +2,7 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Layer from "effect/Layer";
 import type { Account, ApiToken } from "../accounts/schemas.ts";
-import type { Node, RegistrationToken } from "../nodes/schemas.ts";
+import type { NodeRecord, RegistrationToken } from "../nodes/schemas.ts";
 import type { Session } from "../sessions/schemas.ts";
 
 /**
@@ -15,7 +15,7 @@ export interface MemoryShape {
   readonly apiTokens: Map<string, ApiToken>;
   /** By the token's digest. */
   readonly registrationTokens: Map<string, RegistrationToken>;
-  readonly nodes: Map<string, Node>;
+  readonly nodes: Map<string, NodeRecord>;
   readonly sessions: Map<string, Session>;
 }
 

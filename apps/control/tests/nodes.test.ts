@@ -6,6 +6,7 @@ import { until } from "@aperture-browser/e2e/src/wait.ts";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as Schema from "effect/Schema";
@@ -167,6 +168,23 @@ for (const stores of Control.STORES) {
           const ada = yield* Control.account("Ada");
           const refused = yield* Effect.flip(ada.api.sessions.create({ payload: {} }));
           expect(refused._tag).toBe("NoNode");
+        }),
+      );
+
+      // What memory keeps is read by nobody else.
+      it.effect.skipIf(stores === "memory")("a node's operator token is kept sealed", () =>
+        Effect.gen(function* () {
+          const control = yield* Control.Control;
+          const sql = Option.getOrThrow(control.sql);
+          yield* control.keepalive({
+            registrationToken: yield* registrationToken,
+            name: "node-sealed",
+            internalUrl: NOWHERE,
+            operatorToken: "an-operator-token-nobody-else-reads",
+          });
+          const kept = yield* sql`SELECT * FROM nodes WHERE name = 'node-sealed'`;
+          expect(kept).toHaveLength(1);
+          expect(JSON.stringify(kept)).not.toContain("an-operator-token-nobody-else-reads");
         }),
       );
 

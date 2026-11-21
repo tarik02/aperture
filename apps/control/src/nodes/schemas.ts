@@ -17,19 +17,25 @@ export const Offers = Schema.Struct({
 });
 export type Offers = typeof Offers.Type;
 
-export const Node = Schema.Struct({
+/** A node as it is kept: its operator token sealed. */
+export const NodeRecord = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   internalUrl: Schema.String,
   balancerUrl: Schema.NullOr(Schema.String),
   publicUrl: Schema.NullOr(Schema.String),
-  operatorToken: Schema.String,
+  operatorTokenSealed: Schema.String,
   /** None until the control plane has reached the node's executor. */
   offers: Schema.NullOr(Offers),
   registeredAt: Schema.DateTimeUtcFromDate,
   lastSeenAt: Schema.DateTimeUtcFromDate,
 });
-export type Node = typeof Node.Type;
+export type NodeRecord = typeof NodeRecord.Type;
+
+/** A node the control plane can drive: with its operator token as the node gave it. */
+export interface Node extends Omit<NodeRecord, "operatorTokenSealed"> {
+  readonly operatorToken: string;
+}
 
 /** A registration token as it is kept: never the token. */
 export const RegistrationToken = Schema.Struct({

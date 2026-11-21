@@ -1,7 +1,7 @@
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
-import type { Node, Offers, RegistrationToken } from "./schemas.ts";
+import type { NodeRecord, Offers, RegistrationToken } from "./schemas.ts";
 
 export interface NewRegistrationToken {
   readonly id: string;
@@ -17,7 +17,7 @@ export interface SeenNode {
   readonly internalUrl: string;
   readonly balancerUrl: string | null;
   readonly publicUrl: string | null;
-  readonly operatorToken: string;
+  readonly operatorTokenSealed: string;
   readonly registrationTokenId: string;
   readonly now: Date;
 }
@@ -35,17 +35,17 @@ export interface NodesStoreShape {
    * Writes what a node said of itself and that it was seen now. The node with that name
    * stays the node it was.
    */
-  readonly seen: (node: SeenNode) => Effect.Effect<Node>;
+  readonly seen: (node: SeenNode) => Effect.Effect<NodeRecord>;
   readonly describe: (id: string, offers: Offers) => Effect.Effect<void>;
-  readonly list: () => Effect.Effect<ReadonlyArray<Node>>;
-  readonly find: (id: string) => Effect.Effect<Option.Option<Node>>;
+  readonly list: () => Effect.Effect<ReadonlyArray<NodeRecord>>;
+  readonly find: (id: string) => Effect.Effect<Option.Option<NodeRecord>>;
   /** The nodes seen since then. */
-  readonly seenSince: (since: Date) => Effect.Effect<ReadonlyArray<Node>>;
+  readonly seenSince: (since: Date) => Effect.Effect<ReadonlyArray<NodeRecord>>;
   /**
    * The nodes a new session may go to: seen since then and reached at least once, the
    * one with the fewest sessions first.
    */
-  readonly candidates: (since: Date) => Effect.Effect<ReadonlyArray<Node>>;
+  readonly candidates: (since: Date) => Effect.Effect<ReadonlyArray<NodeRecord>>;
 }
 
 export class NodesStore extends Context.Service<NodesStore, NodesStoreShape>()(

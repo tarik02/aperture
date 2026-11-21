@@ -1,4 +1,5 @@
 import { make, proto } from "@aperture-browser/executor-client";
+import * as Arr from "effect/Array";
 import type * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -8,7 +9,8 @@ import { KeepaliveInvalid, RegistrationRefused } from "../errors.ts";
 import * as Secrets from "../secrets.ts";
 import { keepaliveEvery, Settings } from "../settings/service.ts";
 import { ago, now } from "../time.ts";
-import type { Keepalive, Node, Offers } from "./schemas.ts";
+import { Vault } from "../vault/service.ts";
+import type { Keepalive, Node, NodeRecord, Offers } from "./schemas.ts";
 import { Nodes } from "./service.ts";
 import { NodesStore } from "./store.ts";
 
@@ -48,8 +50,23 @@ const optionalAddress = (what: string, given: string | undefined) =>
 export const makeNodes = Effect.fn("Nodes.make")(function* () {
   const store = yield* NodesStore;
   const settings = yield* Settings;
+  const vault = yield* Vault;
   const crypto = yield* Effect.context<Crypto.Crypto>();
   const silent = ago(settings.nodeSilentAfter);
+
+  /** The node with its operator token opened; none where it does not open. */
+  const opened = Effect.fn(function* ({ operatorTokenSealed, ...node }: NodeRecord) {
+    return yield* vault.open(operatorTokenSealed, node.name).pipe(
+      Effect.map((operatorToken): Node => ({ ...node, operatorToken })),
+      Effect.tapError((error) =>
+        Effect.logWarning(`node ${node.name} cannot be driven: ${error.message}`),
+      ),
+      Effect.option,
+    );
+  });
+
+  const driven = (records: ReadonlyArray<NodeRecord>) =>
+    Effect.forEach(records, opened).pipe(Effect.map(Arr.getSomes));
 
   const createRegistrationToken = Effect.fn("Nodes.createRegistrationToken")(function* (
     name: string,
@@ -81,17 +98,21 @@ export const makeNodes = Effect.fn("Nodes.make")(function* () {
     if (said.operatorToken === "") {
       return yield* new KeepaliveInvalid({ message: "the node gave no operator token" });
     }
-    const node = yield* store.seen({
+    const name = said.name.trim();
+    const { operatorTokenSealed: _, ...node } = yield* store.seen({
       id: yield* Secrets.id,
-      name: said.name.trim(),
+      name,
       internalUrl: yield* address("the internal address", said.internalUrl),
       balancerUrl: yield* optionalAddress("the load balancer's address", said.balancerUrl),
       publicUrl: yield* optionalAddress("the public address", said.publicUrl),
-      operatorToken: said.operatorToken,
+      operatorTokenSealed: yield* vault.seal(said.operatorToken, name),
       registrationTokenId: token.value.id,
       now: yield* now,
     });
-    return { node, againAfter: keepaliveEvery(settings) };
+    return {
+      node: { ...node, operatorToken: said.operatorToken } satisfies Node,
+      againAfter: keepaliveEvery(settings),
+    };
   }, Effect.provide(crypto));
 
   const list = Effect.fn("Nodes.list")(function* () {
@@ -104,15 +125,16 @@ export const makeNodes = Effect.fn("Nodes.make")(function* () {
   });
 
   const alive = Effect.fn("Nodes.alive")(function* () {
-    return yield* store.seenSince(yield* silent);
+    return yield* driven(yield* store.seenSince(yield* silent));
   });
 
   const candidates = Effect.fn("Nodes.candidates")(function* () {
-    return yield* store.candidates(yield* silent);
+    return yield* driven(yield* store.candidates(yield* silent));
   });
 
   const find = Effect.fn("Nodes.find")(function* (id: string) {
-    return yield* store.find(id);
+    const record = yield* store.find(id);
+    return Option.isNone(record) ? Option.none<Node>() : yield* opened(record.value);
   });
 
   const describe = Effect.fn("Nodes.describe")(function* (node: Node, executor: proto.Executor) {

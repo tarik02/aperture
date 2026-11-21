@@ -4,7 +4,7 @@ import type * as Duration from "effect/Duration";
 import type * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
 import type { KeepaliveInvalid, RegistrationRefused } from "../errors.ts";
-import type { Keepalive, Node, RegistrationToken } from "./schemas.ts";
+import type { Keepalive, Node, NodeRecord, RegistrationToken } from "./schemas.ts";
 
 /** The nodes that registered, which of them are in use, and how each is reached. */
 export interface NodesShape {
@@ -25,8 +25,13 @@ export interface NodesShape {
   >;
   /** Every node that ever registered, and whether it is alive: not silent for too long. */
   readonly list: () => Effect.Effect<
-    ReadonlyArray<{ readonly node: Node; readonly alive: boolean }>
+    ReadonlyArray<{ readonly node: NodeRecord; readonly alive: boolean }>
   >;
+  /**
+   * The nodes that are alive, those the control plane can drive: one whose operator
+   * token does not open, as after the master key changed, is left out until its next
+   * keepalive gives the token again.
+   */
   readonly alive: () => Effect.Effect<ReadonlyArray<Node>>;
   /** The nodes a new session may go to, the one to try first at the head. */
   readonly candidates: () => Effect.Effect<ReadonlyArray<Node>>;
