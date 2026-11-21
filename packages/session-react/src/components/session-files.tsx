@@ -187,7 +187,7 @@ function SessionFiles({
 
   return (
     <div
-      className="aperture:relative aperture:flex aperture:max-h-[min(32rem,calc(100vh-6rem))] aperture:flex-col"
+      className="aperture:relative aperture:flex aperture:max-h-[min(32rem,calc(100dvh-6rem))] aperture:flex-col"
       onDragOver={(event) => {
         if (offers.uploads && puts && event.dataTransfer.types.includes("Files")) {
           event.preventDefault();

@@ -1,4 +1,5 @@
 import {
+  ArrowRight,
   Circle,
   ClipboardPaste,
   Copy,
@@ -10,6 +11,7 @@ import {
   Monitor,
   MoreVertical,
   Pencil,
+  RefreshCw,
   RotateCcw,
   SunMoon,
   TextSelect,
@@ -40,7 +42,7 @@ import {
 import type { ApertureTheme } from "../ui-root.tsx";
 import { useWorkbench } from "../workbench/context.tsx";
 import { WorkbenchMenuSlot } from "../workbench/slot.tsx";
-import { ToolbarButton, useCompactToolbar } from "./browser-toolbar.tsx";
+import { ToolbarButton, useCompactToolbar, useCrowdedToolbar } from "./browser-toolbar.tsx";
 import { MenuButton } from "./menu-parts.tsx";
 import { automationName } from "./session-presence.tsx";
 
@@ -124,6 +126,9 @@ export function RecordingAction() {
 
 /** How the picture comes, and the watched tab's viewport. */
 export function PictureAction() {
+  if (useCrowdedToolbar()) {
+    return null;
+  }
   return (
     <DropdownMenu>
       <MenuButton label="Picture and viewport" data-workbench-picture="">
@@ -260,6 +265,52 @@ export function RecordingSubmenuItem() {
         <WorkbenchMenuSlot name="menu.recording" />
       </DropdownMenuSubContent>
     </DropdownMenuSub>
+  );
+}
+
+/** The picture menu inside the browser menu, where the toolbar has no room for its button. */
+export function PictureSubmenuItem() {
+  if (!useCrowdedToolbar()) {
+    return null;
+  }
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
+        <Monitor />
+        Picture and viewport
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="aperture:w-64">
+        <WorkbenchMenuSlot name="menu.picture" />
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
+}
+
+/** Forward and reload inside the browser menu, where the toolbar keeps only the way back. */
+export function NavigationItems() {
+  const session = useSession();
+  const { features } = useWorkbench();
+  const input = useInputState();
+  const watched = useWatchedTarget();
+  const gives = input.changes && watched !== undefined;
+
+  if (!useCrowdedToolbar() || !features.navigation) {
+    return null;
+  }
+  return (
+    <>
+      <DropdownMenuItem
+        disabled={!gives || watched?.goesForward !== true}
+        onClick={() => session.go({ along: "forward" })}
+      >
+        <ArrowRight />
+        Forward
+      </DropdownMenuItem>
+      <DropdownMenuItem disabled={!gives} onClick={() => session.go({ along: "reload" })}>
+        <RefreshCw />
+        Reload
+      </DropdownMenuItem>
+    </>
   );
 }
 

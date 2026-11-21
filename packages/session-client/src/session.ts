@@ -780,7 +780,16 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
     }
     const { clientWidth, clientHeight } = attached.stage;
     if (clientWidth > 0 && clientHeight > 0) {
-      send({ case: "viewport", value: { width: clientWidth, height: clientHeight } });
+      // A stage narrower than a browser's window gets has a page of its shape, shown
+      // smaller: one of the stage's height would leave bands above and below it.
+      const widened = Math.max(1, NARROWEST / clientWidth);
+      send({
+        case: "viewport",
+        value: {
+          width: Math.round(clientWidth * widened),
+          height: Math.round(clientHeight * widened),
+        },
+      });
     }
   };
 
@@ -1014,3 +1023,5 @@ export class Session extends Context.Service<Session, SessionService>()(
 
 /** Connects to a session for as long as the layer lives. */
 export const layer = (options: ConnectOptions) => Layer.effect(Session, make(options));
+/** The narrowest the session's browser makes a window: asked for less, it stays this wide. */
+const NARROWEST = 500;

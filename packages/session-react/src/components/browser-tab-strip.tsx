@@ -62,7 +62,8 @@ export function BrowserTabStrip() {
       <ScrollArea
         data-browser-tab-strip=""
         scrollbars="horizontal"
-        className="aperture:h-8 aperture:min-w-0 aperture:flex-1"
+        // A finger moves the tabs themselves: a bar over them would only cover them.
+        className="aperture:h-8 aperture:min-w-0 aperture:flex-1 aperture:pointer-coarse:h-10 aperture:pointer-coarse:[&>[data-slot=scroll-area-scrollbar]]:hidden"
       >
         <div
           data-browser-tab-strip-tabs=""
@@ -149,7 +150,7 @@ function BrowserTab({
       data-tab={target.tab}
       data-active={active ? "" : undefined}
       className={cn(
-        "aperture:group aperture:relative aperture:flex aperture:h-7 aperture:w-52 aperture:max-w-[38vw] aperture:min-w-28 aperture:items-center aperture:gap-1.5 aperture:rounded-t-lg aperture:border aperture:border-b-0 aperture:px-2 aperture:text-left aperture:text-xs aperture:transition-[background-color,border-color,color] aperture:select-none",
+        "aperture:group aperture:relative aperture:flex aperture:h-7 aperture:pointer-coarse:h-9 aperture:w-52 aperture:max-w-[38vw] aperture:min-w-28 aperture:items-center aperture:gap-1.5 aperture:rounded-t-lg aperture:border aperture:border-b-0 aperture:px-2 aperture:text-left aperture:text-xs aperture:transition-[background-color,border-color,color] aperture:select-none",
         active
           ? "aperture:border-border aperture:bg-background aperture:text-foreground"
           : "aperture:border-transparent aperture:bg-muted/55 aperture:text-muted-foreground aperture:hover:bg-muted",
@@ -228,7 +229,9 @@ function BrowserTab({
           type="button"
           variant="ghost"
           size="icon-xs"
-          className="aperture:-mr-1 aperture:size-5 aperture:shrink-0 aperture:opacity-55 aperture:group-hover:opacity-100 aperture:hover:opacity-100"
+          // Small among the tabs, and pressed around it as well where a finger points.
+          data-touch-dense=""
+          className="aperture:relative aperture:-mr-1 aperture:size-5 aperture:shrink-0 aperture:opacity-55 aperture:group-hover:opacity-100 aperture:hover:opacity-100 aperture:pointer-coarse:opacity-100 aperture:pointer-coarse:after:absolute aperture:pointer-coarse:after:-inset-2.5"
           aria-label="Close tab"
           disabled={!changes}
           onClick={() => session.closeTab(target.tab)}

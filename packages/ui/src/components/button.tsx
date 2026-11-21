@@ -52,6 +52,8 @@ function Button({
   return (
     <ButtonPrimitive
       data-slot="button"
+      // What it is whatever slot it is given: the sizes for a finger go by it.
+      data-button=""
       data-icon-button={iconOnly ? "" : undefined}
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}

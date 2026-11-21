@@ -8,12 +8,20 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { ArrowLeft, ArrowRight, Loader2, RefreshCw } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Layers2, Loader2, Plus, RefreshCw, X } from "lucide-react";
 import { Button } from "@aperture-browser/ui/components/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@aperture-browser/ui/components/dropdown-menu";
 import { InputGroup, InputGroupInput } from "@aperture-browser/ui/components/input-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture-browser/ui/components/tooltip";
 import { useInputState } from "../hooks/use-actions.ts";
 import { useAddress } from "../hooks/use-address.ts";
+import { useFinger, useShortWindow } from "../hooks/use-media.ts";
 import { useSession, useSessionSnapshot } from "../session.tsx";
 import { useWorkbench } from "../workbench/context.tsx";
 import { WorkbenchSlot } from "../workbench/slot.tsx";
@@ -25,14 +33,16 @@ export function WorkbenchTitlebar() {
   const { features, contributions } = useWorkbench();
   const open = useSessionSnapshot().connection.state === "open";
   const contributed = contributions.some((one) => one.slot.startsWith("titlebar."));
+  const short = useShortWindow();
 
-  if (!features.tabs && !features.presence && !contributed) {
+  // A window too short for two rows has what is here in the toolbar.
+  if (short || (!features.tabs && !features.presence && !contributed)) {
     return null;
   }
   return (
     <div
       data-workbench-titlebar=""
-      className="aperture:flex aperture:h-8 aperture:min-w-0 aperture:shrink-0 aperture:items-stretch aperture:border-b aperture:bg-muted/35"
+      className="aperture:flex aperture:h-8 aperture:min-w-0 aperture:shrink-0 aperture:items-stretch aperture:border-b aperture:bg-muted/35 aperture:pointer-coarse:h-10"
     >
       <WorkbenchSlot name="titlebar.start" />
       {features.tabs ? <BrowserTabStrip /> : <div className="aperture:min-w-0 aperture:flex-1" />}
@@ -50,6 +60,14 @@ export function useCompactToolbar(): boolean {
   return useContext(CompactContext);
 }
 
+/**
+ * Whether the toolbar is narrow under a finger, whose buttons are larger: then only going
+ * back, the keyboard and the files keep a button, and the rest is in the browser menu.
+ */
+export function useCrowdedToolbar(): boolean {
+  return useFinger() && useContext(CompactContext);
+}
+
 /** Below this width the toolbar keeps the address bar its room by showing fewer buttons. */
 const COMPACT_BELOW = 520;
 
@@ -61,12 +79,15 @@ export function WorkbenchToolbar({ children }: { readonly children?: ReactNode }
   const toolbarRef = useRef<HTMLDivElement>(null);
   const compact = useNarrowerThan(toolbarRef, COMPACT_BELOW);
   const { features, contributions } = useWorkbench();
+  const open = useSessionSnapshot().connection.state === "open";
   const connecting = useSessionSnapshot().connection.state === "connecting";
+  const short = useShortWindow();
   const shows =
     children !== undefined ||
     features.navigation ||
     features.addressBar ||
     features.menus ||
+    short ||
     contributions.some((one) => one.slot === "toolbar.start" || one.slot === "toolbar.end");
 
   if (!shows) {
@@ -78,10 +99,13 @@ export function WorkbenchToolbar({ children }: { readonly children?: ReactNode }
         ref={toolbarRef}
         data-workbench-toolbar=""
         data-compact={compact ? "" : undefined}
-        className="aperture:flex aperture:h-9 aperture:min-w-0 aperture:shrink-0 aperture:items-center aperture:gap-1 aperture:border-b aperture:bg-background aperture:px-1.5"
+        data-short={short ? "" : undefined}
+        className="aperture:flex aperture:h-9 aperture:min-w-0 aperture:shrink-0 aperture:items-center aperture:gap-1 aperture:border-b aperture:bg-background aperture:px-1.5 aperture:pointer-coarse:h-11 aperture:data-short:pl-0"
       >
         {children ?? (
           <>
+            {short ? <WorkbenchSlot name="titlebar.start" /> : null}
+            {short && features.tabs ? <TabsMenu /> : null}
             <WorkbenchSlot name="toolbar.start" />
             {features.navigation ? <NavigationButtons /> : null}
             {features.addressBar ? (
@@ -93,6 +117,8 @@ export function WorkbenchToolbar({ children }: { readonly children?: ReactNode }
               <Loader2 className="aperture:size-4 aperture:shrink-0 aperture:animate-spin aperture:text-muted-foreground" />
             ) : null}
             <WorkbenchSlot name="toolbar.end" />
+            {short && features.presence && open ? <SessionPresence /> : null}
+            {short ? <WorkbenchSlot name="titlebar.end" /> : null}
             {features.menus ? <ToolbarActions /> : null}
           </>
         )}
@@ -109,6 +135,7 @@ export function NavigationButtons() {
   // Where a tab goes is no input to its page: it takes no lease.
   const gives = input.changes && snapshot.selected !== undefined;
   const watched = snapshot.targets.find((target) => target.tab === snapshot.selected);
+  const crowded = useCrowdedToolbar();
 
   return (
     <div className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-0.5">
@@ -119,20 +146,24 @@ export function NavigationButtons() {
       >
         <ArrowLeft />
       </ToolbarButton>
-      <ToolbarButton
-        label="Forward"
-        disabled={!gives || watched?.goesForward !== true}
-        onClick={() => session.go({ along: "forward" })}
-      >
-        <ArrowRight />
-      </ToolbarButton>
-      <ToolbarButton
-        label="Reload"
-        disabled={!gives}
-        onClick={() => session.go({ along: "reload" })}
-      >
-        <RefreshCw />
-      </ToolbarButton>
+      {crowded ? null : (
+        <>
+          <ToolbarButton
+            label="Forward"
+            disabled={!gives || watched?.goesForward !== true}
+            onClick={() => session.go({ along: "forward" })}
+          >
+            <ArrowRight />
+          </ToolbarButton>
+          <ToolbarButton
+            label="Reload"
+            disabled={!gives}
+            onClick={() => session.go({ along: "reload" })}
+          >
+            <RefreshCw />
+          </ToolbarButton>
+        </>
+      )}
     </div>
   );
 }
@@ -143,7 +174,7 @@ export function AddressBar() {
   const address = useAddress();
 
   return (
-    <InputGroup className="aperture:h-7 aperture:min-w-0 aperture:border-transparent aperture:bg-transparent aperture:transition-colors aperture:hover:border-input/50 aperture:hover:bg-muted/35 aperture:has-[[data-slot=input-group-control]:focus-visible]:border-input/70 aperture:has-[[data-slot=input-group-control]:focus-visible]:bg-background aperture:has-[[data-slot=input-group-control]:focus-visible]:ring-2 aperture:has-[[data-slot=input-group-control]:focus-visible]:ring-ring/20 aperture:dark:hover:bg-input/20">
+    <InputGroup className="aperture:h-7 aperture:min-w-0 aperture:pointer-coarse:h-9 aperture:border-transparent aperture:bg-transparent aperture:transition-colors aperture:hover:border-input/50 aperture:hover:bg-muted/35 aperture:has-[[data-slot=input-group-control]:focus-visible]:border-input/70 aperture:has-[[data-slot=input-group-control]:focus-visible]:bg-background aperture:has-[[data-slot=input-group-control]:focus-visible]:ring-2 aperture:has-[[data-slot=input-group-control]:focus-visible]:ring-ring/20 aperture:dark:hover:bg-input/20">
       <InputGroupInput
         data-workbench-address=""
         aria-label="Address"
@@ -170,10 +201,71 @@ export function AddressBar() {
         autoComplete="off"
         autoCorrect="off"
         spellCheck={false}
-        className="aperture:h-7 aperture:px-2 aperture:font-mono aperture:text-xs aperture:text-muted-foreground aperture:transition-colors aperture:focus-visible:text-foreground"
+        // A phone zooms into a field whose text is smaller than this.
+        className="aperture:h-7 aperture:px-2 aperture:font-mono aperture:text-xs aperture:text-muted-foreground aperture:transition-colors aperture:focus-visible:text-foreground aperture:pointer-coarse:h-9 aperture:pointer-coarse:text-base"
         disabled={!address.navigates}
       />
     </InputGroup>
+  );
+}
+
+/**
+ * The tabs as a menu, for a window too short to keep a row of them: which is watched, the
+ * way to another, to close one and to open a new one.
+ */
+function TabsMenu() {
+  const session = useSession();
+  const snapshot = useSessionSnapshot();
+  const { changes } = useInputState();
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-label="Tabs"
+            data-workbench-tabs-menu=""
+            className="aperture:shrink-0 aperture:tabular-nums"
+          />
+        }
+      >
+        <Layers2 />
+        {snapshot.targets.length}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="aperture:w-72">
+        {snapshot.targets.map((target) => (
+          <div key={target.tab} className="aperture:flex aperture:items-center">
+            <DropdownMenuItem
+              className="aperture:min-w-0 aperture:flex-1"
+              onClick={() => session.select(target.tab)}
+            >
+              <Check
+                className={target.tab === snapshot.selected ? undefined : "aperture:invisible"}
+              />
+              <span className="aperture:truncate">{target.title || target.url || "New tab"}</span>
+            </DropdownMenuItem>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Close ${target.title || "tab"}`}
+              disabled={!changes}
+              onClick={() => session.closeTab(target.tab)}
+            >
+              <X />
+            </Button>
+          </div>
+        ))}
+        {snapshot.targets.length > 0 ? <DropdownMenuSeparator /> : null}
+        <DropdownMenuItem disabled={!changes} onClick={() => session.newTab()}>
+          <Plus />
+          New tab
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

@@ -9,6 +9,7 @@
     "./styles.css": "./src/styles.css",
     "./theme.css": "./src/theme.css",
     "./tokens.css": "./src/tokens.css",
+    "./touch.css": "./src/touch.css",
     "./utils": "./src/utils.ts"
   },
   "scripts": {

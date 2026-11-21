@@ -31,8 +31,10 @@ import {
   KeyboardAction,
   LeaseItems,
   MuteItem,
+  NavigationItems,
   PasteItem,
   PictureAction,
+  PictureSubmenuItem,
   ReconnectItem,
   RecordingAction,
   RecordingSubmenuItem,
@@ -53,6 +55,13 @@ export const workbenchContributions: readonly WorkbenchContribution[] = [
   { id: "action.picture", slot: "toolbar.actions", order: 400, component: PictureAction },
   { id: "action.menu", slot: "toolbar.actions", order: 500, component: BrowserMenuAction },
 
+  {
+    id: "browser.navigation",
+    slot: "menu.browser",
+    group: "navigation",
+    order: 80,
+    component: NavigationItems,
+  },
   { id: "browser.lease", slot: "menu.browser", group: "lease", order: 100, component: LeaseItems },
   { id: "browser.copy", slot: "menu.browser", group: "clipboard", order: 200, component: CopyItem },
   {
@@ -77,6 +86,13 @@ export const workbenchContributions: readonly WorkbenchContribution[] = [
     group: "tab",
     order: 700,
     component: RecordingSubmenuItem,
+  },
+  {
+    id: "browser.picture",
+    slot: "menu.browser",
+    group: "tab",
+    order: 750,
+    component: PictureSubmenuItem,
   },
   {
     id: "browser.copy-url",

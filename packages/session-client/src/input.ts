@@ -59,6 +59,13 @@ const RESIZE_SETTLES_MS = 200;
 /** Pixels and lines of a wheel to a notch of it. */
 const NOTCH = { pixels: 100, lines: 3 };
 
+/** How far a finger may stray, in pixels here, and still be a tap and not a drag. */
+const TAP_SLOP = 10;
+/** How long a finger rests in place before it is a press of the right button. */
+const LONG_PRESS_MS = 500;
+/** What a page that was flung keeps of its speed after each millisecond, and where it stops. */
+const FLING = { keeps: 0.996, least: 0.05, stops: 0.01 };
+
 /**
  * The part of an element's box its picture covers. An element whose box has not the
  * picture's proportions shows it whole and centred when it is told to contain it, as a
@@ -102,7 +109,7 @@ export const wire = Effect.fn("Input.wire")(function* (surfaces: Surfaces, wirin
   const { signal } = wired;
 
   // Positions are in the target's own pixels, whatever size the picture is shown at.
-  const position = (event: MouseEvent): Point | undefined => {
+  const position = (event: { readonly clientX: number; readonly clientY: number }) => {
     const shows = wiring.way() === "video";
     const picture = shows
       ? { width: video.videoWidth, height: video.videoHeight }
@@ -113,19 +120,17 @@ export const wire = Effect.fn("Input.wire")(function* (surfaces: Surfaces, wirin
     if (box.width === 0 || box.height === 0) {
       return undefined;
     }
-    return {
+    const at: Point = {
       x: (event.clientX - box.left) * (width / box.width),
       y: (event.clientY - box.top) * (height / box.height),
     };
+    return at;
   };
 
   const focus = () => keys.focus({ preventScroll: true });
 
   const button = (surface: HTMLElement, pressed: boolean) => (event: PointerEvent) => {
-    // A touch does not bring up the phone's keyboard; focusing the keys by hand does.
-    if (event.pointerType !== "touch") {
-      focus();
-    }
+    focus();
     if (pressed) {
       wiring.dismissMenu();
       surface.setPointerCapture(event.pointerId);
@@ -141,6 +146,175 @@ export const wire = Effect.fn("Input.wire")(function* (surfaces: Surfaces, wirin
     event.preventDefault();
   };
 
+  /**
+   * A finger is no mouse: it has no buttons and nothing to turn. One that is put down and
+   * lifted in place is a click of the left button; one that rests is a click of the right;
+   * one that moves turns the wheel, so that the page scrolls under it as a page under a
+   * finger does, and goes on for a while when it is flung. More fingers move the page as
+   * one does: nothing is pressed while they are down.
+   */
+  const touches = (surface: HTMLElement) => {
+    const fingers = new Map<number, { clientX: number; clientY: number }>();
+    let gesture:
+      | {
+          kind: "tap" | "scroll" | "held";
+          /** Where it began, here and in the page: the page scrolls what is there. */
+          readonly began: { readonly clientX: number; readonly clientY: number };
+          readonly at: Point;
+          /** The middle of the fingers when they were last looked at. */
+          middle: Point | undefined;
+          moved: number;
+          speed: Point;
+        }
+      | undefined;
+    let resting: ReturnType<typeof setTimeout> | undefined;
+    let flung: number | undefined;
+
+    const still = () => {
+      clearTimeout(resting);
+      if (flung !== undefined) {
+        cancelAnimationFrame(flung);
+        flung = undefined;
+      }
+    };
+    signal.addEventListener("abort", still);
+
+    /** The middle of the fingers, in the target's pixels. */
+    const middle = () => {
+      let clientX = 0;
+      let clientY = 0;
+      for (const finger of fingers.values()) {
+        clientX += finger.clientX / fingers.size;
+        clientY += finger.clientY / fingers.size;
+      }
+      return position({ clientX, clientY });
+    };
+
+    const click = (at: Point, pressedButton: MouseButton) => {
+      send({ case: "pointerMotion", value: at });
+      send({ case: "pointerButton", value: { ...at, button: pressedButton, pressed: true } });
+      send({ case: "pointerButton", value: { ...at, button: pressedButton, pressed: false } });
+    };
+
+    const scroll = (at: Point, by: Point) =>
+      send({
+        case: "pointerScroll",
+        value: { ...at, dx: by.x / NOTCH.pixels, dy: by.y / NOTCH.pixels },
+      });
+
+    const fling = (at: Point, speed: Point) => {
+      let before = performance.now();
+      let going = speed;
+      const step = (now: number) => {
+        const elapsed = Math.min(now - before, 50);
+        before = now;
+        const kept = FLING.keeps ** elapsed;
+        going = { x: going.x * kept, y: going.y * kept };
+        if (Math.hypot(going.x, going.y) < FLING.stops) {
+          flung = undefined;
+          return;
+        }
+        scroll(at, { x: going.x * elapsed, y: going.y * elapsed });
+        flung = requestAnimationFrame(step);
+      };
+      flung = requestAnimationFrame(step);
+    };
+
+    const down = (event: PointerEvent) => {
+      event.preventDefault();
+      still();
+      wiring.dismissMenu();
+      surface.setPointerCapture(event.pointerId);
+      fingers.set(event.pointerId, event);
+      const at = position(event);
+      if (fingers.size > 1 || at === undefined) {
+        if (gesture !== undefined) {
+          gesture.kind = gesture.kind === "held" ? "held" : "scroll";
+          gesture.middle = undefined;
+        }
+        return;
+      }
+      const began = { clientX: event.clientX, clientY: event.clientY };
+      gesture = { kind: "tap", began, at, middle: at, moved: 0, speed: { x: 0, y: 0 } };
+      // The page shows what is under the finger as under a pointer.
+      send({ case: "pointerMotion", value: at });
+      resting = setTimeout(() => {
+        if (gesture?.kind === "tap") {
+          gesture.kind = "held";
+          wiring.menuAt({ x: began.clientX, y: began.clientY });
+          click(at, MouseButton.RIGHT);
+        }
+      }, LONG_PRESS_MS);
+    };
+
+    const move = (event: PointerEvent) => {
+      if (gesture === undefined || !fingers.has(event.pointerId)) {
+        return;
+      }
+      fingers.set(event.pointerId, event);
+      if (gesture.kind === "tap") {
+        const strayed = Math.hypot(
+          event.clientX - gesture.began.clientX,
+          event.clientY - gesture.began.clientY,
+        );
+        if (strayed <= TAP_SLOP) {
+          return;
+        }
+        clearTimeout(resting);
+        gesture.kind = "scroll";
+        gesture.middle = undefined;
+      }
+      if (gesture.kind !== "scroll") {
+        return;
+      }
+      const now = middle();
+      const before = gesture.middle;
+      gesture.middle = now;
+      if (now === undefined || before === undefined) {
+        gesture.moved = event.timeStamp;
+        return;
+      }
+      // The page goes with the finger: what the wheel turns by is the other way.
+      const by = { x: before.x - now.x, y: before.y - now.y };
+      scroll(gesture.at, by);
+      const elapsed = Math.max(event.timeStamp - gesture.moved, 1);
+      gesture.moved = event.timeStamp;
+      // Evened out over the last moves: the last one alone is no measure of a fling.
+      gesture.speed = {
+        x: gesture.speed.x * 0.6 + (by.x / elapsed) * 0.4,
+        y: gesture.speed.y * 0.6 + (by.y / elapsed) * 0.4,
+      };
+    };
+
+    const up = (lifted: boolean) => (event: PointerEvent) => {
+      if (!fingers.delete(event.pointerId) || gesture === undefined) {
+        return;
+      }
+      event.preventDefault();
+      if (fingers.size > 0) {
+        gesture.middle = undefined;
+        return;
+      }
+      clearTimeout(resting);
+      const ended = gesture;
+      gesture = undefined;
+      if (!lifted) {
+        return;
+      }
+      if (ended.kind === "tap") {
+        click(ended.at, MouseButton.LEFT);
+      } else if (
+        ended.kind === "scroll" &&
+        event.timeStamp - ended.moved < 100 &&
+        Math.hypot(ended.speed.x, ended.speed.y) > FLING.least
+      ) {
+        fling(ended.at, ended.speed);
+      }
+    };
+
+    return { down, move, up: up(true), cancel: up(false) };
+  };
+
   const dropped = async (at: Point, files: readonly File[], carried: readonly ClipboardForm[]) => {
     const forms = files.length > 0 ? [await wiring.listed(files)] : carried;
     if (forms.length > 0) {
@@ -150,9 +324,17 @@ export const wire = Effect.fn("Input.wire")(function* (surfaces: Surfaces, wirin
 
   const pictures: HTMLElement[] = [video, canvas];
   for (const surface of pictures) {
+    const finger = touches(surface);
+    const byFinger = (event: PointerEvent) => event.pointerType === "touch";
+    const pressed = button(surface, true);
+    const released = button(surface, false);
     surface.addEventListener(
       "pointermove",
       (event) => {
+        if (byFinger(event)) {
+          finger.move(event);
+          return;
+        }
         const at = position(event);
         if (at !== undefined) {
           send({ case: "pointerMotion", value: at });
@@ -163,8 +345,21 @@ export const wire = Effect.fn("Input.wire")(function* (surfaces: Surfaces, wirin
     surface.addEventListener("pointerleave", () => send({ case: "pointerLeave", value: {} }), {
       signal,
     });
-    surface.addEventListener("pointerdown", button(surface, true), { signal });
-    surface.addEventListener("pointerup", button(surface, false), { signal });
+    surface.addEventListener(
+      "pointerdown",
+      (event) => (byFinger(event) ? finger.down(event) : pressed(event)),
+      { signal },
+    );
+    surface.addEventListener(
+      "pointerup",
+      (event) => (byFinger(event) ? finger.up(event) : released(event)),
+      { signal },
+    );
+    surface.addEventListener(
+      "pointercancel",
+      (event) => (byFinger(event) ? finger.cancel(event) : undefined),
+      { signal },
+    );
     surface.addEventListener("contextmenu", (event) => event.preventDefault(), { signal });
     surface.addEventListener(
       "wheel",
