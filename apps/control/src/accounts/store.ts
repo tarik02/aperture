@@ -1,4 +1,4 @@
-import type { Scope } from "@aperture-browser/control-api";
+import type { Scope, TokenResources } from "@aperture-browser/control-api";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
@@ -22,6 +22,7 @@ export interface NewApiToken {
   readonly createdAt: Date;
   readonly expiresAt: Date | null;
   readonly scopes: ReadonlyArray<Scope> | null;
+  readonly resources: TokenResources | null;
 }
 
 /** Where accounts and their API tokens are kept. */
@@ -42,7 +43,11 @@ export interface AccountsStoreShape {
     tokenHash: string,
     now: Date,
   ) => Effect.Effect<
-    Option.Option<{ readonly account: Account; readonly scopes: ReadonlyArray<Scope> | null }>
+    Option.Option<{
+      readonly account: Account;
+      readonly scopes: ReadonlyArray<Scope> | null;
+      readonly resources: TokenResources | null;
+    }>
   >;
 }
 

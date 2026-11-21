@@ -25,7 +25,15 @@ import {
   WorkspaceInUse,
   WorkspaceNotFound,
 } from "./errors.ts";
-import { Access, DesiredState, ObservedState, Offers, ProxyConfig, Scope } from "./schemas.ts";
+import {
+  Access,
+  DesiredState,
+  ObservedState,
+  Offers,
+  ProxyConfig,
+  Scope,
+  TokenResources,
+} from "./schemas.ts";
 
 /** Where the control plane's API is, apart from the routes of sessions and of nodes. */
 export const PREFIX = "/api/control";
@@ -67,6 +75,8 @@ export const ApiToken = Schema.Struct({
   revokedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   /** What it is held to; none for a token that does whatever its account does. */
   scopes: Schema.NullOr(Schema.Array(Scope)),
+  /** The resources it is held to; none for a token that reaches all its account does. */
+  resources: Schema.NullOr(TokenResources),
 });
 
 /** A token as it is told once, when it is made. */
@@ -75,8 +85,10 @@ export const ApiTokenCreated = Schema.Struct({ ...ApiToken.fields, token: Schema
 const NewApiToken = Schema.Struct({
   name: Schema.NonEmptyString,
   /** How many days it is good for; for as long as it is not taken back, without. */
-  /** What it is held to; whatever its account does, without. */
-  scopes: Schema.optional(Schema.Array(Scope)),
+  /** What it does: a token is made for something, and does nothing else. */
+  scopes: Schema.NonEmptyArray(Scope),
+  /** The resources it is held to; all that its account reaches, without. */
+  resources: Schema.optional(TokenResources),
   expiresInDays: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 3650 }))),
 });
 
@@ -327,9 +339,14 @@ export class SnapshotsGroup extends HttpApiGroup.make("snapshots")
         name: Schema.optional(Schema.NonEmptyString),
         description: Schema.optional(Schema.NonEmptyString),
         tags: Schema.optional(Tags),
+        /**
+         * A snapshot this one takes the place of: it is deleted once this is taken, and
+         * what it was called, said to be and tagged with stays where nothing else is given.
+         */
+        replaces: Schema.optional(Schema.NonEmptyString),
       }),
       success: Snapshot.pipe(HttpApiSchema.status(201)),
-      error: ofNode,
+      error: [...ofNode, SnapshotNotFound],
     }),
     HttpApiEndpoint.get("get", "/snapshots/:id", {
       params: { id: Schema.String },

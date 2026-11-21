@@ -13,6 +13,7 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import { accountOf, reaches } from "../accounts/caller.ts";
 import {
+  Forbidden,
   type NodeRefused,
   type NodeUnreachable,
   NoNode,
@@ -105,7 +106,9 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
 
   const owned = Effect.fn(function* (caller: Caller, id: string) {
     const session = yield* store.find(id);
-    const mine = Option.filter(session, (found) => reaches(caller, found));
+    const mine = Option.filter(session, (found) =>
+      reaches(caller, found, { kind: "sessions", id: found.id }),
+    );
     return yield* Option.match(mine, {
       onNone: () => Effect.fail(new SessionNotFound({ id })),
       onSome: Effect.succeed,
@@ -146,7 +149,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     candidates: ReadonlyArray<Node>,
   ) {
     const snapshot = Option.filter(yield* snapshots.find(snapshotId), (found) =>
-      reaches(caller, found),
+      reaches(caller, found, { kind: "snapshots", id: found.id }),
     );
     if (Option.isNone(snapshot)) {
       return yield* new SnapshotNotFound({ id: snapshotId });
@@ -193,6 +196,15 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
   ) {
     const account = yield* accountOf(caller);
     const workspaceId = options.workspaceId ?? null;
+    // A token held to resources makes sessions only where it reaches what is made.
+    if (
+      caller.resources !== null &&
+      (workspaceId === null || !caller.resources.workspaces.includes(workspaceId))
+    ) {
+      return yield* new Forbidden({
+        message: "this token makes sessions only in the workspaces it is held to",
+      });
+    }
     if (workspaceId !== null && !caller.workspaces.some((one) => one.id === workspaceId)) {
       return yield* new WorkspaceNotFound({ id: workspaceId });
     }
@@ -226,17 +238,17 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
   });
 
   const list = Effect.fn("Sessions.list")(function* (caller: Caller) {
-    if (caller.admin) {
-      return yield* store.list();
-    }
-    return yield* Option.match(caller.account, {
-      onSome: (account) =>
-        store.listOf(
-          account.id,
-          caller.workspaces.map((workspace) => workspace.id),
-        ),
-      onNone: () => Effect.succeed([]),
-    });
+    const all = caller.admin
+      ? yield* store.list()
+      : yield* Option.match(caller.account, {
+          onSome: (account) =>
+            store.listOf(
+              account.id,
+              caller.workspaces.map((workspace) => workspace.id),
+            ),
+          onNone: () => Effect.succeed([]),
+        });
+    return all.filter((session) => reaches(caller, session, { kind: "sessions", id: session.id }));
   });
 
   const get = Effect.fn("Sessions.get")(function* (caller: Caller, id: string) {

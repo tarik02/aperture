@@ -53,6 +53,7 @@ export const makeAccountsStoreMemory = Effect.fn("AccountsStore.makeMemory")(fun
         expiresAt: token.expiresAt === null ? null : moment(token.expiresAt),
         revokedAt: null,
         scopes: token.scopes,
+        resources: token.resources,
       };
       memory.apiTokens.set(token.tokenHash, kept);
       return kept;
@@ -94,7 +95,11 @@ export const makeAccountsStoreMemory = Effect.fn("AccountsStore.makeMemory")(fun
           ),
           Option.flatMap((token) =>
             Option.fromUndefinedOr(memory.accounts.get(token.accountId)).pipe(
-              Option.map((account) => ({ account, scopes: token.scopes })),
+              Option.map((account) => ({
+                account,
+                scopes: token.scopes,
+                resources: token.resources,
+              })),
             ),
           ),
         ),

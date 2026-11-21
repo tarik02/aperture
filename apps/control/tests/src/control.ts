@@ -87,6 +87,15 @@ export interface ControlService {
   readonly keepalive: (said: Keepalive) => Effect.Effect<Answer, HttpClientError.HttpClientError>;
 }
 
+/** Every scope: writing something includes reading it. */
+export const ALL_SCOPES = [
+  "sessions:write",
+  "snapshots:write",
+  "workspaces:write",
+  "tokens:write",
+  "admin",
+] as const;
+
 export const KEEPALIVE = "/aperture.control.v1.NodeService/Keepalive";
 
 export const start = Effect.fn("Control.start")(function* (options: ControlOptions = {}) {
@@ -182,7 +191,8 @@ export const account = Effect.fn("Control.account")(function* (name: string, adm
   const made = yield* bootstrap.accounts.create({ payload: { name, admin } });
   const token = yield* bootstrap.accounts.createToken({
     params: { id: made.id },
-    payload: { name: "checks" },
+    // All there is: what the account does is what the checks are of.
+    payload: { name: "checks", scopes: ALL_SCOPES },
   });
   return { account: made, token: token.token, api: yield* control.as(token.token) };
 });

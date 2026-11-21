@@ -1,6 +1,6 @@
 import type * as DateTime from "effect/DateTime";
 import type * as Option from "effect/Option";
-import type { Scope } from "./schemas.ts";
+import type { Scope, TokenResources } from "./schemas.ts";
 
 /**
  * Who a request to the control plane comes from: an account, or the holder of the
@@ -18,6 +18,8 @@ export interface Caller {
   readonly admin: boolean;
   /** What the token it came with is held to; nothing, for one that is held to nothing. */
   readonly scopes: ReadonlyArray<Scope> | null;
+  /** The resources the token it came with is held to; nothing, for one held to none. */
+  readonly resources: TokenResources | null;
   /** The workspaces the account is in, and what it does in each. */
   readonly workspaces: ReadonlyArray<{ readonly id: string; readonly role: "member" | "admin" }>;
 }

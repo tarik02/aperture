@@ -169,6 +169,7 @@ for (const stores of Control.STORES) {
     it.effect("a snapshot is taken on the session's node, and a session is created from it", () =>
       Effect.gen(function* () {
         const executor = yield* Executor.Executor;
+        const control = yield* Control.Control;
         const taken = yield* ada.api.snapshots.take({
           params: { id: session },
           payload: { name: "signed in" },
@@ -245,7 +246,44 @@ for (const stores of Control.STORES) {
         );
         expect(refusedRoute._tag).toBe("NodeRefused");
 
-        yield* ada.api.snapshots.delete(at);
+        // A snapshot taken in another's place keeps what that one was called and tagged with.
+        const again = yield* ada.api.snapshots.take({
+          params: { id: session },
+          payload: { replaces: taken.id, description: "Signed in, a day later" },
+        });
+        expect(again.id).not.toBe(taken.id);
+        expect(again).toMatchObject({
+          name: "signed in",
+          description: "Signed in, a day later",
+          tags: { team: "shop" },
+        });
+        expect((yield* ada.api.snapshots.list()).map((listed) => listed.id)).toEqual([again.id]);
+        expect((yield* Effect.flip(executor.client.snapshots.get(taken.id))).code).toBe(
+          "not_found",
+        );
+
+        // A token held to resources reaches what they name, and nothing else of its account's.
+        const held = yield* ada.api.accounts.createOwnToken({
+          payload: {
+            name: "one session",
+            scopes: ["sessions:write", "snapshots:read"],
+            resources: { workspaces: [], sessions: [session], snapshots: [] },
+          },
+        });
+        const asHeld = yield* control.as(held.token);
+        expect((yield* asHeld.sessions.list()).map((listed) => listed.id)).toEqual([session]);
+        expect(yield* asHeld.snapshots.list()).toEqual([]);
+        expect((yield* Effect.flip(asHeld.snapshots.get({ params: { id: again.id } })))._tag).toBe(
+          "SnapshotNotFound",
+        );
+        expect((yield* Effect.flip(asHeld.sessions.create({ payload: {} })))._tag).toBe(
+          "Forbidden",
+        );
+        expect((yield* asHeld.sessions.describe({ params: { id: session }, payload: {} })).id).toBe(
+          session,
+        );
+
+        yield* ada.api.snapshots.delete({ params: { id: again.id } });
         expect(yield* ada.api.snapshots.list()).toEqual([]);
         expect((yield* Effect.flip(executor.client.snapshots.get(taken.id))).code).toBe(
           "not_found",

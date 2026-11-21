@@ -108,3 +108,14 @@ export const covers = (held: ReadonlyArray<Scope> | null, asked: Scope) =>
   held === null ||
   held.includes(asked) ||
   (asked.endsWith(":read") && held.includes(asked.replace(":read", ":write") as Scope));
+
+/**
+ * What an API token is held to besides its scopes: with resources it reaches only the
+ * sessions and snapshots that are named, and those of the workspaces that are named.
+ */
+export const TokenResources = Schema.Struct({
+  workspaces: Schema.Array(Schema.String),
+  sessions: Schema.Array(Schema.String),
+  snapshots: Schema.Array(Schema.String),
+});
+export type TokenResources = typeof TokenResources.Type;

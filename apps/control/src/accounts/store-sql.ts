@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import { Scope } from "@aperture-browser/control-api";
+import { Scope, TokenResources } from "@aperture-browser/control-api";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -8,13 +8,19 @@ import { all, done, first, one } from "../store/rows.ts";
 import { Account, ApiToken } from "./schemas.ts";
 import { AccountsStore, type NewAccount, type NewApiToken } from "./store.ts";
 
-const Held = Schema.Struct({ ...Account.fields, scopes: Schema.NullOr(Schema.Array(Scope)) });
+const Held = Schema.Struct({
+  ...Account.fields,
+  scopes: Schema.NullOr(Schema.Array(Scope)),
+  resources: Schema.NullOr(TokenResources),
+});
 
 /** Accounts in the SQL database. */
 export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
   const sql = yield* SqlClient.SqlClient;
   // Never the digest: a token is known by it, and it is told to nobody.
-  const token = sql.literal("id, account_id, name, created_at, expires_at, revoked_at, scopes");
+  const token = sql.literal(
+    "id, account_id, name, created_at, expires_at, revoked_at, scopes, resources",
+  );
 
   const insert = Effect.fn("AccountsStore.insert")(function* (account: NewAccount) {
     return yield* sql`
@@ -42,11 +48,12 @@ export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
   const insertToken = Effect.fn("AccountsStore.insertToken")(function* (given: NewApiToken) {
     return yield* sql`
       INSERT INTO api_tokens (
-        id, account_id, name, token_hash, created_at, expires_at, scopes
+        id, account_id, name, token_hash, created_at, expires_at, scopes, resources
       )
       VALUES (
         ${given.id}, ${given.accountId}, ${given.name}, ${given.tokenHash}, ${given.createdAt},
-        ${given.expiresAt}, ${given.scopes === null ? null : JSON.stringify(given.scopes)}::jsonb
+        ${given.expiresAt}, ${given.scopes === null ? null : JSON.stringify(given.scopes)}::jsonb,
+        ${given.resources === null ? null : JSON.stringify(given.resources)}::jsonb
       )
       RETURNING ${token}
     `.pipe(one(ApiToken));
@@ -73,14 +80,18 @@ export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
     now: Date,
   ) {
     const found = yield* sql`
-      SELECT accounts.*, api_tokens.scopes
+      SELECT accounts.*, api_tokens.scopes, api_tokens.resources
       FROM accounts
       JOIN api_tokens ON api_tokens.account_id = accounts.id
       WHERE api_tokens.token_hash = ${tokenHash}
         AND api_tokens.revoked_at IS NULL
         AND (api_tokens.expires_at IS NULL OR api_tokens.expires_at > ${now})
     `.pipe(first(Held));
-    return Option.map(found, ({ scopes, ...account }) => ({ account, scopes }));
+    return Option.map(found, ({ scopes, resources, ...account }) => ({
+      account,
+      scopes,
+      resources,
+    }));
   });
 
   return AccountsStore.of({

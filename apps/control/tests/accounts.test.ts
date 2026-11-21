@@ -70,7 +70,7 @@ for (const stores of Control.STORES) {
         const control = yield* Control.Control;
         const lin = yield* Control.account("Lin");
         const made = yield* lin.api.accounts.createOwnToken({
-          payload: { name: "ci", expiresInDays: 7 },
+          payload: { name: "ci", expiresInDays: 7, scopes: Control.ALL_SCOPES },
         });
         expect(made.token).toMatch(/^apc_/u);
         expect(made.expiresAt).not.toBeNull();
@@ -301,10 +301,6 @@ for (const stores of Control.STORES) {
           asMaker.accounts.createOwnToken({ payload: { name: "more", scopes: ["admin"] } }),
         );
         expect(more._tag).toBe("Forbidden");
-        const unheld = yield* Effect.flip(
-          asMaker.accounts.createOwnToken({ payload: { name: "all" } }),
-        );
-        expect(unheld._tag).toBe("Forbidden");
         const less = yield* asMaker.accounts.createOwnToken({
           payload: { name: "less", scopes: ["snapshots:read"] },
         });
@@ -320,7 +316,7 @@ for (const stores of Control.STORES) {
         const own = yield* Effect.flip(
           ada.api.accounts.createToken({
             params: { id: ada.account.id },
-            payload: { name: "more" },
+            payload: { name: "more", scopes: Control.ALL_SCOPES },
           }),
         );
         expect(own._tag).toBe("Forbidden");
@@ -335,7 +331,7 @@ for (const stores of Control.STORES) {
         const made = yield* root.api.accounts.create({ payload: { name: "Linus" } });
         const token = yield* root.api.accounts.createToken({
           params: { id: made.id },
-          payload: { name: "laptop" },
+          payload: { name: "laptop", scopes: Control.ALL_SCOPES },
         });
         const linus = yield* control.as(token.token);
         expect((yield* linus.accounts.current()).name).toBe("Linus");
@@ -346,7 +342,7 @@ for (const stores of Control.STORES) {
         const missing = yield* Effect.flip(
           root.api.accounts.createToken({
             params: { id: "00000000-0000-7000-8000-000000000000" },
-            payload: { name: "nobody's" },
+            payload: { name: "nobody's", scopes: Control.ALL_SCOPES },
           }),
         );
         expect(missing._tag).toBe("AccountNotFound");

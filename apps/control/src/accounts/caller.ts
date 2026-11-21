@@ -20,12 +20,28 @@ export interface Owned {
   readonly workspaceId: string | null;
 }
 
+/** A session or a snapshot, as a token's resources name one. */
+export interface Resource {
+  readonly kind: "sessions" | "snapshots";
+  readonly id: string;
+}
+
 /**
  * Whether something is the caller's to see and change: what is their own account's, what
- * is of a workspace they are in, and anything for an admin.
+ * is of a workspace they are in, and anything for an admin. A token held to resources
+ * reaches of that only what they name: the thing itself, or the workspace it is of.
  */
-export const reaches = (caller: Caller, owned: Owned) =>
-  caller.admin ||
-  (owned.workspaceId === null
-    ? Option.exists(caller.account, (account) => account.id === owned.accountId)
-    : caller.workspaces.some((workspace) => workspace.id === owned.workspaceId));
+export const reaches = (caller: Caller, owned: Owned, resource?: Resource) => {
+  const theirs =
+    caller.admin ||
+    (owned.workspaceId === null
+      ? Option.exists(caller.account, (account) => account.id === owned.accountId)
+      : caller.workspaces.some((workspace) => workspace.id === owned.workspaceId));
+  if (!theirs || caller.resources === null || resource === undefined) {
+    return theirs;
+  }
+  return (
+    caller.resources[resource.kind].includes(resource.id) ||
+    (owned.workspaceId !== null && caller.resources.workspaces.includes(owned.workspaceId))
+  );
+};

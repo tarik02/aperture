@@ -23,8 +23,6 @@ const admin = Effect.gen(function* () {
   return caller;
 });
 
-const ALL_SCOPES = Scope.literals;
-
 /** Goes on for a caller whose token covers the scope, with the caller. */
 const scoped = (scope: Scope) =>
   Effect.gen(function* () {
@@ -75,6 +73,7 @@ const accounts = HttpApiBuilder.group(
             payload.name,
             lasting(payload.expiresInDays),
             payload.scopes,
+            payload.resources,
           );
           return { ...token, token: secret };
         }),
@@ -99,10 +98,13 @@ const accounts = HttpApiBuilder.group(
         Effect.fn(function* ({ payload }) {
           const caller = yield* scoped("tokens:write");
           const account = yield* accountOf(caller);
+          if (caller.resources !== null) {
+            return yield* new Forbidden({
+              message: "a token held to resources makes no tokens",
+            });
+          }
           // A token makes none that does more than itself.
-          const beyond = (payload.scopes ?? ALL_SCOPES).find(
-            (scope) => !covers(caller.scopes, scope),
-          );
+          const beyond = payload.scopes.find((scope) => !covers(caller.scopes, scope));
           if (beyond !== undefined) {
             return yield* new Forbidden({ message: `this token is not for ${beyond} itself` });
           }
@@ -111,7 +113,8 @@ const accounts = HttpApiBuilder.group(
               account.id,
               payload.name,
               lasting(payload.expiresInDays),
-              payload.scopes ?? caller.scopes ?? undefined,
+              payload.scopes,
+              payload.resources,
             )
             .pipe(Effect.orDie);
           return { ...token, token: secret };
@@ -245,7 +248,8 @@ const snapshots = HttpApiBuilder.group(
           snapshots.take(caller, params.id, {
             name: payload.name,
             description: payload.description,
-            tags: payload.tags ?? {},
+            tags: payload.tags,
+            replaces: payload.replaces,
           }),
         ),
       )

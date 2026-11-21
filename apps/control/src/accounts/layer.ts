@@ -1,4 +1,9 @@
-import { type Caller, covers, type Scope } from "@aperture-browser/control-api";
+import {
+  type Caller,
+  covers,
+  type Scope,
+  type TokenResources,
+} from "@aperture-browser/control-api";
 import type * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -81,6 +86,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
   const callerOf = Effect.fn(function* (
     account: Account,
     scopes: ReadonlyArray<Scope> | null = null,
+    resources: TokenResources | null = null,
   ) {
     const joined = yield* workspaces.of(account.id);
     return {
@@ -88,6 +94,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
       // An admin's token is an admin's only where it is not held to less.
       admin: account.admin && covers(scopes, "admin"),
       scopes,
+      resources,
       workspaces: joined.map(({ workspace, role }) => ({ id: workspace.id, role })),
     } satisfies Caller;
   });
@@ -112,6 +119,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     name: string,
     lasts?: Duration.Duration,
     scopes?: ReadonlyArray<Scope>,
+    resources?: TokenResources,
   ) {
     const account = yield* store.find(accountId);
     if (Option.isNone(account)) {
@@ -126,6 +134,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
       createdAt: yield* now,
       expiresAt: lasts === undefined ? null : yield* after(lasts),
       scopes: scopes ?? null,
+      resources: resources ?? null,
     });
     return { token, secret };
   }, Effect.provide(crypto));
@@ -134,13 +143,19 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     const hashed = yield* Secrets.hash(bearer);
     // Digests are compared, so how long it takes tells nothing of the token.
     if (hashed === bootstrap) {
-      return { account: Option.none(), admin: true, scopes: null, workspaces: [] } satisfies Caller;
+      return {
+        account: Option.none(),
+        admin: true,
+        scopes: null,
+        resources: null,
+        workspaces: [],
+      } satisfies Caller;
     }
     const held = yield* store.findByTokenHash(hashed, yield* now);
     if (Option.isNone(held)) {
       return yield* new Unauthorized({ message: "that is no token of an account" });
     }
-    return yield* callerOf(held.value.account, held.value.scopes);
+    return yield* callerOf(held.value.account, held.value.scopes, held.value.resources);
   }, Effect.provide(crypto));
 
   const tokens = Effect.fn("Accounts.tokens")(function* (caller: Caller) {

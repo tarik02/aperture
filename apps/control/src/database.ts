@@ -48,7 +48,8 @@ const initial = statements([
     created_at timestamptz NOT NULL,
     expires_at timestamptz,
     revoked_at timestamptz,
-    scopes jsonb
+    scopes jsonb,
+    resources jsonb
   )`,
   `CREATE INDEX api_tokens_account_id ON api_tokens (account_id)`,
   `CREATE TABLE registration_tokens (
