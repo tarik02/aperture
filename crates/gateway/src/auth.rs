@@ -240,6 +240,8 @@ fn needs(method: &Method, rest: &str) -> Needs {
     match (first, second) {
         ("" | "ws" | "busy", None) if reads => Needs::Watching,
         ("targets", _) if reads => Needs::Watching,
+        // What the session showed when it last rested, for whoever may watch it.
+        ("preview.png", None) if reads => Needs::Watching,
         ("targets", Some(_)) if rest.ends_with("/viewport") => Needs::Writing(Area::Tabs),
         ("recordings" | "screenshots", _) => either(Area::Recordings),
         ("uploads", _) => either(Area::Uploads),
