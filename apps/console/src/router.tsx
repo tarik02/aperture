@@ -9,6 +9,7 @@ import { AppShell } from "#/components/app-shell.tsx";
 import { PeoplePage } from "#/features/account/people-page.tsx";
 import { ServiceAccountsPage } from "#/features/account/service-accounts-page.tsx";
 import { SignInPage } from "#/features/auth/sign-in-page.tsx";
+import { EventsPage } from "#/features/event/events-page.tsx";
 import { ConnectedAppsPage } from "#/features/oauth/connected-apps-page.tsx";
 import { ConsentPage } from "#/features/oauth/consent-page.tsx";
 import { NodesPage } from "#/features/node/nodes-page.tsx";
@@ -132,6 +133,12 @@ const serviceAccounts = createRoute({
   component: ServiceAccountsPage,
 });
 
+const events = createRoute({
+  getParentRoute: () => pages,
+  path: "/-/events",
+  component: EventsPage,
+});
+
 const session = createRoute({
   getParentRoute: () => signed,
   path: "/-/sessions/$sessionId",
@@ -165,6 +172,7 @@ export const router = createRouter({
         registrationTokens,
         people,
         serviceAccounts,
+        events,
       ]),
       session,
       consent,

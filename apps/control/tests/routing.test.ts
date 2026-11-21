@@ -1795,6 +1795,99 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
     }),
   );
 
+  it.effect(
+    "an admin reads what was done on the page of events, by its kind and by who did it",
+    () =>
+      Effect.gen(function* () {
+        const proxy = yield* Proxy.Proxy;
+        const viewer = yield* Viewer.Viewer;
+        const fs = yield* FileSystem.FileSystem;
+        const auditor = yield* Control.account("Auditor", true);
+        const quill = yield* Control.account("Quill");
+        // More than a page of events, one about what is still there and one about what is gone.
+        yield* Effect.forEach(
+          Array.from({ length: 52 }, (_, at) => `token ${at}`),
+          (name) =>
+            auditor.api.accounts.createOwnToken({ payload: { name, scopes: ["events:read"] } }),
+          { discard: true },
+        );
+        yield* quill.api.workspaces.create({ payload: { name: "Kept workspace" } });
+        const gone = yield* auditor.api.workspaces.create({ payload: { name: "Gone workspace" } });
+        yield* auditor.api.workspaces.delete({ params: { id: gone.id } });
+
+        const page = yield* viewer.open(`${proxy.url}/api/control/openapi.json`);
+        // The browser is the one the check before signed in with: nothing of that is left.
+        yield* until(
+          "the page being there to sign out from",
+          page.evaluate(
+            `(localStorage.clear(), Promise.all([fetch("/api/auth/sign-out", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }), fetch("/api/control/route/cookie", { method: "DELETE" })]).then(() => true))`,
+            Schema.Boolean,
+          ),
+        );
+        yield* page.evaluate(`void (location.href = "/")`);
+        yield* page.until(`!!document.querySelector("[data-console-sign-in-way]")`);
+        yield* page.click("[data-console-sign-in-way]");
+        yield* page.until(`!!document.querySelector('[data-console-sign-in="token"] input')`);
+        yield* page.click("[data-console-sign-in] input");
+        yield* page.type(auditor.token);
+        yield* page.key("Enter", "Enter", ENTER);
+
+        yield* page.until(`!!document.querySelector('a[href="/-/events"]')`);
+        yield* page.click(`a[href="/-/events"]`);
+        const rows = `[...document.querySelectorAll("[data-console-event]")]`;
+        const count = page.evaluate(`${rows}.length`, Schema.Number);
+        // The newest first, a page of them, and the ones before when they are asked for.
+        yield* page.until(`${rows}.length === 50`);
+        expect(
+          yield* page.evaluate(`${rows}[0].getAttribute("data-console-event")`, Schema.String),
+        ).toBe("workspace.deleted");
+        expect(yield* page.text(`[data-console-event] [data-console-event-says]`)).toBe(
+          "Deleted the workspace",
+        );
+        yield* shot(page, fs, "console-events");
+        yield* shotDark(page, fs, "console-events-dark");
+        yield* page.evaluate(
+          `void document.querySelector("[data-console-events-more]").scrollIntoView({ block: "nearest" })`,
+        );
+        yield* page.click("[data-console-events-more]");
+        yield* page.until(`${rows}.length > 50`);
+        expect(yield* count).toBeGreaterThan(54);
+
+        // What an event is about leads to it while it is there, and only names it once it is gone.
+        const about = (name: string) =>
+          page.evaluate(
+            `${rows}.filter((row) => row.textContent.includes(${JSON.stringify(name)})).map((row) => row.querySelector("[data-console-event-link]")?.getAttribute("href") ?? null)`,
+            Schema.Array(Schema.NullOr(Schema.String)),
+          );
+        expect(yield* about("Kept workspace")).toEqual(["/-/workspaces"]);
+        expect(yield* about("Gone workspace")).toEqual([null, null]);
+
+        // By its kind, chosen from a list of all there are.
+        yield* pick(page, "[data-console-events-kind]", "Workspace deleted");
+        yield* page.until(
+          `${rows}.length === 1 && ${rows}[0].getAttribute("data-console-event") === "workspace.deleted"`,
+        );
+        yield* page.click("[data-console-events-kind]");
+        yield* page.until(`!!document.querySelector('[data-slot="select-item"]')`);
+        yield* Effect.sleep("600 millis");
+        yield* shot(page, fs, "console-events-kinds");
+        yield* shotDark(page, fs, "console-events-kinds-dark");
+        yield* choose(page, `[data-slot="select-item"]`, "All events");
+        yield* page.until(`${rows}.length >= 50`);
+
+        // By who did it, by a part of what they are called.
+        yield* page.click("[data-console-events-actor]");
+        yield* page.type("quil");
+        yield* page.until(
+          `${rows}.length === 1 && ${rows}[0].textContent.includes("Quill") && ${rows}[0].textContent.includes("Made the workspace")`,
+        );
+        yield* shot(page, fs, "console-events-actor");
+        yield* page.click("[data-console-events-actor]");
+        yield* page.type("-nobody-is-called-this");
+        yield* page.until(`!!document.querySelector("[data-console-empty]")`);
+      }),
+  );
+
   it.effect("an app sends a person to say what it gets, who signs in first and is sent back", () =>
     Effect.gen(function* () {
       const proxy = yield* Proxy.Proxy;

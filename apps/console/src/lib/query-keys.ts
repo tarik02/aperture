@@ -15,5 +15,7 @@ export const queryKeys = {
   grants: ["grants"] as const,
   asking: (clientId: string, redirectUri: string) => ["asking", clientId, redirectUri] as const,
   workspaces: ["workspaces"] as const,
+  events: (filters: { readonly kind?: string | undefined; readonly actor?: string | undefined }) =>
+    ["events", filters.kind ?? null, filters.actor ?? null] as const,
   workspaceMembers: (id: string) => ["workspaces", id, "members"] as const,
 };

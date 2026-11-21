@@ -6,6 +6,7 @@ import {
   Building2,
   KeyRound,
   Layers,
+  ScrollText,
   Server,
   Ticket,
   Users,
@@ -22,7 +23,8 @@ export type NavItem = {
     | "/-/nodes"
     | "/-/registration-tokens"
     | "/-/people"
-    | "/-/service-accounts";
+    | "/-/service-accounts"
+    | "/-/events";
   icon: LucideIcon;
   group: "workspace" | "account" | "admin";
 };
@@ -37,6 +39,7 @@ export const primaryNavItems: NavItem[] = [
   { title: "Registration tokens", to: "/-/registration-tokens", icon: Ticket, group: "admin" },
   { title: "People", to: "/-/people", icon: Users, group: "admin" },
   { title: "Service accounts", to: "/-/service-accounts", icon: Bot, group: "admin" },
+  { title: "Events", to: "/-/events", icon: ScrollText, group: "admin" },
 ];
 
 export function resolveNavItem(pathname: string) {
