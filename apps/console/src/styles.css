@@ -41,3 +41,23 @@
     opacity: 0;
   }
 }
+
+[data-slot="sidebar"] [data-sidebar-collapse-label] {
+  min-width: 0;
+  max-width: 12rem;
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 1;
+  transform: translateX(0);
+  transition:
+    max-width 200ms ease-out,
+    opacity 160ms ease-out,
+    transform 200ms ease-out;
+}
+
+[data-slot="sidebar"][data-collapsible="icon"] [data-sidebar-collapse-label] {
+  max-width: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-0.25rem);
+}
