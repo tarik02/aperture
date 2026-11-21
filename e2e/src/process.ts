@@ -139,12 +139,16 @@ export const directory = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   // `makeTempDirectoryScoped` removes once and dies of what is in its way: what ran here
   // may still be writing its last as it ends.
-  return yield* Effect.acquireRelease(fs.makeTempDirectory({ prefix: "ap-e2e-" }), (path) =>
-    fs
-      .remove(path, { recursive: true, force: true })
-      .pipe(
-        Effect.retry(Schedule.spaced("200 millis").pipe(Schedule.upTo({ times: 10 }))),
-        Effect.ignore,
-      ),
+  // Not wherever temporary files go: a dev shell puts them below a path as long as a
+  // socket's whole path may be.
+  return yield* Effect.acquireRelease(
+    fs.makeTempDirectory({ directory: "/tmp", prefix: "ap-e2e-" }),
+    (path) =>
+      fs
+        .remove(path, { recursive: true, force: true })
+        .pipe(
+          Effect.retry(Schedule.spaced("200 millis").pipe(Schedule.upTo({ times: 10 }))),
+          Effect.ignore,
+        ),
   );
 });
