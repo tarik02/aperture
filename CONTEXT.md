@@ -54,6 +54,9 @@ A machine with an executor on it, as the control plane knows it: its name, where
 **Registration token**:
 What lets an executor tell a control plane it is a node of it. An admin makes it; several can be good at once.
 
+**Master key**:
+The one secret a control plane is given beside its database: what it has to read again, such as a node's operator token, is kept sealed with a key made of it. It is not in the database, and stays the same for as long as what was sealed is to be read.
+
 **Account**:
 Whose sessions, snapshots and API tokens are, in the control plane. An admin account also makes accounts and registration tokens.
 _Avoid_: Tenant, user

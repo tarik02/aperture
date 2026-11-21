@@ -95,3 +95,10 @@ export class Unsealable extends Schema.TaggedError<Unsealable>()("Unsealable", {
     return `the secret of ${this.of} does not open: ${this.reason}`;
   }
 }
+
+/** There is no such snapshot, or it is another account's: the two are told alike. */
+export class SnapshotNotFound extends Schema.TaggedError<SnapshotNotFound>()(
+  "SnapshotNotFound",
+  { id: Schema.String },
+  { httpApiStatus: 404 },
+) {}

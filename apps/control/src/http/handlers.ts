@@ -7,6 +7,7 @@ import { Api, CurrentCaller } from "../api.ts";
 import { Forbidden } from "../errors.ts";
 import { Nodes } from "../nodes/service.ts";
 import { Sessions } from "../sessions/service.ts";
+import { Snapshots } from "../snapshots/service.ts";
 
 /** Goes on for an admin, and for nobody else. */
 const admin = Effect.gen(function* () {
@@ -96,7 +97,10 @@ const sessions = HttpApiBuilder.group(
       .handle("list", () => Effect.flatMap(CurrentCaller, sessions.list))
       .handle("create", ({ payload }) =>
         Effect.flatMap(CurrentCaller, (caller) =>
-          sessions.create(caller, { suspended: payload.suspended ?? false }),
+          sessions.create(caller, {
+            suspended: payload.suspended ?? false,
+            snapshotId: payload.snapshotId,
+          }),
         ),
       )
       .handle("get", ({ params }) =>
@@ -122,4 +126,25 @@ const sessions = HttpApiBuilder.group(
   }),
 );
 
-export const layer = Layer.mergeAll(accounts, nodes, sessions);
+const snapshots = HttpApiBuilder.group(
+  Api,
+  "snapshots",
+  Effect.fn(function* (handlers) {
+    const snapshots = yield* Snapshots;
+    return handlers
+      .handle("list", () => Effect.flatMap(CurrentCaller, snapshots.list))
+      .handle("take", ({ params, payload }) =>
+        Effect.flatMap(CurrentCaller, (caller) =>
+          snapshots.take(caller, params.id, { name: payload.name }),
+        ),
+      )
+      .handle("get", ({ params }) =>
+        Effect.flatMap(CurrentCaller, (caller) => snapshots.get(caller, params.id)),
+      )
+      .handle("delete", ({ params }) =>
+        Effect.flatMap(CurrentCaller, (caller) => snapshots.delete(caller, params.id)),
+      );
+  }),
+);
+
+export const layer = Layer.mergeAll(accounts, nodes, sessions, snapshots);

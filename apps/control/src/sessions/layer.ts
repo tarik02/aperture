@@ -4,17 +4,20 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Semaphore from "effect/Semaphore";
-import type { Account, Caller } from "../accounts/schemas.ts";
+import { accountOf, reaches } from "../accounts/caller.ts";
+import type { Caller } from "../accounts/schemas.ts";
 import {
-  Forbidden,
-  NodeRefused,
-  NodeUnreachable,
+  type NodeRefused,
+  type NodeUnreachable,
   NoNode,
   SessionHasNoNode,
   SessionNotFound,
+  SnapshotNotFound,
 } from "../errors.ts";
+import { asked } from "../nodes/asked.ts";
 import type { Node } from "../nodes/schemas.ts";
 import { Nodes } from "../nodes/service.ts";
+import { SnapshotsStore } from "../snapshots/store.ts";
 import type { Access } from "../tickets/schemas.ts";
 import { Tickets } from "../tickets/service.ts";
 import { now } from "../time.ts";
@@ -39,29 +42,9 @@ const observationOf = (session: proto.Session): Observation | undefined => {
     : { id: session.id, state, failure: session.failure ?? null };
 };
 
-/** Codes that say the node was not there to answer, and not that it answered no. */
-const NOT_THERE: ReadonlySet<string> = new Set(["unavailable", "deadline_exceeded", "unknown"]);
-
-const asked =
-  (node: Node) =>
-  <A, R>(call: Effect.Effect<A, ExecutorError, R>) =>
-    Effect.mapError(call, (error) =>
-      NOT_THERE.has(error.code)
-        ? new NodeUnreachable({ node: node.name, message: error.message })
-        : new NodeRefused({ node: node.name, code: error.code, message: error.message }),
-    );
-
-const accountOf = (caller: Caller): Effect.Effect<Account, Forbidden> =>
-  Option.match(caller.account, {
-    onNone: () =>
-      Effect.fail(
-        new Forbidden({ message: "sessions are an account's, and this token is of none" }),
-      ),
-    onSome: Effect.succeed,
-  });
-
 export const makeSessions = Effect.fn("Sessions.make")(function* () {
   const store = yield* SessionsStore;
+  const snapshots = yield* SnapshotsStore;
   const nodes = yield* Nodes;
   const tickets = yield* Tickets;
 
@@ -99,18 +82,14 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
 
   const owned = Effect.fn(function* (caller: Caller, id: string) {
     const session = yield* store.find(id);
-    const mine = Option.filter(
-      session,
-      (found) =>
-        caller.admin || Option.exists(caller.account, (account) => account.id === found.accountId),
-    );
+    const mine = Option.filter(session, (found) => reaches(caller, found.accountId));
     return yield* Option.match(mine, {
       onNone: () => Effect.fail(new SessionNotFound({ id })),
       onSome: Effect.succeed,
     });
   });
 
-  const placed = Effect.fn(function* (caller: Caller, id: string) {
+  const placed = Effect.fn("Sessions.placed")(function* (caller: Caller, id: string) {
     const session = yield* owned(caller, id);
     const node = session.nodeId === null ? Option.none<Node>() : yield* nodes.find(session.nodeId);
     if (Option.isNone(node)) {
@@ -137,9 +116,27 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
   ): Effect.Effect<void, NodeUnreachable | NodeRefused> =>
     call.pipe(Effect.andThen(refresh(node, id)), asked(node));
 
+  /** The nodes a session of the snapshot may go to, among those a session may go to at all. */
+  const having = Effect.fn(function* (
+    caller: Caller,
+    snapshotId: string,
+    candidates: ReadonlyArray<Node>,
+  ) {
+    const snapshot = Option.filter(yield* snapshots.find(snapshotId), (found) =>
+      reaches(caller, found.accountId),
+    );
+    if (Option.isNone(snapshot)) {
+      return yield* new SnapshotNotFound({ id: snapshotId });
+    }
+    const { shared, nodeId } = snapshot.value;
+    return candidates.filter((node) =>
+      shared ? node.offers?.sharesSnapshots === true : node.id === nodeId,
+    );
+  });
+
   const place = (
     candidates: ReadonlyArray<Node>,
-    suspended: boolean,
+    wanted: { readonly suspended: boolean; readonly snapshotId: string | undefined },
   ): Effect.Effect<readonly [Node, proto.Session], NoNode | NodeRefused> => {
     const [node, ...rest] = candidates;
     if (node === undefined) {
@@ -147,13 +144,13 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     }
     return nodes
       .executor(node)
-      .sessions.create({ suspended })
+      .sessions.create(wanted)
       .pipe(
         asked(node),
         Effect.map((session) => [node, session] as const),
         Effect.catchTag("NodeUnreachable", (error) =>
           Effect.logWarning(`node ${node.name} did not take a session: ${error.message}`).pipe(
-            Effect.andThen(place(rest, suspended)),
+            Effect.andThen(place(rest, wanted)),
           ),
         ),
       );
@@ -161,10 +158,13 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
 
   const create = Effect.fn("Sessions.create")(function* (
     caller: Caller,
-    options: { readonly suspended: boolean },
+    options: { readonly suspended: boolean; readonly snapshotId: string | undefined },
   ) {
     const account = yield* accountOf(caller);
-    const [node, session] = yield* place(yield* nodes.candidates(), options.suspended);
+    const alive = yield* nodes.candidates();
+    const candidates =
+      options.snapshotId === undefined ? alive : yield* having(caller, options.snapshotId, alive);
+    const [node, session] = yield* place(candidates, options);
     const created = session.createdAt;
     yield* store.insert({
       id: session.id,
@@ -290,6 +290,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     create,
     list,
     get,
+    placed,
     suspend,
     resume,
     delete: delete_,

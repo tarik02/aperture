@@ -166,6 +166,49 @@ for (const stores of Control.STORES) {
       }),
     );
 
+    it.effect("a snapshot is taken on the session's node, and a session is created from it", () =>
+      Effect.gen(function* () {
+        const executor = yield* Executor.Executor;
+        const taken = yield* ada.api.snapshots.take({
+          params: { id: session },
+          payload: { name: "signed in" },
+        });
+        expect(taken).toMatchObject({
+          accountId: ada.account.id,
+          name: "signed in",
+          sessionId: session,
+          shared: false,
+        });
+        expect((yield* executor.client.snapshots.get(taken.id)).id).toBe(taken.id);
+        expect((yield* ada.api.snapshots.list()).map((listed) => listed.id)).toEqual([taken.id]);
+
+        const mallory = yield* Control.account("Mallory");
+        const at = { params: { id: taken.id } };
+        expect(yield* mallory.api.snapshots.list()).toEqual([]);
+        expect((yield* Effect.flip(mallory.api.snapshots.get(at)))._tag).toBe("SnapshotNotFound");
+        expect((yield* Effect.flip(mallory.api.snapshots.delete(at)))._tag).toBe(
+          "SnapshotNotFound",
+        );
+        const refused = yield* Effect.flip(
+          mallory.api.sessions.create({ payload: { snapshotId: taken.id } }),
+        );
+        expect(refused._tag).toBe("SnapshotNotFound");
+
+        const from = yield* ada.api.sessions.create({
+          payload: { snapshotId: taken.id, suspended: true },
+        });
+        expect(from.snapshotId).toBe(taken.id);
+        expect((yield* executor.client.sessions.get(from.id)).snapshotId).toBe(taken.id);
+        yield* ada.api.sessions.delete({ params: { id: from.id } });
+
+        yield* ada.api.snapshots.delete(at);
+        expect(yield* ada.api.snapshots.list()).toEqual([]);
+        expect((yield* Effect.flip(executor.client.snapshots.get(taken.id))).code).toBe(
+          "not_found",
+        );
+      }),
+    );
+
     it.effect("suspending and resuming go through to the node", () =>
       Effect.gen(function* () {
         const executor = yield* Executor.Executor;

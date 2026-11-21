@@ -35,6 +35,7 @@ export const offersOf = (executor: proto.Executor): Offers => ({
     suspendIdleAfterSeconds: count(executor.limits?.suspendIdleAfter?.seconds),
   },
   holdsResources: executor.holdsResources,
+  sharesSnapshots: executor.sharesSnapshots,
 });
 
 const address = (what: string, given: string) => {

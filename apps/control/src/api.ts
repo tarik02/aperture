@@ -16,6 +16,7 @@ import {
   NoNode,
   SessionHasNoNode,
   SessionNotFound,
+  SnapshotNotFound,
   Unauthorized,
 } from "./errors.ts";
 import { Offers } from "./nodes/schemas.ts";
@@ -77,6 +78,16 @@ export const Session = Schema.Struct({
   snapshotId: Schema.NullOr(Schema.String),
   createdAt: Schema.DateTimeUtcFromString,
   observedAt: Schema.DateTimeUtcFromString,
+});
+
+export const Snapshot = Schema.Struct({
+  id: Schema.String,
+  accountId: Schema.String,
+  name: Schema.NullOr(Schema.String),
+  sessionId: Schema.NullOr(Schema.String),
+  nodeId: Schema.NullOr(Schema.String),
+  shared: Schema.Boolean,
+  createdAt: Schema.DateTimeUtcFromString,
 });
 
 export const Admission = Schema.Struct({
@@ -152,9 +163,12 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
   .add(
     HttpApiEndpoint.get("list", "/sessions", { success: Schema.Array(Session) }),
     HttpApiEndpoint.post("create", "/sessions", {
-      payload: Schema.Struct({ suspended: Schema.optional(Schema.Boolean) }),
+      payload: Schema.Struct({
+        suspended: Schema.optional(Schema.Boolean),
+        snapshotId: Schema.optional(Schema.NonEmptyString),
+      }),
       success: Session.pipe(HttpApiSchema.status(201)),
-      error: [Forbidden, NoNode, NodeRefused],
+      error: [Forbidden, SnapshotNotFound, NoNode, NodeRefused],
     }),
     HttpApiEndpoint.get("get", "/sessions/:id", {
       params: session,
@@ -189,8 +203,34 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
     }),
   ) {}
 
+export class SnapshotsGroup extends HttpApiGroup.make("snapshots")
+  .add(
+    HttpApiEndpoint.get("list", "/snapshots", { success: Schema.Array(Snapshot) }),
+    HttpApiEndpoint.post("take", "/sessions/:id/snapshots", {
+      params: session,
+      payload: Schema.Struct({ name: Schema.optional(Schema.NonEmptyString) }),
+      success: Snapshot.pipe(HttpApiSchema.status(201)),
+      error: ofNode,
+    }),
+    HttpApiEndpoint.get("get", "/snapshots/:id", {
+      params: { id: Schema.String },
+      success: Snapshot,
+      error: SnapshotNotFound,
+    }),
+    HttpApiEndpoint.delete("delete", "/snapshots/:id", {
+      params: { id: Schema.String },
+      error: [SnapshotNotFound, NodeUnreachable, NodeRefused],
+    }),
+  )
+  .annotateMerge(
+    OpenApi.annotations({
+      title: "Snapshots",
+      description: "Snapshots of an account's sessions, and what sessions are created from.",
+    }),
+  ) {}
+
 export class Api extends HttpApi.make("control")
-  .add(AccountsGroup, NodesGroup, SessionsGroup)
+  .add(AccountsGroup, NodesGroup, SessionsGroup, SnapshotsGroup)
   .middleware(Authorization)
   .prefix(PREFIX)
   .annotateMerge(

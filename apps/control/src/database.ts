@@ -52,10 +52,15 @@ const initial = statements([
     registered_at timestamptz NOT NULL,
     last_seen_at timestamptz NOT NULL
   )`,
+  // The session a snapshot was taken of is named and not referenced: it may be deleted,
+  // and the snapshot stays.
   `CREATE TABLE snapshots (
     id text PRIMARY KEY,
     account_id uuid NOT NULL REFERENCES accounts (id),
     name text,
+    session_id text,
+    node_id uuid REFERENCES nodes (id) ON DELETE SET NULL,
+    shared boolean NOT NULL,
     created_at timestamptz NOT NULL
   )`,
   `CREATE INDEX snapshots_account_id ON snapshots (account_id)`,

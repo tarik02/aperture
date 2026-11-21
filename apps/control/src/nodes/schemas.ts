@@ -14,6 +14,8 @@ export const Offers = Schema.Struct({
     suspendIdleAfterSeconds: Schema.optional(Schema.Number),
   }),
   holdsResources: Schema.Boolean,
+  /** Whether its snapshots are kept where other nodes find them. */
+  sharesSnapshots: Schema.Boolean,
 });
 export type Offers = typeof Offers.Type;
 

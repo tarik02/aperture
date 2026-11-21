@@ -9,6 +9,7 @@ import type {
   NoNode,
   SessionHasNoNode,
   SessionNotFound,
+  SnapshotNotFound,
 } from "../errors.ts";
 import type { Node } from "../nodes/schemas.ts";
 import type { Access } from "../tickets/schemas.ts";
@@ -21,15 +22,25 @@ export type NodeError = SessionNotFound | SessionHasNoNode | NodeUnreachable | N
 export interface SessionsShape {
   /**
    * Creates a session for the caller's account on a node that is alive, the one with the
-   * fewest sessions first, and the next where that one does not answer.
+   * fewest sessions first, and the next where that one does not answer. One created from
+   * a snapshot goes to a node that has the snapshot: any that shares snapshots where it
+   * is shared, and the node it was taken on otherwise.
    */
   readonly create: (
     caller: Caller,
-    options: { readonly suspended: boolean },
-  ) => Effect.Effect<Session, Forbidden | NoNode | NodeRefused>;
+    options: { readonly suspended: boolean; readonly snapshotId: string | undefined },
+  ) => Effect.Effect<Session, Forbidden | SnapshotNotFound | NoNode | NodeRefused>;
   /** The caller's own sessions; all of them for an admin. */
   readonly list: (caller: Caller) => Effect.Effect<ReadonlyArray<Session>>;
   readonly get: (caller: Caller, id: string) => Effect.Effect<Session, SessionNotFound>;
+  /** The caller's session and the node it is on, for what is asked of that node. */
+  readonly placed: (
+    caller: Caller,
+    id: string,
+  ) => Effect.Effect<
+    { readonly session: Session; readonly node: Node },
+    SessionNotFound | SessionHasNoNode
+  >;
   readonly suspend: (caller: Caller, id: string) => Effect.Effect<Session, NodeError>;
   readonly resume: (caller: Caller, id: string) => Effect.Effect<Session, NodeError>;
   readonly delete: (caller: Caller, id: string) => Effect.Effect<void, NodeError>;

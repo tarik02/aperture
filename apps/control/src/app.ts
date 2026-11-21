@@ -16,6 +16,9 @@ import * as NodesStoreSql from "./nodes/store-sql.ts";
 import * as Sessions from "./sessions/layer.ts";
 import * as SessionsStoreMemory from "./sessions/store-memory.ts";
 import * as SessionsStoreSql from "./sessions/store-sql.ts";
+import * as Snapshots from "./snapshots/layer.ts";
+import * as SnapshotsStoreMemory from "./snapshots/store-memory.ts";
+import * as SnapshotsStoreSql from "./snapshots/store-sql.ts";
 import * as Memory from "./store/memory.ts";
 import * as Tickets from "./tickets/layer.ts";
 import * as Vault from "./vault/layer.ts";
@@ -25,6 +28,7 @@ export const stores = Layer.mergeAll(
   AccountsStoreSql.layer,
   NodesStoreSql.layer,
   SessionsStoreSql.layer,
+  SnapshotsStoreSql.layer,
 ).pipe(Layer.provide(Database.layer));
 
 /** The stores on nothing but memory, which is gone with the layer. */
@@ -32,10 +36,12 @@ export const storesTest = Layer.mergeAll(
   AccountsStoreMemory.layerTest,
   NodesStoreMemory.layerTest,
   SessionsStoreMemory.layerTest,
+  SnapshotsStoreMemory.layerTest,
 ).pipe(Layer.provide(Memory.layer));
 
 /** What the control plane knows and does, whoever asks: over HTTP, or by itself. */
-export const services = Sessions.layer.pipe(
+export const services = Snapshots.layer.pipe(
+  Layer.provideMerge(Sessions.layer),
   Layer.provideMerge(Layer.mergeAll(Accounts.layer, Nodes.layer, Tickets.layer)),
   Layer.provide(Vault.layer),
 );

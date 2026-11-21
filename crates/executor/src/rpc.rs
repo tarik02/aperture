@@ -42,6 +42,7 @@ impl ExecutorService for Executor {
                 network: MessageField::some(network_message(config.setup.network())),
                 limits: MessageField::some(limits_message(config.limits)),
                 holds_resources: config.scopes.is_some(),
+                shares_snapshots: config.snapshots.is_some(),
                 ..Default::default()
             }),
             ..Default::default()

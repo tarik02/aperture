@@ -67,6 +67,9 @@ message Executor {
   Limits limits = 4;
   // Whether it holds sessions to limits on what they use, and counts what they use.
   bool holds_resources = 5;
+  // Whether its snapshots are kept where other nodes find them: a session is created
+  // from one of them on any node that names the same place.
+  bool shares_snapshots = 6;
 }
 
 message GetExecutorRequest {}

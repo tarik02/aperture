@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer";
 import type { Account, ApiToken } from "../accounts/schemas.ts";
 import type { NodeRecord, RegistrationToken } from "../nodes/schemas.ts";
 import type { Session } from "../sessions/schemas.ts";
+import type { Snapshot } from "../snapshots/schemas.ts";
 
 /**
  * What the stores keep when there is no database: for checks of what is above the stores.
@@ -17,6 +18,7 @@ export interface MemoryShape {
   readonly registrationTokens: Map<string, RegistrationToken>;
   readonly nodes: Map<string, NodeRecord>;
   readonly sessions: Map<string, Session>;
+  readonly snapshots: Map<string, Snapshot>;
 }
 
 export class Memory extends Context.Service<Memory, MemoryShape>()(
@@ -30,6 +32,7 @@ export const layer = Layer.sync(Memory, () =>
     registrationTokens: new Map(),
     nodes: new Map(),
     sessions: new Map(),
+    snapshots: new Map(),
   }),
 );
 
