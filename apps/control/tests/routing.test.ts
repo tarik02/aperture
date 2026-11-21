@@ -117,8 +117,16 @@ const pick = (page: Viewer.Page, trigger: string, says: string) =>
     yield* page.evaluate(
       `void document.querySelector(${JSON.stringify(trigger)}).scrollIntoView({ block: "nearest" })`,
     );
-    yield* page.click(trigger);
-    yield* page.until(`!!document.querySelector('[data-slot="select-item"]')`);
+    // What it stands in may still be settling into place, and a press beside it opens
+    // nothing: it is pressed again until its list is there.
+    yield* page
+      .click(trigger)
+      .pipe(
+        Effect.andThen(
+          page.until(`!!document.querySelector('[data-slot="select-item"]')`, "2 seconds"),
+        ),
+        Effect.retry({ times: 5 }),
+      );
     // A list that opened under the pointer takes no press of it for a moment.
     yield* Effect.sleep("600 millis");
     yield* choose(page, `[data-slot="select-item"]`, says);
@@ -560,9 +568,15 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       );
       yield* shot(page, fs, "console-session");
       // The sidebar is out of the way there, and comes when the pointer rests at the edge.
-      yield* page.mouse("mouseMoved", 400, 300);
-      yield* page.mouse("mouseMoved", 2, 300);
-      yield* page.until(`!!document.querySelector('[data-slot="sidebar-container"][data-peek]')`);
+      // The edge is felt once the workbench has laid itself out, so it is come to again.
+      yield* Effect.gen(function* () {
+        yield* page.mouse("mouseMoved", 400, 300);
+        yield* page.mouse("mouseMoved", 2, 300);
+        yield* page.until(
+          `!!document.querySelector('[data-slot="sidebar-container"][data-peek]')`,
+          "3 seconds",
+        );
+      }).pipe(Effect.retry({ times: 5 }));
       yield* shot(page, fs, "console-session-sidebar");
       yield* page.mouse("mouseMoved", 600, 300);
       yield* page.until(`!document.querySelector('[data-slot="sidebar-container"][data-peek]')`);
