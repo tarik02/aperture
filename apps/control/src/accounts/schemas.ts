@@ -1,4 +1,3 @@
-import type * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 export const Account = Schema.Struct({
@@ -17,12 +16,3 @@ export const ApiToken = Schema.Struct({
   createdAt: Schema.DateTimeUtcFromDate,
 });
 export type ApiToken = typeof ApiToken.Type;
-
-/**
- * Who a request to the control plane comes from: an account, or the holder of the
- * bootstrap token, who is an admin and no account.
- */
-export interface Caller {
-  readonly account: Option.Option<Account>;
-  readonly admin: boolean;
-}

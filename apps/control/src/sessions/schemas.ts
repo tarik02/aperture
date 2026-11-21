@@ -1,23 +1,6 @@
+import { DesiredState, ObservedState } from "@aperture-browser/control-api";
 import type * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
-
-/** What whoever owns the session asked it to be. */
-export const DesiredState = Schema.Literals(["running", "suspended"]);
-export type DesiredState = typeof DesiredState.Type;
-
-/**
- * What the session's node last said it is. `gone` is a session its node has no more
- * though nobody asked the control plane to delete it.
- */
-export const ObservedState = Schema.Literals([
-  "suspended",
-  "starting",
-  "running",
-  "suspending",
-  "failed",
-  "gone",
-]);
-export type ObservedState = typeof ObservedState.Type;
 
 export const Session = Schema.Struct({
   id: Schema.String,

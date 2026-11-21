@@ -1,3 +1,4 @@
+import type { Offers } from "@aperture-browser/control-api";
 import { make, proto } from "@aperture-browser/executor-client";
 import * as Arr from "effect/Array";
 import type * as Crypto from "effect/Crypto";
@@ -10,7 +11,7 @@ import * as Secrets from "../secrets.ts";
 import { keepaliveEvery, Settings } from "../settings/service.ts";
 import { ago, now } from "../time.ts";
 import { Vault } from "../vault/service.ts";
-import type { Keepalive, Node, NodeRecord, Offers } from "./schemas.ts";
+import type { Keepalive, Node, NodeRecord } from "./schemas.ts";
 import { Nodes } from "./service.ts";
 import { NodesStore } from "./store.ts";
 

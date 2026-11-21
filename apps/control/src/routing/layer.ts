@@ -1,13 +1,11 @@
+import { PREFIX, type Access, type Caller } from "@aperture-browser/control-api";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import { PREFIX } from "../api.ts";
 import { accountOf } from "../accounts/caller.ts";
-import type { Caller } from "../accounts/schemas.ts";
 import { SessionElsewhere, SessionNotFound } from "../errors.ts";
 import { Nodes } from "../nodes/service.ts";
 import { Sessions } from "../sessions/service.ts";
 import { Settings } from "../settings/service.ts";
-import type { Access } from "../tickets/schemas.ts";
 import { Tickets } from "../tickets/service.ts";
 import { nodePath, sessionAt, sessionPath } from "./paths.ts";
 import { type ProxyConfig, Routing } from "./service.ts";
@@ -69,7 +67,9 @@ export const makeRouting = Effect.fn("Routing.make")(function* () {
     return {
       http: {
         routers: {
-          [CONTROL]: { rule: `PathPrefix(\`${PREFIX}\`)`, service: CONTROL },
+          // The shortest rule, so every other one is tried before it: the API and, where
+          // this program serves it, the console.
+          [CONTROL]: { rule: "PathPrefix(`/`)", service: CONTROL },
           ...Object.fromEntries(
             named.map(({ node, name }) => [
               name,

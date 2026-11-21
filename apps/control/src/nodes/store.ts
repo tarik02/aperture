@@ -1,7 +1,8 @@
+import type { Offers } from "@aperture-browser/control-api";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
-import type { NodeRecord, Offers, RegistrationToken } from "./schemas.ts";
+import type { NodeRecord, RegistrationToken } from "./schemas.ts";
 
 export interface NewRegistrationToken {
   readonly id: string;

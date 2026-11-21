@@ -1,8 +1,8 @@
+import type { Caller } from "@aperture-browser/control-api";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { reaches } from "../accounts/caller.ts";
-import type { Caller } from "../accounts/schemas.ts";
 import { SnapshotNotFound } from "../errors.ts";
 import { asked } from "../nodes/asked.ts";
 import type { Node } from "../nodes/schemas.ts";

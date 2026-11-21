@@ -1,8 +1,9 @@
+import type { Offers } from "@aperture-browser/control-api";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { isAfter, Memory, moment, ordered } from "../store/memory.ts";
-import type { NodeRecord, Offers, RegistrationToken } from "./schemas.ts";
+import type { NodeRecord, RegistrationToken } from "./schemas.ts";
 import { type NewRegistrationToken, NodesStore, type SeenNode } from "./store.ts";
 
 /** Nodes kept in memory. */

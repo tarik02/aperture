@@ -11,6 +11,7 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
+    "@aperture-browser/control-api": "workspace:*",
     "@aperture-browser/executor-client": "workspace:*",
     "@aperture-browser/shared": "workspace:*",
     "@bufbuild/protobuf": "catalog:",

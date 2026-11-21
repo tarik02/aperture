@@ -1,8 +1,9 @@
+import type { DesiredState } from "@aperture-browser/control-api";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { Memory, moment, ordered } from "../store/memory.ts";
-import type { DesiredState, Observation, Session } from "./schemas.ts";
+import type { Observation, Session } from "./schemas.ts";
 import { type NewSession, SessionsStore } from "./store.ts";
 
 /** The records of sessions kept in memory. */

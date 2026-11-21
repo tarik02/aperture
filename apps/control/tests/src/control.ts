@@ -1,3 +1,4 @@
+import { Api } from "@aperture-browser/control-api";
 import { type Answer, request } from "@aperture-browser/e2e/src/http.ts";
 import { directory, freePort } from "@aperture-browser/e2e/src/process.ts";
 import * as PgClient from "@effect/sql-pg/PgClient";
@@ -17,7 +18,6 @@ import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as References from "effect/References";
 import type * as SqlClient from "effect/sql/SqlClient";
-import { Api } from "../../src/api.ts";
 import * as App from "../../src/app.ts";
 import * as Server from "../../src/server.ts";
 import * as Settings from "../../src/settings/layer.ts";
@@ -31,6 +31,8 @@ export interface ControlOptions {
   readonly stores?: (typeof STORES)[number];
   /** How long a node may be silent before it is not used; the program's own choice without. */
   readonly nodeSilentAfter?: string;
+  /** Serve the console as it was built, beside the API. */
+  readonly console?: boolean;
 }
 
 /** What a node says of itself in a keepalive, as JSON has it. */
@@ -45,6 +47,7 @@ export interface Keepalive {
 
 const BOOTSTRAP = "bootstrap-token-of-the-checks";
 const PEM_LINE = 64;
+const CONSOLE = new URL("../../../console/dist", import.meta.url).pathname;
 const MASTER_KEY_BYTES = 32;
 
 const pem = (what: string, key: ArrayBuffer) => {
@@ -122,6 +125,7 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
     APERTURE_CONTROL_DATABASE_URL: postgres?.url ?? "postgres://nowhere",
     APERTURE_CONTROL_BOOTSTRAP_TOKEN: BOOTSTRAP,
     APERTURE_CONTROL_TICKET_KEY: signingKey,
+    ...(options.console === true ? { APERTURE_CONTROL_CONSOLE_DIR: CONSOLE } : {}),
     ...(options.nodeSilentAfter === undefined
       ? {}
       : { APERTURE_CONTROL_NODE_SILENT_AFTER: options.nodeSilentAfter }),

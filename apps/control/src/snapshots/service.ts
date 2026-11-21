@@ -1,6 +1,6 @@
+import type { Caller } from "@aperture-browser/control-api";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
-import type { Caller } from "../accounts/schemas.ts";
 import type {
   NodeRefused,
   NodeUnreachable,

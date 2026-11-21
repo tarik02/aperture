@@ -1,7 +1,8 @@
+import type { Caller } from "@aperture-browser/control-api";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type { AccountNotFound, Unauthorized } from "../errors.ts";
-import type { Account, ApiToken, Caller } from "./schemas.ts";
+import type { Account, ApiToken } from "./schemas.ts";
 
 /** Accounts, their API tokens, and whose a token is. */
 export interface AccountsShape {

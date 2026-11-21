@@ -1,9 +1,10 @@
+import type { DesiredState } from "@aperture-browser/control-api";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import { all, done, first, one } from "../store/rows.ts";
-import { type DesiredState, type Observation, Session } from "./schemas.ts";
+import { type Observation, Session } from "./schemas.ts";
 import { type NewSession, SessionsStore } from "./store.ts";
 
 const Id = Schema.Struct({ id: Schema.String });

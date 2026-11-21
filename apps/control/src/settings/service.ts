@@ -1,5 +1,6 @@
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
+import type * as Option from "effect/Option";
 import type * as Redacted from "effect/Redacted";
 
 /** What the control plane is told when it starts. */
@@ -13,6 +14,11 @@ export interface SettingsShape {
    * The address it listens on by default.
    */
   readonly internalUrl: string;
+  /**
+   * A directory with the console as it is built, which this program then serves beside
+   * its API; none where something else serves the console, or nobody uses one.
+   */
+  readonly consoleDir: Option.Option<string>;
   /** Lets its holder do what an admin does before there is any account. */
   readonly bootstrapToken: Redacted.Redacted;
   /**

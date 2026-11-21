@@ -1,7 +1,8 @@
+import type { Caller } from "@aperture-browser/control-api";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { Forbidden } from "../errors.ts";
-import type { Account, Caller } from "./schemas.ts";
+import type { Account } from "./schemas.ts";
 
 /** The caller's account, for what is an account's alone to have: sessions, snapshots. */
 export const accountOf = (caller: Caller): Effect.Effect<Account, Forbidden> =>

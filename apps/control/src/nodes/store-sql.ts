@@ -1,9 +1,10 @@
+import { Offers } from "@aperture-browser/control-api";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import { all, done, first, one } from "../store/rows.ts";
-import { NodeRecord, Offers, RegistrationToken } from "./schemas.ts";
+import { NodeRecord, RegistrationToken } from "./schemas.ts";
 import { type NewRegistrationToken, NodesStore, type SeenNode } from "./store.ts";
 
 const encodeOffers = Schema.encodeSync(Schema.fromJsonString(Offers));

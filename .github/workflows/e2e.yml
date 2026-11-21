@@ -41,10 +41,11 @@ jobs:
       - name: Let the sandbox make its namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
-      - name: Build the workbench
+      - name: Build the workbench and the console
         run: |
           nix develop --command pnpm install --frozen-lockfile
           nix develop --command pnpm --filter @aperture-browser/workbench build
+          nix develop --command pnpm --filter @aperture-browser/console build
 
       - name: Build the programs
         run: nix develop --command cargo build --workspace

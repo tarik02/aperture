@@ -1,23 +1,5 @@
+import { Offers } from "@aperture-browser/control-api";
 import * as Schema from "effect/Schema";
-
-/** What a node's executor says its sessions may have, in the words of the glossary. */
-export const Offers = Schema.Struct({
-  version: Schema.String,
-  features: Schema.Array(Schema.String),
-  network: Schema.Struct({ tcp: Schema.String, udp: Schema.String }),
-  /** The limits of a session that has none of its own; one that is left out is not held. */
-  limits: Schema.Struct({
-    memoryBytes: Schema.optional(Schema.Number),
-    swapBytes: Schema.optional(Schema.Number),
-    cpus: Schema.optional(Schema.Number),
-    tasks: Schema.optional(Schema.Number),
-    suspendIdleAfterSeconds: Schema.optional(Schema.Number),
-  }),
-  holdsResources: Schema.Boolean,
-  /** Whether its snapshots are kept where other nodes find them. */
-  sharesSnapshots: Schema.Boolean,
-});
-export type Offers = typeof Offers.Type;
 
 /** A node as it is kept: its operator token sealed. */
 export const NodeRecord = Schema.Struct({

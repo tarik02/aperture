@@ -1,7 +1,8 @@
+import type { DesiredState, ObservedState } from "@aperture-browser/control-api";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
-import type { DesiredState, Observation, ObservedState, Session } from "./schemas.ts";
+import type { Observation, Session } from "./schemas.ts";
 
 export interface NewSession {
   readonly id: string;

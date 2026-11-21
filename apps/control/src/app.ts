@@ -1,10 +1,13 @@
+import { Api, PREFIX } from "@aperture-browser/control-api";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
+import * as Effect from "effect/Effect";
 import * as HttpRouter from "effect/http/HttpRouter";
+import * as HttpStaticServer from "effect/http/HttpStaticServer";
+import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
 import * as Accounts from "./accounts/layer.ts";
 import * as AccountsStoreMemory from "./accounts/store-memory.ts";
 import * as AccountsStoreSql from "./accounts/store-sql.ts";
-import { Api, PREFIX } from "./api.ts";
 import * as Database from "./database.ts";
 import * as Following from "./following.ts";
 import * as Authorization from "./http/authorization.ts";
@@ -16,6 +19,7 @@ import * as NodesStoreMemory from "./nodes/store-memory.ts";
 import * as NodesStoreSql from "./nodes/store-sql.ts";
 import * as Routing from "./routing/layer.ts";
 import * as Sessions from "./sessions/layer.ts";
+import { Settings } from "./settings/service.ts";
 import * as SessionsStoreMemory from "./sessions/store-memory.ts";
 import * as SessionsStoreSql from "./sessions/store-sql.ts";
 import * as Snapshots from "./snapshots/layer.ts";
@@ -53,8 +57,19 @@ const api = HttpApiBuilder.layer(Api, { openapiPath: `${PREFIX}/openapi.json` })
   Layer.provide(Authorization.layer),
 );
 
+/** The console, where the settings name one: every path that is nothing else's is its page. */
+const consolePages = Layer.unwrap(
+  Effect.gen(function* () {
+    const settings = yield* Settings;
+    return Option.match(settings.consoleDir, {
+      onNone: () => Layer.empty,
+      onSome: (root) => HttpStaticServer.layer({ root, spa: true }),
+    });
+  }),
+);
+
 const serving = Layer.mergeAll(
-  HttpRouter.serve(Layer.mergeAll(api, NodeServiceRoutes.layer, RoutingRoutes.layer)),
+  HttpRouter.serve(Layer.mergeAll(api, NodeServiceRoutes.layer, RoutingRoutes.layer, consolePages)),
   Following.layer,
 ).pipe(Layer.provide(services));
 

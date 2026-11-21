@@ -1,16 +1,33 @@
 import * as Executor from "@aperture-browser/e2e/src/executor.ts";
 import { request } from "@aperture-browser/e2e/src/http.ts";
-import { directory } from "@aperture-browser/e2e/src/process.ts";
+import { directory, logsDirectory } from "@aperture-browser/e2e/src/process.ts";
 import { suite } from "@aperture-browser/e2e/src/suite.ts";
 import * as Viewer from "@aperture-browser/e2e/src/viewer.ts";
 import { until } from "@aperture-browser/e2e/src/wait.ts";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Base64 from "effect/encoding/Base64";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Control from "./src/control.ts";
 import * as Proxy from "./src/proxy.ts";
+
+const ENTER = 13;
+
+const Shot = Schema.Struct({ data: Schema.String });
+
+/** Keeps what a page shows, where the checks' logs are asked for: for whoever wants to look. */
+const shot = (page: Viewer.Page, fs: FileSystem.FileSystem, name: string) =>
+  Effect.gen(function* () {
+    const logs = yield* logsDirectory;
+    if (logs === undefined) {
+      return;
+    }
+    const taken = yield* page.cdp.call("Page.captureScreenshot", { format: "png" });
+    const { data } = yield* Schema.decodeUnknownEffect(Shot)(taken);
+    yield* fs.writeFile(`${logs}/${name}.png`, yield* Effect.fromResult(Base64.decode(data)));
+  }).pipe(Effect.ignore);
 
 /** A node that registers itself, and takes the tickets the control plane signs. */
 const node = Layer.effect(
@@ -35,7 +52,7 @@ const node = Layer.effect(
 
 const needs = Layer.mergeAll(Proxy.layer, Viewer.layer).pipe(
   Layer.provideMerge(node),
-  Layer.provideMerge(Control.layer({ stores: "memory" })),
+  Layer.provideMerge(Control.layer({ stores: "memory", console: true })),
 );
 
 suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
@@ -110,6 +127,36 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         Schema.String,
       );
       expect(me).toBe("Ada");
+    }),
+  );
+
+  it.effect("the console signs in with a token, lists the session and opens it", () =>
+    Effect.gen(function* () {
+      const proxy = yield* Proxy.Proxy;
+      const viewer = yield* Viewer.Viewer;
+      const fs = yield* FileSystem.FileSystem;
+      const page = yield* viewer.open(`${proxy.url}/`);
+      yield* page.until(`!!document.querySelector("[data-console-sign-in] input")`);
+      yield* page.click("[data-console-sign-in] input");
+      yield* page.type(ada.token);
+      yield* page.key("Enter", "Enter", ENTER);
+
+      const row = `[data-console-session] a`;
+      yield* page.until(`!!document.querySelector(${JSON.stringify(row)})`);
+      expect(yield* page.text(row)).toBe(path.split("/").at(-1));
+      yield* shot(page, fs, "console-sessions");
+
+      yield* page.click(row);
+      yield* page.until(
+        `location.pathname === ${JSON.stringify(`/sessions/${path.split("/").at(-1)}`)}`,
+      );
+      // The picture is there once the session's socket, which went through the proxy, is.
+      yield* page.until(
+        `[...document.querySelectorAll("[data-aperture-surface]")].some((surface) => surface.getBoundingClientRect().width > 0)`,
+        "30 seconds",
+      );
+      yield* shot(page, fs, "console-session");
+      expect(page.errors()).toEqual([]);
     }),
   );
 });

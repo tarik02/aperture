@@ -1,7 +1,7 @@
+import type { Access, Caller } from "@aperture-browser/control-api";
 import type { ExecutorError, proto } from "@aperture-browser/executor-client";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
-import type { Caller } from "../accounts/schemas.ts";
 import type {
   Forbidden,
   NodeRefused,
@@ -12,7 +12,6 @@ import type {
   SnapshotNotFound,
 } from "../errors.ts";
 import type { Node } from "../nodes/schemas.ts";
-import type { Access } from "../tickets/schemas.ts";
 import type { Admission, Session } from "./schemas.ts";
 
 /** What asking a session's node for something may come to. */

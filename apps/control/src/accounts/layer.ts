@@ -1,3 +1,4 @@
+import type { Caller } from "@aperture-browser/control-api";
 import type * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -7,7 +8,6 @@ import { AccountNotFound, Unauthorized } from "../errors.ts";
 import * as Secrets from "../secrets.ts";
 import { Settings } from "../settings/service.ts";
 import { now } from "../time.ts";
-import type { Caller } from "./schemas.ts";
 import { Accounts } from "./service.ts";
 import { AccountsStore } from "./store.ts";
 
