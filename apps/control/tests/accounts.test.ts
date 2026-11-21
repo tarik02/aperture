@@ -569,6 +569,36 @@ for (const stores of Control.STORES) {
       }),
     );
 
+    it.effect("a path that names something by what is no id of one is refused", () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const asked = [
+          ["POST", "/api/control/accounts/nope/disable"],
+          ["POST", "/api/control/accounts/nope/enable"],
+          ["DELETE", "/api/control/accounts/nope"],
+          ["POST", "/api/control/accounts/nope/tokens"],
+          ["DELETE", "/api/control/account/tokens/nope"],
+          ["GET", "/api/control/workspaces/nope/members"],
+          ["DELETE", "/api/control/workspaces/nope"],
+          ["DELETE", "/api/control/oauth/grants/nope"],
+        ] as const;
+        for (const [method, path] of asked) {
+          const answer = yield* control.request(control.bootstrapToken, method, path, {
+            name: "checks",
+            scopes: ["admin"],
+          });
+          expect([method, path, answer.status]).toEqual([method, path, 400]);
+        }
+        // An id that is one, of nothing, is not found as before.
+        const none = yield* control.request(
+          control.bootstrapToken,
+          "POST",
+          "/api/control/accounts/00000000-0000-7000-8000-000000000000/disable",
+        );
+        expect(none.status).toBe(404);
+      }),
+    );
+
     it.effect("the API is described where its clients look for it", () =>
       Effect.gen(function* () {
         const control = yield* Control.Control;

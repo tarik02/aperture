@@ -231,6 +231,11 @@ export class Authorization extends HttpApiMiddleware.Service<
   error: Unauthorized,
 }) {}
 
+/**
+ * What an account, a workspace, an API token, a grant or a share link is found by. A path
+ * that names one by anything else names nothing, and is refused before it is looked for.
+ */
+const Id = Schema.String.check(Schema.isUUID());
 const session = { id: Schema.String };
 /** What a session or a snapshot is found by: names, each with what it is set to. */
 const Tags = Schema.Record(Schema.NonEmptyString, Schema.String);
@@ -257,7 +262,7 @@ export class AccountsGroup extends HttpApiGroup.make("accounts")
       error: Forbidden,
     }),
     HttpApiEndpoint.delete("revokeToken", "/account/tokens/:id", {
-      params: { id: Schema.String },
+      params: { id: Id },
       error: [Forbidden, ApiTokenNotFound],
     }),
     HttpApiEndpoint.get("list", "/accounts", {
@@ -276,34 +281,34 @@ export class AccountsGroup extends HttpApiGroup.make("accounts")
       error: [Forbidden, EmailTaken, AccountInvalid],
     }),
     HttpApiEndpoint.post("resetSecondFactor", "/accounts/:id/second-factor/reset", {
-      params: { id: Schema.String },
+      params: { id: Id },
       error: [Forbidden, AccountNotFound, PersonNotFound],
     }),
     HttpApiEndpoint.post("disable", "/accounts/:id/disable", {
-      params: { id: Schema.String },
+      params: { id: Id },
       success: Account,
       error: [Forbidden, AccountNotFound, AccountInUse],
     }),
     HttpApiEndpoint.post("enable", "/accounts/:id/enable", {
-      params: { id: Schema.String },
+      params: { id: Id },
       success: Account,
       error: [Forbidden, AccountNotFound],
     }),
     HttpApiEndpoint.delete("remove", "/accounts/:id", {
-      params: { id: Schema.String },
+      params: { id: Id },
       error: [Forbidden, AccountNotFound, AccountInUse],
     }),
     HttpApiEndpoint.post("removePasskeys", "/accounts/:id/passkeys/remove", {
-      params: { id: Schema.String },
+      params: { id: Id },
       error: [Forbidden, AccountNotFound, PersonNotFound],
     }),
     HttpApiEndpoint.post("createSetupToken", "/accounts/:id/setup-token", {
-      params: { id: Schema.String },
+      params: { id: Id },
       success: Schema.Struct({ token: Schema.String }).pipe(HttpApiSchema.status(201)),
       error: [Forbidden, AccountNotFound, PersonNotFound],
     }),
     HttpApiEndpoint.post("createToken", "/accounts/:id/tokens", {
-      params: { id: Schema.String },
+      params: { id: Id },
       payload: NewApiToken,
       success: ApiTokenCreated.pipe(HttpApiSchema.status(201)),
       error: [Forbidden, AccountNotFound],
@@ -431,7 +436,7 @@ export class SharesGroup extends HttpApiGroup.make("shares")
       error: [Forbidden, SessionNotFound],
     }),
     HttpApiEndpoint.delete("revoke", "/sessions/:id/shares/:shareId", {
-      params: { ...session, shareId: Schema.String },
+      params: { ...session, shareId: Id },
       error: [Forbidden, SessionNotFound, ShareNotFound],
     }),
   )
@@ -491,7 +496,7 @@ export class SnapshotsGroup extends HttpApiGroup.make("snapshots")
     }),
   ) {}
 
-const workspace = { id: Schema.String };
+const workspace = { id: Id };
 
 export class WorkspacesGroup extends HttpApiGroup.make("workspaces")
   .add(
@@ -517,12 +522,12 @@ export class WorkspacesGroup extends HttpApiGroup.make("workspaces")
       error: WorkspaceNotFound,
     }),
     HttpApiEndpoint.put("admit", "/workspaces/:id/members/:accountId", {
-      params: { ...workspace, accountId: Schema.String },
+      params: { ...workspace, accountId: Id },
       payload: Schema.Struct({ role: WorkspaceRole }),
       error: [WorkspaceNotFound, Forbidden, AccountNotFound],
     }),
     HttpApiEndpoint.delete("dismiss", "/workspaces/:id/members/:accountId", {
-      params: { ...workspace, accountId: Schema.String },
+      params: { ...workspace, accountId: Id },
       error: [WorkspaceNotFound, Forbidden],
     }),
   )
@@ -564,7 +569,7 @@ export class GrantsGroup extends HttpApiGroup.make("grants")
       error: [Forbidden, OAuthClientNotFound, RedirectRefused],
     }),
     HttpApiEndpoint.delete("revoke", "/oauth/grants/:id", {
-      params: { id: Schema.String },
+      params: { id: Id },
       error: [Forbidden, GrantNotFound],
     }),
   )
