@@ -170,12 +170,16 @@ const sessionShares = statements([
   `CREATE INDEX session_shares_session_id ON session_shares (session_id)`,
 ]);
 
+// A disabled account stays with all that is its own, and is nobody's way in.
+const accountsDisabled = statements([`ALTER TABLE accounts ADD COLUMN disabled_at timestamptz`]);
+
 /** Brings the database to what this program expects; what was applied before is left alone. */
 export const migrate = Migrator.make({})({
   loader: Migrator.fromRecord({
     "0001_initial": initial,
     "0002_clients_granted": clientsGranted,
     "0003_session_shares": sessionShares,
+    "0004_accounts_disabled": accountsDisabled,
   }),
   table: "control_migrations",
 });

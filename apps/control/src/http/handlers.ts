@@ -98,6 +98,13 @@ const accounts = HttpApiBuilder.group(
           yield* accounts.resetSecondFactor(params.id);
         }),
       )
+      .handle("disable", ({ params }) =>
+        Effect.flatMap(admin, (caller) => accounts.disable(caller, params.id)),
+      )
+      .handle("enable", ({ params }) => Effect.andThen(admin, accounts.enable(params.id)))
+      .handle("remove", ({ params }) =>
+        Effect.flatMap(admin, (caller) => accounts.remove(caller, params.id)),
+      )
       .handle(
         "removePasskeys",
         Effect.fn(function* ({ params }) {

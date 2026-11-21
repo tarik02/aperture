@@ -61,6 +61,23 @@ export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
     );
   });
 
+  const setDisabled = Effect.fn("AccountsStore.setDisabled")(function* (
+    id: string,
+    at: Date | null,
+  ) {
+    // One that is disabled already stays disabled since when it was.
+    return yield* sql`
+      UPDATE accounts
+      SET disabled_at = ${at === null ? sql`NULL` : sql`COALESCE(disabled_at, ${at})`}
+      WHERE id = ${id}
+      RETURNING *
+    `.pipe(first(Account));
+  });
+
+  const delete_ = Effect.fn("AccountsStore.delete")(function* (id: string) {
+    yield* sql`DELETE FROM accounts WHERE id = ${id}`.pipe(done);
+  });
+
   const insertToken = Effect.fn("AccountsStore.insertToken")(function* (given: NewApiToken) {
     return yield* sql`
       INSERT INTO api_tokens (
@@ -116,6 +133,8 @@ export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
     list,
     find,
     findByPerson,
+    setDisabled,
+    delete: delete_,
     insertToken,
     listTokens,
     findToken,

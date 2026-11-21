@@ -76,7 +76,14 @@ export const services = Layer.mergeAll(
   Layer.mergeAll(SessionTools.layer, Shares.layer).pipe(Layer.provide(NodeHttpClient.layerUndici)),
 ).pipe(
   Layer.provideMerge(Sessions.layer),
-  Layer.provideMerge(Layer.mergeAll(Accounts.layer, Grants.layer, Nodes.layer, Tickets.layer)),
+  Layer.provideMerge(
+    Layer.mergeAll(
+      Accounts.layer.pipe(Layer.provide(NodeHttpClient.layerUndici)),
+      Grants.layer,
+      Tickets.layer,
+    ),
+  ),
+  Layer.provideMerge(Nodes.layer),
 );
 
 const api = HttpApiBuilder.layer(Api, { openapiPath: `${PREFIX}/openapi.json` }).pipe(
@@ -118,12 +125,12 @@ const serving = Layer.mergeAll(
  * lasts.
  */
 export const layer = serving.pipe(
-  Layer.provide(Layer.mergeAll(stores, Identity.layer)),
+  Layer.provide(Identity.layer.pipe(Layer.provideMerge(stores))),
   Layer.provide(Vault.layer),
 );
 
 /** The same with nothing kept beyond the layer: for checks that need no database. */
 export const layerTest = serving.pipe(
-  Layer.provide(Layer.mergeAll(storesTest, Identity.layerTest)),
+  Layer.provide(Identity.layerTest.pipe(Layer.provideMerge(storesTest))),
   Layer.provide(Vault.layer),
 );

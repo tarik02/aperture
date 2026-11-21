@@ -39,6 +39,13 @@ export interface AccountsStoreShape {
   readonly find: (id: string) => Effect.Effect<Option.Option<Account>>;
   /** The account someone signs in as. */
   readonly findByPerson: (personId: string) => Effect.Effect<Option.Option<Account>>;
+  /** Disables an account from then on, or with no moment puts it in use again. */
+  readonly setDisabled: (id: string, at: Date | null) => Effect.Effect<Option.Option<Account>>;
+  /**
+   * Removes an account with its API tokens, its grants, the share links it made and its
+   * places in workspaces. Not one that sessions or snapshots still name.
+   */
+  readonly delete: (id: string) => Effect.Effect<void>;
   readonly insertToken: (token: NewApiToken) => Effect.Effect<ApiToken>;
   /** An account's tokens, those taken back among them. */
   readonly listTokens: (accountId: string) => Effect.Effect<ReadonlyArray<ApiToken>>;

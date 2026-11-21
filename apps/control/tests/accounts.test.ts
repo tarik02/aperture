@@ -1,12 +1,13 @@
 import { suite } from "@aperture-browser/e2e/src/suite.ts";
 import { expect } from "@effect/vitest";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Control from "./src/control.ts";
-import { cookiesOf } from "./src/person.ts";
+import { cookiesOf, signedIn } from "./src/person.ts";
 import { totp } from "./src/totp.ts";
 
 const OpenApi = Schema.Struct({
@@ -367,6 +368,204 @@ for (const stores of Control.STORES) {
         expect((yield* Effect.flip(bootstrap.sessions.create({ payload: {} })))._tag).toBe(
           "Forbidden",
         );
+      }),
+    );
+
+    it.effect("an admin is told what each person signs in with", () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const http = yield* HttpClient.HttpClient;
+        const bootstrap = yield* control.as(control.bootstrapToken);
+        const email = `wei-${stores}@example.test`;
+        const password = "a password of Wei's own";
+        const wei = yield* bootstrap.accounts.create({ payload: { name: "Wei", email } });
+        const told = (id: string) =>
+          bootstrap.accounts
+            .list()
+            .pipe(Effect.map((all) => all.find((account) => account.id === id)?.signIn));
+        const post = (path: string, body: object, cookie = "") =>
+          http.execute(
+            HttpClientRequest.post(`${control.url}/api/auth${path}`).pipe(
+              HttpClientRequest.setHeader("origin", control.url),
+              HttpClientRequest.setHeader("cookie", cookie),
+              HttpClientRequest.bodyJsonUnsafe(body),
+            ),
+          );
+
+        // Nobody is given a password: a person has one once they set it.
+        const nothing = { password: false, secondFactor: false, passkeys: 0, providers: [] };
+        expect(yield* told(wei.id)).toEqual(nothing);
+        const { token } = yield* bootstrap.accounts.createSetupToken({ params: { id: wei.id } });
+        yield* post("/reset-password", { token, newPassword: password });
+        expect(yield* told(wei.id)).toEqual({ ...nothing, password: true });
+
+        const cookie = cookiesOf(yield* post("/sign-in/email", { email, password }));
+        const enabling = yield* post("/two-factor/enable", { password }, cookie);
+        const { totpURI } = yield* Schema.decodeUnknownEffect(
+          Schema.Struct({ totpURI: Schema.String }),
+        )(yield* enabling.json);
+        yield* post("/two-factor/verify-totp", { code: yield* totp(totpURI) }, cookie);
+        expect(yield* told(wei.id)).toEqual({ ...nothing, password: true, secondFactor: true });
+
+        // A service signs in with nothing.
+        const bot = yield* Control.account(`Bot-of-no-ways-${stores}`);
+        expect(yield* told(bot.account.id)).toBeNull();
+      }),
+    );
+
+    it.effect(
+      "a disabled account signs in nowhere and is nobody's caller, until it is enabled again",
+      () =>
+        Effect.gen(function* () {
+          const control = yield* Control.Control;
+          const http = yield* HttpClient.HttpClient;
+          const bootstrap = yield* control.as(control.bootstrapToken);
+          const mira = yield* signedIn(
+            `Mira-disabled-${stores}`,
+            `mira-off-${stores}@example.test`,
+          );
+          const at = { params: { id: mira.account.id } };
+          const held = yield* bootstrap.accounts.createToken({
+            ...at,
+            payload: { name: "held", scopes: Control.ALL_SCOPES },
+          });
+          const withToken = yield* control.as(held.token);
+          const root = yield* Control.account(`Root-disabling-${stores}`, true);
+          const other = yield* Control.account(`Other-disabling-${stores}`);
+          const account = (cookie: string) =>
+            http
+              .execute(
+                HttpClientRequest.get(`${control.url}/api/control/account`).pipe(
+                  HttpClientRequest.setHeader("cookie", cookie),
+                ),
+              )
+              .pipe(Effect.map((answer) => answer.status));
+          const signIn = http.execute(
+            HttpClientRequest.post(`${control.url}/api/auth/sign-in/email`).pipe(
+              HttpClientRequest.setHeader("origin", control.url),
+              HttpClientRequest.bodyJsonUnsafe({ email: mira.email, password: mira.password }),
+            ),
+          );
+          expect(yield* account(mira.cookie)).toBe(200);
+
+          // An admin's to do, and of nobody's own account.
+          expect((yield* Effect.flip(other.api.accounts.disable(at)))._tag).toBe("Forbidden");
+          expect(
+            (yield* Effect.flip(root.api.accounts.disable({ params: { id: root.account.id } })))
+              ._tag,
+          ).toBe("Forbidden");
+
+          const disabled = yield* root.api.accounts.disable(at);
+          expect(disabled.disabledAt).not.toBeNull();
+          // At once: the cookies they had, their tokens, and what they prove themselves by.
+          expect(yield* account(mira.cookie)).toBe(401);
+          expect((yield* Effect.flip(withToken.accounts.current()))._tag).toBe("Unauthorized");
+          const refused = yield* signIn;
+          expect([refused.status, yield* refused.json]).toMatchObject([
+            403,
+            { code: "account_disabled" },
+          ]);
+          expect(yield* account(cookiesOf(refused))).toBe(401);
+          // The account stays, with all that is its own, and since when it was disabled.
+          const again = yield* root.api.accounts.disable(at);
+          expect(again.disabledAt?.pipe(DateTime.toEpochMillis)).toBe(
+            disabled.disabledAt?.pipe(DateTime.toEpochMillis),
+          );
+          expect(
+            (yield* root.api.accounts.list()).find((listed) => listed.id === mira.account.id),
+          ).toMatchObject({ name: mira.account.name, signIn: { password: true } });
+
+          const enabled = yield* root.api.accounts.enable(at);
+          expect(enabled.disabledAt).toBeNull();
+          expect((yield* withToken.accounts.current()).id).toBe(mira.account.id);
+          // Whoever was signed out by it signs in again.
+          expect(yield* account(mira.cookie)).toBe(401);
+          expect(yield* account(cookiesOf(yield* signIn))).toBe(200);
+          expect(
+            (yield* Effect.flip(
+              root.api.accounts.enable({ params: { id: "00000000-0000-7000-8000-00000000dead" } }),
+            ))._tag,
+          ).toBe("AccountNotFound");
+        }),
+    );
+
+    it.effect(
+      "an account is removed with its person, its tokens and its places in workspaces",
+      () =>
+        Effect.gen(function* () {
+          const control = yield* Control.Control;
+          const http = yield* HttpClient.HttpClient;
+          const bootstrap = yield* control.as(control.bootstrapToken);
+          const email = `gil-${stores}@example.test`;
+          const gil = yield* signedIn(`Gil-${stores}`, email);
+          const at = { params: { id: gil.account.id } };
+          const held = yield* bootstrap.accounts.createToken({
+            ...at,
+            payload: { name: "held", scopes: Control.ALL_SCOPES },
+          });
+          const withToken = yield* control.as(held.token);
+          const root = yield* Control.account(`Root-removing-${stores}`, true);
+          const other = yield* Control.account(`Other-removing-${stores}`);
+          const workspace = yield* root.api.workspaces.create({ payload: { name: "Gil's team" } });
+          yield* root.api.workspaces.admit({
+            params: { id: workspace.id, accountId: gil.account.id },
+            payload: { role: "member" },
+          });
+
+          expect((yield* Effect.flip(other.api.accounts.remove(at)))._tag).toBe("Forbidden");
+          expect(
+            (yield* Effect.flip(root.api.accounts.remove({ params: { id: root.account.id } })))
+              ._tag,
+          ).toBe("Forbidden");
+          yield* root.api.accounts.remove(at);
+
+          expect(
+            (yield* root.api.accounts.list()).filter((listed) => listed.id === gil.account.id),
+          ).toEqual([]);
+          expect((yield* Effect.flip(withToken.accounts.current()))._tag).toBe("Unauthorized");
+          expect(
+            (yield* root.api.workspaces.members({ params: { id: workspace.id } })).map(
+              (member) => member.accountId,
+            ),
+          ).not.toContain(gil.account.id);
+          const cookied = yield* http.execute(
+            HttpClientRequest.get(`${control.url}/api/control/account`).pipe(
+              HttpClientRequest.setHeader("cookie", gil.cookie),
+            ),
+          );
+          expect(cookied.status).toBe(401);
+          const signing = yield* http.execute(
+            HttpClientRequest.post(`${control.url}/api/auth/sign-in/email`).pipe(
+              HttpClientRequest.setHeader("origin", control.url),
+              HttpClientRequest.bodyJsonUnsafe({ email, password: gil.password }),
+            ),
+          );
+          expect(signing.status).toBe(401);
+          expect((yield* Effect.flip(root.api.accounts.remove(at)))._tag).toBe("AccountNotFound");
+          // Their address is anyone's again.
+          yield* bootstrap.accounts.create({ payload: { name: "Gil again", email } });
+        }),
+    );
+
+    it.effect("the last admin is neither disabled nor removed", () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const bootstrap = yield* control.as(control.bootstrapToken);
+        const last = yield* Control.account(`Last-admin-${stores}`, true);
+        const at = { params: { id: last.account.id } };
+        const others = (yield* bootstrap.accounts.list()).filter(
+          (account) => account.admin && account.disabledAt === null && account.id !== at.params.id,
+        );
+        yield* Effect.forEach(others, (account) =>
+          bootstrap.accounts.disable({ params: { id: account.id } }),
+        );
+        expect((yield* Effect.flip(bootstrap.accounts.disable(at)))._tag).toBe("AccountInUse");
+        expect((yield* Effect.flip(bootstrap.accounts.remove(at)))._tag).toBe("AccountInUse");
+        yield* Effect.forEach(others, (account) =>
+          bootstrap.accounts.enable({ params: { id: account.id } }),
+        );
+        // With another admin beside it, it is as any account.
+        yield* bootstrap.accounts.remove(at);
       }),
     );
 

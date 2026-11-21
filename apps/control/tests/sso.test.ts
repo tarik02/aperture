@@ -141,6 +141,14 @@ for (const stores of Control.STORES) {
             (account) => account.email === bob.email,
           );
           expect(theirs).toHaveLength(1);
+          // An admin is told that they came through the provider, and have nothing else.
+          const through = {
+            password: false,
+            secondFactor: false,
+            passkeys: 0,
+            providers: [Dex.PROVIDER_NAME],
+          };
+          expect(theirs[0]?.signIn).toEqual(through);
 
           // They have no password until they set one, with a setup link as anyone does.
           expect(yield* withPassword(bob.email, Dex.PASSWORD)).toBe(401);
@@ -155,6 +163,24 @@ for (const stores of Control.STORES) {
             ),
           );
           expect(yield* withPassword(bob.email, NEW_PASSWORD)).toBe(200);
+          expect(
+            (yield* bootstrap.accounts.list()).find((account) => account.id === first.id)?.signIn,
+          ).toEqual({ ...through, password: true });
+
+          // Disabled, they are refused whichever way they come, and told why; the provider
+          // makes nobody a person in their place.
+          yield* bootstrap.accounts.disable({ params: { id: first.id } });
+          expect((yield* accountOf(again.cookie)).status).toBe(401);
+          const refused = yield* signInThrough(control.url, "local", bob.email);
+          expect(refused.at).toMatch(/^\/sign-in-refused\?error=account_disabled/u);
+          expect((yield* accountOf(refused.cookie)).status).toBe(401);
+          expect(yield* withPassword(bob.email, NEW_PASSWORD)).toBe(403);
+          expect(
+            (yield* bootstrap.accounts.list()).filter((account) => account.email === bob.email),
+          ).toHaveLength(1);
+          yield* bootstrap.accounts.enable({ params: { id: first.id } });
+          const back = yield* signInThrough(control.url, "local", bob.email);
+          expect((yield* accountOf(back.cookie)).status).toBe(200);
         }),
       );
 

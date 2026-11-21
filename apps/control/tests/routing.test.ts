@@ -1668,6 +1668,58 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.hover(`${lin} [data-console-setup-link]`);
       yield* shot(page, fs, "console-people");
 
+      // What a person signs in with is told beside them: nothing, until they set a password.
+      expect(yield* page.text(lin)).toContain("Nothing yet");
+      const { token } = yield* root.api.accounts.createSetupToken({
+        params: {
+          id: (yield* root.api.accounts.list()).find((one) => one.name === "Lin")?.id ?? "",
+        },
+      });
+      yield* page.evaluate(
+        `fetch("/api/auth/reset-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: ${JSON.stringify(JSON.stringify({ token, newPassword: "a password of Lin's own" }))} }).then((answer) => answer.status)`,
+        Schema.Number,
+      );
+      const does = (says: string) =>
+        Effect.gen(function* () {
+          yield* page.click(`${lin} [data-console-person-actions]`);
+          yield* choose(page, `[data-slot="dropdown-menu-item"]`, says);
+        });
+      const confirmed = Effect.gen(function* () {
+        yield* page.until(`!!document.querySelector('${BUTTONS} button:last-child')`);
+        yield* placed(page);
+        yield* page.click(`${BUTTONS} button:last-child`);
+        yield* page.until(`!document.querySelector('${DIALOG}')`);
+      });
+      // Disabled, a person stays where they were, and is put in use again as they were.
+      yield* does("Disable");
+      yield* page.until(`!!document.querySelector('${BUTTONS} button:last-child')`);
+      yield* placed(page);
+      yield* shot(page, fs, "console-person-disable");
+      yield* confirmed;
+      yield* page.until(`!!document.querySelector('${lin}[data-console-person-state="disabled"]')`);
+      yield* page.until(
+        `!!document.querySelector('${lin} [data-console-sign-in-method="password"]')`,
+      );
+      yield* page.click(`${lin} [data-console-person-actions]`);
+      yield* page.until(`!!document.querySelector('[data-slot="dropdown-menu-item"]')`);
+      yield* shot(page, fs, "console-people-disabled");
+      yield* shotDark(page, fs, "console-people-disabled-dark");
+      yield* choose(page, `[data-slot="dropdown-menu-item"]`, "Enable");
+      yield* page.until(`!!document.querySelector('${lin}[data-console-person-state="in-use"]')`);
+      // The same is offered where the row is clicked with the other button.
+      yield* page.click(`${lin} td`, "right");
+      yield* page.until(`!!document.querySelector("[data-console-person-context]")`);
+      expect(yield* page.text("[data-console-person-context]")).toContain("Remove passkeys");
+      yield* page.key("Escape", "Escape", ESCAPE);
+      yield* page.until(`!document.querySelector("[data-console-person-context]")`);
+      // Deleted, they are gone.
+      yield* does("Delete");
+      yield* confirmed;
+      yield* page.until(`!document.querySelector('${lin}')`);
+      expect((yield* root.api.accounts.list()).filter((account) => account.name === "Lin")).toEqual(
+        [],
+      );
+
       // A service account is made with a name, and comes with tokens that are held to scopes.
       yield* page.click(`a[href="/-/service-accounts"]`);
       yield* page.until(`!!document.querySelector("[data-console-service-new]")`);

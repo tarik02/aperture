@@ -5,17 +5,20 @@ import { APIError } from "better-auth/api";
 import { getMigrations } from "better-auth/db/migration";
 import { genericOAuth } from "better-auth/plugins/generic-oauth";
 import { twoFactor } from "better-auth/plugins/two-factor";
+import * as Arr from "effect/Array";
 import type * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
+import * as Schema from "effect/Schema";
 import { Pool } from "pg";
+import { AccountsStore } from "../accounts/store.ts";
 import { EmailTaken, PersonNotFound } from "../errors.ts";
 import * as Secrets from "../secrets.ts";
 import { Settings } from "../settings/service.ts";
 import { Vault } from "../vault/service.ts";
-import { Identity, type Person } from "./service.ts";
+import { Identity, type Person, type SignInMethods } from "./service.ts";
 
 const PATH = "/api/auth" as const;
 /** Nobody makes themselves a person: an admin makes people, each of whom sets a password. */
@@ -23,6 +26,8 @@ const SIGN_UP = `${PATH}/sign-up/`;
 /** The route of better-auth's own an admin's making of a person goes through. */
 const MADE_BY_ADMIN = "/sign-up/email";
 const NOT_FOUND = 404;
+/** What a person's password is kept under, among what they sign in with. */
+const PASSWORD = "credential";
 /** What an authenticator shows its codes under. */
 const ISSUER = "Aperture";
 /** The header better-auth is told where a request came from in. */
@@ -35,6 +40,7 @@ const FROM_HEADER = "x-aperture-client-address";
 const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["database"]) {
   const vault = yield* Vault;
   const settings = yield* Settings;
+  const accounts = yield* AccountsStore;
   const context = yield* Effect.context<Crypto.Crypto>();
   /** Setup tokens on their way: better-auth hands one to whoever sends it, which is this. */
   const sent = new Map<string, string>();
@@ -92,6 +98,18 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
     // was never verified here: an admin gave it, which is what a letter to it would show.
     account: { accountLinking: { requireLocalEmailVerified: false } },
     databaseHooks: {
+      // Nobody whose account is disabled is signed in, whatever they prove themselves by.
+      // It is told once they did prove it, and so to nobody else.
+      session: {
+        create: {
+          before: async (session) => {
+            const account = await Effect.runPromise(accounts.findByPerson(session.userId));
+            if (Option.isSome(account) && account.value.disabledAt !== null) {
+              throw refused("account_disabled", "This account is disabled. Ask an admin.");
+            }
+          },
+        },
+      },
       user: {
         create: {
           before: async (user, context) => {
@@ -169,6 +187,17 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
     const made = yield* Effect.promise(() =>
       auth.api.signUpEmail({ body: { ...person, password } }),
     );
+    // Made with a password since nobody is made without, which is then nobody's: a
+    // person has one once they set it.
+    yield* Effect.promise(async () =>
+      (await auth.$context).adapter.deleteMany({
+        model: "account",
+        where: [
+          { field: "userId", value: made.user.id },
+          { field: "providerId", value: PASSWORD },
+        ],
+      }),
+    );
     return { id: made.user.id, email: made.user.email, name: made.user.name } satisfies Person;
   }, Effect.provide(context));
 
@@ -203,6 +232,82 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
     });
   });
 
+  const Counted = Schema.Array(Schema.Struct({ userId: Schema.String }));
+  const Proven = Schema.Array(Schema.Struct({ userId: Schema.String, providerId: Schema.String }));
+  const People = Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      email: Schema.String,
+      twoFactorEnabled: Schema.optional(Schema.NullOr(Schema.Boolean)),
+    }),
+  );
+
+  const methods = Effect.fn("Identity.methods")(function* () {
+    const { people, proven, passkeys } = yield* Effect.promise(async () => {
+      const { adapter } = await auth.$context;
+      return {
+        people: await adapter.findMany({ model: "user" }),
+        proven: await adapter.findMany({ model: "account" }),
+        passkeys: await adapter.findMany({ model: "passkey" }),
+      };
+    });
+    const named = new Map(settings.providers.map(({ id, name }) => [id, name]));
+    const theirs = Arr.groupBy(
+      yield* Effect.orDie(Schema.decodeUnknownEffect(Proven)(proven)),
+      (one) => one.userId,
+    );
+    const held = Arr.groupBy(
+      yield* Effect.orDie(Schema.decodeUnknownEffect(Counted)(passkeys)),
+      (one) => one.userId,
+    );
+    return new Map(
+      (yield* Effect.orDie(Schema.decodeUnknownEffect(People)(people))).map((person) => {
+        const ways = (theirs[person.id] ?? []).map((one) => one.providerId);
+        return [
+          person.email,
+          {
+            password: ways.includes(PASSWORD),
+            secondFactor: person.twoFactorEnabled === true,
+            passkeys: held[person.id]?.length ?? 0,
+            providers: ways
+              .filter((way) => way !== PASSWORD)
+              .map((way) => named.get(way) ?? way)
+              .toSorted((one, other) => one.localeCompare(other)),
+          } satisfies SignInMethods,
+        ] as const;
+      }),
+    );
+  });
+
+  const signOut = Effect.fn("Identity.signOut")(function* (email: string) {
+    const found = yield* Effect.promise(async () =>
+      (await auth.$context).internalAdapter.findUserByEmail(email),
+    );
+    if (found === null) {
+      return yield* new PersonNotFound({ email });
+    }
+    yield* Effect.promise(async () =>
+      (await auth.$context).internalAdapter.deleteUserSessions(found.user.id),
+    );
+  });
+
+  const remove = Effect.fn("Identity.remove")(function* (email: string) {
+    const found = yield* Effect.promise(async () =>
+      (await auth.$context).internalAdapter.findUserByEmail(email),
+    );
+    if (found === null) {
+      return yield* new PersonNotFound({ email });
+    }
+    yield* Effect.promise(async () => {
+      const { adapter, internalAdapter } = await auth.$context;
+      // What plugins keep of a person is not removed with them where nothing ties the two.
+      for (const model of ["twoFactor", "passkey"]) {
+        await adapter.deleteMany({ model, where: [{ field: "userId", value: found.user.id }] });
+      }
+      await internalAdapter.deleteUser(found.user.id);
+    });
+  });
+
   const removePasskeys = Effect.fn("Identity.removePasskeys")(function* (email: string) {
     const found = yield* Effect.promise(async () =>
       (await auth.$context).internalAdapter.findUserByEmail(email),
@@ -228,6 +333,9 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
       handle,
       personOf,
       create,
+      methods,
+      signOut,
+      remove,
       setupToken,
       resetSecondFactor,
       removePasskeys,

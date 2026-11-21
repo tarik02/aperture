@@ -3,6 +3,7 @@ import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as Duration from "effect/Duration";
 import type {
+  AccountInUse,
   AccountInvalid,
   AccountNotFound,
   ApiTokenNotFound,
@@ -11,6 +12,7 @@ import type {
   PersonNotFound,
   Unauthorized,
 } from "../errors.ts";
+import type { SignInMethods } from "../identity/service.ts";
 import type { Account, AccountKind, ApiToken } from "./schemas.ts";
 
 /** Accounts, their API tokens, and whose a token is. */
@@ -36,7 +38,31 @@ export interface AccountsShape {
   ) => Effect.Effect<void, AccountNotFound | PersonNotFound>;
   /** Who a browser's cookies sign in. */
   readonly ofPerson: (headers: Headers) => Effect.Effect<Caller, Unauthorized>;
-  readonly list: () => Effect.Effect<ReadonlyArray<Account>>;
+  /** Every account, each person's with what they sign in with. */
+  readonly list: () => Effect.Effect<
+    ReadonlyArray<Account & { readonly signIn: SignInMethods | null }>
+  >;
+  /**
+   * Disables an account: nothing signs in as it, and its cookies, API tokens and the
+   * tokens of its grants are nobody's from then on, while all that is its own stays.
+   * Whoever is in a session as it is put out. Nobody disables their own account, and
+   * the last admin stays.
+   */
+  readonly disable: (
+    caller: Caller,
+    id: string,
+  ) => Effect.Effect<Account, AccountNotFound | Forbidden | AccountInUse>;
+  /** Puts a disabled account in use again, with all it had. */
+  readonly enable: (id: string) => Effect.Effect<Account, AccountNotFound>;
+  /**
+   * Removes an account with its person, its API tokens, its grants, the share links it
+   * made and its places in workspaces. Not while a session or a snapshot names it: those
+   * are removed first. Nobody removes their own account, and the last admin stays.
+   */
+  readonly remove: (
+    caller: Caller,
+    id: string,
+  ) => Effect.Effect<void, AccountNotFound | Forbidden | AccountInUse>;
   /** A new API token of the account. The secret is told here and kept nowhere. */
   readonly createToken: (
     accountId: string,

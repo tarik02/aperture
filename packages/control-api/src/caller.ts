@@ -14,6 +14,7 @@ export interface Caller {
     readonly kind: "person" | "service";
     readonly email: string | null;
     readonly createdAt: DateTime.Utc;
+    readonly disabledAt: DateTime.Utc | null;
   }>;
   readonly admin: boolean;
   /** What the token it came with is held to; nothing, for one that is held to nothing. */

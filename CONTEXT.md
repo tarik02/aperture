@@ -81,8 +81,12 @@ Where a session is reached through a proxy that stands before the nodes, below t
 The one secret a control plane is given beside its database: what it has to read again, such as a node's operator token, is kept sealed with a key made of it. It is not in the database, and stays the same for as long as what was sealed is to be read.
 
 **Account**:
-Whose sessions, snapshots and API tokens are, in the control plane. An admin account also makes accounts and registration tokens.
+Whose sessions, snapshots and API tokens are, in the control plane. An admin account also makes accounts and registration tokens, disables accounts and removes them. An account is removed once no session and no snapshot names it, and its API tokens, its grants, the share links it made and its places in workspaces go with it.
 _Avoid_: Tenant, user
+
+**Disabled**:
+Said of an account an admin took out of use without removing it: nothing signs in as it, whatever it proves itself by, its cookies, its API tokens and the tokens of its grants are nobody's at once, and whoever is in a session as it is put out. All that is its own stays, and it is as it was once an admin enables it. Nobody disables or removes their own account, and the last admin stays.
+_Avoid_: Blocked, banned, suspended (which is a session's)
 
 **Ticket**:
 A signed, expiring pass for one person into one session. It lets its holder watch, and says what else they may do as access. Whoever stands above the executor signs it; the gateway only checks it. A session socket opened with it stays open after the ticket ran out, but for one whose ticket says until when, and one whose holder the operator dismisses.

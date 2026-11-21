@@ -16,6 +16,8 @@ export const Account = Schema.Struct({
   /** The address a person signs in with; none for a service. */
   email: Schema.NullOr(Schema.String),
   createdAt: Schema.DateTimeUtcFromDate,
+  /** Since when it is disabled; never, for one that is in use. */
+  disabledAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
 });
 export type Account = typeof Account.Type;
 

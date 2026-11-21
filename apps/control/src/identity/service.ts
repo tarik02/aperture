@@ -13,6 +13,16 @@ export interface Person {
   readonly name: string;
 }
 
+/** What a person signs in with. */
+export interface SignInMethods {
+  /** Whether they have a password: one they set, since nobody is given one. */
+  readonly password: boolean;
+  readonly secondFactor: boolean;
+  readonly passkeys: number;
+  /** The providers they came through, by what each is called. */
+  readonly providers: ReadonlyArray<string>;
+}
+
 /**
  * Who people are and how they prove it: signing in and out, passwords, passkeys, and whose
  * a browser's cookies are. What signs people in is behind this, and nothing else knows it.
@@ -31,11 +41,23 @@ export interface IdentityShape {
   readonly handle: (request: Request, from: Option.Option<string>) => Effect.Effect<Response>;
   /** Whose the cookies of a request are; nobody's where they sign nobody in. */
   readonly personOf: (headers: Headers) => Effect.Effect<Option.Option<Person>>;
-  /** Makes a person, who signs in once they set a password with a setup token. */
+  /**
+   * Makes a person, who has nothing to sign in with until they set a password with a
+   * setup token, or a provider vouches for their address.
+   */
   readonly create: (person: {
     readonly email: string;
     readonly name: string;
   }) => Effect.Effect<Person, EmailTaken>;
+  /** What each person signs in with, by their email address. */
+  readonly methods: () => Effect.Effect<ReadonlyMap<string, SignInMethods>>;
+  /**
+   * Signs a person out of every browser at once. Whether they sign in again is not said
+   * here: no one whose account is disabled does.
+   */
+  readonly signOut: (email: string) => Effect.Effect<void, PersonNotFound>;
+  /** Removes a person with all they signed in with; their address is anyone's again. */
+  readonly remove: (email: string) => Effect.Effect<void, PersonNotFound>;
   /** A token with which a person sets a password of their own: a first one, or another. */
   readonly setupToken: (email: string) => Effect.Effect<string, PersonNotFound>;
   /**

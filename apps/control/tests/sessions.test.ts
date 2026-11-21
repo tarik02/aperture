@@ -378,5 +378,32 @@ for (const stores of Control.STORES) {
         expect(refused._tag).toBe("SessionHasNoNode");
       }),
     );
+
+    it.effect("an account a session names is disabled with it, and removed once it is gone", () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const bootstrap = yield* control.as(control.bootstrapToken);
+        const bea = yield* Control.account("Bea");
+        const at = { params: { id: bea.account.id } };
+        const made = yield* bea.api.sessions.create({ payload: { suspended: true } });
+
+        expect(yield* Effect.flip(bootstrap.accounts.remove(at))).toMatchObject({
+          _tag: "AccountInUse",
+          message: expect.stringContaining("1 session and 0 snapshots"),
+        });
+        // Disabled, it is nobody's caller, and what is its own stays for an admin to see.
+        yield* bootstrap.accounts.disable(at);
+        expect((yield* Effect.flip(bea.api.sessions.list()))._tag).toBe("Unauthorized");
+        expect((yield* bootstrap.sessions.get({ params: { id: made.id } })).accountId).toBe(
+          bea.account.id,
+        );
+
+        yield* bootstrap.sessions.delete({ params: { id: made.id } });
+        yield* bootstrap.accounts.remove(at);
+        expect(
+          (yield* bootstrap.accounts.list()).filter((account) => account.id === bea.account.id),
+        ).toEqual([]);
+      }),
+    );
   });
 }

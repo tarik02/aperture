@@ -9,6 +9,7 @@ import * as OpenApi from "effect/http-api/OpenApi";
 import * as Schema from "effect/Schema";
 import type { Caller } from "./caller.ts";
 import {
+  AccountInUse,
   AccountInvalid,
   AccountNotFound,
   ApiTokenNotFound,
@@ -54,6 +55,25 @@ export const Account = Schema.Struct({
   /** The address a person signs in with; none for a service. */
   email: Schema.NullOr(Schema.String),
   createdAt: Schema.DateTimeUtcFromString,
+  /** Since when it is disabled: nothing of it signs in or is taken as a caller. */
+  disabledAt: Schema.NullOr(Schema.DateTimeUtcFromString),
+});
+
+/** What a person signs in with. */
+export const SignInMethods = Schema.Struct({
+  /** Whether they have a password: one they set, since nobody is given one. */
+  password: Schema.Boolean,
+  secondFactor: Schema.Boolean,
+  /** How many passkeys they added. */
+  passkeys: Schema.Number,
+  /** The providers they came through, by what each is called. */
+  providers: Schema.Array(Schema.String),
+});
+
+/** An account as an admin is told of it: with what its person signs in with, for a person's. */
+export const ListedAccount = Schema.Struct({
+  ...Account.fields,
+  signIn: Schema.NullOr(SignInMethods),
 });
 
 /** A workspace as its caller has it: `role` is none for an admin who is no member. */
@@ -240,7 +260,10 @@ export class AccountsGroup extends HttpApiGroup.make("accounts")
       params: { id: Schema.String },
       error: [Forbidden, ApiTokenNotFound],
     }),
-    HttpApiEndpoint.get("list", "/accounts", { success: Schema.Array(Account), error: Forbidden }),
+    HttpApiEndpoint.get("list", "/accounts", {
+      success: Schema.Array(ListedAccount),
+      error: Forbidden,
+    }),
     HttpApiEndpoint.post("create", "/accounts", {
       payload: Schema.Struct({
         name: Schema.NonEmptyString,
@@ -255,6 +278,20 @@ export class AccountsGroup extends HttpApiGroup.make("accounts")
     HttpApiEndpoint.post("resetSecondFactor", "/accounts/:id/second-factor/reset", {
       params: { id: Schema.String },
       error: [Forbidden, AccountNotFound, PersonNotFound],
+    }),
+    HttpApiEndpoint.post("disable", "/accounts/:id/disable", {
+      params: { id: Schema.String },
+      success: Account,
+      error: [Forbidden, AccountNotFound, AccountInUse],
+    }),
+    HttpApiEndpoint.post("enable", "/accounts/:id/enable", {
+      params: { id: Schema.String },
+      success: Account,
+      error: [Forbidden, AccountNotFound],
+    }),
+    HttpApiEndpoint.delete("remove", "/accounts/:id", {
+      params: { id: Schema.String },
+      error: [Forbidden, AccountNotFound, AccountInUse],
     }),
     HttpApiEndpoint.post("removePasskeys", "/accounts/:id/passkeys/remove", {
       params: { id: Schema.String },
@@ -275,7 +312,8 @@ export class AccountsGroup extends HttpApiGroup.make("accounts")
   .annotateMerge(
     OpenApi.annotations({
       title: "Accounts",
-      description: "Accounts and their API tokens. Only an admin makes them.",
+      description:
+        "Accounts and their API tokens. Only an admin makes them, disables them and removes them.",
     }),
   ) {}
 

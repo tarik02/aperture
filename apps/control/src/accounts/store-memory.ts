@@ -18,6 +18,7 @@ export const makeAccountsStoreMemory = Effect.fn("AccountsStore.makeMemory")(fun
         kind: account.kind,
         email: account.person?.email ?? null,
         createdAt: moment(account.createdAt),
+        disabledAt: null,
       };
       memory.accounts.set(kept.id, kept);
       if (account.person !== null) {
@@ -49,6 +50,62 @@ export const makeAccountsStoreMemory = Effect.fn("AccountsStore.makeMemory")(fun
         Option.flatMap((id) => Option.fromUndefinedOr(memory.accounts.get(id))),
       ),
     ),
+  );
+
+  const setDisabled = Effect.fn("AccountsStore.setDisabled")((id: string, at: Date | null) =>
+    Effect.sync(() =>
+      Option.fromUndefinedOr(memory.accounts.get(id)).pipe(
+        Option.map((account) => {
+          const kept: Account = {
+            ...account,
+            disabledAt: at === null ? null : (account.disabledAt ?? moment(at)),
+          };
+          memory.accounts.set(id, kept);
+          return kept;
+        }),
+      ),
+    ),
+  );
+
+  /** What a database removes with an account by itself is removed here by hand. */
+  const delete_ = Effect.fn("AccountsStore.delete")((id: string) =>
+    Effect.sync(() => {
+      memory.accounts.delete(id);
+      for (const [person, account] of memory.accountsOfPeople) {
+        if (account === id) {
+          memory.accountsOfPeople.delete(person);
+        }
+      }
+      for (const [hash, token] of memory.apiTokens) {
+        if (token.accountId === id) {
+          memory.apiTokens.delete(hash);
+        }
+      }
+      for (const [hash, share] of memory.shares) {
+        if (share.accountId === id) {
+          memory.shares.delete(hash);
+        }
+      }
+      for (const members of memory.workspaceMembers.values()) {
+        members.delete(id);
+      }
+      for (const grant of memory.oauthGrants.values()) {
+        if (grant.accountId !== id) {
+          continue;
+        }
+        memory.oauthGrants.delete(grant.id);
+        for (const [hash, code] of memory.oauthCodes) {
+          if (code.grantId === grant.id) {
+            memory.oauthCodes.delete(hash);
+          }
+        }
+        for (const [hash, token] of memory.oauthTokens) {
+          if (token.grantId === grant.id) {
+            memory.oauthTokens.delete(hash);
+          }
+        }
+      }
+    }),
   );
 
   const insertToken = Effect.fn("AccountsStore.insertToken")((token: NewApiToken) =>
@@ -120,6 +177,8 @@ export const makeAccountsStoreMemory = Effect.fn("AccountsStore.makeMemory")(fun
     list,
     find,
     findByPerson,
+    setDisabled,
+    delete: delete_,
     insertToken,
     listTokens,
     findToken,

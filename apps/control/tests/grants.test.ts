@@ -30,6 +30,7 @@ const ada: Caller = {
     kind: "person",
     email: "ada@example.test",
     createdAt: DateTime.makeUnsafe(0),
+    disabledAt: null,
   }),
   admin: false,
   scopes: null,

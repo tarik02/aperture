@@ -52,6 +52,7 @@ const REFUSALS: Readonly<Record<string, string>> = {
   email_domain_refused: "Accounts are not made for email addresses of that domain.",
   email_not_found: "The provider did not tell your email address.",
   access_denied: "Signing in was called off at the provider.",
+  account_disabled: "This account is disabled. Ask an admin.",
 };
 
 /** Why a provider signed nobody in, where this page's address says it did not; and the address without. */

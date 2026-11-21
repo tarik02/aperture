@@ -111,6 +111,13 @@ export class AccountInvalid extends Schema.TaggedError<AccountInvalid>()(
   { httpApiStatus: 400 },
 ) {}
 
+/** The account is not disabled or removed while something still stands on it. */
+export class AccountInUse extends Schema.TaggedError<AccountInUse>()(
+  "AccountInUse",
+  { id: Schema.String, message: Schema.String },
+  { httpApiStatus: 409 },
+) {}
+
 /** No app registered as that. */
 export class OAuthClientNotFound extends Schema.TaggedError<OAuthClientNotFound>()(
   "OAuthClientNotFound",
