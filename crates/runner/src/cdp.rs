@@ -3,6 +3,8 @@
 
 use std::collections::HashMap;
 
+use anyhow::Context as _;
+
 use aperture_runner::{Cdp, DEVTOOLS_AUTHORITY};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -18,6 +20,7 @@ use tracing::warn;
 
 /// Events buffered for a subscriber that falls behind; it then misses the oldest.
 const EVENT_BUFFER: usize = 1024;
+const OPENED_WITHIN: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum Error {
@@ -63,8 +66,11 @@ pub async fn open(cdp: &Cdp, path: &str) -> anyhow::Result<WebSocketStream<UnixS
         .max_message_size(None)
         .max_frame_size(None);
     let url = format!("ws://{DEVTOOLS_AUTHORITY}{path}");
-    let (socket, _) =
-        tokio_tungstenite::client_async_with_config(url, stream, Some(config)).await?;
+    // A browser that listens answers at once: one that does not is not waited for.
+    let shaken = tokio_tungstenite::client_async_with_config(url, stream, Some(config));
+    let (socket, _) = tokio::time::timeout(OPENED_WITHIN, shaken)
+        .await
+        .context("the browser's DevTools endpoint did not answer")??;
     Ok(socket)
 }
 

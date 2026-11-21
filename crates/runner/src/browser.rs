@@ -19,6 +19,9 @@ const READY_WITHIN: Duration = Duration::from_secs(60);
 const CLOSE_WITHIN: Duration = Duration::from_secs(15);
 const TERMINATE_WITHIN: Duration = Duration::from_secs(10);
 const POLL: Duration = Duration::from_millis(50);
+/// How long one question to the endpoint may go unanswered. What takes it into the sandbox
+/// accepts a connection before the browser listens, and one made then is never answered.
+const ANSWERED_WITHIN: Duration = Duration::from_secs(2);
 
 /// Host trees the browser loads its libraries, fonts, certificates and resolver
 /// configuration from.
@@ -375,7 +378,11 @@ pub async fn endpoint(socket: &Path) -> anyhow::Result<Cdp> {
     loop {
         // Refused until the browser listens.
         let said = aperture_gateway::ask_as(socket, DEVTOOLS_AUTHORITY, "/json/version");
-        let refused = match said.await {
+        let said = match timeout(ANSWERED_WITHIN, said).await {
+            Ok(said) => said,
+            Err(_) => Err(anyhow::anyhow!("it did not answer")),
+        };
+        let refused = match said {
             Ok(version) => {
                 let url = version["webSocketDebuggerUrl"].as_str();
                 if let Some((url, at)) = url.and_then(|url| Some((url, url.find("/devtools/")?))) {
