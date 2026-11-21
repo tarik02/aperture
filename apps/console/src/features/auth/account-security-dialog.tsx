@@ -12,6 +12,7 @@ import { Input } from "@aperture-browser/ui/components/input";
 import { QrCode } from "@aperture-browser/ui/components/qr-code";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
+import { CodeInput } from "#/components/code-input.tsx";
 import { CopyField } from "#/components/copy-field.tsx";
 import {
   useConfirmEnrolmentMutation,
@@ -64,16 +65,25 @@ export function AccountSecurityDialog({ person, open, onOpenChange }: AccountSec
     onOpenChange(next);
   };
 
+  const confirmWith = (given: string) => {
+    if (enrolling.step !== "confirm" || confirm.isPending) {
+      return;
+    }
+    confirm.mutate(given.trim(), {
+      onSuccess: () => {
+        setCode("");
+        setEnrolling({ step: "backup-codes", backupCodes: enrolling.backupCodes });
+        toast.success("Two-factor sign-in is on");
+      },
+      // A code that was not taken is typed anew.
+      onError: () => setCode(""),
+    });
+  };
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (enrolling.step === "confirm") {
-      confirm.mutate(code.trim(), {
-        onSuccess: () => {
-          setCode("");
-          setEnrolling({ step: "backup-codes", backupCodes: enrolling.backupCodes });
-          toast.success("Two-factor sign-in is on");
-        },
-      });
+      confirmWith(code);
     } else if (person.secondFactor) {
       turnOff.mutate(password, {
         onSuccess: () => {
@@ -143,17 +153,7 @@ export function AccountSecurityDialog({ person, open, onOpenChange }: AccountSec
                   Can't scan it?
                 </Button>
               )}
-              <label className="aperture:grid aperture:gap-1.5 aperture:text-sm">
-                Code
-                <Input
-                  name="code"
-                  autoComplete="one-time-code"
-                  inputMode="numeric"
-                  autoFocus
-                  value={code}
-                  onChange={(event) => setCode(event.target.value)}
-                />
-              </label>
+              <CodeInput value={code} onChange={setCode} onComplete={confirmWith} />
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => close(false)}>
                   Cancel

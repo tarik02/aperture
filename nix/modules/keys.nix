@@ -18,7 +18,15 @@ let
     cd ${cfg.directory}
 
     secret() { ${lib.getExe pkgs.openssl} rand -base64 32 | tr -d '\n=' | tr '+/' '-_'; }
-    made() { [ -s "$1" ] || "''${@:2}" > "$1.new" && [ -s "$1" ] || mv "$1.new" "$1"; }
+    # Made once: what is there stays, since what was sealed and signed with it is still read.
+    made() {
+      local file=$1
+      shift
+      if [ ! -s "$file" ]; then
+        "$@" > "$file.new"
+        mv "$file.new" "$file"
+      fi
+    }
     owned() {
       local file=$1 owner=$2 group=$3 mode=$4
       id -u "$owner" > /dev/null 2>&1 || owner=root
@@ -61,6 +69,10 @@ in
       description = "Secrets of the Aperture deployment";
       wantedBy = [ "multi-user.target" ];
       after = [ "systemd-tmpfiles-setup.service" ];
+      path = [
+        pkgs.coreutils
+        pkgs.getent
+      ];
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;

@@ -3,6 +3,7 @@ import { Input } from "@aperture-browser/ui/components/input";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { callAs, carry, told } from "#/lib/api.ts";
+import { CodeInput } from "#/components/code-input.tsx";
 import { giveBackupCode, giveCode, signIn } from "#/lib/identity.ts";
 import { queryKeys } from "#/lib/query-keys.ts";
 import { keepToken } from "#/lib/token.ts";
@@ -35,7 +36,10 @@ export function SignInPage() {
     },
   });
   const withCode = useMutation({
-    mutationFn: () => (way === "backup-code" ? giveBackupCode : giveCode)(code.trim()),
+    mutationFn: (given: string) =>
+      (way === "backup-code" ? giveBackupCode : giveCode)(given.trim()),
+    // A code that was not taken is typed anew.
+    onError: () => setCode(""),
     onSuccess: signedIn,
   });
   const withToken = useMutation({
@@ -52,7 +56,7 @@ export function SignInPage() {
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (second) {
-      withCode.mutate();
+      withCode.mutate(code);
     } else if (way === "password") {
       withPassword.mutate();
     } else {
@@ -68,15 +72,18 @@ export function SignInPage() {
         className="aperture:flex aperture:w-full aperture:max-w-sm aperture:flex-col aperture:gap-3"
       >
         <h1 className="aperture:text-lg aperture:font-semibold">Aperture</h1>
-        {second ? (
+        {way === "code" ? (
+          <CodeInput
+            value={code}
+            onChange={setCode}
+            onComplete={(given) => (withCode.isPending ? undefined : withCode.mutate(given))}
+          />
+        ) : way === "backup-code" ? (
           <label className="aperture:flex aperture:flex-col aperture:gap-1.5 aperture:text-sm">
-            {way === "code" ? "Code from your authenticator" : "Backup code"}
+            Backup code
             <Input
-              // Another field for the other kind of code, so that nothing typed for one is left.
-              key={way}
               name="code"
-              autoComplete="one-time-code"
-              inputMode={way === "code" ? "numeric" : "text"}
+              autoComplete="off"
               autoFocus
               value={code}
               onChange={(event) => setCode(event.target.value)}

@@ -20,7 +20,9 @@
     };
 
   testScript = ''
-    machine.wait_for_unit("aperture-control.service")
+    machine.wait_for_unit("aperture-keys.service")
+    print(machine.succeed("ls -la /var/lib/aperture-keys"))
+    machine.wait_for_unit("aperture-control.service", timeout=180)
     machine.wait_for_unit("aperture-node.service")
     machine.wait_for_unit("aperture-proxy.service")
     machine.wait_for_open_port(7800)

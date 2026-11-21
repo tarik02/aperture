@@ -342,8 +342,8 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       expect(uri).toMatch(/^otpauth:\/\/totp\/Aperture:/u);
       yield* shot(page, fs, "console-second-factor");
       yield* page.click(`${dialog("confirm")} input`);
+      // The whole code gives itself: nothing is left to press.
       yield* page.type(yield* totp(uri));
-      yield* page.key("Enter", "Enter", ENTER);
       yield* page.until(`!!document.querySelector('${dialog("backup-codes")}')`);
       expect(yield* page.text("[data-console-backup-codes] code")).toMatch(/\w{5}-\w{5}/u);
 
@@ -353,8 +353,8 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.until(`!!document.querySelector('[data-console-sign-in="code"] input')`);
       yield* shot(page, fs, "console-sign-in-code");
       yield* page.click("[data-console-sign-in] input");
+      // The whole code gives itself: nothing is left to press.
       yield* page.type(yield* totp(uri));
-      yield* page.key("Enter", "Enter", ENTER);
       yield* page.until(`!!document.querySelector("[data-console-security]")`);
       expect(page.errors()).toEqual([]);
     }),
