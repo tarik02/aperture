@@ -11,6 +11,7 @@
   "devDependencies": {
     "@aperture-browser/executor-client": "workspace:*",
     "@aperture-browser/session-client": "workspace:*",
+    "@aperture-browser/shared": "workspace:*",
     "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",

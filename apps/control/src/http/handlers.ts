@@ -2,11 +2,11 @@ import * as Effect from "effect/Effect";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import { Accounts } from "../accounts.ts";
+import { Accounts } from "../accounts/service.ts";
 import { Api, CurrentCaller } from "../api.ts";
 import { Forbidden } from "../errors.ts";
-import { Nodes } from "../nodes.ts";
-import { Sessions } from "../sessions.ts";
+import { Nodes } from "../nodes/service.ts";
+import { Sessions } from "../sessions/service.ts";
 
 /** Goes on for an admin, and for nobody else. */
 const admin = Effect.gen(function* () {
@@ -33,7 +33,7 @@ const accounts = HttpApiBuilder.group(
           });
         }),
       )
-      .handle("list", () => Effect.andThen(admin, accounts.list))
+      .handle("list", () => Effect.andThen(admin, accounts.list()))
       .handle("create", ({ payload }) =>
         Effect.andThen(
           admin,
@@ -61,7 +61,7 @@ const nodes = HttpApiBuilder.group(
         "list",
         Effect.fn(function* () {
           yield* admin;
-          const all = yield* nodes.list;
+          const all = yield* nodes.list();
           return all.map(({ node, alive }) => ({
             id: node.id,
             name: node.name,
@@ -75,7 +75,7 @@ const nodes = HttpApiBuilder.group(
           }));
         }),
       )
-      .handle("registrationTokens", () => Effect.andThen(admin, nodes.registrationTokens))
+      .handle("registrationTokens", () => Effect.andThen(admin, nodes.registrationTokens()))
       .handle(
         "createRegistrationToken",
         Effect.fn(function* ({ payload }) {

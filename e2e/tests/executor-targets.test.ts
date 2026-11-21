@@ -1,3 +1,4 @@
+import * as UrlPath from "@aperture-browser/shared/url-path";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { Executor } from "../src/executor.ts";
@@ -43,14 +44,14 @@ suite(node)("the targets of a session on a node", (it) => {
   const screenshot = (target: string) =>
     Effect.gen(function* () {
       const executor = yield* Executor;
-      return yield* Node.bytes(executor, session, `/targets/${target}/screenshot.png`);
+      return yield* Node.bytes(executor, session, UrlPath.make`/targets/${target}/screenshot.png`);
     });
 
   /** Asks for a viewport and waits until the opened target has `becomes`. */
   const resize = (asked: Viewport, becomes: Viewport = asked) =>
     Effect.gen(function* () {
       const executor = yield* Executor;
-      yield* executor.session(session, "PUT", `/targets/${opened.id}/viewport`, asked);
+      yield* executor.session(session, "PUT", UrlPath.make`/targets/${opened.id}/viewport`, asked);
       return yield* Node.targetsOnce(
         executor,
         session,

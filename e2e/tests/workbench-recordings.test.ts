@@ -1,3 +1,4 @@
+import * as UrlPath from "@aperture-browser/shared/url-path";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -185,7 +186,7 @@ suite(session)("the workbench's recordings and what it keeps", (it) => {
       yield* Effect.sleep("4 seconds");
       yield* mcp.call("click", { tab: form, selector: "#send" });
       yield* Effect.sleep("1 second");
-      yield* runner.request("POST", `/recordings/${withAutomation}/stop`);
+      yield* runner.request("POST", UrlPath.make`/recordings/${withAutomation}/stop`);
 
       yield* openRecordingMenu(page);
       const kept = `[data-kept-id="${withAutomation}"]`;

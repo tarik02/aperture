@@ -1,0 +1,50 @@
+import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
+import * as Layer from "effect/Layer";
+import type { Account, ApiToken } from "../accounts/schemas.ts";
+import type { Node, RegistrationToken } from "../nodes/schemas.ts";
+import type { Session } from "../sessions/schemas.ts";
+
+/**
+ * What the stores keep when there is no database: for checks of what is above the stores.
+ * One for all of them, as a database is, since some answer from what another wrote.
+ */
+export interface MemoryShape {
+  readonly accounts: Map<string, Account>;
+  /** By the token's digest. */
+  readonly apiTokens: Map<string, ApiToken>;
+  /** By the token's digest. */
+  readonly registrationTokens: Map<string, RegistrationToken>;
+  readonly nodes: Map<string, Node>;
+  readonly sessions: Map<string, Session>;
+}
+
+export class Memory extends Context.Service<Memory, MemoryShape>()(
+  "@aperture-browser/control/Memory",
+) {}
+
+export const layer = Layer.sync(Memory, () =>
+  Memory.of({
+    accounts: new Map(),
+    apiTokens: new Map(),
+    registrationTokens: new Map(),
+    nodes: new Map(),
+    sessions: new Map(),
+  }),
+);
+
+/** Rows in the order the database gives them: the oldest first, and by id among equals. */
+export const ordered = <A extends { readonly id: string }>(
+  rows: Iterable<A>,
+  at: (row: A) => DateTime.Utc,
+): ReadonlyArray<A> =>
+  [...rows].toSorted(
+    (one, other) =>
+      DateTime.toEpochMillis(at(one)) - DateTime.toEpochMillis(at(other)) ||
+      one.id.localeCompare(other.id),
+  );
+
+export const moment = (date: Date): DateTime.Utc => DateTime.fromDateUnsafe(date);
+
+export const isAfter = (moment: DateTime.Utc, since: Date) =>
+  DateTime.toEpochMillis(moment) > since.getTime();

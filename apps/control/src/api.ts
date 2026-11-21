@@ -7,7 +7,7 @@ import * as HttpApiSchema from "effect/http-api/HttpApiSchema";
 import * as HttpApiSecurity from "effect/http-api/HttpApiSecurity";
 import * as OpenApi from "effect/http-api/OpenApi";
 import * as Schema from "effect/Schema";
-import type { Caller } from "./accounts.ts";
+import type { Caller } from "./accounts/schemas.ts";
 import {
   AccountNotFound,
   Forbidden,
@@ -18,9 +18,9 @@ import {
   SessionNotFound,
   Unauthorized,
 } from "./errors.ts";
-import { Offers } from "./store/nodes.ts";
-import { DesiredState, ObservedState } from "./store/sessions.ts";
-import { Access } from "./tickets.ts";
+import { Offers } from "./nodes/schemas.ts";
+import { DesiredState, ObservedState } from "./sessions/schemas.ts";
+import { Access } from "./tickets/schemas.ts";
 
 /** Where the control plane's API is, apart from the routes of sessions and of nodes. */
 export const PREFIX = "/api/control";

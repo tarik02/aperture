@@ -16,7 +16,7 @@ import type * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Schema from "effect/Schema";
 import { NodeService } from "../gen/aperture/control/v1/nodes_pb.ts";
-import { Nodes } from "../nodes.ts";
+import { Nodes } from "../nodes/service.ts";
 
 const STATUS = {
   invalid_argument: 400,

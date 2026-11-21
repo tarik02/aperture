@@ -4,7 +4,7 @@ import * as Layer from "effect/Layer";
 import * as Migrator from "effect/sql/Migrator";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Str from "effect/String";
-import { Settings } from "./settings.ts";
+import { Settings } from "./settings/service.ts";
 
 const statements = (all: ReadonlyArray<string>) =>
   Effect.gen(function* () {

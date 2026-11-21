@@ -1,3 +1,4 @@
+import * as UrlPath from "@aperture-browser/shared/url-path";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -37,7 +38,10 @@ suite(node)("automation of a session of a node, over MCP", (it) => {
       watcher = yield* Node.watch(viewer, executor, session);
       yield* happens(snapshot(watcher, `s.selected === ${opened.tab}`));
 
-      agent = yield* Mcp.connect(`${executor.url}/sessions/${session}`, executor.token);
+      agent = yield* Mcp.connect(
+        UrlPath.make`${UrlPath.raw(executor.url)}/sessions/${session}`,
+        executor.token,
+      );
       const tools = yield* agent.tools;
       expect(tools).toEqual(
         expect.arrayContaining(["navigate", "click", "tabs", "execute", "recording"]),

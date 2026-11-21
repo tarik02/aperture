@@ -1,3 +1,4 @@
+import * as UrlPath from "@aperture-browser/shared/url-path";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
@@ -788,8 +789,7 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
       files.map((file) => Effect.runPromise(Http.upload(address, file))),
     );
     const uris = put.map((file) => {
-      const path = file.path.split("/").map(encodeURIComponent).join("/");
-      return `file://${path}\r\n`;
+      return `${UrlPath.make`file://${UrlPath.segments(file.path)}`}\r\n`;
     });
     return Clipboard.textForm("text/uri-list", uris.join(""));
   };

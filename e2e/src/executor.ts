@@ -1,3 +1,4 @@
+import * as UrlPath from "@aperture-browser/shared/url-path";
 import { type ExecutorClient, make } from "@aperture-browser/executor-client";
 import type * as Config from "effect/Config";
 import * as Context from "effect/Context";
@@ -123,7 +124,7 @@ export const start = Effect.fn("Executor.start")(function* (options: ExecutorOpt
   const ask = (method: HttpMethod.HttpMethod, path: string, body?: unknown) =>
     Effect.suspend(() => request(url, token, method, path, body)).pipe(Effect.provide(platform));
   const rpc: ExecutorService["rpc"] = (method, body = {}) =>
-    ask("POST", `/aperture.executor.v1.ExecutorService/${method}`, body);
+    ask("POST", UrlPath.make`/aperture.executor.v1.ExecutorService/${method}`, body);
 
   const begin = Effect.fn(function* (as: Omit<ExecutorOptions, "dir">) {
     const executor = yield* run(
@@ -197,9 +198,10 @@ export const start = Effect.fn("Executor.start")(function* (options: ExecutorOpt
     runtime,
     client,
     rpc,
-    session: (id, method, path, body) => ask(method, `/sessions/${id}${path}`, body),
+    session: (id, method, path, body) =>
+      ask(method, UrlPath.make`/sessions/${id}${UrlPath.raw(path)}`, body),
     cdp: (id) =>
-      Cdp.connect(`ws://127.0.0.1:${port}/sessions/${id}/cdp?token=${token}`).pipe(
+      Cdp.connect(UrlPath.make`ws://127.0.0.1:${port}/sessions/${id}/cdp?token=${token}`).pipe(
         Effect.provide(platform),
       ),
     restart: (as = options) =>

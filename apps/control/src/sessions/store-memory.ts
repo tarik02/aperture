@@ -1,0 +1,134 @@
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import { Memory, moment, ordered } from "../store/memory.ts";
+import type { DesiredState, Observation, Session } from "./schemas.ts";
+import { type NewSession, SessionsStore } from "./store.ts";
+
+/** The records of sessions kept in memory. */
+export const makeSessionsStoreMemory = Effect.fn("SessionsStore.makeMemory")(function* () {
+  const memory = yield* Memory;
+
+  const created = () => ordered(memory.sessions.values(), (session) => session.createdAt);
+
+  /** Writes the sessions that are chosen anew, each as it is changed. */
+  const change = (chosen: (session: Session) => boolean, changed: (session: Session) => Session) =>
+    Effect.sync(() => {
+      for (const session of memory.sessions.values()) {
+        if (chosen(session)) {
+          memory.sessions.set(session.id, changed(session));
+        }
+      }
+    });
+
+  const insert = Effect.fn("SessionsStore.insert")((session: NewSession) =>
+    Effect.sync(() => {
+      const kept: Session = {
+        id: session.id,
+        accountId: session.accountId,
+        nodeId: session.nodeId,
+        desiredState: session.desiredState,
+        observedState: session.observedState,
+        failure: session.failure,
+        unreachableSince: null,
+        snapshotId: session.snapshotId,
+        createdAt: moment(session.createdAt),
+        observedAt: moment(session.now),
+      };
+      memory.sessions.set(kept.id, kept);
+      return kept;
+    }),
+  );
+
+  const find = Effect.fn("SessionsStore.find")((id: string) =>
+    Effect.sync(() => Option.fromUndefinedOr(memory.sessions.get(id))),
+  );
+
+  const list = Effect.fn("SessionsStore.list")(() => Effect.sync(created));
+
+  const listOf = Effect.fn("SessionsStore.listOf")((accountId: string) =>
+    Effect.sync(() => created().filter((session) => session.accountId === accountId)),
+  );
+
+  const on = Effect.fn("SessionsStore.on")((nodeId: string) =>
+    Effect.sync(() =>
+      [...memory.sessions.values()]
+        .filter((session) => session.nodeId === nodeId)
+        .map((session) => session.id),
+    ),
+  );
+
+  const desire = Effect.fn("SessionsStore.desire")((id: string, state: DesiredState) =>
+    change(
+      (session) => session.id === id,
+      (session) => ({ ...session, desiredState: state }),
+    ),
+  );
+
+  const delete_ = Effect.fn("SessionsStore.delete")((id: string) =>
+    Effect.sync(() => {
+      memory.sessions.delete(id);
+    }),
+  );
+
+  const observe = Effect.fn("SessionsStore.observe")(
+    (nodeId: string, seen: Observation, now: Date) =>
+      change(
+        (session) => session.id === seen.id && session.nodeId === nodeId,
+        (session) => ({
+          ...session,
+          observedState: seen.state,
+          failure: seen.failure,
+          unreachableSince: null,
+          observedAt: moment(now),
+        }),
+      ),
+  );
+
+  const gone = Effect.fn("SessionsStore.gone")((nodeId: string, id: string, now: Date) =>
+    change(
+      (session) => session.id === id && session.nodeId === nodeId,
+      (session) => ({
+        ...session,
+        nodeId: null,
+        observedState: "gone",
+        unreachableSince: null,
+        observedAt: moment(now),
+      }),
+    ),
+  );
+
+  const unreachable = Effect.fn("SessionsStore.unreachable")((nodeId: string, now: Date) =>
+    change(
+      (session) => session.nodeId === nodeId && session.unreachableSince === null,
+      (session) => ({ ...session, unreachableSince: moment(now) }),
+    ),
+  );
+
+  const unreachableExceptOn = Effect.fn("SessionsStore.unreachableExceptOn")(
+    (nodeIds: ReadonlyArray<string>, now: Date) =>
+      change(
+        (session) =>
+          session.nodeId !== null &&
+          session.unreachableSince === null &&
+          !nodeIds.includes(session.nodeId),
+        (session) => ({ ...session, unreachableSince: moment(now) }),
+      ),
+  );
+
+  return SessionsStore.of({
+    insert,
+    find,
+    list,
+    listOf,
+    on,
+    desire,
+    delete: delete_,
+    observe,
+    gone,
+    unreachable,
+    unreachableExceptOn,
+  });
+});
+
+export const layerTest = Layer.effect(SessionsStore, makeSessionsStoreMemory());

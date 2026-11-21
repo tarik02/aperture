@@ -1,3 +1,4 @@
+import * as UrlPath from "@aperture-browser/shared/url-path";
 import * as Effect from "effect/Effect";
 import { type Address, headers, route } from "./address.ts";
 import { SessionError } from "./errors.ts";
@@ -160,7 +161,7 @@ const json = <A>(address: Address, path: string, asked?: Request) =>
     ),
   );
 
-const named = (name: string) => `/uploads/${encodeURIComponent(name)}`;
+const named = (name: string) => UrlPath.make`/uploads/${name}`;
 
 // `fetch` does not tell how much of a body it has sent.
 const uploadTold = (address: Address, file: File, onProgress: (progress: UploadProgress) => void) =>
@@ -197,7 +198,7 @@ export const targets = Effect.fn("SessionHttp.targets")((address: Address) =>
 /** Gives a target its own viewport, as near to the one asked for as it can be given. */
 export const setViewport = Effect.fn("SessionHttp.setViewport")(
   (address: Address, tab: number, viewport: ViewportSize) =>
-    request(address, `/targets/${tab}/viewport`, {
+    request(address, UrlPath.make`/targets/${tab}/viewport`, {
       method: "PUT",
       json: viewport,
     }).pipe(Effect.asVoid),
@@ -253,7 +254,7 @@ export const listRecordings = Effect.fn("SessionHttp.listRecordings")((address: 
 );
 
 export const getRecording = Effect.fn("SessionHttp.getRecording")((address: Address, id: string) =>
-  json<Recording>(address, `/recordings/${encodeURIComponent(id)}`),
+  json<Recording>(address, UrlPath.make`/recordings/${id}`),
 );
 
 export const startRecording = Effect.fn("SessionHttp.startRecording")(
@@ -263,13 +264,13 @@ export const startRecording = Effect.fn("SessionHttp.startRecording")(
 
 export const stopRecording = Effect.fn("SessionHttp.stopRecording")(
   (address: Address, id: string) =>
-    json<Recording>(address, `/recordings/${encodeURIComponent(id)}/stop`, { method: "POST" }),
+    json<Recording>(address, UrlPath.make`/recordings/${id}/stop`, { method: "POST" }),
 );
 
 /** Has a running recording go on with another tab, in the same video. */
 export const retargetRecording = Effect.fn("SessionHttp.retargetRecording")(
   (address: Address, id: string, tab: number) =>
-    json<Recording>(address, `/recordings/${encodeURIComponent(id)}/retarget`, {
+    json<Recording>(address, UrlPath.make`/recordings/${id}/retarget`, {
       method: "POST",
       json: { tab },
     }),
@@ -310,7 +311,7 @@ export const annotateRecording = Effect.fn("SessionHttp.annotateRecording")((
   id?: string,
 ) => {
   const { kind, ...given } = annotation;
-  return request(address, `/recordings/annotations/${kind}`, {
+  return request(address, UrlPath.make`/recordings/annotations/${kind}`, {
     method: "POST",
     json: id === undefined ? given : { ...given, id },
   }).pipe(Effect.asVoid);

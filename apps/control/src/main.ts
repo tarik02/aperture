@@ -3,7 +3,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as App from "./app.ts";
 import * as Server from "./server.ts";
-import { Settings } from "./settings.ts";
+import * as SettingsLayer from "./settings/layer.ts";
+import { Settings } from "./settings/service.ts";
 
 const server = Layer.unwrap(
   Effect.gen(function* () {
@@ -14,7 +15,7 @@ const server = Layer.unwrap(
 
 App.layer.pipe(
   Layer.provide(server),
-  Layer.provide(Settings.layer),
+  Layer.provide(SettingsLayer.layer),
   Layer.launch,
   NodeRuntime.runMain,
 );

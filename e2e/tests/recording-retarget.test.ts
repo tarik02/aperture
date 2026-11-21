@@ -1,3 +1,4 @@
+import * as UrlPath from "@aperture-browser/shared/url-path";
 import { type Address, SessionHttp } from "@aperture-browser/session-client/effect";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -81,9 +82,13 @@ suite(session)("a recording that goes on with another tab", (it) => {
   it.effect("a tab that is none is refused", () =>
     Effect.gen(function* () {
       const runner = yield* Runner.Runner;
-      const refused = yield* runner.request("POST", `/recordings/${recording.id}/retarget`, {
-        tab: 99,
-      });
+      const refused = yield* runner.request(
+        "POST",
+        UrlPath.make`/recordings/${recording.id}/retarget`,
+        {
+          tab: 99,
+        },
+      );
       expect(refused.status).toBe(404);
     }),
   );
@@ -103,9 +108,13 @@ suite(session)("a recording that goes on with another tab", (it) => {
   it.effect("retargeting to the tab it is on does nothing", () =>
     Effect.gen(function* () {
       const runner = yield* Runner.Runner;
-      const again = yield* runner.request("POST", `/recordings/${recording.id}/retarget`, {
-        tab: second.tab,
-      });
+      const again = yield* runner.request(
+        "POST",
+        UrlPath.make`/recordings/${recording.id}/retarget`,
+        {
+          tab: second.tab,
+        },
+      );
       expect(again.status).toBe(200);
       const told = yield* read(again, Schema.Struct({ tab: Schema.Number }));
       expect(told.tab).toBe(second.tab);
@@ -121,9 +130,13 @@ suite(session)("a recording that goes on with another tab", (it) => {
       expect(stopped.failure).toBeNull();
       expect(stopped.state).toBe("finished");
 
-      const late = yield* runner.request("POST", `/recordings/${recording.id}/retarget`, {
-        tab: first.tab,
-      });
+      const late = yield* runner.request(
+        "POST",
+        UrlPath.make`/recordings/${recording.id}/retarget`,
+        {
+          tab: first.tab,
+        },
+      );
       expect(late.status).toBe(409);
     }),
   );

@@ -1,3 +1,4 @@
+import * as UrlPath from "@aperture-browser/shared/url-path";
 import { proto } from "@aperture-browser/executor-client";
 import * as Context from "effect/Context";
 import type * as Duration from "effect/Duration";
@@ -131,7 +132,10 @@ export const targetsOnce = (
 
 /** What a session route answers with as bytes: a picture, a recording. */
 export const bytes = (executor: Executor.ExecutorService, sessionId: string, path: string) =>
-  Http.bytes(`${executor.url}/sessions/${sessionId}${path}`, executor.token);
+  Http.bytes(
+    UrlPath.make`${UrlPath.raw(executor.url)}/sessions/${sessionId}${UrlPath.raw(path)}`,
+    executor.token,
+  );
 
 /**
  * A page to do things to: a heading, a button at (100, 300) and a field at (100, 450), on
@@ -179,7 +183,7 @@ export const workbench = (
   sessionId: string,
   query: Record<string, string> = {},
 ) =>
-  `${executor.url}/sessions/${sessionId}?${new URLSearchParams({
+  `${UrlPath.make`${UrlPath.raw(executor.url)}/sessions/${sessionId}`}?${new URLSearchParams({
     token: executor.token,
     // Whoever watches here leaves the targets the size they have.
     fit: "0",

@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
-import { Accounts } from "../accounts.ts";
+import { Accounts } from "../accounts/service.ts";
 import { Authorization, CurrentCaller } from "../api.ts";
 
 export const layer = Layer.effect(

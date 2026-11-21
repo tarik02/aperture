@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@aperture-browser/executor-client": "workspace:*",
+    "@aperture-browser/shared": "workspace:*",
     "@bufbuild/protobuf": "catalog:",
     "@effect/platform-node": "catalog:",
     "@effect/sql-pg": "catalog:",

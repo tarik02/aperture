@@ -1,3 +1,4 @@
+import * as UrlPath from "@aperture-browser/shared/url-path";
 import { expect } from "@effect/vitest";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -119,7 +120,11 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
   const timelineOf = (made: Edit) =>
     Effect.gen(function* () {
       const executor = yield* Executor;
-      const answer = yield* executor.session(session, "GET", `/files/${made.timeline}`);
+      const answer = yield* executor.session(
+        session,
+        "GET",
+        UrlPath.make`/files/${UrlPath.segments(made.timeline ?? "")}`,
+      );
       return yield* read(answer, Timeline);
     });
 
@@ -132,7 +137,10 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
       opened = yield* Node.open(executor, session, Node.TRIAL_PAGE);
       watcher = yield* Node.watch(viewer, executor, session);
       yield* happens(snapshot(watcher, `s.selected === ${opened.tab}`));
-      agent = yield* Mcp.connect(`${executor.url}/sessions/${session}`, executor.token);
+      agent = yield* Mcp.connect(
+        UrlPath.make`${UrlPath.raw(executor.url)}/sessions/${session}`,
+        executor.token,
+      );
 
       started = yield* recording({
         action: "start",
@@ -214,7 +222,11 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
   it.effect("the recording is served as a Matroska file", () =>
     Effect.gen(function* () {
       const executor = yield* Executor;
-      const file = yield* Node.bytes(executor, session, `/files/${stopped.file}`);
+      const file = yield* Node.bytes(
+        executor,
+        session,
+        UrlPath.make`/files/${UrlPath.segments(stopped.file)}`,
+      );
       expect(file).toHaveLength(stopped.bytes);
       expect(Hex.encode(file.subarray(0, 4))).toBe(MATROSKA_SIGNATURE);
     }),
@@ -223,7 +235,11 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
   it.effect("the journal has what the automation did", () =>
     Effect.gen(function* () {
       const executor = yield* Executor;
-      const served = yield* Node.bytes(executor, session, `/files/${stopped.journal}`);
+      const served = yield* Node.bytes(
+        executor,
+        session,
+        UrlPath.make`/files/${UrlPath.segments(stopped.journal)}`,
+      );
       journal = yield* Files.entries(new TextDecoder().decode(served), JournalEntry);
 
       const kinds = new Set(journal.map((entry) => entry.kind));
@@ -254,7 +270,11 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
   it.effect("the edited video is an MP4", () =>
     Effect.gen(function* () {
       const executor = yield* Executor;
-      const file = yield* Node.bytes(executor, session, `/files/${edit.file}`);
+      const file = yield* Node.bytes(
+        executor,
+        session,
+        UrlPath.make`/files/${UrlPath.segments(edit.file ?? "")}`,
+      );
       expect(new TextDecoder().decode(file.subarray(4, 8))).toBe("ftyp");
       expect(file.length).toBeGreaterThan(1000);
     }),

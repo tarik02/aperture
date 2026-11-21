@@ -1,3 +1,4 @@
+import * as UrlPath from "@aperture-browser/shared/url-path";
 import { expect } from "@effect/vitest";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -65,7 +66,7 @@ const frameClient = Effect.fn("frameClient")(function* (
 ) {
   const base = executor.url.replace(/^http/u, "ws");
   const socket = yield* Socket.makeWebSocket(
-    `${base}/sessions/${session}/ws?token=${executor.token}`,
+    UrlPath.make`${UrlPath.raw(base)}/sessions/${session}/ws?token=${executor.token}`,
   );
   const reader = yield* socket.reader;
   const writer = yield* socket.writer;

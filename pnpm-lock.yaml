@@ -137,6 +137,9 @@ importers:
       '@aperture-browser/executor-client':
         specifier: workspace:*
         version: link:../../packages/executor-client
+      '@aperture-browser/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@bufbuild/protobuf':
         specifier: 'catalog:'
         version: 2.17.0
@@ -223,6 +226,9 @@ importers:
       '@aperture-browser/session-client':
         specifier: workspace:*
         version: link:../packages/session-client
+      '@aperture-browser/shared':
+        specifier: workspace:*
+        version: link:../packages/shared
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.0.0(effect@4.0.0)
@@ -273,6 +279,9 @@ importers:
         specifier: 'catalog:'
         version: 2.17.0
     devDependencies:
+      '@aperture-browser/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@bufbuild/protoc-gen-es':
         specifier: 'catalog:'
         version: 2.17.0(@bufbuild/protobuf@2.17.0)
@@ -391,6 +400,8 @@ importers:
       vite-plus:
         specifier: 'catalog:'
         version: 0.2.4(@types/node@26.6.6)(@voidzero-dev/vite-plus-core@0.2.4(@types/node@26.6.6)(jiti@2.7.0)(publint@0.3.24)(typescript@6.0.3))(jiti@2.7.0)(publint@0.3.24)(typescript@6.0.3)
+
+  packages/shared: {}
 
   packages/ui:
     dependencies:

@@ -41,6 +41,7 @@
     "@bufbuild/protobuf": "catalog:"
   },
   "devDependencies": {
+    "@aperture-browser/shared": "workspace:*",
     "@bufbuild/protoc-gen-es": "catalog:",
     "effect": "catalog:",
     "publint": "catalog:",

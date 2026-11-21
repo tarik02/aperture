@@ -1,3 +1,4 @@
+import * as UrlPath from "@aperture-browser/shared/url-path";
 export interface Address {
   /** The session's base, e.g. `http://host:7900/` or `http://host:7900/sessions/<id>`. */
   readonly url: string;
@@ -12,13 +13,6 @@ const based = (address: Address, path: string) => {
   base.pathname = `${base.pathname.replace(/\/+$/u, "")}${path}`;
   return base;
 };
-
-const encoded = (path: string) =>
-  path
-    .split("/")
-    .filter((part) => part !== "")
-    .map(encodeURIComponent)
-    .join("/");
 
 /** A route below the session's base, for a request that carries the token in a header. */
 export const route = (address: Address, path: string) => based(address, path).toString();
@@ -45,10 +39,13 @@ export const socketUrl = (address: Address) => {
 };
 
 export const fileUrl = (address: Address, path: string) =>
-  authenticated(address, `/files/${encoded(path)}`).toString();
+  authenticated(
+    address,
+    UrlPath.make`/files/${UrlPath.segments(path.replace(/^\/+/u, ""))}`,
+  ).toString();
 
 export const screenshotUrl = (address: Address, tab: number, width?: number) => {
-  const url = authenticated(address, `/targets/${tab}/screenshot.png`);
+  const url = authenticated(address, UrlPath.make`/targets/${tab}/screenshot.png`);
   if (width !== undefined) {
     url.searchParams.set("width", String(Math.round(width)));
   }

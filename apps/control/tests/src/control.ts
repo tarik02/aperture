@@ -13,16 +13,22 @@ import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import type * as HttpMethod from "effect/http/HttpMethod";
 import * as HttpServer from "effect/http/HttpServer";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as References from "effect/References";
 import type * as SqlClient from "effect/sql/SqlClient";
 import { Api } from "../../src/api.ts";
 import * as App from "../../src/app.ts";
 import * as Server from "../../src/server.ts";
-import { Settings } from "../../src/settings.ts";
+import * as Settings from "../../src/settings/layer.ts";
 import * as Postgres from "./postgres.ts";
 
+/** Where a control plane keeps what it knows: a database of its own, or nothing but memory. */
+export const STORES = ["postgres", "memory"] as const;
+
 export interface ControlOptions {
+  /** A PostgreSQL database of its own, unless it says memory. */
+  readonly stores?: (typeof STORES)[number];
   /** How long a node may be silent before it is not used; the program's own choice without. */
   readonly nodeSilentAfter?: string;
 }
@@ -60,8 +66,8 @@ export interface ControlService {
   readonly bootstrapToken: string;
   /** The public key its tickets are checked against, as PEM: what an executor is given. */
   readonly ticketKey: string;
-  /** Its database, for what a check looks up there itself. */
-  readonly sql: SqlClient.SqlClient;
+  /** Its database, for what a check looks up there itself; none for one that keeps to memory. */
+  readonly sql: Option.Option<SqlClient.SqlClient>;
   /** Its API for whoever holds the token. */
   readonly as: (token: string) => Effect.Effect<Client>;
   /** A request whose answer is told whatever its status. */
@@ -80,7 +86,7 @@ export const KEEPALIVE = "/aperture.control.v1.NodeService/Keepalive";
 export const start = Effect.fn("Control.start")(function* (options: ControlOptions = {}) {
   const fs = yield* FileSystem.FileSystem;
   const http = yield* Effect.context<HttpClient.HttpClient>();
-  const postgres = yield* Postgres.start;
+  const postgres = options.stores === "memory" ? undefined : yield* Postgres.start;
   const dir = yield* directory;
 
   // Effect signs nothing: the keys are the platform's own, which makes them or throws.
@@ -102,7 +108,7 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
   );
 
   const environment = ConfigProvider.fromEnvRecord({
-    APERTURE_CONTROL_DATABASE_URL: postgres.url,
+    APERTURE_CONTROL_DATABASE_URL: postgres?.url ?? "postgres://nowhere",
     APERTURE_CONTROL_BOOTSTRAP_TOKEN: BOOTSTRAP,
     APERTURE_CONTROL_TICKET_KEY: signingKey,
     ...(options.nodeSilentAfter === undefined
@@ -110,7 +116,7 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
       : { APERTURE_CONTROL_NODE_SILENT_AFTER: options.nodeSilentAfter }),
   });
   const running = yield* Layer.build(
-    App.layer.pipe(
+    (postgres === undefined ? App.layerTest : App.layer).pipe(
       Layer.provideMerge(Server.listen({ host: "127.0.0.1", port: 0 })),
       Layer.provide(Settings.layer),
       Layer.provide(ConfigProvider.layer(environment)),
@@ -121,13 +127,21 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
   const address = Context.get(running, HttpServer.HttpServer).address;
   const url = address._tag === "UnixPathAddress" ? "" : `http://127.0.0.1:${address.port}`;
 
-  const sql = yield* Layer.build(PgClient.layer({ url: Redacted.make(postgres.url) }));
+  const sql =
+    postgres === undefined
+      ? Option.none()
+      : Option.some(
+          Context.get(
+            yield* Layer.build(PgClient.layer({ url: Redacted.make(postgres.url) })),
+            PgClient.PgClient,
+          ),
+        );
 
   return {
     url,
     bootstrapToken: BOOTSTRAP,
     ticketKey,
-    sql: Context.get(sql, PgClient.PgClient),
+    sql,
     as: (token) => client(url, token).pipe(Effect.provide(http)),
     request: (token, method, path, body) =>
       request(url, token, method, path, body).pipe(Effect.provide(http)),
