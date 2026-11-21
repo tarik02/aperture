@@ -3,6 +3,7 @@ import { Input } from "@aperture-browser/ui/components/input";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { callAs, carry, told } from "#/lib/api.ts";
+import { AuthCard } from "#/features/auth/auth-card.tsx";
 import { CodeInput } from "#/components/code-input.tsx";
 import { giveBackupCode, giveCode, signIn } from "#/lib/identity.ts";
 import { queryKeys } from "#/lib/query-keys.ts";
@@ -65,93 +66,94 @@ export function SignInPage() {
   };
 
   return (
-    <main className="aperture:flex aperture:h-full aperture:items-center aperture:justify-center aperture:p-4">
-      <form
-        data-console-sign-in={way}
-        onSubmit={submit}
-        className="aperture:flex aperture:w-full aperture:max-w-sm aperture:flex-col aperture:gap-3"
-      >
-        <h1 className="aperture:text-lg aperture:font-semibold">Aperture</h1>
-        {way === "code" ? (
-          <CodeInput
+    <AuthCard
+      title={second ? "Two-factor sign-in" : "Sign in to Aperture"}
+      data-console-sign-in={way}
+      onSubmit={submit}
+    >
+      {way === "code" ? (
+        <CodeInput
+          value={code}
+          onChange={setCode}
+          onComplete={(given) => (withCode.isPending ? undefined : withCode.mutate(given))}
+        />
+      ) : way === "backup-code" ? (
+        <label className="aperture:flex aperture:flex-col aperture:gap-1.5 aperture:text-sm">
+          Backup code
+          <Input
+            name="code"
+            autoComplete="off"
+            autoFocus
             value={code}
-            onChange={setCode}
-            onComplete={(given) => (withCode.isPending ? undefined : withCode.mutate(given))}
+            onChange={(event) => setCode(event.target.value)}
           />
-        ) : way === "backup-code" ? (
+        </label>
+      ) : way === "password" ? (
+        <>
           <label className="aperture:flex aperture:flex-col aperture:gap-1.5 aperture:text-sm">
-            Backup code
+            Email
             <Input
-              name="code"
-              autoComplete="off"
+              type="email"
+              name="email"
+              autoComplete="username"
               autoFocus
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
             />
           </label>
-        ) : way === "password" ? (
-          <>
-            <label className="aperture:flex aperture:flex-col aperture:gap-1.5 aperture:text-sm">
-              Email
-              <Input
-                type="email"
-                name="email"
-                autoComplete="username"
-                autoFocus
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-              />
-            </label>
-            <label className="aperture:flex aperture:flex-col aperture:gap-1.5 aperture:text-sm">
-              Password
-              <Input
-                type="password"
-                name="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
-            </label>
-          </>
-        ) : (
           <label className="aperture:flex aperture:flex-col aperture:gap-1.5 aperture:text-sm">
-            API token
+            Password
             <Input
               type="password"
-              name="token"
-              autoComplete="off"
-              autoFocus
-              placeholder="apc_…"
-              value={given}
-              onChange={(event) => setGiven(event.target.value)}
+              name="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
             />
           </label>
-        )}
-        {signing.isError ? (
-          <p role="alert" className="aperture:text-sm aperture:text-destructive">
-            {told(signing.error)}
-          </p>
-        ) : null}
-        <Button type="submit" disabled={signing.isPending}>
-          Sign in
-        </Button>
+        </>
+      ) : (
+        <label className="aperture:flex aperture:flex-col aperture:gap-1.5 aperture:text-sm">
+          API token
+          <Input
+            type="password"
+            name="token"
+            autoComplete="off"
+            autoFocus
+            placeholder="apc_…"
+            value={given}
+            onChange={(event) => setGiven(event.target.value)}
+          />
+        </label>
+      )}
+      {signing.isError ? (
+        <p role="alert" className="aperture:text-sm aperture:text-destructive">
+          {told(signing.error)}
+        </p>
+      ) : null}
+      <Button type="submit" disabled={signing.isPending}>
+        Sign in
+      </Button>
+      <div className="aperture:flex aperture:justify-center aperture:gap-4">
         {second ? (
           <>
             <Button
               type="button"
               variant="link"
               data-console-sign-in-way
+              className="aperture:h-auto aperture:p-0"
               onClick={() => {
                 withCode.reset();
                 setCode("");
                 setWay(way === "code" ? "backup-code" : "code");
               }}
             >
-              {way === "code" ? "Use a backup code" : "Use an authenticator's code"}
+              {way === "code" ? "Use a backup code" : "Use the authenticator"}
             </Button>
             <Button
               type="button"
               variant="link"
+              className="aperture:h-auto aperture:p-0"
               onClick={() => {
                 withCode.reset();
                 setPassword("");
@@ -166,12 +168,13 @@ export function SignInPage() {
             type="button"
             variant="link"
             data-console-sign-in-way
+            className="aperture:h-auto aperture:p-0"
             onClick={() => setWay(way === "password" ? "token" : "password")}
           >
             {way === "password" ? "Use an API token" : "Use a password"}
           </Button>
         )}
-      </form>
-    </main>
+      </div>
+    </AuthCard>
   );
 }

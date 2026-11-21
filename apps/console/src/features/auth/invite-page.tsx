@@ -3,6 +3,7 @@ import { Input } from "@aperture-browser/ui/components/input";
 import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
+import { AuthCard } from "#/features/auth/auth-card.tsx";
 import { told } from "#/lib/api.ts";
 import { setPassword } from "#/lib/identity.ts";
 
@@ -25,42 +26,35 @@ export function InvitePage() {
   };
 
   return (
-    <main className="aperture:flex aperture:h-full aperture:items-center aperture:justify-center aperture:p-4">
-      <form
-        data-console-invite
-        onSubmit={submit}
-        className="aperture:flex aperture:w-full aperture:max-w-sm aperture:flex-col aperture:gap-3"
+    <AuthCard title="Set your password" data-console-invite onSubmit={submit}>
+      {token === "" ? (
+        <p role="alert" className="aperture:text-sm aperture:text-destructive">
+          This link has no token in it. Ask for another.
+        </p>
+      ) : null}
+      <label className="aperture:flex aperture:flex-col aperture:gap-1.5 aperture:text-sm">
+        New password
+        <Input
+          type="password"
+          name="password"
+          autoComplete="new-password"
+          autoFocus
+          minLength={MIN_LENGTH}
+          value={password}
+          onChange={(event) => setGiven(event.target.value)}
+        />
+      </label>
+      {set.isError ? (
+        <p role="alert" className="aperture:text-sm aperture:text-destructive">
+          {told(set.error)}
+        </p>
+      ) : null}
+      <Button
+        type="submit"
+        disabled={set.isPending || token === "" || password.length < MIN_LENGTH}
       >
-        <h1 className="aperture:text-lg aperture:font-semibold">Set your password</h1>
-        {token === "" ? (
-          <p role="alert" className="aperture:text-sm aperture:text-destructive">
-            This link has no token in it. Ask for another.
-          </p>
-        ) : null}
-        <label className="aperture:flex aperture:flex-col aperture:gap-1.5 aperture:text-sm">
-          New password
-          <Input
-            type="password"
-            name="password"
-            autoComplete="new-password"
-            autoFocus
-            minLength={MIN_LENGTH}
-            value={password}
-            onChange={(event) => setGiven(event.target.value)}
-          />
-        </label>
-        {set.isError ? (
-          <p role="alert" className="aperture:text-sm aperture:text-destructive">
-            {told(set.error)}
-          </p>
-        ) : null}
-        <Button
-          type="submit"
-          disabled={set.isPending || token === "" || password.length < MIN_LENGTH}
-        >
-          Set password
-        </Button>
-      </form>
-    </main>
+        Set password
+      </Button>
+    </AuthCard>
   );
 }

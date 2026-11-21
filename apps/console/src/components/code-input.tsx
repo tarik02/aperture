@@ -1,12 +1,6 @@
-import {
-  InputOTP,
-  InputOTPGroup,
-  InputOTPSeparator,
-  InputOTPSlot,
-} from "@aperture-browser/ui/components/input-otp";
+import { InputOTP, InputOTPGroup, InputOTPSlot } from "@aperture-browser/ui/components/input-otp";
 
 const DIGITS = 6;
-const HALF = DIGITS / 2;
 const ONLY_DIGITS = "^\\d+$";
 
 type CodeInputProps = {
@@ -33,14 +27,8 @@ export function CodeInput({ value, onChange, onComplete }: CodeInputProps) {
       containerClassName="aperture:w-full"
     >
       <InputOTPGroup className="aperture:flex-1">
-        {Array.from({ length: HALF }, (_, index) => (
+        {Array.from({ length: DIGITS }, (_, index) => (
           <InputOTPSlot key={index} index={index} />
-        ))}
-      </InputOTPGroup>
-      <InputOTPSeparator />
-      <InputOTPGroup className="aperture:flex-1">
-        {Array.from({ length: HALF }, (_, index) => (
-          <InputOTPSlot key={index} index={index + HALF} />
         ))}
       </InputOTPGroup>
     </InputOTP>

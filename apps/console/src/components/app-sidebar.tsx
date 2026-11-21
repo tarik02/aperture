@@ -12,6 +12,7 @@ import {
   SidebarRail,
 } from "@aperture-browser/ui/components/sidebar";
 import { Link, useRouterState } from "@tanstack/react-router";
+import { ApertureMark } from "#/components/aperture-mark.tsx";
 import { AuthMenu } from "#/components/auth-menu.tsx";
 import { ThemeToggle } from "#/components/theme-toggle.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
@@ -99,23 +100,5 @@ function NavGroup({
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>
-  );
-}
-
-/** An aperture: six blades around an opening. */
-function ApertureMark() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className="aperture:size-4.5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      aria-hidden
-    >
-      <circle cx="12" cy="12" r="10" />
-      <path d="m14.31 8 5.74 9.94M9.69 8h11.48M7.38 12l5.74-9.94M9.69 16 3.95 6.06M14.31 16H2.83M16.62 12l-5.74 9.94" />
-    </svg>
   );
 }
