@@ -91,6 +91,7 @@ jobs:
           nix develop --command pnpm install --frozen-lockfile
           nix develop --command pnpm --filter @aperture-browser/session-client generate
           nix develop --command pnpm --filter @aperture-browser/executor-client generate
+          nix develop --command pnpm --filter @aperture-browser/control generate
 
       - name: Verify nothing changed
         run: git diff --exit-code

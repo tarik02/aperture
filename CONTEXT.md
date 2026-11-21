@@ -44,6 +44,20 @@ Who is connected to a session, which tab each watches, and who holds which lease
 **Operator token**:
 The secret of whoever serves the sessions. Its holder may do anything there.
 
+**Control plane**:
+What stands above the executors of many nodes: it has the accounts, knows the nodes that are alive, decides which node a session runs on, keeps a record of every session and where it is, and signs tickets. Executors need none; it needs them.
+_Avoid_: Server, manager, orchestrator
+
+**Node**:
+A machine with an executor on it, as the control plane knows it: its name, where it is reached, what its sessions may have, and when it was last heard from. A node tells of itself with a keepalive, and one that falls silent gets no new sessions.
+
+**Registration token**:
+What lets an executor tell a control plane it is a node of it. An admin makes it; several can be good at once.
+
+**Account**:
+Whose sessions, snapshots and API tokens are, in the control plane. An admin account also makes accounts and registration tokens.
+_Avoid_: Tenant, user
+
 **Ticket**:
 A signed, expiring pass for one person into one session. It lets its holder watch, and says what else they may do as access. Whoever stands above the executor signs it; the gateway only checks it.
 _Avoid_: Session token, share link

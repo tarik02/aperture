@@ -1,0 +1,28 @@
+{
+  "name": "@aperture-browser/control",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The control plane: accounts, the nodes that register with it, where sessions run, and the tickets into them.",
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.ts",
+    "generate": "buf generate ../.. --template buf.gen.yaml --path ../../proto/aperture/control/v1/nodes.proto",
+    "test": "vp test run",
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@aperture-browser/executor-client": "workspace:*",
+    "@bufbuild/protobuf": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "@effect/sql-pg": "catalog:",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@aperture-browser/e2e": "workspace:*",
+    "@bufbuild/protoc-gen-es": "catalog:",
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  }
+}

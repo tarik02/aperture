@@ -1,0 +1,155 @@
+import { type Answer, request } from "@aperture-browser/e2e/src/http.ts";
+import { directory } from "@aperture-browser/e2e/src/process.ts";
+import * as PgClient from "@effect/sql-pg/PgClient";
+import * as ConfigProvider from "effect/ConfigProvider";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Base64 from "effect/encoding/Base64";
+import * as FileSystem from "effect/FileSystem";
+import * as HttpApiClient from "effect/http-api/HttpApiClient";
+import * as HttpClient from "effect/http/HttpClient";
+import type * as HttpClientError from "effect/http/HttpClientError";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import type * as HttpMethod from "effect/http/HttpMethod";
+import * as HttpServer from "effect/http/HttpServer";
+import * as Layer from "effect/Layer";
+import * as Redacted from "effect/Redacted";
+import * as References from "effect/References";
+import type * as SqlClient from "effect/sql/SqlClient";
+import { Api } from "../../src/api.ts";
+import * as App from "../../src/app.ts";
+import * as Server from "../../src/server.ts";
+import { Settings } from "../../src/settings.ts";
+import * as Postgres from "./postgres.ts";
+
+export interface ControlOptions {
+  /** How long a node may be silent before it is not used; the program's own choice without. */
+  readonly nodeSilentAfter?: string;
+}
+
+/** What a node says of itself in a keepalive, as JSON has it. */
+export interface Keepalive {
+  readonly registrationToken: string;
+  readonly name: string;
+  readonly internalUrl: string;
+  readonly balancerUrl?: string;
+  readonly publicUrl?: string;
+  readonly operatorToken: string;
+}
+
+const BOOTSTRAP = "bootstrap-token-of-the-checks";
+const PEM_LINE = 64;
+
+const pem = (what: string, key: ArrayBuffer) => {
+  const lines = Base64.encode(new Uint8Array(key)).match(new RegExp(`.{1,${PEM_LINE}}`, "gu"));
+  return `-----BEGIN ${what}-----\n${(lines ?? []).join("\n")}\n-----END ${what}-----\n`;
+};
+
+const client = (url: string, token: string) =>
+  HttpApiClient.make(Api, {
+    baseUrl: url,
+    transformClient: HttpClient.mapRequest(HttpClientRequest.bearerToken(token)),
+  });
+
+/** The control plane's API as a caller with one token has it. */
+export type Client = Effect.Success<ReturnType<typeof client>>;
+
+/** A control plane on a database of its own, as `main.ts` runs it. */
+export interface ControlService {
+  readonly url: string;
+  readonly bootstrapToken: string;
+  /** The public key its tickets are checked against, as PEM: what an executor is given. */
+  readonly ticketKey: string;
+  /** Its database, for what a check looks up there itself. */
+  readonly sql: SqlClient.SqlClient;
+  /** Its API for whoever holds the token. */
+  readonly as: (token: string) => Effect.Effect<Client>;
+  /** A request whose answer is told whatever its status. */
+  readonly request: (
+    token: string,
+    method: HttpMethod.HttpMethod,
+    path: string,
+    body?: unknown,
+  ) => Effect.Effect<Answer, HttpClientError.HttpClientError>;
+  /** A node's keepalive, as JSON. */
+  readonly keepalive: (said: Keepalive) => Effect.Effect<Answer, HttpClientError.HttpClientError>;
+}
+
+export const KEEPALIVE = "/aperture.control.v1.NodeService/Keepalive";
+
+export const start = Effect.fn("Control.start")(function* (options: ControlOptions = {}) {
+  const fs = yield* FileSystem.FileSystem;
+  const http = yield* Effect.context<HttpClient.HttpClient>();
+  const postgres = yield* Postgres.start;
+  const dir = yield* directory;
+
+  // Effect signs nothing: the keys are the platform's own, which makes them or throws.
+  const keys = yield* Effect.promise(() =>
+    crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]),
+  );
+  const ticketKey = `${dir}/ticket.pub.pem`;
+  const signingKey = `${dir}/ticket.pem`;
+  yield* fs.writeFileString(
+    ticketKey,
+    pem("PUBLIC KEY", yield* Effect.promise(() => crypto.subtle.exportKey("spki", keys.publicKey))),
+  );
+  yield* fs.writeFileString(
+    signingKey,
+    pem(
+      "PRIVATE KEY",
+      yield* Effect.promise(() => crypto.subtle.exportKey("pkcs8", keys.privateKey)),
+    ),
+  );
+
+  const environment = ConfigProvider.fromEnvRecord({
+    APERTURE_CONTROL_DATABASE_URL: postgres.url,
+    APERTURE_CONTROL_BOOTSTRAP_TOKEN: BOOTSTRAP,
+    APERTURE_CONTROL_TICKET_KEY: signingKey,
+    ...(options.nodeSilentAfter === undefined
+      ? {}
+      : { APERTURE_CONTROL_NODE_SILENT_AFTER: options.nodeSilentAfter }),
+  });
+  const running = yield* Layer.build(
+    App.layer.pipe(
+      Layer.provideMerge(Server.listen({ host: "127.0.0.1", port: 0 })),
+      Layer.provide(Settings.layer),
+      Layer.provide(ConfigProvider.layer(environment)),
+      // Every request it answers is a line otherwise.
+      Layer.provide(Layer.succeed(References.MinimumLogLevel, "Warn")),
+    ),
+  );
+  const address = Context.get(running, HttpServer.HttpServer).address;
+  const url = address._tag === "UnixPathAddress" ? "" : `http://127.0.0.1:${address.port}`;
+
+  const sql = yield* Layer.build(PgClient.layer({ url: Redacted.make(postgres.url) }));
+
+  return {
+    url,
+    bootstrapToken: BOOTSTRAP,
+    ticketKey,
+    sql: Context.get(sql, PgClient.PgClient),
+    as: (token) => client(url, token).pipe(Effect.provide(http)),
+    request: (token, method, path, body) =>
+      request(url, token, method, path, body).pipe(Effect.provide(http)),
+    keepalive: (said) => request(url, "", "POST", KEEPALIVE, said).pipe(Effect.provide(http)),
+  } satisfies ControlService;
+});
+
+export class Control extends Context.Service<Control, ControlService>()(
+  "@aperture-browser/control/tests/Control",
+) {}
+
+/** One control plane for all the checks of a suite. */
+export const layer = (options: ControlOptions = {}) => Layer.effect(Control, start(options));
+
+/** An account and an API token of it, made by whoever holds the bootstrap token. */
+export const account = Effect.fn("Control.account")(function* (name: string, admin = false) {
+  const control = yield* Control;
+  const bootstrap = yield* control.as(control.bootstrapToken);
+  const made = yield* bootstrap.accounts.create({ payload: { name, admin } });
+  const token = yield* bootstrap.accounts.createToken({
+    params: { id: made.id },
+    payload: { name: "checks" },
+  });
+  return { account: made, token: token.token, api: yield* control.as(token.token) };
+});

@@ -49,5 +49,8 @@ jobs:
       - name: Build the programs
         run: nix develop --command cargo build --workspace
 
-      - name: Run
+      - name: Sessions and executors
         run: nix develop --command pnpm test:e2e
+
+      - name: The control plane, on a database and a node
+        run: nix develop --command pnpm --filter @aperture-browser/control test

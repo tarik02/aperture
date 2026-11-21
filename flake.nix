@@ -203,7 +203,7 @@
           inherit version src;
           pnpm = pnpmLatest;
           fetcherVersion = 4;
-          hash = "sha256-6JuuhmhLCspBQhZGmGzuosRCq15B4l85vkPVuFdSJe4=";
+          hash = "sha256-UIVq/08mUx770HjWNvgl1pEtMrXdQmCTOLQqhFhI8Hk=";
         };
 
         # The page that shows a session: one HTML file with everything it needs in it, which the
@@ -340,6 +340,7 @@
             pkgs.rustfmt
             pkgs.rust-analyzer
             pkgs.buf
+            pkgs.postgresql
             pkgs.pkg-config
             nodeRuntime
             pnpmLatest
