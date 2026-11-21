@@ -4,12 +4,14 @@ import * as HttpRouter from "effect/http/HttpRouter";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Option from "effect/Option";
+import * as Redacted from "effect/Redacted";
 import { Accounts } from "../accounts/service.ts";
 import { Forbidden, Unauthorized } from "../errors.ts";
 import { bearerOf, callerOf, TOKEN_COOKIE } from "./caller.ts";
 import { nodePath } from "../routing/paths.ts";
 import { ADMIT_PATH } from "../routing/layer.ts";
 import { Routing } from "../routing/service.ts";
+import { Settings } from "../settings/service.ts";
 
 const COOKIE_PATH = `${PREFIX}/route/cookie`;
 const PROXY_CONFIG_PATH = `${PREFIX}/route/traefik`;
@@ -30,6 +32,7 @@ export const layer = HttpRouter.use(
   Effect.fn(function* (router) {
     const accounts = yield* Accounts;
     const routing = yield* Routing;
+    const settings = yield* Settings;
 
     const admit = Effect.fn("Routing.http.admit")(function* (
       request: HttpServerRequest.HttpServerRequest,
@@ -68,9 +71,13 @@ export const layer = HttpRouter.use(
     const proxyConfig = Effect.fn("Routing.http.proxyConfig")(function* (
       request: HttpServerRequest.HttpServerRequest,
     ) {
-      const caller = yield* callerOf(accounts, request);
-      if (!caller.admin) {
-        return yield* new Forbidden({ message: "the routes are an admin's to read" });
+      const asProxy = Option.match(bearerOf(request), {
+        onNone: () => false,
+        onSome: (bearer) =>
+          Option.exists(settings.proxyToken, (token) => Redacted.value(token) === bearer),
+      });
+      if (!asProxy && !(yield* callerOf(accounts, request)).admin) {
+        return yield* new Forbidden({ message: "the routes are a proxy's or an admin's to read" });
       }
       return HttpServerResponse.jsonUnsafe(yield* routing.proxyConfig());
     }, Effect.catch(refused));

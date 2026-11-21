@@ -19,7 +19,8 @@ export interface SeenNode {
   readonly balancerUrl: string | null;
   readonly publicUrl: string | null;
   readonly operatorTokenSealed: string;
-  readonly registrationTokenId: string;
+  /** The token it registered with; none for the one that is good without being made. */
+  readonly registrationTokenId: string | null;
   readonly now: Date;
 }
 

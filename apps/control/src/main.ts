@@ -1,3 +1,4 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -16,6 +17,7 @@ const server = Layer.unwrap(
 App.layer.pipe(
   Layer.provide(server),
   Layer.provide(SettingsLayer.layer),
+  Layer.provide(NodeServices.layer),
   Layer.launch,
   NodeRuntime.runMain,
 );

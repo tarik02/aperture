@@ -42,3 +42,13 @@ export class Unsealable extends Schema.TaggedError<Unsealable>()("Unsealable", {
     return `the secret of ${this.of} does not open: ${this.reason}`;
   }
 }
+
+/** A file given for a secret does not hold one. */
+export class SecretFileUnusable extends Schema.TaggedError<SecretFileUnusable>()(
+  "SecretFileUnusable",
+  { file: Schema.String, reason: Schema.String },
+) {
+  override get message() {
+    return `the secret in ${this.file} cannot be used: ${this.reason}`;
+  }
+}

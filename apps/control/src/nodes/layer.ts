@@ -6,6 +6,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Redacted from "effect/Redacted";
 import { KeepaliveInvalid, RegistrationRefused } from "../errors.ts";
 import * as Secrets from "../secrets.ts";
 import { keepaliveEvery, Settings } from "../settings/service.ts";
@@ -55,6 +56,10 @@ export const makeNodes = Effect.fn("Nodes.make")(function* () {
   const vault = yield* Vault;
   const crypto = yield* Effect.context<Crypto.Crypto>();
   const silent = ago(settings.nodeSilentAfter);
+  /** The digest of the registration token that is good without being made. */
+  const given = Option.isNone(settings.registrationToken)
+    ? Option.none<string>()
+    : Option.some(yield* Secrets.hash(Redacted.value(settings.registrationToken.value)));
 
   /** The node with its operator token opened; none where it does not open. */
   const opened = Effect.fn(function* ({ operatorTokenSealed, ...node }: NodeRecord) {
@@ -88,10 +93,10 @@ export const makeNodes = Effect.fn("Nodes.make")(function* () {
   });
 
   const keepalive = Effect.fn("Nodes.keepalive")(function* (said: Keepalive) {
-    const token = yield* store.findRegistrationTokenByHash(
-      yield* Secrets.hash(said.registrationToken),
-    );
-    if (Option.isNone(token)) {
+    const hashed = yield* Secrets.hash(said.registrationToken);
+    const token = yield* store.findRegistrationTokenByHash(hashed);
+    // Digests are compared, so how long it takes tells nothing of the token.
+    if (Option.isNone(token) && !Option.contains(given, hashed)) {
       return yield* new RegistrationRefused({ message: "that is no registration token" });
     }
     if (said.name.trim() === "") {
@@ -108,7 +113,7 @@ export const makeNodes = Effect.fn("Nodes.make")(function* () {
       balancerUrl: yield* optionalAddress("the load balancer's address", said.balancerUrl),
       publicUrl: yield* optionalAddress("the public address", said.publicUrl),
       operatorTokenSealed: yield* vault.seal(said.operatorToken, name),
-      registrationTokenId: token.value.id,
+      registrationTokenId: Option.getOrNull(Option.map(token, (made) => made.id)),
       now: yield* now,
     });
     return {

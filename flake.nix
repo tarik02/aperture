@@ -232,6 +232,68 @@
           '';
         };
 
+        # The console as a directory of static files, for whatever serves it.
+        console = pkgs.stdenvNoCC.mkDerivation {
+          pname = "aperture-console";
+          inherit version src;
+          pnpmDeps = workspacePnpmDeps;
+          nativeBuildInputs = [
+            nodeRuntime
+            pnpmLatest
+            pkgs.pnpmConfigHook
+          ];
+          env.CI = "true";
+          buildPhase = ''
+            runHook preBuild
+            find . -path '*/node_modules/.bin/*' -type f -exec sed -i 's/command -p //g' {} +
+            pnpm --filter @aperture-browser/console build
+            runHook postBuild
+          '';
+          installPhase = ''
+            runHook preInstall
+            cp -r apps/console/dist $out
+            runHook postInstall
+          '';
+        };
+
+        # The control plane: one file of this workspace's own code, beside what it takes
+        # from the registry, which is left as pnpm lays it out.
+        control = pkgs.stdenvNoCC.mkDerivation {
+          pname = "aperture-control";
+          inherit version src;
+          pnpmDeps = workspacePnpmDeps;
+          nativeBuildInputs = [
+            nodeRuntime
+            pnpmLatest
+            pkgs.pnpmConfigHook
+            pkgs.makeWrapper
+          ];
+          env.CI = "true";
+          buildPhase = ''
+            runHook preBuild
+            find . -path '*/node_modules/.bin/*' -type f -exec sed -i 's/command -p //g' {} +
+            pnpm --filter @aperture-browser/control build
+            # What only builds and checks it is not what runs it.
+            pnpm install --offline --frozen-lockfile --prod --filter @aperture-browser/control
+            runHook postBuild
+          '';
+          installPhase = ''
+            runHook preInstall
+            lib=$out/lib/aperture-control
+            mkdir -p $lib/apps/control
+            cp -r node_modules $lib/node_modules
+            cp -r apps/control/node_modules apps/control/dist apps/control/package.json $lib/apps/control/
+            makeWrapper ${lib.getExe nodeRuntime} $out/bin/aperture-control \
+              --add-flags --enable-source-maps \
+              --add-flags $lib/apps/control/dist/main.mjs \
+              --set-default APERTURE_CONTROL_CONSOLE_DIR ${console}
+            runHook postInstall
+          '';
+          # The links pnpm makes to packages of the workspace that were left out lead nowhere.
+          dontCheckForBrokenSymlinks = true;
+          meta.mainProgram = "aperture-control";
+        };
+
         sessionLibraries = [
           pkgs.libxkbcommon
           pkgs.pixman
@@ -367,11 +429,20 @@
           inherit aperture container;
           aperture-unwrapped = apertureUnwrapped;
           aperture-workbench = workbench;
+          aperture-console = console;
+          aperture-control = control;
           aperture-chromium = runtimeChromium;
           aperture-ffmpeg = runtimeFfmpeg;
         };
 
-        checks.aperture-ffmpeg-features = ffmpegFeatureCheck;
+        checks = {
+          aperture-ffmpeg-features = ffmpegFeatureCheck;
+          # One machine with everything on it, set up by the modules alone.
+          deployment = pkgs.testers.runNixOSTest (import ./nix/tests/deployment.nix { inherit self; });
+        };
       }
-    );
+    )
+    // {
+      nixosModules = import ./nix/modules { inherit self; };
+    };
 }

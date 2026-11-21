@@ -28,6 +28,16 @@ export interface SettingsShape {
   /** Lets its holder do what an admin does before there is any account. */
   readonly bootstrapToken: Redacted.Redacted;
   /**
+   * Lets a proxy before the nodes read its routes and nothing else, so that the proxy is
+   * given no token that does more.
+   */
+  readonly proxyToken: Option.Option<Redacted.Redacted>;
+  /**
+   * A registration token that is good without being made: for nodes that are set up
+   * together with the control plane, before anyone could make one.
+   */
+  readonly registrationToken: Option.Option<Redacted.Redacted>;
+  /**
    * A file with the master key: at least 32 bytes nobody guesses, such as what
    * `openssl rand -base64 32` gives. Secrets the control plane has to read again are
    * sealed with it, so it stays the same for as long as they are to be read.

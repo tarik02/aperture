@@ -5,10 +5,11 @@
   "description": "The control plane: accounts, the nodes that register with it, where sessions run, and the tickets into them.",
   "type": "module",
   "scripts": {
-    "start": "node src/main.ts",
+    "start": "node dist/main.mjs",
     "generate": "buf generate ../.. --template buf.gen.yaml --path ../../proto/aperture/control/v1/nodes.proto",
     "test": "vp test run",
-    "typecheck": "tsgo --noEmit"
+    "typecheck": "tsgo --noEmit",
+    "build": "vp pack"
   },
   "dependencies": {
     "@aperture-browser/control-api": "workspace:*",
