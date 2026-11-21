@@ -47,6 +47,11 @@ const useSignedIn = () => {
  */
 export function SignInPage() {
   const [way, setWay] = useState<Way>("password");
+  const providers = useProvidersQuery();
+  // Shown once it is known which ways in there are: nothing moves under a pointer then.
+  if (providers.isPending) {
+    return null;
+  }
   if (way === "password") {
     return <WithPassword onWay={setWay} />;
   }
