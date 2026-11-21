@@ -9,6 +9,8 @@ import { AppShell } from "#/components/app-shell.tsx";
 import { PeoplePage } from "#/features/account/people-page.tsx";
 import { ServiceAccountsPage } from "#/features/account/service-accounts-page.tsx";
 import { SignInPage } from "#/features/auth/sign-in-page.tsx";
+import { ConnectedAppsPage } from "#/features/oauth/connected-apps-page.tsx";
+import { ConsentPage } from "#/features/oauth/consent-page.tsx";
 import { NodesPage } from "#/features/node/nodes-page.tsx";
 import { RegistrationTokensPage } from "#/features/node/registration-tokens-page.tsx";
 import { isNewSession } from "#/features/session/new-sessions.ts";
@@ -71,6 +73,19 @@ const tokens = createRoute({
   component: TokensPage,
 });
 
+const connectedApps = createRoute({
+  getParentRoute: () => pages,
+  path: "/-/connected-apps",
+  component: ConnectedAppsPage,
+});
+
+// Bare, as signing in is: whoever comes is sent by an app, and goes back to it.
+const consent = createRoute({
+  getParentRoute: () => signed,
+  path: "/oauth/consent",
+  component: ConsentPage,
+});
+
 const workspaces = createRoute({
   getParentRoute: () => pages,
   path: "/-/workspaces",
@@ -123,6 +138,7 @@ export const router = createRouter({
         sessions,
         snapshots,
         tokens,
+        connectedApps,
         workspaces,
         nodes,
         registrationTokens,
@@ -130,6 +146,7 @@ export const router = createRouter({
         serviceAccounts,
       ]),
       session,
+      consent,
     ]),
   ]),
 });

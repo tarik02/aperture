@@ -1,6 +1,11 @@
-/** What a client is set up with: where the session's MCP server is, and what lets it in. */
+/** What a client is set up with: where the MCP server is, and what lets it in. */
 export type McpSetup = {
   readonly url: string;
+  /**
+   * How the client is let in: by signing in, where the server is the control plane's and
+   * the client asks for a grant itself, or with an API token it is given.
+   */
+  readonly auth: "oauth" | "token";
   /** The API token to put in, where one was just made; an environment variable stands in without. */
   readonly token: string | undefined;
   /** What the client calls the server. */
@@ -47,62 +52,95 @@ const exported = (setup: McpSetup): McpStep => ({
 /** For a client that takes the token itself, which then needs none exported. */
 const exportedWithout = (setup: McpSetup) => (setup.token === undefined ? [exported(setup)] : []);
 
+/** The last step of signing in: the browser opens here, and the person says what the client gets. */
+const DECIDE = "Your browser opens here: choose what it may do, and connect it.";
+
 const claudeCode: McpClient = {
   id: "claude-code",
   name: "Claude Code",
-  steps: (setup) => [
-    ...exportedWithout(setup),
-    {
-      text: "Add the server with the token header.",
-      code: {
-        value: `claude mcp add --transport http ${setup.name} ${quoted(setup.url)} \\\n  --header ${
-          setup.token === undefined
-            ? `"Authorization: Bearer $${MCP_TOKEN_ENV}"`
-            : quoted(`Authorization: Bearer ${setup.token}`)
-        }`,
-      },
-    },
-    { text: `Run /mcp inside Claude Code to check that ${setup.name} is connected.` },
-  ],
+  steps: (setup) =>
+    setup.auth === "oauth"
+      ? [
+          {
+            text: "Add the server.",
+            code: { value: `claude mcp add --transport http ${setup.name} ${quoted(setup.url)}` },
+          },
+          { text: `Run /mcp inside Claude Code, choose ${setup.name}, and authenticate.` },
+          { text: DECIDE },
+        ]
+      : [
+          ...exportedWithout(setup),
+          {
+            text: "Add the server with the token header.",
+            code: {
+              value: `claude mcp add --transport http ${setup.name} ${quoted(setup.url)} \\\n  --header ${
+                setup.token === undefined
+                  ? `"Authorization: Bearer $${MCP_TOKEN_ENV}"`
+                  : quoted(`Authorization: Bearer ${setup.token}`)
+              }`,
+            },
+          },
+          { text: `Run /mcp inside Claude Code to check that ${setup.name} is connected.` },
+        ],
 };
 
 const claudeDesktop: McpClient = {
   id: "claude-desktop",
   name: "Claude Desktop",
-  steps: () => [
-    {
-      text: "Custom connectors in Claude Desktop and claude.ai sign in with OAuth and cannot send an API token, which is what a session takes. Use Claude Code or another client instead.",
-    },
-  ],
+  steps: (setup) =>
+    setup.auth === "oauth"
+      ? [
+          {
+            text: "In Claude Desktop or claude.ai, open Settings → Connectors and add a custom connector with this address.",
+            code: { value: setup.url },
+          },
+          { text: "Choose Connect on the new connector." },
+          { text: DECIDE },
+        ]
+      : [
+          {
+            text: "Custom connectors in Claude Desktop and claude.ai sign in and cannot send an API token. Sign in instead, or use another client.",
+          },
+        ],
 };
 
 const codex: McpClient = {
   id: "codex",
   name: "Codex",
-  // Codex reads a bearer token from the environment only, so the token is always exported.
-  steps: (setup) => [
-    exported(setup),
-    {
-      text: "Add the server.",
-      code: {
-        value: `codex mcp add ${setup.name} --url ${quoted(setup.url)} \\\n  --bearer-token-env-var ${MCP_TOKEN_ENV}`,
-      },
-    },
-    {
-      text: "Or add it to the config file instead.",
-      code: {
-        filename: "~/.codex/config.toml",
-        value: `[mcp_servers.${setup.name}]\nurl = ${JSON.stringify(setup.url)}\nbearer_token_env_var = ${JSON.stringify(MCP_TOKEN_ENV)}\n`,
-      },
-    },
-  ],
+  steps: (setup) =>
+    setup.auth === "oauth"
+      ? [
+          {
+            text: "Add the server.",
+            code: { value: `codex mcp add ${setup.name} --url ${quoted(setup.url)}` },
+          },
+          { text: "Sign in to it.", code: { value: `codex mcp login ${setup.name}` } },
+          { text: DECIDE },
+        ]
+      : [
+          // Codex reads a bearer token from the environment only, so the token is always exported.
+          exported(setup),
+          {
+            text: "Add the server.",
+            code: {
+              value: `codex mcp add ${setup.name} --url ${quoted(setup.url)} \\\n  --bearer-token-env-var ${MCP_TOKEN_ENV}`,
+            },
+          },
+          {
+            text: "Or add it to the config file instead.",
+            code: {
+              filename: "~/.codex/config.toml",
+              value: `[mcp_servers.${setup.name}]\nurl = ${JSON.stringify(setup.url)}\nbearer_token_env_var = ${JSON.stringify(MCP_TOKEN_ENV)}\n`,
+            },
+          },
+        ],
 };
 
 const cursor: McpClient = {
   id: "cursor",
   name: "Cursor",
   steps: (setup) => [
-    ...exportedWithout(setup),
+    ...(setup.auth === "oauth" ? [] : exportedWithout(setup)),
     {
       text: "Add the server to your Cursor MCP config.",
       code: {
@@ -111,62 +149,82 @@ const cursor: McpClient = {
           mcpServers: {
             [setup.name]: {
               url: setup.url,
-              headers: { Authorization: `Bearer ${setup.token ?? `\${env:${MCP_TOKEN_ENV}}`}` },
+              ...(setup.auth === "oauth"
+                ? {}
+                : {
+                    headers: {
+                      Authorization: `Bearer ${setup.token ?? `\${env:${MCP_TOKEN_ENV}}`}`,
+                    },
+                  }),
             },
           },
         }),
       },
     },
-    { text: `Open Cursor Settings → MCP and check that ${setup.name} is enabled.` },
+    ...(setup.auth === "oauth"
+      ? [
+          { text: `Open Cursor Settings → MCP and choose to sign in next to ${setup.name}.` },
+          { text: DECIDE },
+        ]
+      : [{ text: `Open Cursor Settings → MCP and check that ${setup.name} is enabled.` }]),
   ],
 };
 
 const vscode: McpClient = {
   id: "vscode",
   name: "VS Code",
-  steps: (setup) => [
-    {
-      text: "Add the server to your workspace MCP config.",
-      code: {
-        filename: ".vscode/mcp.json",
-        value: json({
-          servers: {
-            [setup.name]: {
-              type: "http",
-              url: setup.url,
-              headers: { Authorization: `Bearer ${setup.token ?? "${input:aperture-token}"}` },
+  steps: (setup) => {
+    const asked = setup.auth === "token" && setup.token === undefined;
+    return [
+      {
+        text: "Add the server to your workspace MCP config.",
+        code: {
+          filename: ".vscode/mcp.json",
+          value: json({
+            servers: {
+              [setup.name]: {
+                type: "http",
+                url: setup.url,
+                ...(setup.auth === "oauth"
+                  ? {}
+                  : {
+                      headers: {
+                        Authorization: `Bearer ${setup.token ?? "${input:aperture-token}"}`,
+                      },
+                    }),
+              },
             },
-          },
-          ...(setup.token === undefined
-            ? {
-                inputs: [
-                  {
-                    type: "promptString",
-                    id: "aperture-token",
-                    description: "Aperture API token",
-                    password: true,
-                  },
-                ],
-              }
-            : {}),
-        }),
+            ...(asked
+              ? {
+                  inputs: [
+                    {
+                      type: "promptString",
+                      id: "aperture-token",
+                      description: "Aperture API token",
+                      password: true,
+                    },
+                  ],
+                }
+              : {}),
+          }),
+        },
       },
-    },
-    {
-      text:
-        setup.token === undefined
+      {
+        text: asked
           ? "Choose Start above the server entry and paste your API token when asked."
           : "Choose Start above the server entry.",
-    },
-    { text: "Open Copilot Chat in agent mode; the Aperture tools appear in the tools picker." },
-  ],
+      },
+      ...(setup.auth === "oauth" ? [{ text: `Allow VS Code to sign in. ${DECIDE}` }] : []),
+      { text: "Open Copilot Chat in agent mode; the Aperture tools appear in the tools picker." },
+    ];
+  },
 };
 
 const gemini: McpClient = {
   id: "gemini-cli",
   name: "Gemini CLI",
   steps: (setup) => [
-    ...exportedWithout(setup),
+    ...(setup.auth === "oauth" ? [] : exportedWithout(setup)),
     {
       text: "Add the server to your Gemini CLI settings.",
       code: {
@@ -175,13 +233,22 @@ const gemini: McpClient = {
           mcpServers: {
             [setup.name]: {
               httpUrl: setup.url,
-              headers: { Authorization: `Bearer ${setup.token ?? `\${${MCP_TOKEN_ENV}}`}` },
+              ...(setup.auth === "oauth"
+                ? {}
+                : {
+                    headers: { Authorization: `Bearer ${setup.token ?? `\${${MCP_TOKEN_ENV}}`}` },
+                  }),
             },
           },
         }),
       },
     },
-    { text: "Start Gemini CLI and run /mcp to check the connection." },
+    ...(setup.auth === "oauth"
+      ? [
+          { text: "Start Gemini CLI and sign in.", code: { value: `/mcp auth ${setup.name}` } },
+          { text: DECIDE },
+        ]
+      : [{ text: "Start Gemini CLI and run /mcp to check the connection." }]),
   ],
 };
 
@@ -193,7 +260,9 @@ const other: McpClient = {
     { label: "Name", value: setup.name },
     { label: "Transport", value: "Streamable HTTP" },
     { label: "URL", value: setup.url },
-    { label: "Header", value: `Authorization: Bearer ${setup.token ?? "<API token>"}` },
+    setup.auth === "oauth"
+      ? { label: "Authorization", value: "OAuth, as the server tells it" }
+      : { label: "Header", value: `Authorization: Bearer ${setup.token ?? "<API token>"}` },
   ],
 };
 

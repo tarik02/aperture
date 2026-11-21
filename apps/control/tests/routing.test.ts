@@ -82,6 +82,20 @@ const choose = (page: Viewer.Page, items: string, says: string) =>
     );
   });
 
+/**
+ * Names the token the dialog that is open makes, and makes it. The dialog takes its place
+ * while it opens, so what is typed is waited for where it is to be before it is sent.
+ */
+const nameToken = (page: Viewer.Page, name: string) =>
+  Effect.gen(function* () {
+    const field = `document.querySelector('[data-console-token-create] input[name="name"]')`;
+    yield* page.click(`[data-console-token-create] input[name="name"]`);
+    yield* page.until(`document.activeElement === ${field}`);
+    yield* page.type(name);
+    yield* page.until(`${field}.value === ${JSON.stringify(name)}`);
+    yield* page.key("Enter", "Enter", ENTER);
+  });
+
 const DARK = theme("Dark");
 const AUTO = theme("Auto");
 
@@ -452,9 +466,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.until(
         `document.querySelector('[data-console-token-create] [data-console-scope="sessions:write"]')?.hasAttribute("data-checked") === true`,
       );
-      yield* page.click(`[data-console-token-create] input[name="name"]`);
-      yield* page.type("for an MCP client");
-      yield* page.key("Enter", "Enter", ENTER);
+      yield* nameToken(page, "for an MCP client");
       yield* page.until(
         `/Bearer apc_/u.test(document.querySelector("[data-console-mcp]")?.textContent ?? "")`,
       );
@@ -479,9 +491,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.until(
         `!!document.querySelector('[data-console-token-resource-chosen="sessions:${id}"]')`,
       );
-      yield* page.click(`[data-console-token-create] input[name="name"]`);
-      yield* page.type("for one session");
-      yield* page.key("Enter", "Enter", ENTER);
+      yield* nameToken(page, "for one session");
       yield* page.until(
         `/Bearer apc_/u.test(document.querySelector('[data-slot="dialog-body"]')?.textContent ?? "")`,
       );
@@ -1233,7 +1243,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       const proxy = yield* Proxy.Proxy;
       const viewer = yield* Viewer.Viewer;
       const fs = yield* FileSystem.FileSystem;
-      const lin = yield* signedIn("Lin", "lin@example.test");
+      const sana = yield* signedIn("Sana", "sana@example.test");
       const registered = yield* request(proxy.url, "", "POST", "/oauth/register", {
         client_name: "An agent of the checks",
         redirect_uris: [`${proxy.url}/callback`],
@@ -1268,9 +1278,9 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.evaluate("void location.reload()");
       yield* page.until(`!!document.querySelector('[data-console-sign-in="password"]')`);
       yield* page.click(`[data-console-sign-in] input[name="email"]`);
-      yield* page.type(lin.email);
+      yield* page.type(sana.email);
       yield* page.click(`[data-console-sign-in] input[name="password"]`);
-      yield* page.type(lin.password);
+      yield* page.type(sana.password);
       yield* page.key("Enter", "Enter", ENTER);
 
       // Signed in, they are where the app sent them, and are asked what the app asked for.
@@ -1284,9 +1294,6 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         ),
       ).toEqual(["sessions:read"]);
       yield* shot(page, fs, "console-consent");
-      yield* page.evaluate(DARK);
-      yield* shot(page, fs, "console-consent-dark");
-      yield* page.evaluate(AUTO);
       expect(page.errors()).toEqual([]);
       yield* page.click("[data-console-consent-allow]");
       yield* page.until(`location.pathname === "/callback"`);

@@ -23,6 +23,7 @@ import {
   type LucideIcon,
   Pause,
   Play,
+  Plug,
   Tags,
   Trash2,
   Waypoints,
@@ -31,6 +32,7 @@ import { Fragment, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { DescribeDialog } from "#/components/describe-dialog.tsx";
+import { SessionMcpDialog } from "#/features/mcp/session-mcp-dialog.tsx";
 import { SessionProxyDialog } from "#/features/proxy/session-proxy-dialog.tsx";
 import { SessionDetailsDialog } from "#/features/session/session-details-dialog.tsx";
 import type { Session } from "#/features/session/session.queries.ts";
@@ -63,7 +65,7 @@ export function useSessionActions(session: Session) {
   const remove = useSessionActionMutation("delete");
   const describe = useDescribeSessionMutation();
   const [dialog, setDialog] = useState<
-    "delete" | "snapshot" | "describe" | "proxy" | "details" | null
+    "delete" | "snapshot" | "describe" | "proxy" | "details" | "mcp" | null
   >(null);
   const placed = session.nodeId !== null;
 
@@ -89,6 +91,13 @@ export function useSessionActions(session: Session) {
       icon: Waypoints,
       disabled: !placed,
       onSelect: () => setDialog("proxy"),
+    },
+    {
+      key: "mcp",
+      label: "Connect MCP",
+      icon: Plug,
+      disabled: !placed,
+      onSelect: () => setDialog("mcp"),
     },
     session.desiredState === "suspended"
       ? {
@@ -155,6 +164,11 @@ export function useSessionActions(session: Session) {
         sessionId={session.id}
         open={dialog === "proxy"}
         onOpenChange={(open) => setDialog(open ? "proxy" : null)}
+      />
+      <SessionMcpDialog
+        session={session}
+        open={dialog === "mcp"}
+        onOpenChange={(open) => setDialog(open ? "mcp" : null)}
       />
       <SaveSnapshotDialog
         session={session}
