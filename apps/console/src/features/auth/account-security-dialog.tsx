@@ -48,7 +48,12 @@ type AccountSecurityDialogProps = {
 export function AccountSecurityDialog({ person, open, onOpenChange }: AccountSecurityDialogProps) {
   return (
     // What was typed and told is gone with the dialog: the codes are shown once.
-    <FreshDialog open={open} onOpenChange={onOpenChange} height="28rem">
+    <FreshDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      // Tall: the code to scan is as wide as the dialog, and fits whole.
+      height="42rem"
+    >
       <Security person={person} onDone={() => onOpenChange(false)} />
     </FreshDialog>
   );
@@ -237,7 +242,7 @@ function Confirm({
             data-console-totp-qr
             value={enrolling.uri}
             label="Setup address for an authenticator"
-            className="aperture:shrink-0 aperture:self-center"
+            className="aperture:size-auto aperture:w-full aperture:shrink-0"
           />
         )}
         <Button
