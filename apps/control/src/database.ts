@@ -23,6 +23,9 @@ const initial = statements([
     name text NOT NULL,
     admin boolean NOT NULL DEFAULT false,
     kind text NOT NULL DEFAULT 'service' CHECK (kind IN ('person', 'service')),
+    -- Who signs in as the account, as what signs people in knows them; none for a service.
+    person_id text UNIQUE,
+    email text,
     created_at timestamptz NOT NULL
   )`,
   `CREATE TABLE workspaces (

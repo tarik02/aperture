@@ -12,7 +12,9 @@ import * as Database from "./database.ts";
 import * as Following from "./following.ts";
 import * as Authorization from "./http/authorization.ts";
 import * as Handlers from "./http/handlers.ts";
+import * as IdentityRoutes from "./http/identity.ts";
 import * as NodeServiceRoutes from "./http/nodeService.ts";
+import * as Identity from "./identity/layer.ts";
 import * as RoutingRoutes from "./http/routing.ts";
 import * as Nodes from "./nodes/layer.ts";
 import * as NodesStoreMemory from "./nodes/store-memory.ts";
@@ -54,7 +56,6 @@ export const storesTest = Layer.mergeAll(
 export const services = Layer.mergeAll(Snapshots.layer, Routing.layer, Workspaces.layer).pipe(
   Layer.provideMerge(Sessions.layer),
   Layer.provideMerge(Layer.mergeAll(Accounts.layer, Nodes.layer, Tickets.layer)),
-  Layer.provide(Vault.layer),
 );
 
 const api = HttpApiBuilder.layer(Api, { openapiPath: `${PREFIX}/openapi.json` }).pipe(
@@ -74,7 +75,15 @@ const consolePages = Layer.unwrap(
 );
 
 const serving = Layer.mergeAll(
-  HttpRouter.serve(Layer.mergeAll(api, NodeServiceRoutes.layer, RoutingRoutes.layer, consolePages)),
+  HttpRouter.serve(
+    Layer.mergeAll(
+      api,
+      NodeServiceRoutes.layer,
+      RoutingRoutes.layer,
+      IdentityRoutes.layer,
+      consolePages,
+    ),
+  ),
   Following.layer,
 ).pipe(Layer.provide(services));
 
@@ -82,7 +91,13 @@ const serving = Layer.mergeAll(
  * The control plane on whatever HTTP server it is given: its API, the service nodes call,
  * and the following of nodes, for as long as the layer lasts.
  */
-export const layer = serving.pipe(Layer.provide(stores));
+export const layer = serving.pipe(
+  Layer.provide(Layer.mergeAll(stores, Identity.layer)),
+  Layer.provide(Vault.layer),
+);
 
 /** The same with nothing kept beyond the layer: for checks that need no database. */
-export const layerTest = serving.pipe(Layer.provide(storesTest));
+export const layerTest = serving.pipe(
+  Layer.provide(Layer.mergeAll(storesTest, Identity.layerTest)),
+  Layer.provide(Vault.layer),
+);

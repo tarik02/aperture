@@ -10,6 +10,7 @@ import { Vault } from "./service.ts";
 /** Fewer bytes than this are guessed sooner than the key made of them is broken. */
 const MASTER_KEY_BYTES = 32;
 const NONCE_BYTES = 12;
+const SECRET_BITS = 256;
 /** What is sealed says how, so that another way may come after this one. */
 const VERSION = "v1";
 /** The master key is for more than the vault; each use has a key of its own made of it. */
@@ -38,10 +39,13 @@ const readMasterKey = Effect.fn("Vault.readMasterKey")(function* () {
 export const makeVault = Effect.fn("Vault.make")(function* (masterKey: Uint8Array<ArrayBuffer>) {
   const random = yield* Crypto.Crypto;
   // Effect neither derives nor encrypts: the keys are the platform's own.
-  const key = yield* Effect.promise(async () =>
+  const master = yield* Effect.promise(() =>
+    crypto.subtle.importKey("raw", masterKey, "HKDF", false, ["deriveKey", "deriveBits"]),
+  );
+  const key = yield* Effect.promise(() =>
     crypto.subtle.deriveKey(
       { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(), info: bytes(PURPOSE) },
-      await crypto.subtle.importKey("raw", masterKey, "HKDF", false, ["deriveKey"]),
+      master,
       { name: "AES-GCM", length: 256 },
       false,
       ["encrypt", "decrypt"],
@@ -81,7 +85,23 @@ export const makeVault = Effect.fn("Vault.make")(function* (masterKey: Uint8Arra
     return new TextDecoder().decode(opened);
   });
 
-  return Vault.of({ seal, open });
+  const secret = Effect.fn("Vault.secret")(function* (purpose: string) {
+    const derived = yield* Effect.promise(() =>
+      crypto.subtle.deriveBits(
+        {
+          name: "HKDF",
+          hash: "SHA-256",
+          salt: new Uint8Array(),
+          info: bytes(`aperture-control/${purpose}`),
+        },
+        master,
+        SECRET_BITS,
+      ),
+    );
+    return Base64Url.encode(new Uint8Array(derived));
+  });
+
+  return Vault.of({ seal, open, secret });
 });
 
 export const layer = Layer.effect(Vault, Effect.flatMap(readMasterKey(), makeVault));

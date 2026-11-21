@@ -9,6 +9,7 @@ import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
 import { forget } from "#/lib/api.ts";
+import { signOut as endSignIn } from "#/lib/identity.ts";
 import { keepToken } from "#/lib/token.ts";
 
 /** Who is signed in, and the way out. */
@@ -18,9 +19,12 @@ export function AuthMenu() {
   const [confirming, setConfirming] = useState(false);
 
   const signOut = () => {
-    void forget();
-    keepToken(undefined);
-    queries.clear();
+    void Promise.allSettled([forget(), endSignIn()]).then(() => {
+      keepToken(undefined);
+      queries.clear();
+      // Whoever comes next starts from the way in, with nothing of this account's left.
+      location.assign("/");
+    });
   };
 
   return (
@@ -43,7 +47,7 @@ export function AuthMenu() {
       <ConfirmDialog
         open={confirming}
         title="Sign out?"
-        description="This browser forgets the token it was signed in with."
+        description="This browser forgets who was signed in."
         confirmLabel="Sign out"
         onOpenChange={setConfirming}
         onConfirm={signOut}

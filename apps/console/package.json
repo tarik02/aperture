@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@aperture-browser/control-api": "workspace:*",
+    "@aperture-browser/session-client": "workspace:*",
     "@aperture-browser/session-react": "workspace:*",
     "@aperture-browser/ui": "workspace:*",
     "@tanstack/react-query": "catalog:",

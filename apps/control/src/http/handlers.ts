@@ -49,7 +49,8 @@ const accounts = HttpApiBuilder.group(
           accounts.create({
             name: payload.name,
             admin: payload.admin ?? false,
-            kind: payload.kind ?? "service",
+            kind: payload.kind ?? (payload.email === undefined ? "service" : "person"),
+            email: payload.email,
           }),
         ),
       )
@@ -63,6 +64,13 @@ const accounts = HttpApiBuilder.group(
             lasting(payload.expiresInDays),
           );
           return { ...token, token: secret };
+        }),
+      )
+      .handle(
+        "createSetupToken",
+        Effect.fn(function* ({ params }) {
+          yield* admin;
+          return { token: yield* accounts.setupToken(params.id) };
         }),
       )
       .handle("tokens", () => Effect.flatMap(CurrentCaller, accounts.tokens))

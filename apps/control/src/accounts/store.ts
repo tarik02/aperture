@@ -8,6 +8,8 @@ export interface NewAccount {
   readonly name: string;
   readonly admin: boolean;
   readonly kind: AccountKind;
+  /** Who signs in as the account, for a person's: as what signs people in knows them. */
+  readonly person: { readonly id: string; readonly email: string } | null;
   readonly createdAt: Date;
 }
 
@@ -25,6 +27,8 @@ export interface AccountsStoreShape {
   readonly insert: (account: NewAccount) => Effect.Effect<Account>;
   readonly list: () => Effect.Effect<ReadonlyArray<Account>>;
   readonly find: (id: string) => Effect.Effect<Option.Option<Account>>;
+  /** The account someone signs in as. */
+  readonly findByPerson: (personId: string) => Effect.Effect<Option.Option<Account>>;
   readonly insertToken: (token: NewApiToken) => Effect.Effect<ApiToken>;
   /** An account's tokens, those taken back among them. */
   readonly listTokens: (accountId: string) => Effect.Effect<ReadonlyArray<ApiToken>>;

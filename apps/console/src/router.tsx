@@ -14,17 +14,26 @@ import { SessionsPage } from "#/features/session/sessions-page.tsx";
 import { SnapshotsPage } from "#/features/snapshot/snapshots-page.tsx";
 import { TokensPage } from "#/features/token/tokens-page.tsx";
 import { WorkspacesPage } from "#/features/workspace/workspaces-page.tsx";
-import { useToken } from "#/lib/token.ts";
+import { useAccountQuery } from "#/features/auth/auth.queries.ts";
+import { InvitePage } from "#/features/auth/invite-page.tsx";
 
 /** Nothing is shown to whoever is not signed in but the way in. */
 function Signed() {
-  return useToken() === undefined ? <SignInPage /> : <Outlet />;
+  const account = useAccountQuery();
+  if (account.isPending) {
+    return null;
+  }
+  return account.isError ? <SignInPage /> : <Outlet />;
 }
 
-const root = createRootRoute({ component: Signed });
+const root = createRootRoute();
+
+const signed = createRoute({ getParentRoute: () => root, id: "signed", component: Signed });
+
+const invite = createRoute({ getParentRoute: () => root, path: "/invite", component: InvitePage });
 
 const index = createRoute({
-  getParentRoute: () => root,
+  getParentRoute: () => signed,
   path: "/",
   beforeLoad: () => {
     throw redirect({ to: "/-/sessions" });
@@ -32,7 +41,7 @@ const index = createRoute({
 });
 
 const pages = createRoute({
-  getParentRoute: () => root,
+  getParentRoute: () => signed,
   id: "pages",
   component: () => (
     <AppShell layout="page">
@@ -74,7 +83,7 @@ const accounts = createRoute({
 });
 
 const session = createRoute({
-  getParentRoute: () => root,
+  getParentRoute: () => signed,
   path: "/-/sessions/$sessionId",
   component: function Opened() {
     return (
@@ -87,9 +96,12 @@ const session = createRoute({
 
 export const router = createRouter({
   routeTree: root.addChildren([
-    index,
-    pages.addChildren([sessions, snapshots, tokens, workspaces, nodes, accounts]),
-    session,
+    invite,
+    signed.addChildren([
+      index,
+      pages.addChildren([sessions, snapshots, tokens, workspaces, nodes, accounts]),
+      session,
+    ]),
   ]),
 });
 

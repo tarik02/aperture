@@ -17,13 +17,16 @@
     "@bufbuild/protobuf": "catalog:",
     "@effect/platform-node": "catalog:",
     "@effect/sql-pg": "catalog:",
-    "effect": "catalog:"
+    "better-auth": "catalog:",
+    "effect": "catalog:",
+    "pg": "catalog:"
   },
   "devDependencies": {
     "@aperture-browser/e2e": "workspace:*",
     "@bufbuild/protoc-gen-es": "catalog:",
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
+    "@types/pg": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:"
   }

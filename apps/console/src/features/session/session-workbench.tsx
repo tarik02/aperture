@@ -1,3 +1,4 @@
+import type { Session } from "@aperture-browser/session-client";
 import { ApertureSession, type ApertureTheme } from "@aperture-browser/session-react";
 import { Button } from "@aperture-browser/ui/components/button";
 import { Link } from "@tanstack/react-router";
@@ -22,6 +23,17 @@ function State({ children }: { children: React.ReactNode }) {
     </main>
   );
 }
+
+declare global {
+  interface Window {
+    /** The session's client, for automation and tests. None while there is no connection. */
+    apertureSession: Session | undefined;
+  }
+}
+
+const expose = (session: Session | null) => {
+  window.apertureSession = session ?? undefined;
+};
 
 const isTheme = (theme: string | undefined): theme is ApertureTheme =>
   theme === "light" || theme === "dark" || theme === "system";
@@ -91,6 +103,7 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
       url={session.data.path}
       theme={isTheme(theme) ? theme : "system"}
       onThemeChange={setTheme}
+      onSession={expose}
     />
   );
 }

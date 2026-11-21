@@ -89,3 +89,24 @@ export class WorkspaceInUse extends Schema.TaggedError<WorkspaceInUse>()(
   { id: Schema.String },
   { httpApiStatus: 409 },
 ) {}
+
+/** Someone signs in with that email address already. */
+export class EmailTaken extends Schema.TaggedError<EmailTaken>()(
+  "EmailTaken",
+  { email: Schema.String },
+  { httpApiStatus: 409 },
+) {}
+
+/** Nobody signs in with that email address, or the account is no person's. */
+export class PersonNotFound extends Schema.TaggedError<PersonNotFound>()(
+  "PersonNotFound",
+  { email: Schema.String },
+  { httpApiStatus: 404 },
+) {}
+
+/** What was asked for an account does not go together. */
+export class AccountInvalid extends Schema.TaggedError<AccountInvalid>()(
+  "AccountInvalid",
+  { message: Schema.String },
+  { httpApiStatus: 400 },
+) {}

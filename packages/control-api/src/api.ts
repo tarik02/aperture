@@ -9,8 +9,11 @@ import * as OpenApi from "effect/http-api/OpenApi";
 import * as Schema from "effect/Schema";
 import type { Caller } from "./caller.ts";
 import {
+  AccountInvalid,
   AccountNotFound,
   ApiTokenNotFound,
+  EmailTaken,
+  PersonNotFound,
   Forbidden,
   NodeRefused,
   NodeUnreachable,
@@ -35,6 +38,8 @@ export const Account = Schema.Struct({
   admin: Schema.Boolean,
   /** A person, who signs in, or a service, which comes with API tokens alone. */
   kind: Schema.Literals(["person", "service"]),
+  /** The address a person signs in with; none for a service. */
+  email: Schema.NullOr(Schema.String),
   createdAt: Schema.DateTimeUtcFromString,
 });
 
@@ -179,9 +184,16 @@ export class AccountsGroup extends HttpApiGroup.make("accounts")
         name: Schema.NonEmptyString,
         admin: Schema.optional(Schema.Boolean),
         kind: Schema.optional(Schema.Literals(["person", "service"])),
+        /** For a person: the address they sign in with, once they set a password. */
+        email: Schema.optional(Schema.NonEmptyString),
       }),
       success: Account.pipe(HttpApiSchema.status(201)),
-      error: Forbidden,
+      error: [Forbidden, EmailTaken, AccountInvalid],
+    }),
+    HttpApiEndpoint.post("createSetupToken", "/accounts/:id/setup-token", {
+      params: { id: Schema.String },
+      success: Schema.Struct({ token: Schema.String }).pipe(HttpApiSchema.status(201)),
+      error: [Forbidden, AccountNotFound, PersonNotFound],
     }),
     HttpApiEndpoint.post("createToken", "/accounts/:id/tokens", {
       params: { id: Schema.String },

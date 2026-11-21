@@ -9,6 +9,11 @@ import type { Unsealable } from "../errors.ts";
 export interface VaultShape {
   /** Seals a secret. `of` names whose it is: what is sealed opens under no other name. */
   readonly seal: (secret: string, of: string) => Effect.Effect<string>;
+  /**
+   * A secret of this program's own for one purpose, made of the master key: the same for
+   * as long as the master key is, and telling nothing of it or of another purpose's.
+   */
+  readonly secret: (purpose: string) => Effect.Effect<string>;
   readonly open: (sealed: string, of: string) => Effect.Effect<string, Unsealable>;
 }
 

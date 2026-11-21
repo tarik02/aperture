@@ -143,7 +143,9 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       const viewer = yield* Viewer.Viewer;
       const fs = yield* FileSystem.FileSystem;
       const page = yield* viewer.open(`${proxy.url}/`);
-      yield* page.until(`!!document.querySelector("[data-console-sign-in] input")`);
+      yield* page.until(`!!document.querySelector("[data-console-sign-in-way]")`);
+      yield* page.click("[data-console-sign-in-way]");
+      yield* page.until(`!!document.querySelector('[data-console-sign-in="token"] input')`);
       yield* page.click("[data-console-sign-in] input");
       yield* page.type(ada.token);
       yield* page.key("Enter", "Enter", ENTER);
@@ -223,6 +225,63 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* shot(page, fs, "console-workspaces");
       yield* page.click(`a[href="/-/sessions"]`);
       yield* page.until(`!!document.querySelector("[data-console-empty]")`);
+      expect(page.errors()).toEqual([]);
+    }),
+  );
+
+  it.effect("a person follows a setup link, signs in, and opens a session with cookies alone", () =>
+    Effect.gen(function* () {
+      const proxy = yield* Proxy.Proxy;
+      const control = yield* Control.Control;
+      const viewer = yield* Viewer.Viewer;
+      const fs = yield* FileSystem.FileSystem;
+      const bootstrap = yield* control.as(control.bootstrapToken);
+      const email = "mira@example.test";
+      const password = "a password of Mira's own";
+      const mira = yield* bootstrap.accounts.create({ payload: { name: "Mira", email } });
+      const { token } = yield* bootstrap.accounts.createSetupToken({ params: { id: mira.id } });
+
+      const page = yield* viewer.open(`${proxy.url}/invite#token=${encodeURIComponent(token)}`);
+      yield* page.until(`!!document.querySelector("[data-console-invite] input")`);
+      // The browser is the one the check before signed in with: nothing of that is left.
+      yield* page.evaluate(
+        `(localStorage.clear(), fetch("/api/control/route/cookie", { method: "DELETE" }).then((answer) => answer.status))`,
+      );
+      yield* page.evaluate("void location.reload()");
+      yield* page.until(
+        `localStorage.length === 0 && !!document.querySelector("[data-console-invite] input")`,
+      );
+      yield* page.click("[data-console-invite] input");
+      yield* page.type(password);
+      yield* page.key("Enter", "Enter", ENTER);
+
+      // The way in, since setting a password signs nobody in.
+      yield* page.until(`!!document.querySelector('[data-console-sign-in="password"]')`);
+      yield* page.click(`[data-console-sign-in] input[name="email"]`);
+      yield* page.type(email);
+      yield* page.click(`[data-console-sign-in] input[name="password"]`);
+      yield* page.type(password);
+      yield* shot(page, fs, "console-sign-in");
+      yield* page.key("Enter", "Enter", ENTER);
+
+      yield* page.until(`!!document.querySelector("[data-console-create]")`);
+      yield* page.click("[data-console-create]");
+      yield* page.until(`location.pathname.startsWith("/-/sessions/")`, "30 seconds");
+      // The session's socket went through the proxy with the cookies of whoever signed in.
+      yield* page.until(
+        `[...document.querySelectorAll("[data-aperture-surface]")].some((surface) => surface.getBoundingClientRect().width > 0)`,
+        "60 seconds",
+      );
+      // Who is there is told a moment after the picture is.
+      yield* Viewer.ready(page);
+      const me = yield* page.evaluate(
+        `(() => {
+          const { presence } = apertureSession.getSnapshot();
+          return presence.members.find((member) => member.id === presence.you)?.name ?? "";
+        })()`,
+        Schema.String,
+      );
+      expect(me).toBe("Mira");
       expect(page.errors()).toEqual([]);
     }),
   );

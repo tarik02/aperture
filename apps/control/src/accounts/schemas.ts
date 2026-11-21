@@ -12,6 +12,8 @@ export const Account = Schema.Struct({
   name: Schema.String,
   admin: Schema.Boolean,
   kind: AccountKind,
+  /** The address a person signs in with; none for a service. */
+  email: Schema.NullOr(Schema.String),
   createdAt: Schema.DateTimeUtcFromDate,
 });
 export type Account = typeof Account.Type;

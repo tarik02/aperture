@@ -60,6 +60,9 @@ Where accounts keep sessions and snapshots together: what is a workspace's is al
 **Service account**:
 An account for something that is not a person: it comes with API tokens alone. It holds sessions and snapshots and is let into workspaces as a person's account is.
 
+**Person**:
+Someone who signs in: known by an email address and proven by a password of their own, which they set with a setup link an admin gives them. A person has one account, and nobody makes themselves a person.
+
 **Session path**:
 Where a session is reached through a proxy that stands before the nodes, below the proxy's own address: `/n/<node>/sessions/<id>`. The proxy sends what comes there on to the node, once the control plane told it the request may pass and gave it a ticket to put on it; the ticket goes no further than the proxy. The path changes when the session moves to another node.
 

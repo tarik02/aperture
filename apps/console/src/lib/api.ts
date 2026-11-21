@@ -6,10 +6,14 @@ import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpApiClient from "effect/http-api/HttpApiClient";
 import { keepToken, token } from "#/lib/token.ts";
 
-const client = (bearer: string) =>
-  HttpApiClient.make(Api, {
-    transformClient: HttpClient.mapRequest(HttpClientRequest.bearerToken(bearer)),
-  });
+/** With no token, the browser's cookies say who asks: those of someone who signed in. */
+const client = (bearer: string | undefined) =>
+  HttpApiClient.make(
+    Api,
+    bearer === undefined
+      ? {}
+      : { transformClient: HttpClient.mapRequest(HttpClientRequest.bearerToken(bearer)) },
+  );
 
 /** The control plane's API as whoever holds a token has it. */
 export type Client = Effect.Success<ReturnType<typeof client>>;
@@ -27,7 +31,10 @@ export const isFailure = (error: unknown): error is Failure =>
  * One call of the API with a token, for what React waits on: it resolves with the answer
  * and rejects with what the API said instead.
  */
-export const callAs = <A, E>(bearer: string, use: (client: Client) => Effect.Effect<A, E>) =>
+export const callAs = <A, E>(
+  bearer: string | undefined,
+  use: (client: Client) => Effect.Effect<A, E>,
+) =>
   client(bearer).pipe(
     Effect.flatMap(use),
     Effect.provide(FetchHttpClient.layer),
@@ -43,8 +50,7 @@ export const callAs = <A, E>(bearer: string, use: (client: Client) => Effect.Eff
   );
 
 /** One call with the token that is signed in with. */
-export const call = <A, E>(use: (client: Client) => Effect.Effect<A, E>) =>
-  callAs(token() ?? "", use);
+export const call = <A, E>(use: (client: Client) => Effect.Effect<A, E>) => callAs(token(), use);
 
 const COOKIE = "/api/control/route/cookie";
 

@@ -11,6 +11,7 @@ export interface Caller {
     readonly name: string;
     readonly admin: boolean;
     readonly kind: "person" | "service";
+    readonly email: string | null;
     readonly createdAt: DateTime.Utc;
   }>;
   readonly admin: boolean;

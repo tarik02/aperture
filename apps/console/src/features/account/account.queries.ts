@@ -13,9 +13,24 @@ export function useAccountsQuery() {
 export function useCreateAccountMutation() {
   const queries = useQueryClient();
   return useMutation({
-    mutationFn: (name: string) => call((api) => api.accounts.create({ payload: { name } })),
+    mutationFn: (account: { name: string; email?: string }) =>
+      call((api) => api.accounts.create({ payload: account })),
     onError: (error) => toastMutationError(error, "The account was not made"),
     onSettled: () => queries.invalidateQueries({ queryKey: queryKeys.accounts }),
+  });
+}
+
+/** A link with which the person of an account sets a password. */
+export function useSetupLinkMutation() {
+  return useMutation({
+    mutationFn: async (accountId: string) => {
+      const { token } = await call((api) =>
+        api.accounts.createSetupToken({ params: { id: accountId } }),
+      );
+      // After the `#`, so the token is sent nowhere when the link is opened.
+      return `${location.origin}/invite#token=${encodeURIComponent(token)}`;
+    },
+    onError: (error) => toastMutationError(error, "The link was not made"),
   });
 }
 

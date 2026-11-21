@@ -6,16 +6,11 @@ import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Option from "effect/Option";
 import { Accounts } from "../accounts/service.ts";
 import { Forbidden, Unauthorized } from "../errors.ts";
+import { bearerOf, callerOf, TOKEN_COOKIE } from "./caller.ts";
 import { nodePath } from "../routing/paths.ts";
 import { ADMIT_PATH } from "../routing/layer.ts";
 import { Routing } from "../routing/service.ts";
 
-/**
- * Carries an account's API token for a browser, which cannot put one on the requests a
- * page makes by itself: a picture, a socket. It is sent to sessions' paths and nowhere
- * else, so nothing is done in the API by a page that merely has it.
- */
-const COOKIE = "aperture_control";
 const COOKIE_PATH = `${PREFIX}/route/cookie`;
 const PROXY_CONFIG_PATH = `${PREFIX}/route/traefik`;
 
@@ -26,21 +21,6 @@ const STATUS = {
   SessionHasNoNode: 409,
   SessionElsewhere: 409,
 } as const;
-
-const BEARER = /^Bearer\s+(.+)$/iu;
-
-const bearer = (request: HttpServerRequest.HttpServerRequest) =>
-  Option.fromUndefinedOr(BEARER.exec(request.headers["authorization"] ?? "")?.[1]);
-
-/** The token a request carries: as an API's caller sends one, or as a browser does. */
-const token = (request: HttpServerRequest.HttpServerRequest) =>
-  bearer(request).pipe(
-    Option.orElse(() => Option.fromUndefinedOr(request.cookies[COOKIE])),
-    Option.match({
-      onNone: () => Effect.fail(new Unauthorized({ message: "the request carries no token" })),
-      onSome: Effect.succeed,
-    }),
-  );
 
 const refused = (error: { readonly _tag: keyof typeof STATUS }) =>
   Effect.succeed(HttpServerResponse.jsonUnsafe(error, { status: STATUS[error._tag] }));
@@ -54,7 +34,7 @@ export const layer = HttpRouter.use(
     const admit = Effect.fn("Routing.http.admit")(function* (
       request: HttpServerRequest.HttpServerRequest,
     ) {
-      const caller = yield* accounts.identify(yield* token(request));
+      const caller = yield* callerOf(accounts, request);
       // The proxy asks with a request of its own, and says in this what it was asked.
       const ticket = yield* routing.admit(caller, request.headers["x-forwarded-uri"] ?? "");
       return HttpServerResponse.empty({ headers: { authorization: `Bearer ${ticket}` } });
@@ -63,13 +43,13 @@ export const layer = HttpRouter.use(
     const keep = Effect.fn("Routing.http.keep")(function* (
       request: HttpServerRequest.HttpServerRequest,
     ) {
-      const given = yield* Option.match(bearer(request), {
+      const given = yield* Option.match(bearerOf(request), {
         onNone: () => Effect.fail(new Unauthorized({ message: "the request carries no token" })),
         onSome: Effect.succeed,
       });
       yield* accounts.identify(given);
       return yield* HttpServerResponse.empty().pipe(
-        HttpServerResponse.setCookie(COOKIE, given, {
+        HttpServerResponse.setCookie(TOKEN_COOKIE, given, {
           httpOnly: true,
           sameSite: "strict",
           secure: request.headers["x-forwarded-proto"] === "https",
@@ -81,14 +61,14 @@ export const layer = HttpRouter.use(
 
     const forget = () =>
       HttpServerResponse.empty().pipe(
-        HttpServerResponse.setCookie(COOKIE, "", { path: nodePath(""), maxAge: 0 }),
+        HttpServerResponse.setCookie(TOKEN_COOKIE, "", { path: nodePath(""), maxAge: 0 }),
         Effect.orDie,
       );
 
     const proxyConfig = Effect.fn("Routing.http.proxyConfig")(function* (
       request: HttpServerRequest.HttpServerRequest,
     ) {
-      const caller = yield* accounts.identify(yield* token(request));
+      const caller = yield* callerOf(accounts, request);
       if (!caller.admin) {
         return yield* new Forbidden({ message: "the routes are an admin's to read" });
       }

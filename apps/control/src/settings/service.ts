@@ -15,6 +15,12 @@ export interface SettingsShape {
    */
   readonly internalUrl: string;
   /**
+   * Where people reach this program from outside, such as `https://aperture.example`:
+   * what signs them in takes requests from pages of that origin alone. Without it, the
+   * origin is whatever a request says it came to.
+   */
+  readonly publicUrl: Option.Option<string>;
+  /**
    * A directory with the console as it is built, which this program then serves beside
    * its API; none where something else serves the console, or nobody uses one.
    */

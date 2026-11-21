@@ -13,6 +13,8 @@ import type { Workspace, WorkspaceRole } from "../workspaces/schemas.ts";
  */
 export interface MemoryShape {
   readonly accounts: Map<string, Account>;
+  /** The accounts people sign in as, by who signs in. */
+  readonly accountsOfPeople: Map<string, string>;
   /** By the token's digest. */
   readonly apiTokens: Map<string, ApiToken>;
   /** By the token's digest. */
@@ -34,6 +36,7 @@ export class Memory extends Context.Service<Memory, MemoryShape>()(
 export const layer = Layer.sync(Memory, () =>
   Memory.of({
     accounts: new Map(),
+    accountsOfPeople: new Map(),
     apiTokens: new Map(),
     registrationTokens: new Map(),
     nodes: new Map(),

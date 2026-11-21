@@ -5,12 +5,19 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import type * as Duration from "effect/Duration";
-import { AccountNotFound, ApiTokenNotFound, Unauthorized } from "../errors.ts";
+import {
+  AccountInvalid,
+  AccountNotFound,
+  ApiTokenNotFound,
+  PersonNotFound,
+  Unauthorized,
+} from "../errors.ts";
+import { Identity } from "../identity/service.ts";
 import * as Secrets from "../secrets.ts";
 import { Settings } from "../settings/service.ts";
 import { after, now } from "../time.ts";
 import { accountOf, reaches } from "./caller.ts";
-import type { AccountKind } from "./schemas.ts";
+import type { Account, AccountKind } from "./schemas.ts";
 import { Accounts } from "./service.ts";
 import { AccountsStore } from "./store.ts";
 import { WorkspacesStore } from "../workspaces/store.ts";
@@ -18,6 +25,7 @@ import { WorkspacesStore } from "../workspaces/store.ts";
 export const makeAccounts = Effect.fn("Accounts.make")(function* () {
   const store = yield* AccountsStore;
   const workspaces = yield* WorkspacesStore;
+  const identity = yield* Identity;
   const settings = yield* Settings;
   const crypto = yield* Effect.context<Crypto.Crypto>();
   const bootstrap = yield* Secrets.hash(Redacted.value(settings.bootstrapToken));
@@ -26,15 +34,58 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     readonly name: string;
     readonly admin: boolean;
     readonly kind: AccountKind;
+    readonly email: string | undefined;
   }) {
+    if ((account.kind === "person") !== (account.email !== undefined)) {
+      return yield* new AccountInvalid({
+        message: "a person's account has an email address, and a service's has none",
+      });
+    }
+    const person =
+      account.email === undefined
+        ? null
+        : yield* identity.create({ email: account.email, name: account.name });
     return yield* store.insert({
       id: yield* Secrets.id,
       name: account.name,
       admin: account.admin,
       kind: account.kind,
+      person,
       createdAt: yield* now,
     });
   }, Effect.provide(crypto));
+
+  const setupToken = Effect.fn("Accounts.setupToken")(function* (accountId: string) {
+    const account = yield* store.find(accountId);
+    if (Option.isNone(account)) {
+      return yield* new AccountNotFound({ id: accountId });
+    }
+    if (account.value.email === null) {
+      return yield* new PersonNotFound({ email: "" });
+    }
+    return yield* identity.setupToken(account.value.email);
+  });
+
+  /** The caller an account is, with the workspaces it is in. */
+  const callerOf = Effect.fn(function* (account: Account) {
+    const joined = yield* workspaces.of(account.id);
+    return {
+      account: Option.some(account),
+      admin: account.admin,
+      workspaces: joined.map(({ workspace, role }) => ({ id: workspace.id, role })),
+    } satisfies Caller;
+  });
+
+  const ofPerson = Effect.fn("Accounts.ofPerson")(function* (headers: Headers) {
+    const person = yield* identity.personOf(headers);
+    const account = Option.isNone(person)
+      ? Option.none<Account>()
+      : yield* store.findByPerson(person.value.id);
+    if (Option.isNone(account)) {
+      return yield* new Unauthorized({ message: "nobody is signed in" });
+    }
+    return yield* callerOf(account.value);
+  });
 
   const list = Effect.fn("Accounts.list")(function* () {
     return yield* store.list();
@@ -71,12 +122,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     if (Option.isNone(account)) {
       return yield* new Unauthorized({ message: "that is no token of an account" });
     }
-    const joined = yield* workspaces.of(account.value.id);
-    return {
-      account,
-      admin: account.value.admin,
-      workspaces: joined.map(({ workspace, role }) => ({ id: workspace.id, role })),
-    } satisfies Caller;
+    return yield* callerOf(account.value);
   }, Effect.provide(crypto));
 
   const tokens = Effect.fn("Accounts.tokens")(function* (caller: Caller) {
@@ -94,7 +140,16 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     yield* store.revokeToken(id, yield* now);
   });
 
-  return Accounts.of({ create, list, createToken, tokens, revokeToken, identify });
+  return Accounts.of({
+    create,
+    setupToken,
+    ofPerson,
+    list,
+    createToken,
+    tokens,
+    revokeToken,
+    identify,
+  });
 });
 
 export const layer = Layer.effect(Accounts, makeAccounts());

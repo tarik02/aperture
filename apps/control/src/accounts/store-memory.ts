@@ -16,9 +16,13 @@ export const makeAccountsStoreMemory = Effect.fn("AccountsStore.makeMemory")(fun
         name: account.name,
         admin: account.admin,
         kind: account.kind,
+        email: account.person?.email ?? null,
         createdAt: moment(account.createdAt),
       };
       memory.accounts.set(kept.id, kept);
+      if (account.person !== null) {
+        memory.accountsOfPeople.set(account.person.id, kept.id);
+      }
       return kept;
     }),
   );
@@ -29,6 +33,14 @@ export const makeAccountsStoreMemory = Effect.fn("AccountsStore.makeMemory")(fun
 
   const find = Effect.fn("AccountsStore.find")((id: string) =>
     Effect.sync(() => Option.fromUndefinedOr(memory.accounts.get(id))),
+  );
+
+  const findByPerson = Effect.fn("AccountsStore.findByPerson")((personId: string) =>
+    Effect.sync(() =>
+      Option.fromUndefinedOr(memory.accountsOfPeople.get(personId)).pipe(
+        Option.flatMap((id) => Option.fromUndefinedOr(memory.accounts.get(id))),
+      ),
+    ),
   );
 
   const insertToken = Effect.fn("AccountsStore.insertToken")((token: NewApiToken) =>
@@ -88,6 +100,7 @@ export const makeAccountsStoreMemory = Effect.fn("AccountsStore.makeMemory")(fun
     insert,
     list,
     find,
+    findByPerson,
     insertToken,
     listTokens,
     findToken,

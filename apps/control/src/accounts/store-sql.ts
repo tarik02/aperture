@@ -13,9 +13,10 @@ export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
 
   const insert = Effect.fn("AccountsStore.insert")(function* (account: NewAccount) {
     return yield* sql`
-      INSERT INTO accounts (id, name, admin, kind, created_at)
+      INSERT INTO accounts (id, name, admin, kind, person_id, email, created_at)
       VALUES (
-        ${account.id}, ${account.name}, ${account.admin}, ${account.kind}, ${account.createdAt}
+        ${account.id}, ${account.name}, ${account.admin}, ${account.kind},
+        ${account.person?.id ?? null}, ${account.person?.email ?? null}, ${account.createdAt}
       )
       RETURNING *
     `.pipe(one(Account));
@@ -27,6 +28,10 @@ export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
 
   const find = Effect.fn("AccountsStore.find")(function* (id: string) {
     return yield* sql`SELECT * FROM accounts WHERE id = ${id}`.pipe(first(Account));
+  });
+
+  const findByPerson = Effect.fn("AccountsStore.findByPerson")(function* (personId: string) {
+    return yield* sql`SELECT * FROM accounts WHERE person_id = ${personId}`.pipe(first(Account));
   });
 
   const insertToken = Effect.fn("AccountsStore.insertToken")(function* (given: NewApiToken) {
@@ -74,6 +79,7 @@ export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
     insert,
     list,
     find,
+    findByPerson,
     insertToken,
     listTokens,
     findToken,

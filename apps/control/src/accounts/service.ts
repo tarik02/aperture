@@ -2,7 +2,15 @@ import type { Caller } from "@aperture-browser/control-api";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as Duration from "effect/Duration";
-import type { AccountNotFound, ApiTokenNotFound, Forbidden, Unauthorized } from "../errors.ts";
+import type {
+  AccountInvalid,
+  AccountNotFound,
+  ApiTokenNotFound,
+  EmailTaken,
+  Forbidden,
+  PersonNotFound,
+  Unauthorized,
+} from "../errors.ts";
 import type { Account, AccountKind, ApiToken } from "./schemas.ts";
 
 /** Accounts, their API tokens, and whose a token is. */
@@ -11,7 +19,15 @@ export interface AccountsShape {
     readonly name: string;
     readonly admin: boolean;
     readonly kind: AccountKind;
-  }) => Effect.Effect<Account>;
+    /** The address a person signs in with; a person's account has one, and a service's none. */
+    readonly email: string | undefined;
+  }) => Effect.Effect<Account, EmailTaken | AccountInvalid>;
+  /** A token with which the person of an account sets a password: a first one, or another. */
+  readonly setupToken: (
+    accountId: string,
+  ) => Effect.Effect<string, AccountNotFound | PersonNotFound>;
+  /** Who a browser's cookies sign in. */
+  readonly ofPerson: (headers: Headers) => Effect.Effect<Caller, Unauthorized>;
   readonly list: () => Effect.Effect<ReadonlyArray<Account>>;
   /** A new API token of the account. The secret is told here and kept nowhere. */
   readonly createToken: (

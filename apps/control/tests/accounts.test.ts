@@ -1,6 +1,9 @@
 import { suite } from "@aperture-browser/e2e/src/suite.ts";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Cookies from "effect/http/Cookies";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Control from "./src/control.ts";
@@ -77,6 +80,62 @@ for (const stores of Control.STORES) {
         const kept = (yield* lin.api.accounts.tokens()).find((token) => token.id === made.id);
         expect(kept?.revokedAt).not.toBeNull();
       }),
+    );
+
+    it.effect(
+      "a person sets a password with a setup token, signs in, and is who the cookies say",
+      () =>
+        Effect.gen(function* () {
+          const control = yield* Control.Control;
+          const http = yield* HttpClient.HttpClient;
+          const bootstrap = yield* control.as(control.bootstrapToken);
+          const email = `mira-${stores}@example.test`;
+          const mira = yield* bootstrap.accounts.create({ payload: { name: "Mira", email } });
+          expect(mira).toMatchObject({ kind: "person", email });
+          const again = yield* Effect.flip(
+            bootstrap.accounts.create({ payload: { name: "Mira", email } }),
+          );
+          expect(again._tag).toBe("EmailTaken");
+
+          const post = (path: string, body: object) =>
+            http.execute(
+              HttpClientRequest.post(`${control.url}${path}`).pipe(
+                HttpClientRequest.setHeader("origin", control.url),
+                HttpClientRequest.bodyJsonUnsafe(body),
+              ),
+            );
+          // Nobody makes themselves a person, and nobody signs in before a password is set.
+          const password = "a password of Mira's own";
+          expect(
+            (yield* post("/api/auth/sign-up/email", {
+              email: "x@example.test",
+              name: "X",
+              password,
+            })).status,
+          ).toBe(404);
+          expect((yield* post("/api/auth/sign-in/email", { email, password })).status).toBe(401);
+
+          const { token } = yield* bootstrap.accounts.createSetupToken({ params: { id: mira.id } });
+          expect(
+            (yield* post("/api/auth/reset-password", { token, newPassword: password })).status,
+          ).toBe(200);
+          const signedIn = yield* post("/api/auth/sign-in/email", { email, password });
+          expect(signedIn.status).toBe(200);
+          expect(Object.keys(Cookies.toRecord(signedIn.cookies)).length).toBeGreaterThan(0);
+          const cookie = Object.entries(Cookies.toRecord(signedIn.cookies))
+            .map(([name, value]) => `${name}=${encodeURIComponent(value)}`)
+            .join("; ");
+
+          const current = yield* http.execute(
+            HttpClientRequest.get(`${control.url}/api/control/account`).pipe(
+              HttpClientRequest.setHeader("cookie", cookie),
+            ),
+          );
+          expect(current.status).toBe(200);
+          expect(yield* current.json).toMatchObject({ id: mira.id, name: "Mira" });
+          // No cookies, no person.
+          expect((yield* http.get(`${control.url}/api/control/account`)).status).toBe(401);
+        }),
     );
 
     it.effect("an account that is no admin makes neither accounts nor tokens", () =>
