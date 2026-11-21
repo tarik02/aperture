@@ -45,7 +45,7 @@ export const makeSnapshots = Effect.fn("Snapshots.make")(function* () {
     options: {
       readonly name: string | undefined;
       readonly description: string | undefined;
-      readonly tags: ReadonlyArray<string>;
+      readonly tags: Readonly<Record<string, string>>;
     },
   ) {
     const { session, node } = yield* sessions.placed(caller, sessionId);

@@ -15,7 +15,7 @@ export const Session = Schema.Struct({
   snapshotId: Schema.NullOr(Schema.String),
   /** What its owner calls it. */
   label: Schema.NullOr(Schema.String),
-  tags: Schema.Array(Schema.String),
+  tags: Schema.Record(Schema.String, Schema.String),
   createdAt: Schema.DateTimeUtcFromDate,
   observedAt: Schema.DateTimeUtcFromDate,
 });

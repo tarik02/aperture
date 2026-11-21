@@ -19,7 +19,7 @@ export interface NewSessionOptions {
   readonly suspended: boolean;
   readonly snapshotId: string | undefined;
   readonly label: string | undefined;
-  readonly tags: ReadonlyArray<string>;
+  readonly tags: Readonly<Record<string, string>>;
 }
 
 /** What asking a session's node for something may come to. */

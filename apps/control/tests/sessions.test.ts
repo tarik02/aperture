@@ -204,22 +204,25 @@ for (const stores of Control.STORES) {
         // What a session and a snapshot are called and tagged with is their owner's to change.
         const named = yield* ada.api.sessions.describe({
           params: { id: session },
-          payload: { label: "Checkout flow", tags: ["shop", "qa"] },
+          payload: { label: "Checkout flow", tags: { team: "shop", stage: "qa" } },
         });
-        expect(named).toMatchObject({ label: "Checkout flow", tags: ["shop", "qa"] });
+        expect(named).toMatchObject({
+          label: "Checkout flow",
+          tags: { team: "shop", stage: "qa" },
+        });
         const retagged = yield* ada.api.sessions.describe({
           params: { id: session },
-          payload: { tags: ["shop"] },
+          payload: { tags: { team: "shop" } },
         });
-        expect(retagged).toMatchObject({ label: "Checkout flow", tags: ["shop"] });
+        expect(retagged).toMatchObject({ label: "Checkout flow", tags: { team: "shop" } });
         const described = yield* ada.api.snapshots.describe({
           ...at,
-          payload: { description: "After signing in", tags: ["shop"] },
+          payload: { description: "After signing in", tags: { team: "shop" } },
         });
         expect(described).toMatchObject({
           name: "signed in",
           description: "After signing in",
-          tags: ["shop"],
+          tags: { team: "shop" },
         });
 
         yield* ada.api.snapshots.delete(at);

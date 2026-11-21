@@ -20,7 +20,7 @@ export interface SnapshotsShape {
     options: {
       readonly name: string | undefined;
       readonly description: string | undefined;
-      readonly tags: ReadonlyArray<string>;
+      readonly tags: Readonly<Record<string, string>>;
     },
   ) => Effect.Effect<Snapshot, SessionNotFound | SessionHasNoNode | NodeUnreachable | NodeRefused>;
   /** The caller's own snapshots; all of them for an admin. */

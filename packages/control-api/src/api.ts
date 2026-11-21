@@ -86,7 +86,7 @@ export const Session = Schema.Struct({
   unreachableSince: Schema.NullOr(Schema.DateTimeUtcFromString),
   snapshotId: Schema.NullOr(Schema.String),
   label: Schema.NullOr(Schema.String),
-  tags: Schema.Array(Schema.String),
+  tags: Schema.Record(Schema.String, Schema.String),
   createdAt: Schema.DateTimeUtcFromString,
   observedAt: Schema.DateTimeUtcFromString,
   /**
@@ -101,7 +101,7 @@ export const Snapshot = Schema.Struct({
   accountId: Schema.String,
   name: Schema.NullOr(Schema.String),
   description: Schema.NullOr(Schema.String),
-  tags: Schema.Array(Schema.String),
+  tags: Schema.Record(Schema.String, Schema.String),
   sessionId: Schema.NullOr(Schema.String),
   nodeId: Schema.NullOr(Schema.String),
   shared: Schema.Boolean,
@@ -129,8 +129,8 @@ export class Authorization extends HttpApiMiddleware.Service<
 }) {}
 
 const session = { id: Schema.String };
-/** Words a session or a snapshot is found by. */
-const Tags = Schema.Array(Schema.NonEmptyString);
+/** What a session or a snapshot is found by: names, each with what it is set to. */
+const Tags = Schema.Record(Schema.NonEmptyString, Schema.String);
 const ofNode = [SessionNotFound, SessionHasNoNode, NodeUnreachable, NodeRefused] as const;
 
 export class AccountsGroup extends HttpApiGroup.make("accounts")

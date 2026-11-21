@@ -137,7 +137,7 @@ const sessions = HttpApiBuilder.group(
             suspended: payload.suspended ?? false,
             snapshotId: payload.snapshotId,
             label: payload.label,
-            tags: payload.tags ?? [],
+            tags: payload.tags ?? {},
           }),
         ).pipe(Effect.map(told)),
       )
@@ -187,7 +187,7 @@ const snapshots = HttpApiBuilder.group(
           snapshots.take(caller, params.id, {
             name: payload.name,
             description: payload.description,
-            tags: payload.tags ?? [],
+            tags: payload.tags ?? {},
           }),
         ),
       )

@@ -61,7 +61,7 @@ const initial = statements([
     account_id uuid NOT NULL REFERENCES accounts (id),
     name text,
     description text,
-    tags jsonb NOT NULL DEFAULT '[]',
+    tags jsonb NOT NULL DEFAULT '{}',
     session_id text,
     node_id uuid REFERENCES nodes (id) ON DELETE SET NULL,
     shared boolean NOT NULL,
@@ -82,7 +82,7 @@ const initial = statements([
     unreachable_since timestamptz,
     snapshot_id text,
     label text,
-    tags jsonb NOT NULL DEFAULT '[]',
+    tags jsonb NOT NULL DEFAULT '{}',
     created_at timestamptz NOT NULL,
     observed_at timestamptz NOT NULL
   )`,

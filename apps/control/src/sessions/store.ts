@@ -13,14 +13,14 @@ export interface NewSession {
   readonly failure: string | null;
   readonly snapshotId: string | null;
   readonly label: string | null;
-  readonly tags: ReadonlyArray<string>;
+  readonly tags: Readonly<Record<string, string>>;
   readonly createdAt: Date;
   readonly now: Date;
 }
 
 export interface SessionDescription {
   readonly label?: string | null | undefined;
-  readonly tags?: ReadonlyArray<string> | undefined;
+  readonly tags?: Readonly<Record<string, string>> | undefined;
 }
 
 /** Where the records of sessions are kept: whose each is, where it runs, how it was last seen. */

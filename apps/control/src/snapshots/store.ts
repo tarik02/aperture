@@ -8,7 +8,7 @@ export interface NewSnapshot {
   readonly accountId: string;
   readonly name: string | null;
   readonly description: string | null;
-  readonly tags: ReadonlyArray<string>;
+  readonly tags: Readonly<Record<string, string>>;
   readonly sessionId: string;
   readonly nodeId: string;
   readonly shared: boolean;
@@ -18,7 +18,7 @@ export interface NewSnapshot {
 export interface SnapshotDescription {
   readonly name?: string | null | undefined;
   readonly description?: string | null | undefined;
-  readonly tags?: ReadonlyArray<string> | undefined;
+  readonly tags?: Readonly<Record<string, string>> | undefined;
 }
 
 /** Where the records of snapshots are kept: whose each is, and where it is found. */
