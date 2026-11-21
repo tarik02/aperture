@@ -1,5 +1,5 @@
 import { type Answer, request } from "@aperture-browser/e2e/src/http.ts";
-import { directory } from "@aperture-browser/e2e/src/process.ts";
+import { directory, freePort } from "@aperture-browser/e2e/src/process.ts";
 import * as PgClient from "@effect/sql-pg/PgClient";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Context from "effect/Context";
@@ -114,7 +114,10 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
     Base64.encode(crypto.getRandomValues(new Uint8Array(MASTER_KEY_BYTES))),
   );
 
+  // Its own address is what it tells a proxy to ask it at.
+  const port = yield* freePort;
   const environment = ConfigProvider.fromEnvRecord({
+    APERTURE_CONTROL_LISTEN_PORT: String(port),
     APERTURE_CONTROL_MASTER_KEY: masterKey,
     APERTURE_CONTROL_DATABASE_URL: postgres?.url ?? "postgres://nowhere",
     APERTURE_CONTROL_BOOTSTRAP_TOKEN: BOOTSTRAP,
@@ -125,7 +128,7 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
   });
   const running = yield* Layer.build(
     (postgres === undefined ? App.layerTest : App.layer).pipe(
-      Layer.provideMerge(Server.listen({ host: "127.0.0.1", port: 0 })),
+      Layer.provideMerge(Server.listen({ host: "127.0.0.1", port })),
       Layer.provide(Settings.layer),
       Layer.provide(ConfigProvider.layer(environment)),
       // Every request it answers is a line otherwise.

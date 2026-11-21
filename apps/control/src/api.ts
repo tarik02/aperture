@@ -78,6 +78,11 @@ export const Session = Schema.Struct({
   snapshotId: Schema.NullOr(Schema.String),
   createdAt: Schema.DateTimeUtcFromString,
   observedAt: Schema.DateTimeUtcFromString,
+  /**
+   * Where the session is reached through a proxy before the nodes, below the proxy's own
+   * address; none for a session on no node. It changes when the session moves.
+   */
+  path: Schema.NullOr(Schema.String),
 });
 
 export const Snapshot = Schema.Struct({

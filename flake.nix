@@ -341,6 +341,7 @@
             pkgs.rust-analyzer
             pkgs.buf
             pkgs.postgresql
+            pkgs.traefik
             pkgs.pkg-config
             nodeRuntime
             pnpmLatest

@@ -54,6 +54,9 @@ A machine with an executor on it, as the control plane knows it: its name, where
 **Registration token**:
 What lets an executor tell a control plane it is a node of it. An admin makes it; several can be good at once.
 
+**Session path**:
+Where a session is reached through a proxy that stands before the nodes, below the proxy's own address: `/n/<node>/sessions/<id>`. The proxy sends what comes there on to the node, once the control plane told it the request may pass and gave it a ticket to put on it; the ticket goes no further than the proxy. The path changes when the session moves to another node.
+
 **Master key**:
 The one secret a control plane is given beside its database: what it has to read again, such as a node's operator token, is kept sealed with a key made of it. It is not in the database, and stays the same for as long as what was sealed is to be read.
 

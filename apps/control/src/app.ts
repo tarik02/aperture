@@ -10,9 +10,11 @@ import * as Following from "./following.ts";
 import * as Authorization from "./http/authorization.ts";
 import * as Handlers from "./http/handlers.ts";
 import * as NodeServiceRoutes from "./http/nodeService.ts";
+import * as RoutingRoutes from "./http/routing.ts";
 import * as Nodes from "./nodes/layer.ts";
 import * as NodesStoreMemory from "./nodes/store-memory.ts";
 import * as NodesStoreSql from "./nodes/store-sql.ts";
+import * as Routing from "./routing/layer.ts";
 import * as Sessions from "./sessions/layer.ts";
 import * as SessionsStoreMemory from "./sessions/store-memory.ts";
 import * as SessionsStoreSql from "./sessions/store-sql.ts";
@@ -40,7 +42,7 @@ export const storesTest = Layer.mergeAll(
 ).pipe(Layer.provide(Memory.layer));
 
 /** What the control plane knows and does, whoever asks: over HTTP, or by itself. */
-export const services = Snapshots.layer.pipe(
+export const services = Layer.mergeAll(Snapshots.layer, Routing.layer).pipe(
   Layer.provideMerge(Sessions.layer),
   Layer.provideMerge(Layer.mergeAll(Accounts.layer, Nodes.layer, Tickets.layer)),
   Layer.provide(Vault.layer),
@@ -52,7 +54,7 @@ const api = HttpApiBuilder.layer(Api, { openapiPath: `${PREFIX}/openapi.json` })
 );
 
 const serving = Layer.mergeAll(
-  HttpRouter.serve(Layer.mergeAll(api, NodeServiceRoutes.layer)),
+  HttpRouter.serve(Layer.mergeAll(api, NodeServiceRoutes.layer, RoutingRoutes.layer)),
   Following.layer,
 ).pipe(Layer.provide(services));
 

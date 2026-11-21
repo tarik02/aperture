@@ -8,6 +8,11 @@ export interface SettingsShape {
   readonly databaseUrl: Redacted.Redacted;
   readonly listenHost: string;
   readonly listenPort: number;
+  /**
+   * Where a proxy before the nodes reaches this program, such as `http://10.0.0.2:7800`.
+   * The address it listens on by default.
+   */
+  readonly internalUrl: string;
   /** Lets its holder do what an admin does before there is any account. */
   readonly bootstrapToken: Redacted.Redacted;
   /**

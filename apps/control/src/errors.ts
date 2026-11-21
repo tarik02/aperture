@@ -102,3 +102,10 @@ export class SnapshotNotFound extends Schema.TaggedError<SnapshotNotFound>()(
   { id: Schema.String },
   { httpApiStatus: 404 },
 ) {}
+
+/** The session is on another node than the request went to: `path` is where it is now. */
+export class SessionElsewhere extends Schema.TaggedError<SessionElsewhere>()(
+  "SessionElsewhere",
+  { id: Schema.String, path: Schema.String },
+  { httpApiStatus: 409 },
+) {}

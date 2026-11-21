@@ -6,6 +6,8 @@ import { Accounts } from "../accounts/service.ts";
 import { Api, CurrentCaller } from "../api.ts";
 import { Forbidden } from "../errors.ts";
 import { Nodes } from "../nodes/service.ts";
+import { sessionPath } from "../routing/paths.ts";
+import type { Session } from "../sessions/schemas.ts";
 import { Sessions } from "../sessions/service.ts";
 import { Snapshots } from "../snapshots/service.ts";
 
@@ -88,29 +90,46 @@ const nodes = HttpApiBuilder.group(
   }),
 );
 
+/** A session as the API tells it: with where a proxy before the nodes has it. */
+const told = (session: Session) => ({
+  ...session,
+  path: session.nodeId === null ? null : sessionPath(session.nodeId, session.id),
+});
+
 const sessions = HttpApiBuilder.group(
   Api,
   "sessions",
   Effect.fn(function* (handlers) {
     const sessions = yield* Sessions;
     return handlers
-      .handle("list", () => Effect.flatMap(CurrentCaller, sessions.list))
+      .handle("list", () =>
+        CurrentCaller.pipe(
+          Effect.flatMap(sessions.list),
+          Effect.map((all) => all.map(told)),
+        ),
+      )
       .handle("create", ({ payload }) =>
         Effect.flatMap(CurrentCaller, (caller) =>
           sessions.create(caller, {
             suspended: payload.suspended ?? false,
             snapshotId: payload.snapshotId,
           }),
-        ),
+        ).pipe(Effect.map(told)),
       )
       .handle("get", ({ params }) =>
-        Effect.flatMap(CurrentCaller, (caller) => sessions.get(caller, params.id)),
+        Effect.flatMap(CurrentCaller, (caller) => sessions.get(caller, params.id)).pipe(
+          Effect.map(told),
+        ),
       )
       .handle("suspend", ({ params }) =>
-        Effect.flatMap(CurrentCaller, (caller) => sessions.suspend(caller, params.id)),
+        Effect.flatMap(CurrentCaller, (caller) => sessions.suspend(caller, params.id)).pipe(
+          Effect.map(told),
+        ),
       )
       .handle("resume", ({ params }) =>
-        Effect.flatMap(CurrentCaller, (caller) => sessions.resume(caller, params.id)),
+        Effect.flatMap(CurrentCaller, (caller) => sessions.resume(caller, params.id)).pipe(
+          Effect.map(told),
+        ),
       )
       .handle("delete", ({ params }) =>
         Effect.flatMap(CurrentCaller, (caller) => sessions.delete(caller, params.id)),
