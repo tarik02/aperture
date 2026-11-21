@@ -13,7 +13,7 @@ mod mcp;
 mod net;
 pub mod record;
 mod rtc;
-mod shots;
+pub mod shots;
 pub mod sound;
 mod state;
 pub mod stream;

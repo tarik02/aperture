@@ -302,3 +302,6 @@ pub fn is_alive(runtime_dir: &Path) -> io::Result<bool> {
         Err(fs::TryLockError::Error(err)) => Err(err),
     }
 }
+
+/// The picture of what a session showed last, in what its runner keeps of it.
+pub const PREVIEW: &str = "preview.png";

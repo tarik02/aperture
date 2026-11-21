@@ -21,7 +21,13 @@ use aperture_store::{
     Store,
     remote::{Remote, Tools},
 };
-use axum::{Router, routing::get};
+use axum::{
+    Router,
+    extract::Path,
+    http::{StatusCode, header},
+    response::{IntoResponse, Response},
+    routing::get,
+};
 use clap::Parser;
 use tracing::{info, warn};
 
@@ -287,8 +293,14 @@ async fn main() -> anyhow::Result<()> {
 
     let connect = connectrpc::Router::new().add_service(Arc::new(rpc::Executor(sessions.clone())));
     let shown = !arguments.no_viewer;
-    let session = aperture_gateway::router(Arc::new(Door(sessions)), shown);
-    let mut routes = Router::new().nest(&sessions::path("{id}"), session);
+    let session = aperture_gateway::router(Arc::new(Door(sessions.clone())), shown);
+    let previews = sessions.clone();
+    let mut routes = Router::new()
+        .route(
+            &format!("{}/preview.png", sessions::path("{id}")),
+            get(move |Path(id): Path<String>| async move { preview(&previews, &id) }),
+        )
+        .nest(&sessions::path("{id}"), session);
     if shown {
         // Routes mounted below a path are not at the path with a slash after it.
         let with_slash = format!("{}/", sessions::path("{id}"));
@@ -328,6 +340,26 @@ async fn main() -> anyhow::Result<()> {
         })
         .await?;
     Ok(())
+}
+
+/// The picture of a session at rest. It is served here and not by the session, which
+/// answers only while it runs.
+fn preview(sessions: &Sessions, id: &str) -> Response {
+    match sessions.preview(id) {
+        Ok(Some(picture)) => (
+            [
+                (header::CONTENT_TYPE, "image/png"),
+                (header::CACHE_CONTROL, "no-cache"),
+            ],
+            picture,
+        )
+            .into_response(),
+        Ok(None) | Err(sessions::Error::Store(_)) => StatusCode::NOT_FOUND.into_response(),
+        Err(err) => {
+            warn!(session = %id, "the session's picture is not read: {err}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
 fn xdg(variable: &str, fallback: &str) -> anyhow::Result<PathBuf> {

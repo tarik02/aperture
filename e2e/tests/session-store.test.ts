@@ -3,10 +3,14 @@ import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import type { ExecutorService } from "../src/executor.ts";
 import { refusal } from "../src/http.ts";
+import * as Node from "../src/node.ts";
 import { cookiesLeft, leaveCookie } from "../src/profile.ts";
 import { Nodes } from "../src/store.ts";
 import * as Store from "../src/store.ts";
 import { suite } from "../src/suite.ts";
+
+const PNG = [0x89, 0x50, 0x4e, 0x47];
+const isPng = (bytes: Uint8Array) => PNG.every((byte, at) => bytes[at] === byte);
 
 const nodes = Store.layer((store) => ({
   features: ["cdp"],
@@ -29,12 +33,19 @@ suite(nodes)("sessions in a store that nodes share", (it) => {
 
       moved = yield* a.client.sessions.create();
       yield* leaveCookie(a, moved.id, "one");
+      // A session that was never suspended has no picture of what it showed last.
+      expect((yield* a.session(moved.id, "GET", "/preview.png")).status).toBe(404);
       const suspended = yield* a.client.sessions.suspend(moved.id);
       expect(suspended.state).toBe(proto.SessionState.SUSPENDED);
+      // Suspended, it has one, and asking for it leaves the session at rest.
+      expect(isPng(yield* Node.bytes(a, moved.id, "/preview.png"))).toBe(true);
+      expect((yield* a.client.sessions.get(moved.id)).state).toBe(proto.SessionState.SUSPENDED);
 
       const resumed = yield* b.client.sessions.resume(moved.id);
       expect(resumed.state).toBe(proto.SessionState.RUNNING);
       expect(yield* cookiesLeft(b, moved.id)).toEqual(["one"]);
+      // The picture came with the session, from the node that took it.
+      expect(isPng(yield* Node.bytes(b, moved.id, "/preview.png"))).toBe(true);
     }),
   );
 

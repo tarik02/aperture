@@ -334,6 +334,21 @@ impl Sessions {
         self.observe(self.store.session(id)?)
     }
 
+    /// The picture of what the session showed when it was last suspended; none for one
+    /// that never was. Asking for it reaches nobody: a session at rest stays at rest.
+    pub fn preview(&self, id: &str) -> Result<Option<Vec<u8>>> {
+        let picture = self
+            .store
+            .session_paths(id)?
+            .state
+            .join(aperture_runner::PREVIEW);
+        match fs::read(&picture) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(err) => Err(Error::Io(picture, err)),
+        }
+    }
+
     pub fn list(&self) -> Result<Vec<Session>> {
         self.store
             .sessions()?

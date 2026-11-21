@@ -38,6 +38,8 @@ use tracing::{info, warn};
 use crate::{alone::Front, live::record::Recordings};
 
 const TARGET_READY_WITHIN: Duration = Duration::from_secs(30);
+/// How long the session's last picture may take: stopping does not wait on it for long.
+const PREVIEW_WITHIN: Duration = Duration::from_secs(2);
 
 // Children are told to die with the thread that started them (see `own`). `main`'s future
 // runs on the main thread, the one that lives as long as the runner, so they are started
@@ -341,12 +343,38 @@ impl Session {
         write_status(&spec.runtime_dir, status)?;
         // The tabs are kept as they are now, not as the browser takes them down.
         self.registry.freeze();
+        self.keep_preview(spec).await;
         // While the browser still shows what they record.
         if let Some(recordings) = &self.recordings {
             recordings.stop_all().await;
         }
         browser::close(&cdp, browser).await;
         Ok(())
+    }
+
+    /// Keeps a small picture of what the session showed last, with what the runner keeps
+    /// of it: a session at rest is known by it, on whichever node it is looked at.
+    async fn keep_preview(&self, spec: &Spec) {
+        let Some(window) = self
+            .registry
+            .targets()
+            .borrow()
+            .first()
+            .map(|target| target.window)
+        else {
+            return;
+        };
+        let kept = async {
+            let frame = timeout(PREVIEW_WITHIN, self.compositor.screenshot(window)).await??;
+            let picture =
+                tokio::task::spawn_blocking(move || live::shots::preview(&frame)).await??;
+            tokio::fs::write(spec.state_dir.join(aperture_runner::PREVIEW), picture).await?;
+            anyhow::Ok(())
+        };
+        if let Err(err) = kept.await {
+            // The session is suspended all the same.
+            warn!(session = %spec.session_id, "no picture of the session is kept: {err:#}");
+        }
     }
 
     /// Connects to the browser and serves the session's live endpoints. Gives where they
