@@ -52,3 +52,13 @@ export class SecretFileUnusable extends Schema.TaggedError<SecretFileUnusable>()
     return `the secret in ${this.file} cannot be used: ${this.reason}`;
   }
 }
+
+/** What an app says of itself when it registers is nothing to register it by. */
+export class ClientInvalid extends Schema.TaggedError<ClientInvalid>()("ClientInvalid", {
+  message: Schema.String,
+}) {}
+
+/** What an app brought for tokens gets it none. */
+export class GrantRefused extends Schema.TaggedError<GrantRefused>()("GrantRefused", {
+  message: Schema.String,
+}) {}

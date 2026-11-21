@@ -7,6 +7,7 @@ import * as Option from "effect/Option";
 import { accountOf } from "../accounts/caller.ts";
 import { Accounts } from "../accounts/service.ts";
 import { Forbidden } from "../errors.ts";
+import { Grants } from "../grants/service.ts";
 import { Nodes } from "../nodes/service.ts";
 import { sessionPath } from "../routing/paths.ts";
 import type { Session } from "../sessions/schemas.ts";
@@ -122,6 +123,49 @@ const accounts = HttpApiBuilder.group(
       )
       .handle("revokeToken", ({ params }) =>
         Effect.flatMap(scoped("tokens:write"), (caller) => accounts.revokeToken(caller, params.id)),
+      );
+  }),
+);
+
+/** The address a person's browser goes to with what they decided, as OAuth has it. */
+const answered = (redirectUri: string, said: Readonly<Record<string, string | undefined>>) => {
+  const url = new URL(redirectUri);
+  for (const [name, value] of Object.entries(said)) {
+    if (value !== undefined) {
+      url.searchParams.set(name, value);
+    }
+  }
+  return url.toString();
+};
+
+const grants = HttpApiBuilder.group(
+  Api,
+  "grants",
+  Effect.fn(function* (handlers) {
+    const grants = yield* Grants;
+    return handlers
+      .handle("asking", ({ query }) =>
+        grants
+          .asking(query)
+          .pipe(Effect.map((client) => ({ clientId: client.id, clientName: client.name }))),
+      )
+      .handle("list", () => Effect.flatMap(scoped("tokens:write"), grants.list))
+      .handle(
+        "approve",
+        Effect.fn(function* ({ payload }) {
+          const caller = yield* scoped("tokens:write");
+          const code = yield* grants.approve(caller, {
+            clientId: payload.clientId,
+            redirectUri: payload.redirectUri,
+            codeChallenge: payload.codeChallenge,
+            scopes: payload.scopes,
+            resources: payload.resources,
+          });
+          return { redirectTo: answered(payload.redirectUri, { code, state: payload.state }) };
+        }),
+      )
+      .handle("revoke", ({ params }) =>
+        Effect.flatMap(scoped("tokens:write"), (caller) => grants.revoke(caller, params.id)),
       );
   }),
 );
@@ -311,4 +355,4 @@ const workspaces = HttpApiBuilder.group(
   }),
 );
 
-export const layer = Layer.mergeAll(accounts, nodes, sessions, snapshots, workspaces);
+export const layer = Layer.mergeAll(accounts, grants, nodes, sessions, snapshots, workspaces);

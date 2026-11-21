@@ -11,10 +11,14 @@ import * as AccountsStoreMemory from "./accounts/store-memory.ts";
 import * as AccountsStoreSql from "./accounts/store-sql.ts";
 import * as Database from "./database.ts";
 import * as Following from "./following.ts";
+import * as Grants from "./grants/layer.ts";
+import * as GrantsStoreMemory from "./grants/store-memory.ts";
+import * as GrantsStoreSql from "./grants/store-sql.ts";
 import * as Authorization from "./http/authorization.ts";
 import * as Handlers from "./http/handlers.ts";
 import * as IdentityRoutes from "./http/identity.ts";
 import * as McpRoutes from "./http/mcp.ts";
+import * as OAuthRoutes from "./http/oauth.ts";
 import * as NodeServiceRoutes from "./http/nodeService.ts";
 import * as Identity from "./identity/layer.ts";
 import * as SessionTools from "./mcp/layer.ts";
@@ -40,6 +44,7 @@ import * as WorkspacesStoreSql from "./workspaces/store-sql.ts";
 /** The stores on the database the settings name, migrated before anything is asked of it. */
 export const stores = Layer.mergeAll(
   AccountsStoreSql.layer,
+  GrantsStoreSql.layer,
   NodesStoreSql.layer,
   SessionsStoreSql.layer,
   SnapshotsStoreSql.layer,
@@ -49,6 +54,7 @@ export const stores = Layer.mergeAll(
 /** The stores on nothing but memory, which is gone with the layer. */
 export const storesTest = Layer.mergeAll(
   AccountsStoreMemory.layerTest,
+  GrantsStoreMemory.layerTest,
   NodesStoreMemory.layerTest,
   SessionsStoreMemory.layerTest,
   SnapshotsStoreMemory.layerTest,
@@ -63,7 +69,7 @@ export const services = Layer.mergeAll(
   SessionTools.layer.pipe(Layer.provide(NodeHttpClient.layerUndici)),
 ).pipe(
   Layer.provideMerge(Sessions.layer),
-  Layer.provideMerge(Layer.mergeAll(Accounts.layer, Nodes.layer, Tickets.layer)),
+  Layer.provideMerge(Layer.mergeAll(Accounts.layer, Grants.layer, Nodes.layer, Tickets.layer)),
 );
 
 const api = HttpApiBuilder.layer(Api, { openapiPath: `${PREFIX}/openapi.json` }).pipe(
@@ -90,6 +96,7 @@ const serving = Layer.mergeAll(
       RoutingRoutes.layer,
       IdentityRoutes.layer,
       McpRoutes.layer,
+      OAuthRoutes.layer,
       consolePages,
     ),
   ),

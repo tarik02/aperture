@@ -17,6 +17,7 @@ import {
   PersonNotFound,
   Unauthorized,
 } from "../errors.ts";
+import { GrantsStore } from "../grants/store.ts";
 import { Identity } from "../identity/service.ts";
 import * as Secrets from "../secrets.ts";
 import { Settings } from "../settings/service.ts";
@@ -29,6 +30,7 @@ import { WorkspacesStore } from "../workspaces/store.ts";
 
 export const makeAccounts = Effect.fn("Accounts.make")(function* () {
   const store = yield* AccountsStore;
+  const grants = yield* GrantsStore;
   const workspaces = yield* WorkspacesStore;
   const identity = yield* Identity;
   const settings = yield* Settings;
@@ -152,10 +154,19 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
       } satisfies Caller;
     }
     const held = yield* store.findByTokenHash(hashed, yield* now);
-    if (Option.isNone(held)) {
+    if (Option.isSome(held)) {
+      return yield* callerOf(held.value.account, held.value.scopes, held.value.resources);
+    }
+    // A token an app has of a grant is its account's as an API token is, held to what
+    // the grant says.
+    const granted = yield* grants.findByAccessToken(hashed, yield* now);
+    const account = Option.isNone(granted)
+      ? Option.none<Account>()
+      : yield* store.find(granted.value.accountId);
+    if (Option.isNone(granted) || Option.isNone(account)) {
       return yield* new Unauthorized({ message: "that is no token of an account" });
     }
-    return yield* callerOf(held.value.account, held.value.scopes, held.value.resources);
+    return yield* callerOf(account.value, granted.value.scopes, granted.value.resources);
   }, Effect.provide(crypto));
 
   const tokens = Effect.fn("Accounts.tokens")(function* (caller: Caller) {

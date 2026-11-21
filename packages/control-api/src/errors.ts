@@ -110,3 +110,24 @@ export class AccountInvalid extends Schema.TaggedError<AccountInvalid>()(
   { message: Schema.String },
   { httpApiStatus: 400 },
 ) {}
+
+/** No app registered as that. */
+export class OAuthClientNotFound extends Schema.TaggedError<OAuthClientNotFound>()(
+  "OAuthClientNotFound",
+  { id: Schema.String },
+  { httpApiStatus: 404 },
+) {}
+
+/** An app asks to be answered where it did not say it is. */
+export class RedirectRefused extends Schema.TaggedError<RedirectRefused>()(
+  "RedirectRefused",
+  { message: Schema.String },
+  { httpApiStatus: 400 },
+) {}
+
+/** There is no such grant, or it is another account's: the two are told alike. */
+export class GrantNotFound extends Schema.TaggedError<GrantNotFound>()(
+  "GrantNotFound",
+  { id: Schema.String },
+  { httpApiStatus: 404 },
+) {}

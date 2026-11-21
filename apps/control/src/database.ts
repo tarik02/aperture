@@ -112,6 +112,37 @@ const initial = statements([
   `CREATE INDEX sessions_node_id ON sessions (node_id)`,
   `CREATE INDEX sessions_workspace_id ON sessions (workspace_id)`,
   `CREATE INDEX snapshots_workspace_id ON snapshots (workspace_id)`,
+  // An app registers itself, and nobody is asked first: it is nothing until a person
+  // gives it a grant.
+  `CREATE TABLE oauth_clients (
+    id uuid PRIMARY KEY,
+    name text NOT NULL,
+    redirect_uris jsonb NOT NULL,
+    created_at timestamptz NOT NULL
+  )`,
+  `CREATE TABLE oauth_grants (
+    id uuid PRIMARY KEY,
+    account_id uuid NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    client_id uuid NOT NULL REFERENCES oauth_clients (id) ON DELETE CASCADE,
+    scopes jsonb NOT NULL,
+    resources jsonb,
+    created_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX oauth_grants_account_id ON oauth_grants (account_id)`,
+  `CREATE TABLE oauth_codes (
+    code_hash text PRIMARY KEY,
+    grant_id uuid NOT NULL REFERENCES oauth_grants (id) ON DELETE CASCADE,
+    redirect_uri text NOT NULL,
+    code_challenge text NOT NULL,
+    expires_at timestamptz NOT NULL
+  )`,
+  `CREATE TABLE oauth_tokens (
+    token_hash text PRIMARY KEY,
+    grant_id uuid NOT NULL REFERENCES oauth_grants (id) ON DELETE CASCADE,
+    kind text NOT NULL CHECK (kind IN ('access', 'refresh')),
+    expires_at timestamptz NOT NULL
+  )`,
+  `CREATE INDEX oauth_tokens_grant_id ON oauth_tokens (grant_id)`,
 ]);
 
 /** Brings the database to what this program expects; what was applied before is left alone. */

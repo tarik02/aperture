@@ -15,9 +15,12 @@ import {
   EmailTaken,
   PersonNotFound,
   Forbidden,
+  GrantNotFound,
   NodeRefused,
   NodeUnreachable,
   NoNode,
+  OAuthClientNotFound,
+  RedirectRefused,
   SessionHasNoNode,
   SessionNotFound,
   SnapshotNotFound,
@@ -148,6 +151,18 @@ export const Snapshot = Schema.Struct({
   sessionId: Schema.NullOr(Schema.String),
   nodeId: Schema.NullOr(Schema.String),
   shared: Schema.Boolean,
+  createdAt: Schema.DateTimeUtcFromString,
+});
+
+/** What a person gave an app that asked to act as their account. */
+export const Grant = Schema.Struct({
+  id: Schema.String,
+  accountId: Schema.String,
+  clientId: Schema.String,
+  clientName: Schema.String,
+  scopes: Schema.Array(Scope),
+  /** The resources it is held to; none for a grant that reaches all its account does. */
+  resources: Schema.NullOr(TokenResources),
   createdAt: Schema.DateTimeUtcFromString,
 });
 
@@ -418,8 +433,50 @@ export class WorkspacesGroup extends HttpApiGroup.make("workspaces")
     }),
   ) {}
 
+/** What an app asks a person for, as its authorization request says it. */
+const asked = { clientId: Schema.NonEmptyString, redirectUri: Schema.NonEmptyString };
+
+export class GrantsGroup extends HttpApiGroup.make("grants")
+  .add(
+    HttpApiEndpoint.get("asking", "/oauth/request", {
+      query: asked,
+      success: Schema.Struct({ clientId: Schema.String, clientName: Schema.String }),
+      error: [OAuthClientNotFound, RedirectRefused],
+    }),
+    HttpApiEndpoint.get("list", "/oauth/grants", {
+      success: Schema.Array(Grant),
+      error: Forbidden,
+    }),
+    HttpApiEndpoint.post("approve", "/oauth/grants", {
+      payload: Schema.Struct({
+        ...asked,
+        /** What the app sent to know its own request by; it is sent back as it came. */
+        state: Schema.optional(Schema.String),
+        codeChallenge: Schema.NonEmptyString,
+        /** What the app does: a grant is given for something, and does nothing else. */
+        scopes: Schema.NonEmptyArray(Scope),
+        /** The resources it is held to; all that the account reaches, without. */
+        resources: Schema.optional(TokenResources),
+      }),
+      /** Where the person's browser goes with the answer: back to the app. */
+      success: Schema.Struct({ redirectTo: Schema.String }).pipe(HttpApiSchema.status(201)),
+      error: [Forbidden, OAuthClientNotFound, RedirectRefused],
+    }),
+    HttpApiEndpoint.delete("revoke", "/oauth/grants/:id", {
+      params: { id: Schema.String },
+      error: [Forbidden, GrantNotFound],
+    }),
+  )
+  .annotateMerge(
+    OpenApi.annotations({
+      title: "Grants",
+      description:
+        "What people give apps that ask to act as their account over OAuth, as MCP clients do.",
+    }),
+  ) {}
+
 export class Api extends HttpApi.make("control")
-  .add(AccountsGroup, NodesGroup, SessionsGroup, SnapshotsGroup, WorkspacesGroup)
+  .add(AccountsGroup, GrantsGroup, NodesGroup, SessionsGroup, SnapshotsGroup, WorkspacesGroup)
   .middleware(Authorization)
   .prefix(PREFIX)
   .annotateMerge(

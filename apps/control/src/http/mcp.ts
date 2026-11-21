@@ -20,10 +20,13 @@ import { Settings } from "../settings/service.ts";
 import { Snapshots } from "../snapshots/service.ts";
 import { callerOf } from "./caller.ts";
 import { told } from "./handlers.ts";
+import { originOf } from "./origin.ts";
 
 /** Where agents reach every session their token does, over MCP. */
 export const PATH = "/mcp";
 
+/** Where a client learns what authorizes it for this server, as RFC 9728 has it. */
+export const RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource";
 const UNAUTHORIZED = 401;
 const SESSION_ID = "session_id";
 
@@ -232,7 +235,10 @@ export const layer = Layer.unwrap(
         if (caller._tag === "Failure") {
           return HttpServerResponse.jsonUnsafe(caller.failure, {
             status: UNAUTHORIZED,
-            headers: { "www-authenticate": "Bearer" },
+            // Where a client that has no token learns how it gets one.
+            headers: {
+              "www-authenticate": `Bearer resource_metadata="${originOf(settings, request)}${RESOURCE_METADATA_PATH}${PATH}"`,
+            },
           });
         }
         yield* follow();

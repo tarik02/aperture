@@ -1,26 +1,18 @@
 import { suite } from "@aperture-browser/e2e/src/suite.ts";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
-import * as Cookies from "effect/http/Cookies";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
-import type * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Control from "./src/control.ts";
+import { cookiesOf } from "./src/person.ts";
 import { totp } from "./src/totp.ts";
 
 const OpenApi = Schema.Struct({
   openapi: Schema.String,
   paths: Schema.Record(Schema.String, Schema.Unknown),
 });
-
-/** The cookies an answer sets, as a browser sends them back; what it takes back is left out. */
-const cookiesOf = (answer: HttpClientResponse.HttpClientResponse) =>
-  Object.entries(Cookies.toRecord(answer.cookies))
-    .filter(([, value]) => value !== "")
-    .map(([name, value]) => `${name}=${encodeURIComponent(value)}`)
-    .join("; ");
 
 const Enabled = Schema.Struct({
   totpURI: Schema.String,
