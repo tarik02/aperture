@@ -15,6 +15,7 @@
     "@aperture-browser/control-api": "workspace:*",
     "@aperture-browser/executor-client": "workspace:*",
     "@aperture-browser/shared": "workspace:*",
+    "@better-auth/passkey": "catalog:",
     "@bufbuild/protobuf": "catalog:",
     "@effect/platform-node": "catalog:",
     "@effect/sql-pg": "catalog:",

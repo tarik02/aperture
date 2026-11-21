@@ -2,6 +2,7 @@
 export const queryKeys = {
   account: ["account"] as const,
   person: ["person"] as const,
+  passkeys: ["person", "passkeys"] as const,
   sessions: ["sessions"] as const,
   session: (id: string) => ["sessions", id] as const,
   proxy: (id: string) => ["sessions", id, "proxy"] as const,

@@ -5,7 +5,7 @@ import type { EmailTaken, PersonNotFound } from "../errors.ts";
 
 /**
  * Someone who signs in: known by an email address, and proven by what they sign in with,
- * which is a password of their own or the word of a provider.
+ * which is a password of their own, a passkey, or the word of a provider.
  */
 export interface Person {
   readonly id: string;
@@ -14,8 +14,8 @@ export interface Person {
 }
 
 /**
- * Who people are and how they prove it: signing in and out, passwords, and whose a
- * browser's cookies are. What signs people in is behind this, and nothing else knows it.
+ * Who people are and how they prove it: signing in and out, passwords, passkeys, and whose
+ * a browser's cookies are. What signs people in is behind this, and nothing else knows it.
  */
 export interface IdentityShape {
   /** Where its own routes are, which a browser asks to sign in and out. */
@@ -43,6 +43,11 @@ export interface IdentityShape {
    * Their password stays, and they turn a second factor on again themselves.
    */
   readonly resetSecondFactor: (email: string) => Effect.Effect<void, PersonNotFound>;
+  /**
+   * Removes a person's passkeys without them: for one who lost what holds them, or whose
+   * device another has. What else they sign in with stays.
+   */
+  readonly removePasskeys: (email: string) => Effect.Effect<void, PersonNotFound>;
 }
 
 export class Identity extends Context.Service<Identity, IdentityShape>()(

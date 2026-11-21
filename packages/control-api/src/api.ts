@@ -256,6 +256,10 @@ export class AccountsGroup extends HttpApiGroup.make("accounts")
       params: { id: Schema.String },
       error: [Forbidden, AccountNotFound, PersonNotFound],
     }),
+    HttpApiEndpoint.post("removePasskeys", "/accounts/:id/passkeys/remove", {
+      params: { id: Schema.String },
+      error: [Forbidden, AccountNotFound, PersonNotFound],
+    }),
     HttpApiEndpoint.post("createSetupToken", "/accounts/:id/setup-token", {
       params: { id: Schema.String },
       success: Schema.Struct({ token: Schema.String }).pipe(HttpApiSchema.status(201)),

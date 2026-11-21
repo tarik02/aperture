@@ -8,7 +8,9 @@ import {
   DialogTitle,
 } from "@aperture-browser/ui/components/dialog";
 import { QrCode } from "@aperture-browser/ui/components/qr-code";
+import { Tabs, TabsList, TabsTrigger } from "@aperture-browser/ui/components/tabs";
 import { useForm, useStore } from "@tanstack/react-form";
+import { Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { CodeInput } from "#/components/code-input.tsx";
@@ -16,17 +18,27 @@ import { CopyField } from "#/components/copy-field.tsx";
 import { FreshDialog } from "#/components/fresh-dialog.tsx";
 import { TextField } from "#/components/text-field.tsx";
 import {
+  useAddPasskeyMutation,
+  useRemovePasskeyMutation,
+  useRenamePasskeyMutation,
+} from "#/features/auth/auth.mutations.ts";
+import {
   useConfirmEnrolmentMutation,
   useEnrolMutation,
+  usePasskeysQuery,
   useRenewBackupCodesMutation,
   useTurnSecondFactorOffMutation,
 } from "#/features/auth/auth.queries.ts";
-import type { Person } from "#/lib/identity.ts";
+import { told } from "#/lib/api.ts";
+import { type Passkey, passkeysSupported, type Person } from "#/lib/identity.ts";
 import { required } from "#/lib/validation.ts";
 
-/** How far turning the second factor on has come. */
+/** How far turning the second factor on has come, or what is done with a passkey. */
 type Enrolling =
   | { readonly step: "none" }
+  /** A passkey is named: the one there is, or one that is added under the name. */
+  | { readonly step: "passkey-name"; readonly passkey?: Passkey }
+  | { readonly step: "passkey-remove"; readonly passkey: Passkey }
   | {
       readonly step: "confirm";
       readonly uri: string;
@@ -42,8 +54,9 @@ type AccountSecurityDialogProps = {
 };
 
 /**
- * A person's second factor: turned on with an authenticator that is shown to have the secret,
- * and turned off, each with the password.
+ * How a person signs in beside their password. Their second factor: turned on with an
+ * authenticator that is shown to have the secret, and turned off, each with the password.
+ * And their passkeys: added, named anew and removed.
  */
 export function AccountSecurityDialog({ person, open, onOpenChange }: AccountSecurityDialogProps) {
   const [step, setStep] = useState<Enrolling["step"]>("none");
@@ -72,7 +85,9 @@ export function AccountSecurityDialog({ person, open, onOpenChange }: AccountSec
 
 /** The code to scan is as wide as the dialog and fits whole; the other steps hold little. */
 const HEIGHTS: Record<Enrolling["step"], string> = {
-  none: "20rem",
+  none: "24rem",
+  "passkey-name": "24rem",
+  "passkey-remove": "24rem",
   confirm: "42rem",
   "backup-codes": "25rem",
 };
@@ -87,6 +102,7 @@ function Security({
   onDone: () => void;
 }) {
   const [enrolling, setEnrollingStep] = useState<Enrolling>({ step: "none" });
+  const [tab, setTab] = useState<Tab>("second-factor");
   const setEnrolling = (next: Enrolling) => {
     setEnrollingStep(next);
     onStep(next.step);
@@ -122,9 +138,200 @@ function Security({
           }
           onDone={onDone}
         />
+      ) : enrolling.step === "passkey-name" ? (
+        <PasskeyName passkey={enrolling.passkey} onDone={() => setEnrolling({ step: "none" })} />
+      ) : enrolling.step === "passkey-remove" ? (
+        <PasskeyRemove passkey={enrolling.passkey} onDone={() => setEnrolling({ step: "none" })} />
       ) : (
-        <WithPassword person={person} onEnrolling={setEnrolling} onDone={onDone} />
+        <>
+          <Tabs
+            value={tab}
+            className="aperture:shrink-0"
+            onValueChange={(next) => setTab(next === "passkeys" ? "passkeys" : "second-factor")}
+          >
+            <TabsList className="aperture:w-full">
+              <TabsTrigger value="second-factor" data-console-security-tab="second-factor">
+                Two-factor
+              </TabsTrigger>
+              <TabsTrigger value="passkeys" data-console-security-tab="passkeys">
+                Passkeys
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+          {tab === "passkeys" ? (
+            <Passkeys onEnrolling={setEnrolling} onDone={onDone} />
+          ) : (
+            <WithPassword person={person} onEnrolling={setEnrolling} onDone={onDone} />
+          )}
+        </>
       )}
+    </>
+  );
+}
+
+type Tab = "second-factor" | "passkeys";
+
+const added = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
+
+/** The passkeys a person has, each with the ways to name it anew and to remove it. */
+function Passkeys({
+  onEnrolling,
+  onDone,
+}: {
+  onEnrolling: (enrolling: Enrolling) => void;
+  onDone: () => void;
+}) {
+  const passkeys = usePasskeysQuery(true);
+
+  return (
+    <>
+      <DialogBody data-console-security-dialog="passkeys">
+        {passkeys.isError ? (
+          <p role="alert" className="aperture:text-sm aperture:text-destructive">
+            {told(passkeys.error)}
+          </p>
+        ) : passkeys.data?.length === 0 ? (
+          <p data-console-empty className="aperture:text-sm aperture:text-muted-foreground">
+            No passkeys yet.
+          </p>
+        ) : (
+          <ul data-console-passkeys className="aperture:grid aperture:gap-2">
+            {passkeys.data?.map((passkey) => (
+              <li
+                key={passkey.id}
+                data-console-passkey={passkey.name}
+                className="aperture:flex aperture:items-center aperture:gap-2 aperture:text-sm"
+              >
+                <span className="aperture:grid aperture:min-w-0 aperture:flex-1">
+                  <span className="aperture:truncate aperture:font-medium">{passkey.name}</span>
+                  {passkey.createdAt === undefined ? null : (
+                    <span className="aperture:truncate aperture:text-xs aperture:text-muted-foreground">
+                      Added {added.format(passkey.createdAt)}
+                    </span>
+                  )}
+                </span>
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  data-console-passkey-rename
+                  aria-label={`Rename ${passkey.name}`}
+                  onClick={() => onEnrolling({ step: "passkey-name", passkey })}
+                >
+                  <Pencil />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  data-console-passkey-remove
+                  aria-label={`Remove ${passkey.name}`}
+                  onClick={() => onEnrolling({ step: "passkey-remove", passkey })}
+                >
+                  <Trash2 />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </DialogBody>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onDone}>
+          Close
+        </Button>
+        <Button
+          type="button"
+          data-console-passkey-add
+          disabled={!passkeysSupported()}
+          onClick={() => onEnrolling({ step: "passkey-name" })}
+        >
+          Add a passkey
+        </Button>
+      </DialogFooter>
+    </>
+  );
+}
+
+/** Names a passkey: the one there is, or one an authenticator is then asked to make. */
+function PasskeyName({ passkey, onDone }: { passkey: Passkey | undefined; onDone: () => void }) {
+  const add = useAddPasskeyMutation();
+  const rename = useRenamePasskeyMutation();
+  const form = useForm({
+    defaultValues: { name: passkey?.name ?? "" },
+    onSubmit: async ({ value }) => {
+      const name = value.name.trim();
+      try {
+        await (passkey === undefined
+          ? add.mutateAsync(name)
+          : rename.mutateAsync({ id: passkey.id, name }));
+      } catch {
+        // The mutation tells of it.
+        return;
+      }
+      onDone();
+    },
+  });
+  const submitting = useStore(form.store, (state) => state.isSubmitting);
+
+  return (
+    <form
+      data-console-security-dialog="passkey-name"
+      className="aperture:contents"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void form.handleSubmit();
+      }}
+    >
+      <DialogBody>
+        <form.Field name="name" validators={{ onSubmit: required("A name") }}>
+          {(field) => (
+            <TextField
+              field={field}
+              label={passkey === undefined ? "Name of the new passkey" : "Name of the passkey"}
+              placeholder="Laptop"
+              autoFocus
+              autoComplete="off"
+            />
+          )}
+        </form.Field>
+      </DialogBody>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={submitting}>
+          {passkey === undefined ? "Add" : "Rename"}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
+function PasskeyRemove({ passkey, onDone }: { passkey: Passkey; onDone: () => void }) {
+  const remove = useRemovePasskeyMutation();
+
+  return (
+    <>
+      <DialogBody data-console-security-dialog="passkey-remove">
+        <p className="aperture:text-sm">
+          Remove the passkey <span className="aperture:font-medium">{passkey.name}</span>? Nobody
+          signs in with it after.
+        </p>
+      </DialogBody>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          variant="destructive"
+          data-console-passkey-remove-confirm
+          disabled={remove.isPending}
+          onClick={() => remove.mutate(passkey.id, { onSuccess: onDone })}
+        >
+          Remove
+        </Button>
+      </DialogFooter>
     </>
   );
 }

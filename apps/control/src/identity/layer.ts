@@ -1,3 +1,4 @@
+import { passkey } from "@better-auth/passkey";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { APIError } from "better-auth/api";
@@ -61,6 +62,16 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
     // and backup codes are kept in its own table, sealed with the secret above.
     plugins: [
       twoFactor({ issuer: ISSUER }),
+      // A passkey signs a person in by itself: no code is asked after it. It is good at
+      // the address people reach this program at, and where none is said, at the one a
+      // request came to.
+      passkey({
+        rpName: ISSUER,
+        ...Option.match(settings.publicUrl, {
+          onNone: () => ({}),
+          onSome: (url) => ({ rpID: new URL(url).hostname, origin: new URL(url).origin }),
+        }),
+      }),
       // No second factor is asked after a provider: who it signs in is its to prove.
       genericOAuth({
         config: settings.providers.map((provider) => ({
@@ -192,6 +203,22 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
     });
   });
 
+  const removePasskeys = Effect.fn("Identity.removePasskeys")(function* (email: string) {
+    const found = yield* Effect.promise(async () =>
+      (await auth.$context).internalAdapter.findUserByEmail(email),
+    );
+    if (found === null) {
+      return yield* new PersonNotFound({ email });
+    }
+    yield* Effect.promise(async () => {
+      const { adapter } = await auth.$context;
+      await adapter.deleteMany({
+        model: "passkey",
+        where: [{ field: "userId", value: found.user.id }],
+      });
+    });
+  });
+
   return {
     auth,
     options,
@@ -203,6 +230,7 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
       create,
       setupToken,
       resetSecondFactor,
+      removePasskeys,
     }),
   };
 });
@@ -225,7 +253,14 @@ export const makeIdentity = Effect.fn("Identity.makeSql")(function* () {
 /** Identity kept in memory, which is gone with the layer. */
 export const makeIdentityMemory = Effect.fn("Identity.makeMemory")(function* () {
   const { service } = yield* make(
-    memoryAdapter({ user: [], session: [], account: [], verification: [], twoFactor: [] }),
+    memoryAdapter({
+      user: [],
+      session: [],
+      account: [],
+      verification: [],
+      twoFactor: [],
+      passkey: [],
+    }),
   );
   return service;
 });

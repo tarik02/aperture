@@ -84,6 +84,17 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     yield* identity.resetSecondFactor(account.value.email);
   });
 
+  const removePasskeys = Effect.fn("Accounts.removePasskeys")(function* (accountId: string) {
+    const account = yield* store.find(accountId);
+    if (Option.isNone(account)) {
+      return yield* new AccountNotFound({ id: accountId });
+    }
+    if (account.value.email === null) {
+      return yield* new PersonNotFound({ email: "" });
+    }
+    yield* identity.removePasskeys(account.value.email);
+  });
+
   /** The caller an account is, with the workspaces it is in. */
   const callerOf = Effect.fn(function* (
     account: Account,
@@ -203,6 +214,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     create,
     setupToken,
     resetSecondFactor,
+    removePasskeys,
     ofPerson,
     list,
     createToken,

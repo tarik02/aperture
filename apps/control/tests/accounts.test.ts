@@ -262,6 +262,24 @@ for (const stores of Control.STORES) {
           const plainly = yield* post("/sign-in/email", { email, password });
           expect(yield* plainly.json).not.toMatchObject({ twoFactorRedirect: true });
           expect(yield* account(cookiesOf(plainly))).toBe(200);
+
+          // Passkeys are kept where the rest of a person is, and an admin alone removes
+          // them without the person; a service account has none to remove.
+          const passkeys = yield* http.execute(
+            HttpClientRequest.get(`${control.url}/api/auth/passkey/list-user-passkeys`).pipe(
+              HttpClientRequest.setHeader("cookie", cookiesOf(plainly)),
+            ),
+          );
+          expect([passkeys.status, yield* passkeys.json]).toEqual([200, []]);
+          expect(
+            (yield* Effect.flip(ada.api.accounts.removePasskeys({ params: { id: noor.id } })))._tag,
+          ).toBe("Forbidden");
+          yield* bootstrap.accounts.removePasskeys({ params: { id: noor.id } });
+          expect(
+            (yield* Effect.flip(
+              bootstrap.accounts.removePasskeys({ params: { id: ada.account.id } }),
+            ))._tag,
+          ).toBe("PersonNotFound");
         }),
     );
 

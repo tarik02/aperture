@@ -98,6 +98,13 @@ const accounts = HttpApiBuilder.group(
           yield* accounts.resetSecondFactor(params.id);
         }),
       )
+      .handle(
+        "removePasskeys",
+        Effect.fn(function* ({ params }) {
+          yield* admin;
+          yield* accounts.removePasskeys(params.id);
+        }),
+      )
       .handle("tokens", () => Effect.flatMap(scoped("tokens:write"), accounts.tokens))
       .handle(
         "createOwnToken",

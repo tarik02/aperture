@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { call } from "#/lib/api.ts";
-import { enrol, giveCode, person, renewBackupCodes, turnSecondFactorOff } from "#/lib/identity.ts";
+import {
+  enrol,
+  giveCode,
+  passkeys,
+  person,
+  renewBackupCodes,
+  turnSecondFactorOff,
+} from "#/lib/identity.ts";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { queryKeys } from "#/lib/query-keys.ts";
 import { useToken } from "#/lib/token.ts";
@@ -30,6 +37,11 @@ export function usePersonQuery() {
     queryFn: () => (token === undefined ? person() : null),
     staleTime: Infinity,
   });
+}
+
+/** The passkeys of the person who is signed in, asked for while they are looked at. */
+export function usePasskeysQuery(enabled: boolean) {
+  return useQuery({ queryKey: queryKeys.passkeys, queryFn: passkeys, enabled });
 }
 
 export function useEnrolMutation() {

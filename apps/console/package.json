@@ -16,6 +16,7 @@
     "@aperture-browser/session-client": "workspace:*",
     "@aperture-browser/session-react": "workspace:*",
     "@aperture-browser/ui": "workspace:*",
+    "@simplewebauthn/browser": "catalog:",
     "@tanstack/react-form": "catalog:",
     "@tanstack/react-query": "catalog:",
     "@tanstack/react-router": "catalog:",

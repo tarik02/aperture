@@ -1441,6 +1441,167 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
     }),
   );
 
+  it.effect("a person adds a passkey in the console, and signs in with it and nothing else", () =>
+    Effect.gen(function* () {
+      const proxy = yield* Proxy.Proxy;
+      const control = yield* Control.Control;
+      const viewer = yield* Viewer.Viewer;
+      const fs = yield* FileSystem.FileSystem;
+      const bootstrap = yield* control.as(control.bootstrapToken);
+      const email = "pia@example.test";
+      const password = "a password of Pia's own";
+      const pia = yield* bootstrap.accounts.create({ payload: { name: "Pia", email } });
+      const { token } = yield* bootstrap.accounts.createSetupToken({ params: { id: pia.id } });
+
+      // A passkey is of a name and never of an address in numbers: the proxy by its name,
+      // where the browser has nothing of the checks before.
+      const base = proxy.url.replace("127.0.0.1", "localhost");
+      const page = yield* viewer.open(`${base}/api/control/openapi.json`);
+      // An authenticator of the browser's own, which makes and shows passkeys unasked.
+      yield* page.cdp.call("WebAuthn.enable", {});
+      const { authenticatorId } = yield* page.cdp.call(
+        "WebAuthn.addVirtualAuthenticator",
+        {
+          options: {
+            protocol: "ctap2",
+            transport: "internal",
+            hasResidentKey: true,
+            hasUserVerification: true,
+            isUserVerified: true,
+            automaticPresenceSimulation: true,
+          },
+        },
+        Schema.Struct({ authenticatorId: Schema.String }),
+      );
+      const asked = <A>(path: string, body: object, answer: Schema.Codec<A>) =>
+        page.evaluate(
+          `fetch(${JSON.stringify(`/api/auth${path}`)}, { method: "POST", headers: { "Content-Type": "application/json" }, body: ${JSON.stringify(JSON.stringify(body))} }).then(async (answer) => ({ ...(await answer.json().catch(() => ({}))), status: answer.status }))`,
+          answer,
+        );
+      const Status = Schema.Struct({ status: Schema.Number });
+      const signOut = Effect.gen(function* () {
+        expect((yield* asked("/sign-out", {}, Status)).status).toBe(200);
+        yield* page.evaluate(`void (location.href = "/")`);
+        yield* page.until(`!!document.querySelector('[data-console-sign-in="password"]')`);
+      });
+      expect(
+        (yield* until(
+          "the page being there to set a password from",
+          asked("/reset-password", { token, newPassword: password }, Status),
+        )).status,
+      ).toBe(200);
+      yield* page.evaluate(`void (location.href = "/")`);
+      yield* page.until(`!!document.querySelector("[data-console-sign-in-passkey]")`);
+      yield* shot(page, fs, "console-sign-in-passkey");
+      // Nothing chooses a theme before anyone is signed in: the page follows the browser.
+      const scheme = (value: string) =>
+        page.cdp.call("Emulation.setEmulatedMedia", {
+          features: [{ name: "prefers-color-scheme", value }],
+        });
+      yield* scheme("dark");
+      yield* shot(page, fs, "console-sign-in-passkey-dark");
+      yield* scheme("");
+      yield* page.click(`[data-console-sign-in] input[name="email"]`);
+      yield* page.type(email);
+      yield* page.click(`[data-console-sign-in] input[name="password"]`);
+      yield* page.type(password);
+      yield* page.key("Enter", "Enter", ENTER);
+
+      // The passkeys are beside the second factor, in a dialog that keeps its height.
+      const dialog = (step: string) => `[data-console-security-dialog="${step}"]`;
+      const passkey = (name: string) => `[data-console-passkey="${name}"]`;
+      const open = Effect.gen(function* () {
+        yield* page.until(`!!document.querySelector("[data-console-security]")`);
+        yield* page.click("[data-console-security]");
+        yield* page.until(`!!document.querySelector('${dialog("none")} input')`);
+        const first = yield* placed(page);
+        yield* page.click(`[data-console-security-tab="passkeys"]`);
+        yield* page.until(`!!document.querySelector('${dialog("passkeys")}')`);
+        return first;
+      });
+      const add = (name: string) =>
+        Effect.gen(function* () {
+          yield* page.click("[data-console-passkey-add]");
+          yield* page.until(
+            `document.activeElement === document.querySelector('${dialog("passkey-name")} input')`,
+          );
+          yield* page.type(name);
+          yield* page.until(
+            `document.querySelector('${dialog("passkey-name")} input').value === ${JSON.stringify(name)}`,
+          );
+        });
+      const states = [yield* open];
+      yield* page.until(`!!document.querySelector('${dialog("passkeys")} [data-console-empty]')`);
+      states.push(yield* placed(page));
+      yield* shot(page, fs, "console-passkeys-none");
+      // One is not added without a name.
+      yield* page.click("[data-console-passkey-add]");
+      yield* page.until(`!!document.querySelector('${dialog("passkey-name")} input')`);
+      yield* page.key("Enter", "Enter", ENTER);
+      yield* page.until(
+        `!!document.querySelector('${dialog("passkey-name")} [data-slot="field-error"]')`,
+      );
+      states.push(yield* placed(page));
+      yield* page.click(`${dialog("passkey-name")} input`);
+      yield* page.type("Laptop");
+      yield* shot(page, fs, "console-passkey-name");
+      yield* shotDark(page, fs, "console-passkey-name-dark");
+      yield* page.key("Enter", "Enter", ENTER);
+      yield* page.until(`!!document.querySelector('${passkey("Laptop")}')`);
+      states.push(yield* placed(page));
+
+      // It is named anew.
+      yield* page.click(`${passkey("Laptop")} [data-console-passkey-rename]`);
+      yield* page.until(
+        `document.activeElement === document.querySelector('${dialog("passkey-name")} input')`,
+      );
+      yield* page.type(" of Pia");
+      yield* page.key("Enter", "Enter", ENTER);
+      yield* page.until(`!!document.querySelector('${passkey("Laptop of Pia")}')`);
+      yield* shot(page, fs, "console-passkeys");
+      yield* shotDark(page, fs, "console-passkeys-dark");
+      states.push(yield* placed(page));
+      alike(states);
+
+      // With a second factor on, the passkey still signs in by itself: no code is asked.
+      const { totpURI } = yield* asked(
+        "/two-factor/enable",
+        { password },
+        Schema.Struct({ totpURI: Schema.String }),
+      );
+      expect(
+        (yield* asked("/two-factor/verify-totp", { code: yield* totp(totpURI) }, Status)).status,
+      ).toBe(200);
+      yield* signOut;
+      yield* page.click("[data-console-sign-in-passkey]");
+      yield* open;
+      yield* page.until(`!!document.querySelector('${passkey("Laptop of Pia")}')`);
+
+      // It is removed, once that is said again.
+      yield* page.click(`${passkey("Laptop of Pia")} [data-console-passkey-remove]`);
+      yield* page.until(`!!document.querySelector('${dialog("passkey-remove")}')`);
+      yield* shot(page, fs, "console-passkey-remove");
+      yield* page.click("[data-console-passkey-remove-confirm]");
+      yield* page.until(`!!document.querySelector('${dialog("passkeys")} [data-console-empty]')`);
+
+      // An admin removes a person's passkeys without them, and none of them signs in after.
+      yield* page.cdp.call("WebAuthn.clearCredentials", { authenticatorId });
+      yield* add("Phone");
+      yield* page.key("Enter", "Enter", ENTER);
+      yield* page.until(`!!document.querySelector('${passkey("Phone")}')`);
+      yield* bootstrap.accounts.removePasskeys({ params: { id: pia.id } });
+      yield* signOut;
+      yield* page.click("[data-console-sign-in-passkey]");
+      yield* page.until(`!!document.querySelector('[data-console-sign-in] [role="alert"]')`);
+      expect(yield* page.text(`[data-console-sign-in] [role="alert"]`)).toBe(
+        "That passkey is none of an account here.",
+      );
+      yield* shot(page, fs, "console-sign-in-passkey-refused");
+      yield* page.cdp.call("WebAuthn.disable", {});
+      expect(page.errors()).toEqual([]);
+    }),
+  );
+
   it.effect("an admin keeps people and service accounts apart, each on a page of its own", () =>
     Effect.gen(function* () {
       const proxy = yield* Proxy.Proxy;

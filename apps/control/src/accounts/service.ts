@@ -30,6 +30,10 @@ export interface AccountsShape {
   readonly resetSecondFactor: (
     accountId: string,
   ) => Effect.Effect<void, AccountNotFound | PersonNotFound>;
+  /** Removes the passkeys of an account's person, for one who lost what holds them. */
+  readonly removePasskeys: (
+    accountId: string,
+  ) => Effect.Effect<void, AccountNotFound | PersonNotFound>;
   /** Who a browser's cookies sign in. */
   readonly ofPerson: (headers: Headers) => Effect.Effect<Caller, Unauthorized>;
   readonly list: () => Effect.Effect<ReadonlyArray<Account>>;

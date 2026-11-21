@@ -8,7 +8,16 @@ import { TextField } from "#/components/text-field.tsx";
 import { AuthCard } from "#/features/auth/auth-card.tsx";
 import { continueWith, refusal, useProvidersQuery } from "#/features/auth/sso.ts";
 import { callAs, carry, told } from "#/lib/api.ts";
-import { giveBackupCode, giveCode, signIn } from "#/lib/identity.ts";
+import {
+  calledOff,
+  giveBackupCode,
+  giveCode,
+  passkeysOffered,
+  passkeysSupported,
+  signIn,
+  signInWithPasskey,
+  stopAsking,
+} from "#/lib/identity.ts";
 import { queryKeys } from "#/lib/query-keys.ts";
 import { keepToken } from "#/lib/token.ts";
 import { all, email, required } from "#/lib/validation.ts";
@@ -43,7 +52,7 @@ const useSignedIn = () => {
 
 /**
  * Signs a person in with their password, and a code where they turned a second factor on,
- * or through a provider; or anyone with an account's API token.
+ * with a passkey, or through a provider; or anyone with an account's API token.
  */
 export function SignInPage() {
   const [way, setWay] = useState<Way>("password");
@@ -104,6 +113,46 @@ function Providers() {
   );
 }
 
+/**
+ * A passkey, which signs in by itself: asked for with a button, and offered where the
+ * address is typed by a browser that does that.
+ */
+function WithPasskey() {
+  const signedIn = useSignedIn();
+  const { mutate, ...signing } = useMutation({
+    mutationFn: signInWithPasskey,
+    onSuccess: (answer) => (answer === "signed-in" ? signedIn() : undefined),
+  });
+
+  useEffect(() => {
+    let left = false;
+    void passkeysOffered().then((offered) => (offered && !left ? mutate(true) : undefined));
+    return () => {
+      left = true;
+      stopAsking();
+    };
+  }, [mutate]);
+
+  if (!passkeysSupported()) {
+    return null;
+  }
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        data-console-sign-in-passkey
+        // What is offered where the address is typed waits for as long as the page is there.
+        disabled={(signing.isPending && signing.variables !== true) || signing.data === "signed-in"}
+        onClick={() => mutate(false)}
+      >
+        Sign in with a passkey
+      </Button>
+      {signing.isError && !calledOff(signing.error) ? <Refused error={signing.error} /> : null}
+    </>
+  );
+}
+
 function WithPassword({ onWay }: { onWay: (way: Way) => void }) {
   const signedIn = useSignedIn();
   const signing = useMutation({
@@ -130,7 +179,13 @@ function WithPassword({ onWay }: { onWay: (way: Way) => void }) {
     >
       <form.Field name="email" validators={{ onSubmit: all(required("An email"), email) }}>
         {(field) => (
-          <TextField field={field} label="Email" type="email" autoComplete="username" autoFocus />
+          <TextField
+            field={field}
+            label="Email"
+            type="email"
+            autoComplete="username webauthn"
+            autoFocus
+          />
         )}
       </form.Field>
       <form.Field name="password" validators={{ onSubmit: required("A password") }}>
@@ -147,6 +202,7 @@ function WithPassword({ onWay }: { onWay: (way: Way) => void }) {
       <Button type="submit" disabled={submitting}>
         Sign in
       </Button>
+      <WithPasskey />
       <Providers />
       <div className="aperture:flex aperture:justify-center aperture:gap-4">
         <Another data-console-sign-in-way onClick={() => onWay("token")}>
