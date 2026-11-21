@@ -1,4 +1,5 @@
 import { Api, PREFIX } from "@aperture-browser/control-api";
+import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 import * as Effect from "effect/Effect";
 import * as HttpRouter from "effect/http/HttpRouter";
@@ -13,8 +14,10 @@ import * as Following from "./following.ts";
 import * as Authorization from "./http/authorization.ts";
 import * as Handlers from "./http/handlers.ts";
 import * as IdentityRoutes from "./http/identity.ts";
+import * as McpRoutes from "./http/mcp.ts";
 import * as NodeServiceRoutes from "./http/nodeService.ts";
 import * as Identity from "./identity/layer.ts";
+import * as SessionTools from "./mcp/layer.ts";
 import * as RoutingRoutes from "./http/routing.ts";
 import * as Nodes from "./nodes/layer.ts";
 import * as NodesStoreMemory from "./nodes/store-memory.ts";
@@ -53,7 +56,12 @@ export const storesTest = Layer.mergeAll(
 ).pipe(Layer.provide(Memory.layer));
 
 /** What the control plane knows and does, whoever asks: over HTTP, or by itself. */
-export const services = Layer.mergeAll(Snapshots.layer, Routing.layer, Workspaces.layer).pipe(
+export const services = Layer.mergeAll(
+  Snapshots.layer,
+  Routing.layer,
+  Workspaces.layer,
+  SessionTools.layer.pipe(Layer.provide(NodeHttpClient.layerUndici)),
+).pipe(
   Layer.provideMerge(Sessions.layer),
   Layer.provideMerge(Layer.mergeAll(Accounts.layer, Nodes.layer, Tickets.layer)),
 );
@@ -81,6 +89,7 @@ const serving = Layer.mergeAll(
       NodeServiceRoutes.layer,
       RoutingRoutes.layer,
       IdentityRoutes.layer,
+      McpRoutes.layer,
       consolePages,
     ),
   ),

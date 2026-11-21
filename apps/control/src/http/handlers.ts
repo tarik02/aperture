@@ -163,7 +163,7 @@ const nodes = HttpApiBuilder.group(
 );
 
 /** A session as the API tells it: with where a proxy before the nodes has it. */
-const told = (session: Session) => ({
+export const told = (session: Session) => ({
   ...session,
   path: session.nodeId === null ? null : sessionPath(session.nodeId, session.id),
 });

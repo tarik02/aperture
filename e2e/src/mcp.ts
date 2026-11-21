@@ -47,6 +47,7 @@ const Answer = Schema.fromJsonString(
 );
 
 const SESSION = "mcp-session-id";
+const PROTOCOL = "2025-06-18";
 
 /** The answer is JSON, or the last event of a stream of them. */
 const answerIn = (body: string) => {
@@ -74,7 +75,10 @@ export const connect = Effect.fn("Mcp.connect")(function* (url: string, token: s
           HttpClientRequest.bearerToken(token),
           HttpClientRequest.setHeaders({
             Accept: "application/json, text/event-stream",
-            ...(session === undefined ? {} : { [SESSION]: session }),
+            // A client says which protocol it speaks once that is agreed.
+            ...(session === undefined
+              ? {}
+              : { [SESSION]: session, "mcp-protocol-version": PROTOCOL }),
           }),
           HttpClientRequest.bodyJsonUnsafe({ jsonrpc: "2.0", id, method, params }),
         ),
@@ -119,7 +123,7 @@ export const connect = Effect.fn("Mcp.connect")(function* (url: string, token: s
   yield* ask(
     "initialize",
     {
-      protocolVersion: "2025-06-18",
+      protocolVersion: PROTOCOL,
       capabilities: {},
       clientInfo: { name: "e2e", version: "0" },
     },

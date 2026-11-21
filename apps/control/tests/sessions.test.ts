@@ -4,75 +4,15 @@ import { request } from "@aperture-browser/e2e/src/http.ts";
 import { suite } from "@aperture-browser/e2e/src/suite.ts";
 import { until } from "@aperture-browser/e2e/src/wait.ts";
 import { expect } from "@effect/vitest";
-import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Schedule from "effect/Schedule";
 import * as Control from "./src/control.ts";
+import { Keepalives, NODE, registered } from "./src/node.ts";
 
-const NODE = "node-a";
 const SILENT_AFTER = "3 seconds";
-const KEEPALIVE_EVERY = "500 millis";
-
-/** The node's keepalives, which the checks send in the executor's place. */
-class Keepalives extends Context.Service<
-  Keepalives,
-  {
-    /** Stops them, as a node that died or lost its way to the control plane. */
-    readonly stop: Effect.Effect<void>;
-    readonly start: Effect.Effect<void>;
-  }
->()("@aperture-browser/control/tests/Keepalives") {}
-
-const node = Layer.effect(
-  Executor.Executor,
-  Effect.gen(function* () {
-    const control = yield* Control.Control;
-    return yield* Executor.start({ env: { APERTURE_TICKET_KEY: control.ticketKey } });
-  }),
-);
-
-const keepalives = Layer.effect(
-  Keepalives,
-  Effect.gen(function* () {
-    const control = yield* Control.Control;
-    const executor = yield* Executor.Executor;
-    const bootstrap = yield* control.as(control.bootstrapToken);
-    const token = yield* bootstrap.nodes.createRegistrationToken({ payload: { name: "checks" } });
-    let sending = true;
-    yield* Effect.suspend(() =>
-      sending
-        ? control.keepalive({
-            registrationToken: token.token,
-            name: NODE,
-            internalUrl: executor.url,
-            publicUrl: executor.url,
-            operatorToken: executor.token,
-          })
-        : Effect.void,
-    ).pipe(Effect.ignore, Effect.repeat(Schedule.spaced(KEEPALIVE_EVERY)), Effect.forkScoped);
-    yield* until(
-      "the control plane reaching the node",
-      bootstrap.nodes
-        .list()
-        .pipe(Effect.map((nodes) => nodes.some((listed) => listed.offers !== null))),
-    );
-    return {
-      stop: Effect.sync(() => {
-        sending = false;
-      }),
-      start: Effect.sync(() => {
-        sending = true;
-      }),
-    };
-  }),
-);
 
 const needs = (stores: (typeof Control.STORES)[number]) =>
-  keepalives.pipe(
-    Layer.provideMerge(node),
-    Layer.provideMerge(Control.layer({ stores, nodeSilentAfter: SILENT_AFTER })),
-  );
+  registered.pipe(Layer.provideMerge(Control.layer({ stores, nodeSilentAfter: SILENT_AFTER })));
 
 for (const stores of Control.STORES) {
   suite(needs(stores))(`sessions on a node that registered, kept in ${stores}`, (it) => {
