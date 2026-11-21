@@ -9,6 +9,10 @@ export interface SessionViewportProps {
 }
 
 const PICTURE_WITHIN_MS = 1000;
+/** How long after the room for the picture last changed it counts as still changing. */
+const RESIZED_AFTER_MS = 200;
+const SETTLING_BLUR_PX = 6;
+const SETTLING_FADE_MS = 160;
 
 interface Size {
   readonly width: number;
@@ -30,6 +34,8 @@ export function SessionViewport({ className, style, children }: SessionViewportP
   const [stage, setStage] = useState<Size>({ width: 0, height: 0 });
   /** The size of the picture that is drawn now, in its own pixels. */
   const [drawn, setDrawn] = useState<Size>({ width: 0, height: 0 });
+  /** Whether the room for the picture is being changed, as by dragging the window's edge. */
+  const [resizing, setResizing] = useState(false);
   const way = snapshot.picture.way;
 
   useEffect(() => {
@@ -60,11 +66,26 @@ export function SessionViewport({ className, style, children }: SessionViewportP
     if (element === null) {
       return undefined;
     }
-    const measure = () => setStage({ width: element.clientWidth, height: element.clientHeight });
+    let settling: ReturnType<typeof setTimeout> | undefined;
+    const measure = () => {
+      const next = { width: element.clientWidth, height: element.clientHeight };
+      setStage((before) => {
+        // The first measure is no change of size, and neither is one that measures the same.
+        if (before.width > 0 && (before.width !== next.width || before.height !== next.height)) {
+          setResizing(true);
+          clearTimeout(settling);
+          settling = setTimeout(() => setResizing(false), RESIZED_AFTER_MS);
+        }
+        return next;
+      });
+    };
     measure();
     const sizes = new ResizeObserver(measure);
     sizes.observe(element);
-    return () => sizes.disconnect();
+    return () => {
+      sizes.disconnect();
+      clearTimeout(settling);
+    };
   }, []);
 
   useEffect(() => {
@@ -130,6 +151,10 @@ export function SessionViewport({ className, style, children }: SessionViewportP
     // A touch that drags is the session's pointer, not a scroll of this page.
     touchAction: "none",
     cursor: snapshot.cursor,
+    // While its room changes and until the picture of the new size is there, what is
+    // drawn is stretched or stale: softened, it reads as settling and not as broken.
+    filter: resizing || !settled ? `blur(${SETTLING_BLUR_PX}px)` : "none",
+    transition: `filter ${SETTLING_FADE_MS}ms ease-out`,
   });
 
   return (

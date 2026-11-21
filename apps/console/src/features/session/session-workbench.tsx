@@ -11,7 +11,6 @@ import { useTheme } from "next-themes";
 import { useEffect } from "react";
 import { useNewSession } from "#/features/session/new-sessions.ts";
 import { WorkbenchSkeleton } from "#/features/session/workbench-skeleton.tsx";
-import { sessionPictureName } from "#/lib/view-transition.ts";
 import { noteOpened } from "#/features/session/recent-sessions.ts";
 import { useSessionActionMutation } from "#/features/session/session.mutations.ts";
 import {
@@ -155,7 +154,7 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
   }
   if (session.data === undefined) {
     // Its card's picture moves into this one's place while the session is asked for.
-    return <WorkbenchSkeleton sessionId={sessionId} />;
+    return <WorkbenchSkeleton />;
   }
   const kept =
     session.data.path === null
@@ -202,28 +201,20 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
   }
   if (observedState !== "running") {
     return (
-      <WorkbenchSkeleton note="starting" picture={kept} sessionId={sessionId}>
+      <WorkbenchSkeleton note="starting" picture={kept}>
         Starting…
       </WorkbenchSkeleton>
     );
   }
   // Connected anew when the session moves: its path is another then.
   return (
-    <div
-      className="aperture:flex aperture:min-h-0 aperture:flex-1 aperture:flex-col"
-      style={{
-        viewTransitionName: sessionPictureName(sessionId),
-        viewTransitionClass: "session-picture",
-      }}
-    >
-      <ApertureSession
-        key={session.data.path}
-        url={session.data.path}
-        theme={isTheme(theme) ? theme : "system"}
-        onThemeChange={setTheme}
-        onSession={expose}
-        contributions={CONTRIBUTIONS}
-      />
-    </div>
+    <ApertureSession
+      key={session.data.path}
+      url={session.data.path}
+      theme={isTheme(theme) ? theme : "system"}
+      onThemeChange={setTheme}
+      onSession={expose}
+      contributions={CONTRIBUTIONS}
+    />
   );
 }

@@ -9,5 +9,11 @@ export const mayTransition = () =>
   document.hasFocus() &&
   !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-/** The name a session's picture moves under, from its card into its workbench. */
-export const sessionPictureName = (sessionId: string) => `session-${sessionId}`;
+/**
+ * The name a session's picture moves under, from its card to where the workbench shows
+ * it. One name: only the card that was pressed has it, and only one workbench is open.
+ */
+export const SESSION_PICTURE = "session-picture";
+
+/** How long the card's picture softens before it starts to move, so that what grows is soft already. */
+export const SOFTEN_MS = 120;

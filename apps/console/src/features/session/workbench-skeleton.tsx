@@ -1,14 +1,12 @@
 import { Skeleton } from "@aperture-browser/ui/components/skeleton";
 import { Spinner } from "@aperture-browser/ui/components/spinner";
-import { sessionPictureName } from "#/lib/view-transition.ts";
+import { SESSION_PICTURE } from "#/lib/view-transition.ts";
 
 type WorkbenchSkeletonProps = {
   /** What the wait is for, said under the spinner. */
   children?: React.ReactNode;
   /** A picture of what the session showed last, to stand behind the wait. */
   picture?: string | undefined;
-  /** The session the picture is of: its card's picture moves into this one's place. */
-  sessionId?: string | undefined;
   note?: string;
 };
 
@@ -16,7 +14,7 @@ type WorkbenchSkeletonProps = {
  * The workbench as it will be, before there is a session to fill it: its tabs, its
  * toolbar and its picture are where they will be, so that nothing jumps when it comes.
  */
-export function WorkbenchSkeleton({ children, picture, sessionId, note }: WorkbenchSkeletonProps) {
+export function WorkbenchSkeleton({ children, picture, note }: WorkbenchSkeletonProps) {
   return (
     <main
       data-console-session-note={note ?? "loading"}
@@ -40,14 +38,7 @@ export function WorkbenchSkeleton({ children, picture, sessionId, note }: Workbe
       </div>
       <div
         className="aperture:relative aperture:min-h-0 aperture:flex-1 aperture:overflow-hidden aperture:bg-muted/30"
-        style={
-          sessionId === undefined
-            ? undefined
-            : {
-                viewTransitionName: sessionPictureName(sessionId),
-                viewTransitionClass: "session-picture",
-              }
-        }
+        style={{ viewTransitionName: SESSION_PICTURE }}
       >
         {picture === undefined ? null : (
           <img

@@ -13,17 +13,22 @@
   animation-timing-function: ease-out;
 }
 
-/* A session's picture grows from its card into its workbench, sharpening as it comes. */
-::view-transition-group(.session-picture) {
+/* A session's picture, softened on its card, grows into where the workbench shows the
+   session, and sharpens there. */
+[data-aperture-stage] {
+  view-transition-name: session-picture;
+}
+
+::view-transition-group(session-picture) {
   animation-duration: 280ms;
   animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-::view-transition-old(.session-picture) {
-  animation: 280ms both session-picture-out;
+::view-transition-old(session-picture) {
+  animation: 200ms both session-picture-out;
 }
 
-::view-transition-new(.session-picture) {
+::view-transition-new(session-picture) {
   animation: 280ms both session-picture-in;
 }
 
@@ -37,6 +42,5 @@
 @keyframes session-picture-out {
   to {
     opacity: 0;
-    filter: blur(14px);
   }
 }

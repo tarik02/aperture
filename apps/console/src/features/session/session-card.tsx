@@ -6,7 +6,7 @@ import {
   SessionContextMenu,
   useSessionActions,
 } from "#/features/session/session-actions-menu.tsx";
-import { mayTransition, sessionPictureName } from "#/lib/view-transition.ts";
+import { useOpenSession } from "#/features/session/use-open-session.ts";
 import { SessionPicture, useSessionPicture } from "#/features/session/session-picture.tsx";
 import type { Session } from "#/features/session/session.queries.ts";
 import { SessionStatusBadge } from "#/features/session/session-status-badge.tsx";
@@ -26,6 +26,7 @@ export function SessionCard({ session, selected, onSelect }: SessionCardProps) {
   const picture = useSessionPicture(session, THUMBNAIL_WIDTH);
   const { target, more } = picture;
   const { actions, dialogs } = useSessionActions(session);
+  const open = useOpenSession(session.id);
   const title = session.label ?? (target?.title || "Session");
 
   return (
@@ -41,17 +42,20 @@ export function SessionCard({ session, selected, onSelect }: SessionCardProps) {
             to="/-/sessions/$sessionId"
             params={{ sessionId: session.id }}
             data-console-session-open
-            // Its picture grows into the workbench it opens.
-            viewTransition={mayTransition()}
-            style={{
-              viewTransitionName: sessionPictureName(session.id),
-              viewTransitionClass: "session-picture",
-            }}
+            onClick={open.onClick}
+            style={open.moving}
             aria-label={`Open ${title}`}
             className="aperture:absolute aperture:inset-0 aperture:outline-none aperture:focus-visible:ring-3 aperture:focus-visible:ring-ring/50 aperture:focus-visible:ring-inset"
           >
             {/* The mark sits above the middle, which the footer covers part of. */}
-            <SessionPicture source={picture.source} markClassName="aperture:mb-16" />
+            <SessionPicture
+              source={picture.source}
+              markClassName="aperture:mb-16"
+              className={cn(
+                "aperture:transition-[filter] aperture:duration-100",
+                open.opening && "aperture:blur-md",
+              )}
+            />
           </Link>
           <span className="aperture:pointer-events-none aperture:absolute aperture:top-2 aperture:left-2">
             <SessionStatusBadge session={session} />
