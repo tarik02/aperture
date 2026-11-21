@@ -2,8 +2,8 @@ import { Button } from "@aperture-browser/ui/components/button";
 import { Input } from "@aperture-browser/ui/components/input";
 import { useMutation } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
-import { callAs, carry, told } from "../../lib/api.ts";
-import { keepToken } from "../../lib/token.ts";
+import { callAs, carry, told } from "#/lib/api.ts";
+import { keepToken } from "#/lib/token.ts";
 
 /** Signs in with an account's API token, until there is a login for people. */
 export function SignInPage() {

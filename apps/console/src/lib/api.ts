@@ -4,7 +4,7 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpApiClient from "effect/http-api/HttpApiClient";
-import { keepToken, token } from "./token.ts";
+import { keepToken, token } from "#/lib/token.ts";
 
 const client = (bearer: string) =>
   HttpApiClient.make(Api, {
@@ -14,8 +14,14 @@ const client = (bearer: string) =>
 /** The control plane's API as whoever holds a token has it. */
 export type Client = Effect.Success<ReturnType<typeof client>>;
 
-/** What a call fails with: what the API says of it, or that it was not reached. */
-export type Failure = { readonly _tag: string; readonly message?: string };
+/** What a call fails with, as the API tells it. */
+export interface Failure {
+  readonly _tag: string;
+  readonly message?: string;
+}
+
+export const isFailure = (error: unknown): error is Failure =>
+  typeof error === "object" && error !== null && "_tag" in error && typeof error._tag === "string";
 
 /**
  * One call of the API with a token, for what React waits on: it resolves with the answer
@@ -28,7 +34,7 @@ export const callAs = <A, E>(bearer: string, use: (client: Client) => Effect.Eff
     Effect.tapError((error) =>
       // A token that is nobody's any more signs nobody in.
       Effect.sync(() => {
-        if ((error as Failure)._tag === "Unauthorized" && bearer === token()) {
+        if (isFailure(error) && error._tag === "Unauthorized" && bearer === token()) {
           keepToken(undefined);
         }
       }),
@@ -40,26 +46,24 @@ export const callAs = <A, E>(bearer: string, use: (client: Client) => Effect.Eff
 export const call = <A, E>(use: (client: Client) => Effect.Effect<A, E>) =>
   callAs(token() ?? "", use);
 
+const COOKIE = "/api/control/route/cookie";
+
 /**
  * Has the browser carry the token to sessions' paths by itself, where a page cannot put
  * it on a request: the session's socket, a picture.
  */
 export const carry = async (bearer: string) => {
-  await fetch("/api/control/route/cookie", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${bearer}` },
-  });
+  await fetch(COOKIE, { method: "POST", headers: { Authorization: `Bearer ${bearer}` } });
 };
 
 export const forget = async () => {
-  await fetch("/api/control/route/cookie", { method: "DELETE" });
+  await fetch(COOKIE, { method: "DELETE" });
 };
 
 /** What a failed call says, in words for whoever reads the page. */
-export const told = (error: unknown) => {
-  const failure = error as Failure | null;
-  if (failure !== null && typeof failure === "object" && typeof failure._tag === "string") {
-    return failure.message ?? failure._tag;
+export const told = (error: unknown, fallback = "The control plane was not reached") => {
+  if (isFailure(error)) {
+    return error.message ?? error._tag;
   }
-  return error instanceof Error ? error.message : "The control plane was not reached";
+  return error instanceof Error ? error.message : fallback;
 };

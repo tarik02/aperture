@@ -4,6 +4,9 @@
   "private": true,
   "description": "The control plane in a browser: an account's sessions, and each of them opened.",
   "type": "module",
+  "imports": {
+    "#/*": "./src/*"
+  },
   "scripts": {
     "build": "vp build",
     "typecheck": "tsgo --noEmit"
@@ -16,8 +19,10 @@
     "@tanstack/react-router": "catalog:",
     "effect": "catalog:",
     "lucide-react": "catalog:",
+    "next-themes": "catalog:",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "sonner": "catalog:"
   },
   "devDependencies": {
     "@tailwindcss/vite": "catalog:",

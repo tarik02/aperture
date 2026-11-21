@@ -141,15 +141,25 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.type(ada.token);
       yield* page.key("Enter", "Enter", ENTER);
 
-      const row = `[data-console-session] a`;
-      yield* page.until(`!!document.querySelector(${JSON.stringify(row)})`);
-      expect(yield* page.text(row)).toBe(path.split("/").at(-1));
+      const id = path.split("/").at(-1) ?? "";
+      const card = `[data-console-session="${id}"]`;
+      yield* page.until(`!!document.querySelector(${JSON.stringify(card)})`);
+      // The card shows what the session shows: a picture asked of the session at its path.
+      yield* page.until(
+        `document.querySelector(${JSON.stringify(`${card} img`)})?.naturalWidth > 0`,
+        "30 seconds",
+      );
       yield* shot(page, fs, "console-sessions");
 
-      yield* page.click(row);
-      yield* page.until(
-        `location.pathname === ${JSON.stringify(`/sessions/${path.split("/").at(-1)}`)}`,
-      );
+      yield* ada.api.snapshots.take({ params: { id }, payload: { name: "signed in" } });
+      yield* page.click(`a[href="/-/snapshots"]`);
+      yield* page.until(`!!document.querySelector("[data-console-snapshot]")`);
+      yield* shot(page, fs, "console-snapshots");
+
+      yield* page.click(`a[href="/-/sessions"]`);
+      yield* page.until(`!!document.querySelector(${JSON.stringify(card)})`);
+      yield* page.click(`${card} [data-console-session-open]`);
+      yield* page.until(`location.pathname === ${JSON.stringify(`/-/sessions/${id}`)}`);
       // The picture is there once the session's socket, which went through the proxy, is.
       yield* page.until(
         `[...document.querySelectorAll("[data-aperture-surface]")].some((surface) => surface.getBoundingClientRect().width > 0)`,
