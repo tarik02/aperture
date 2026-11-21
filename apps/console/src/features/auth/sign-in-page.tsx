@@ -3,21 +3,40 @@ import { Input } from "@aperture-browser/ui/components/input";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { callAs, carry, told } from "#/lib/api.ts";
-import { signIn } from "#/lib/identity.ts";
+import { giveBackupCode, giveCode, signIn } from "#/lib/identity.ts";
 import { queryKeys } from "#/lib/query-keys.ts";
 import { keepToken } from "#/lib/token.ts";
 
-/** Signs a person in with their password, or anyone with an account's API token. */
+/**
+ * Signs a person in with their password, and a code where they turned a second factor on, or
+ * anyone with an account's API token.
+ */
 export function SignInPage() {
   const queries = useQueryClient();
-  const [way, setWay] = useState<"password" | "token">("password");
+  const [way, setWay] = useState<"password" | "token" | "code" | "backup-code">("password");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [given, setGiven] = useState("");
+  const [code, setCode] = useState("");
 
+  const signedIn = () =>
+    Promise.all([
+      queries.invalidateQueries({ queryKey: queryKeys.account }),
+      queries.invalidateQueries({ queryKey: queryKeys.person }),
+    ]);
   const withPassword = useMutation({
     mutationFn: () => signIn(email.trim(), password),
-    onSuccess: () => queries.invalidateQueries({ queryKey: queryKeys.account }),
+    onSuccess: (answer) => {
+      if (answer === "signed-in") {
+        return signedIn();
+      }
+      setCode("");
+      setWay("code");
+    },
+  });
+  const withCode = useMutation({
+    mutationFn: () => (way === "backup-code" ? giveBackupCode : giveCode)(code.trim()),
+    onSuccess: signedIn,
   });
   const withToken = useMutation({
     mutationFn: async (bearer: string) => {
@@ -27,11 +46,14 @@ export function SignInPage() {
     },
     onSuccess: keepToken,
   });
-  const signing = way === "password" ? withPassword : withToken;
+  const second = way === "code" || way === "backup-code";
+  const signing = second ? withCode : way === "password" ? withPassword : withToken;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (way === "password") {
+    if (second) {
+      withCode.mutate();
+    } else if (way === "password") {
       withPassword.mutate();
     } else {
       withToken.mutate(given.trim());
@@ -46,7 +68,21 @@ export function SignInPage() {
         className="aperture:flex aperture:w-full aperture:max-w-sm aperture:flex-col aperture:gap-3"
       >
         <h1 className="aperture:text-lg aperture:font-semibold">Aperture</h1>
-        {way === "password" ? (
+        {second ? (
+          <label className="aperture:flex aperture:flex-col aperture:gap-1.5 aperture:text-sm">
+            {way === "code" ? "Code from your authenticator" : "Backup code"}
+            <Input
+              // Another field for the other kind of code, so that nothing typed for one is left.
+              key={way}
+              name="code"
+              autoComplete="one-time-code"
+              inputMode={way === "code" ? "numeric" : "text"}
+              autoFocus
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+            />
+          </label>
+        ) : way === "password" ? (
           <>
             <label className="aperture:flex aperture:flex-col aperture:gap-1.5 aperture:text-sm">
               Email
@@ -92,14 +128,42 @@ export function SignInPage() {
         <Button type="submit" disabled={signing.isPending}>
           Sign in
         </Button>
-        <Button
-          type="button"
-          variant="link"
-          data-console-sign-in-way
-          onClick={() => setWay(way === "password" ? "token" : "password")}
-        >
-          {way === "password" ? "Use an API token" : "Use a password"}
-        </Button>
+        {second ? (
+          <>
+            <Button
+              type="button"
+              variant="link"
+              data-console-sign-in-way
+              onClick={() => {
+                withCode.reset();
+                setCode("");
+                setWay(way === "code" ? "backup-code" : "code");
+              }}
+            >
+              {way === "code" ? "Use a backup code" : "Use an authenticator's code"}
+            </Button>
+            <Button
+              type="button"
+              variant="link"
+              onClick={() => {
+                withCode.reset();
+                setPassword("");
+                setWay("password");
+              }}
+            >
+              Start over
+            </Button>
+          </>
+        ) : (
+          <Button
+            type="button"
+            variant="link"
+            data-console-sign-in-way
+            onClick={() => setWay(way === "password" ? "token" : "password")}
+          >
+            {way === "password" ? "Use an API token" : "Use a password"}
+          </Button>
+        )}
       </form>
     </main>
   );

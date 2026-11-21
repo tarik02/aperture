@@ -1,6 +1,7 @@
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { getMigrations } from "better-auth/db/migration";
+import { twoFactor } from "better-auth/plugins/two-factor";
 import type * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -17,6 +18,8 @@ const PATH = "/api/auth" as const;
 /** Nobody makes themselves a person: an admin makes people, each of whom sets a password. */
 const SIGN_UP = `${PATH}/sign-up/`;
 const NOT_FOUND = 404;
+/** What an authenticator shows its codes under. */
+const ISSUER = "Aperture";
 
 /**
  * Identity by better-auth, on whatever database it is given. Everything of better-auth is
@@ -45,6 +48,9 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
         sent.set(user.email, token);
       },
     },
+    // A second factor is a person's own to turn on, with an authenticator's codes. Its secret
+    // and backup codes are kept in its own table, sealed with the secret above.
+    plugins: [twoFactor({ issuer: ISSUER })],
     telemetry: { enabled: false },
   } satisfies BetterAuthOptions;
   const auth = betterAuth(options);
@@ -124,7 +130,7 @@ export const makeIdentity = Effect.fn("Identity.makeSql")(function* () {
 /** Identity kept in memory, which is gone with the layer. */
 export const makeIdentityMemory = Effect.fn("Identity.makeMemory")(function* () {
   const { service } = yield* make(
-    memoryAdapter({ user: [], session: [], account: [], verification: [] }),
+    memoryAdapter({ user: [], session: [], account: [], verification: [], twoFactor: [] }),
   );
   return service;
 });

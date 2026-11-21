@@ -4,13 +4,27 @@ import * as Effect from "effect/Effect";
 import * as Cookies from "effect/http/Cookies";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import type * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Control from "./src/control.ts";
+import { totp } from "./src/totp.ts";
 
 const OpenApi = Schema.Struct({
   openapi: Schema.String,
   paths: Schema.Record(Schema.String, Schema.Unknown),
+});
+
+/** The cookies an answer sets, as a browser sends them back; what it takes back is left out. */
+const cookiesOf = (answer: HttpClientResponse.HttpClientResponse) =>
+  Object.entries(Cookies.toRecord(answer.cookies))
+    .filter(([, value]) => value !== "")
+    .map(([name, value]) => `${name}=${encodeURIComponent(value)}`)
+    .join("; ");
+
+const Enabled = Schema.Struct({
+  totpURI: Schema.String,
+  backupCodes: Schema.Array(Schema.String),
 });
 
 for (const stores of Control.STORES) {
@@ -121,10 +135,8 @@ for (const stores of Control.STORES) {
           ).toBe(200);
           const signedIn = yield* post("/api/auth/sign-in/email", { email, password });
           expect(signedIn.status).toBe(200);
-          expect(Object.keys(Cookies.toRecord(signedIn.cookies)).length).toBeGreaterThan(0);
-          const cookie = Object.entries(Cookies.toRecord(signedIn.cookies))
-            .map(([name, value]) => `${name}=${encodeURIComponent(value)}`)
-            .join("; ");
+          const cookie = cookiesOf(signedIn);
+          expect(cookie).not.toBe("");
 
           const current = yield* http.execute(
             HttpClientRequest.get(`${control.url}/api/control/account`).pipe(
@@ -135,6 +147,117 @@ for (const stores of Control.STORES) {
           expect(yield* current.json).toMatchObject({ id: mira.id, name: "Mira" });
           // No cookies, no person.
           expect((yield* http.get(`${control.url}/api/control/account`)).status).toBe(401);
+        }),
+    );
+
+    it.effect(
+      "a person who turned a second factor on signs in with a code or a backup code, not without",
+      () =>
+        Effect.gen(function* () {
+          const control = yield* Control.Control;
+          const http = yield* HttpClient.HttpClient;
+          const bootstrap = yield* control.as(control.bootstrapToken);
+          const email = `noor-${stores}@example.test`;
+          const password = "a password of Noor's own";
+          const noor = yield* bootstrap.accounts.create({ payload: { name: "Noor", email } });
+          const { token } = yield* bootstrap.accounts.createSetupToken({ params: { id: noor.id } });
+
+          const post = (path: string, body: object, cookie = "") =>
+            http.execute(
+              HttpClientRequest.post(`${control.url}/api/auth${path}`).pipe(
+                HttpClientRequest.setHeader("origin", control.url),
+                HttpClientRequest.setHeader("cookie", cookie),
+                HttpClientRequest.bodyJsonUnsafe(body),
+              ),
+            );
+          const account = (cookie: string) =>
+            http
+              .execute(
+                HttpClientRequest.get(`${control.url}/api/control/account`).pipe(
+                  HttpClientRequest.setHeader("cookie", cookie),
+                ),
+              )
+              .pipe(Effect.map((answer) => answer.status));
+          /** The password alone: it signs nobody in, and leaves cookies to go on with. */
+          const half = Effect.gen(function* () {
+            const answer = yield* post("/sign-in/email", { email, password });
+            expect(answer.status).toBe(200);
+            expect(yield* answer.json).toMatchObject({ twoFactorRedirect: true });
+            const cookie = cookiesOf(answer);
+            expect(yield* account(cookie)).toBe(401);
+            return cookie;
+          });
+
+          yield* post("/reset-password", { token, newPassword: password });
+          const first = cookiesOf(yield* post("/sign-in/email", { email, password }));
+          expect(yield* account(first)).toBe(200);
+
+          // Turning it on takes the password, and a code that shows the authenticator has the secret.
+          expect((yield* post("/two-factor/enable", { password: "not hers" }, first)).status).toBe(
+            400,
+          );
+          const enabling = yield* post("/two-factor/enable", { password }, first);
+          expect(enabling.status).toBe(200);
+          const { totpURI, backupCodes } = yield* Schema.decodeUnknownEffect(Enabled)(
+            yield* enabling.json,
+          );
+          expect(totpURI).toMatch(/^otpauth:\/\/totp\/Aperture:/u);
+          expect(backupCodes.length).toBeGreaterThan(1);
+          const confirmed = yield* post(
+            "/two-factor/verify-totp",
+            { code: yield* totp(totpURI) },
+            first,
+          );
+          expect(confirmed.status).toBe(200);
+          // Whoever was signed in stays so, with cookies that are told anew.
+          const second = cookiesOf(confirmed);
+          expect(yield* account(second)).toBe(200);
+
+          // Neither the secret nor a backup code is kept as it is told.
+          if (Option.isSome(control.sql)) {
+            const sql = control.sql.value;
+            const kept = JSON.stringify([
+              yield* sql`SELECT * FROM "twoFactor"`,
+              yield* sql`SELECT * FROM accounts`,
+            ]);
+            expect(kept).toContain("secret");
+            expect(kept).not.toContain(new URL(totpURI).searchParams.get("secret"));
+            for (const code of backupCodes) {
+              expect(kept).not.toContain(code);
+            }
+          }
+
+          expect((yield* post("/sign-out", {}, second)).status).toBe(200);
+          expect(yield* account(second)).toBe(401);
+
+          const withCode = yield* half;
+          const right = yield* totp(totpURI);
+          const wrong = right === "000000" ? "000001" : "000000";
+          expect((yield* post("/two-factor/verify-totp", { code: wrong }, withCode)).status).toBe(
+            401,
+          );
+          const coded = yield* post("/two-factor/verify-totp", { code: right }, withCode);
+          expect(coded.status).toBe(200);
+          expect(yield* account(cookiesOf(coded))).toBe(200);
+          yield* post("/sign-out", {}, cookiesOf(coded));
+
+          // A backup code stands in for the authenticator, once.
+          const [backup = ""] = backupCodes;
+          const backed = yield* post(
+            "/two-factor/verify-backup-code",
+            { code: backup },
+            yield* half,
+          );
+          expect(backed.status).toBe(200);
+          expect(yield* account(cookiesOf(backed))).toBe(200);
+          yield* post("/sign-out", {}, cookiesOf(backed));
+          const spent = yield* post(
+            "/two-factor/verify-backup-code",
+            { code: backup },
+            yield* half,
+          );
+          expect(spent.status).toBe(401);
+          expect(yield* account(cookiesOf(spent))).toBe(401);
         }),
     );
 

@@ -1,6 +1,7 @@
 /** Every query's key, so that what changes one thing says which answers are stale. */
 export const queryKeys = {
   account: ["account"] as const,
+  person: ["person"] as const,
   sessions: ["sessions"] as const,
   session: (id: string) => ["sessions", id] as const,
   proxy: (id: string) => ["sessions", id, "proxy"] as const,

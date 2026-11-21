@@ -13,6 +13,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Control from "./src/control.ts";
 import * as Proxy from "./src/proxy.ts";
+import { totp } from "./src/totp.ts";
 
 const ENTER = 13;
 const ESCAPE = 27;
@@ -282,6 +283,70 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         Schema.String,
       );
       expect(me).toBe("Mira");
+      expect(page.errors()).toEqual([]);
+    }),
+  );
+
+  it.effect("a person turns a second factor on in the console, and signs in with a code", () =>
+    Effect.gen(function* () {
+      const proxy = yield* Proxy.Proxy;
+      const control = yield* Control.Control;
+      const viewer = yield* Viewer.Viewer;
+      const fs = yield* FileSystem.FileSystem;
+      const bootstrap = yield* control.as(control.bootstrapToken);
+      const email = "noor@example.test";
+      const password = "a password of Noor's own";
+      const noor = yield* bootstrap.accounts.create({ payload: { name: "Noor", email } });
+      const { token } = yield* bootstrap.accounts.createSetupToken({ params: { id: noor.id } });
+
+      const page = yield* viewer.open(`${proxy.url}/api/control/openapi.json`);
+      const asked = (path: string, body: object) =>
+        page.evaluate(
+          `fetch(${JSON.stringify(`/api/auth${path}`)}, { method: "POST", headers: { "Content-Type": "application/json" }, body: ${JSON.stringify(JSON.stringify(body))} }).then((answer) => answer.status)`,
+          Schema.Number,
+        );
+      const signIn = Effect.gen(function* () {
+        yield* page.evaluate(`void (location.href = "/")`);
+        yield* page.until(`!!document.querySelector('[data-console-sign-in="password"]')`);
+        yield* page.click(`[data-console-sign-in] input[name="email"]`);
+        yield* page.type(email);
+        yield* page.click(`[data-console-sign-in] input[name="password"]`);
+        yield* page.type(password);
+        yield* page.key("Enter", "Enter", ENTER);
+      });
+      // The browser is the one the check before signed in with: its person is signed out first.
+      expect(yield* until("the page being there to sign out from", asked("/sign-out", {}))).toBe(
+        200,
+      );
+      expect(yield* asked("/reset-password", { token, newPassword: password })).toBe(200);
+      yield* signIn;
+
+      yield* page.until(`!!document.querySelector("[data-console-security]")`);
+      yield* page.click("[data-console-security]");
+      const dialog = (step: string) => `[data-console-security-dialog="${step}"]`;
+      yield* page.until(`!!document.querySelector('${dialog("none")} input')`);
+      yield* page.click(`${dialog("none")} input`);
+      yield* page.type(password);
+      yield* page.key("Enter", "Enter", ENTER);
+      yield* page.until(`!!document.querySelector('${dialog("confirm")} input')`);
+      const uri = (yield* page.text("[data-console-totp-uri] code")) ?? "";
+      expect(uri).toMatch(/^otpauth:\/\/totp\/Aperture:/u);
+      yield* shot(page, fs, "console-second-factor");
+      yield* page.click(`${dialog("confirm")} input`);
+      yield* page.type(yield* totp(uri));
+      yield* page.key("Enter", "Enter", ENTER);
+      yield* page.until(`!!document.querySelector('${dialog("backup-codes")}')`);
+      expect(yield* page.text("[data-console-backup-codes] code")).toMatch(/\w{5}-\w{5}/u);
+
+      // The password alone leads to the code, and nowhere further.
+      expect(yield* asked("/sign-out", {})).toBe(200);
+      yield* signIn;
+      yield* page.until(`!!document.querySelector('[data-console-sign-in="code"] input')`);
+      yield* shot(page, fs, "console-sign-in-code");
+      yield* page.click("[data-console-sign-in] input");
+      yield* page.type(yield* totp(uri));
+      yield* page.key("Enter", "Enter", ENTER);
+      yield* page.until(`!!document.querySelector("[data-console-security]")`);
       expect(page.errors()).toEqual([]);
     }),
   );
