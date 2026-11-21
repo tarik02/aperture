@@ -8,7 +8,7 @@ export default defineConfig({
     target: "es2023",
     modulePreload: false,
     rolldownOptions: {
-      input: { "aperture-session": "src/index.tsx", "aperture-session-view": "src/headless.tsx" },
+      input: { "aperture-session": "src/index.tsx" },
       preserveEntrySignatures: "exports-only",
       output: {
         entryFileNames: "[name].js",

@@ -3,18 +3,18 @@ import { defineConfig } from "vite-plus";
 export default defineConfig({
   fmt: {
     ignorePatterns: [
-      "**/*.gen.ts",
+      "**/gen/**",
       "*.md",
-      "api/**",
-      "docs/**",
-      "internal/**",
-      "packaging/**",
-      "skills/**",
+      "*.toml",
+      "*.lock",
+      "crates/**",
+      "proto/**",
+      "target/**",
       "pnpm-lock.yaml",
     ],
   },
   lint: {
-    ignorePatterns: ["**/dist/**", "**/*.gen.ts"],
+    ignorePatterns: ["**/dist/**", "**/gen/**", "crates/**", "target/**"],
     plugins: ["typescript", "unicorn", "oxc", "import"],
     jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
     rules: {

@@ -1,6 +1,0 @@
-[Unit]
-Description=Aperture Chromium session supervisor (legacy disabled)
-
-[Service]
-Type=oneshot
-ExecStart=@runtimeShell@ -c 'echo "aperture.service is obsolete; use aperture@blue.service or aperture@green.service" >&2; exit 1'

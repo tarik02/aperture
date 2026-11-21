@@ -1,0 +1,610 @@
+syntax = "proto3";
+
+package aperture.live.v1;
+
+// What a client and a running session say to each other while the client watches and
+// controls it. A client is one WebSocket, the session socket, with one message a frame:
+// binary frames carry the message encoded as protobuf, text frames as protobuf JSON. The
+// session answers in the encoding of the client's last message, and says nothing before the
+// client's `hello`.
+//
+// How the pixels of the target a client watches reach it is the client's choice, made in
+// `hello` and changed by another `hello`:
+//
+// - as video, over WebRTC: the client sends `rtc_offer`, with one video track to receive,
+//   and gets `rtc_answer`, or `rtc_refused`. The connection carries the video and nothing
+//   else has to; a client may also open data channels on it and send its messages there,
+//   where pointer motion on an unreliable channel does not hold up clicks and keys behind
+//   a lost move.
+// - as frames, on the session socket: the same video, for a client that decodes it itself.
+//   This works wherever a WebSocket does, and costs what video costs. The client tells
+//   which frames it has shown (`video_shown`).
+// - as tiles, on the session socket: the parts of the picture that changed, as images,
+//   for a client that decodes no video. Exact pixels, at many times the bytes of video
+//   while much of the picture changes.
+
+message ClientMessage {
+  oneof message {
+    // The tab the client's video shows and its input goes to. Until the first one, the
+    // session picks the newest.
+    Select select = 1;
+    PointerMotion pointer_motion = 2;
+    PointerButton pointer_button = 3;
+    PointerScroll pointer_scroll = 4;
+    PointerLeave pointer_leave = 5;
+    Key key = 6;
+    Text text = 7;
+    Viewport viewport = 8;
+    Hello hello = 9;
+    RtcOffer rtc_offer = 10;
+    VideoShown video_shown = 11;
+    // Puts content on the session's clipboard, for a paste there to take: a client that
+    // pastes sends what it has, then the keys that paste.
+    Clipboard clipboard = 12;
+    Drop drop = 13;
+    FilesChosen files_chosen = 14;
+    Lease lease = 15;
+    Go go = 16;
+    CopyPicture copy_picture = 17;
+    Close close = 18;
+    Follow follow = 19;
+    Draw draw = 20;
+    Pointing pointing = 21;
+  }
+}
+
+message ServerMessage {
+  oneof message {
+    Targets targets = 1;
+    Selected selected = 2;
+    Cursor cursor = 3;
+    RtcAnswer rtc_answer = 4;
+    Tile tile = 5;
+    RtcRefused rtc_refused = 6;
+    VideoFrame video_frame = 7;
+    VideoStatus video_status = 8;
+    // Something was copied in the session.
+    Clipboard clipboard = 9;
+    Downloads downloads = 10;
+    FileRequests file_requests = 11;
+    Presence presence = 12;
+    Menu menu = 13;
+    AudioFrame audio = 14;
+    Features features = 15;
+    Failed failed = 16;
+    Pointer pointer = 17;
+    Stroke stroke = 18;
+  }
+}
+
+// What the client may do in the session, area by area: what whoever let it in gave it, of
+// what the session offers at all. Sent first after `hello`. What is not granted is refused:
+// a client need not show it. Watching takes no grant.
+message Features {
+  // Write: the pointer, the keyboard and what is dropped go into the tab the client holds.
+  Grant input = 9;
+  // Write: `go`, `close` and `viewport` are taken.
+  Grant tabs = 10;
+  // Write: a tab is taken from whoever holds it, without asking.
+  Grant lease = 11;
+  // Read: targets tell which of them sound, and `audio` comes where asked for.
+  Grant sound = 1;
+  // Read: files that were put into the session are listed. Write: files are taken (see
+  // `uploads` beside the session socket), and pages that ask for files are answered.
+  Grant uploads = 2;
+  // Read: what the session's browser downloaded is told in `downloads`, and fetched.
+  Grant downloads = 3;
+  // Read: recordings and screenshots are listed and fetched. Write: they are made.
+  Grant recordings = 4;
+  // Read: what is copied in the session is told in `clipboard`, and `copy_picture` is
+  // taken. Write: a client's `clipboard` is taken.
+  Grant clipboard = 5;
+  // Write: the session's automation, at `mcp` beside the session socket.
+  Grant mcp = 6;
+  // Write: its browser's DevTools endpoint, at `cdp`.
+  Grant cdp = 7;
+  // Write: a tunnel, at `tunnel`.
+  Grant tunnel = 8;
+}
+
+message Grant {
+  bool read = 1;
+  bool write = 2;
+}
+
+// The client's first message. The session answers with what it offers, its targets, the
+// target the client watches, and the cursor.
+message Hello {
+  Pixels pixels = 1;
+  // The forms of video the client would have, the one it would rather have first. The
+  // session sends the first one it makes: as frames whichever that is, over WebRTC the
+  // first one the connection also takes. `VIDEO_FORMAT_H264` when left out, and when none
+  // of them can be had.
+  repeated VideoFormat formats = 2;
+  // The quality of the video, whatever the link carries; the session picks when left out.
+  VideoQuality quality = 3;
+  // Frames a second at most, 1 to 60; as many as the quality has when left out.
+  optional uint32 fps = 4;
+  // The client takes the session's sound on the session socket, as `audio`. A client
+  // with a WebRTC connection takes it there instead, on an audio track it offers.
+  bool audio = 5;
+}
+
+// The form a target's video takes.
+enum VideoFormat {
+  VIDEO_FORMAT_UNSPECIFIED = 0;
+  // H.264 constrained baseline, 4:2:0. Everything decodes it; colored text loses detail.
+  VIDEO_FORMAT_H264 = 1;
+  // H.264 High 4:4:4, in BT.709: color as sharp as light. For frames on the session
+  // socket, where the client's decoder takes it; WebRTC does not carry it.
+  VIDEO_FORMAT_FULL_CHROMA = 2;
+  // H.265 Main, 4:2:0: fewer bits than H.264 for the same picture.
+  VIDEO_FORMAT_H265 = 3;
+  // VP9 profile 0, 4:2:0.
+  VIDEO_FORMAT_VP9 = 4;
+  // VP9 profile 1, 4:4:4: color as sharp as light, also over WebRTC.
+  VIDEO_FORMAT_VP9_FULL_CHROMA = 5;
+  // AV1 main, 4:2:0.
+  VIDEO_FORMAT_AV1 = 6;
+}
+
+// How much a target's video costs the client's link. The session picks it, by what the
+// link carries, and changes it as that changes: over WebRTC by the connection's own
+// estimate, on the session socket by how late the client shows frames (`video_shown`).
+enum VideoQuality {
+  VIDEO_QUALITY_UNSPECIFIED = 0;
+  // Up to 0.7 Mbit/s, 15 frames a second. Bitrates are for a picture of 1280x720 pixels;
+  // larger ones get more.
+  VIDEO_QUALITY_LOW = 1;
+  // Up to 2.5 Mbit/s, 30 frames a second.
+  VIDEO_QUALITY_MEDIUM = 2;
+  // A constant quality whatever it takes, 60 frames a second.
+  VIDEO_QUALITY_FULL = 3;
+}
+
+// The video the client gets from now on, over WebRTC or as frames. Sent when it starts
+// and whenever it changes.
+message VideoStatus {
+  VideoFormat format = 1;
+  VideoQuality quality = 2;
+  // Frames a second at most.
+  uint32 fps = 3;
+}
+
+// The session's sound: what its browser plays, all its pages together, as Opus packets of
+// 20 ms, 48 kHz, stereo. Packets a client is too slow for are left out.
+message AudioFrame {
+  // Where in the sound the packet starts.
+  uint64 time_us = 1;
+  bytes data = 2;
+}
+
+// The client showed the video frame stamped `time_us`, or let it go undecoded. A client
+// that takes frames sends this for each: frames it does not report as shown count as
+// waiting in front of its link, and with too much waiting the session holds frames back.
+message VideoShown {
+  uint64 time_us = 1;
+}
+
+// How the pixels of the watched target reach a client.
+enum Pixels {
+  // None: the client only controls, or has yet to say.
+  PIXELS_UNSPECIFIED = 0;
+  // Video over WebRTC, once the client has offered a connection.
+  PIXELS_VIDEO = 1;
+  // Tiles on the session socket.
+  PIXELS_TILES = 2;
+  // Video frames on the session socket.
+  PIXELS_FRAMES = 3;
+}
+
+// A WebRTC offer, as SDP, with a video track for the session to send on.
+message RtcOffer {
+  string sdp = 1;
+}
+
+message RtcAnswer {
+  string sdp = 1;
+}
+
+// The session could not make the WebRTC connection the client offered. The session socket
+// goes on; the client may take its pixels another way.
+message RtcRefused {
+  string reason = 1;
+}
+
+// A frame of the watched target's video, as its format has frames: an access unit in
+// Annex B form of H.264 and H.265, a frame of VP9, a temporal unit of AV1. The first
+// one a client gets of a target is a keyframe, and so is the first one after frames were
+// held back and the first one of another quality.
+message VideoFrame {
+  // The tab it is a frame of.
+  uint32 tab = 1;
+  bool keyframe = 2;
+  // When the frame was drawn, in microseconds on the session's clock.
+  uint64 time_us = 3;
+  bytes data = 4;
+  VideoFormat format = 5;
+  // The picture's size in pixels.
+  uint32 width = 6;
+  uint32 height = 7;
+}
+
+// A part of the watched target's picture that changed, as a PNG image; the whole picture
+// when the client starts watching the target and when its size changes. Tiles of one
+// change follow each other.
+message Tile {
+  // The tab it is a part of the picture of.
+  uint32 tab = 1;
+  uint32 x = 2;
+  uint32 y = 3;
+  // The whole picture's size in pixels.
+  uint32 width = 4;
+  uint32 height = 5;
+  bytes png = 6;
+}
+
+message Select {
+  uint32 tab = 1;
+}
+
+// Positions are in the selected target's logical pixels, from its top-left corner.
+message PointerMotion {
+  double x = 1;
+  double y = 2;
+}
+
+enum MouseButton {
+  MOUSE_BUTTON_UNSPECIFIED = 0;
+  MOUSE_BUTTON_LEFT = 1;
+  MOUSE_BUTTON_RIGHT = 2;
+  MOUSE_BUTTON_MIDDLE = 3;
+  MOUSE_BUTTON_BACK = 4;
+  MOUSE_BUTTON_FORWARD = 5;
+}
+
+message PointerButton {
+  double x = 1;
+  double y = 2;
+  MouseButton button = 3;
+  bool pressed = 4;
+}
+
+message PointerScroll {
+  double x = 1;
+  double y = 2;
+  // Wheel notches, positive right and down.
+  double dx = 3;
+  double dy = 4;
+}
+
+message PointerLeave {}
+
+message Key {
+  // The physical key, as its Linux evdev code.
+  uint32 code = 1;
+  bool pressed = 2;
+}
+
+// Text as it is, whatever keyboard it takes to write: what a phone's keyboard or an input
+// method entered, or a key of a layout the session's keyboard does not have. A field that
+// takes text gets it whole; elsewhere it is typed key by key, without the characters the
+// session's keyboard has no key for. A line break is the Enter key and a tab the Tab key.
+message Text {
+  string text = 1;
+  // The text is still being composed, as with an input method: the field shows it as
+  // such, in place of what was being composed before. Text that is not composing ends the
+  // composing and stays; empty, it only ends it.
+  bool composing = 2;
+}
+
+// What the session's browser downloaded since the session started, oldest first; the
+// last hundred of them. Sent in answer to `hello` and whenever it changes. A file is
+// fetched from the session's files, as `files/downloads/{name}` beside the session socket.
+message Downloads {
+  repeated Download downloads = 1;
+}
+
+message Download {
+  string id = 1;
+  // The file's name: the one the page suggested until the browser has saved it, which may
+  // be under another.
+  string name = 2;
+  string url = 3;
+  uint64 received_bytes = 4;
+  // Left out while the page does not say.
+  optional uint64 total_bytes = 5;
+  DownloadState state = 6;
+}
+
+enum DownloadState {
+  DOWNLOAD_STATE_UNSPECIFIED = 0;
+  DOWNLOAD_STATE_RUNNING = 1;
+  DOWNLOAD_STATE_DONE = 2;
+  DOWNLOAD_STATE_FAILED = 3;
+}
+
+// Who is in the session and who drives which tab. Sent in answer to `hello` and whenever
+// it changes.
+//
+// Input is a tab's. Who gives a tab input holds it, and others' input to it is left out
+// until the holder gave it none for five seconds. A person's input takes a tab from the
+// session's automation at once. A client that may only watch gives
+// none at all. The session has one keyboard and one pointer: those who hold different
+// tabs take turns at them, key by key.
+message Presence {
+  // The member this client is.
+  uint64 you = 1;
+  repeated Member members = 2;
+  repeated HeldTab held = 3;
+}
+
+message Member {
+  uint64 id = 1;
+  string name = 2;
+  Role role = 3;
+  // The tab the member watches.
+  optional uint32 tab = 4;
+  // The session's automation rather than a person.
+  bool agent = 5;
+  // The member this one follows: it watches the tab that member watches.
+  optional uint64 follows = 6;
+}
+
+// Follows a member: the client watches the tab the member watches, also when the member
+// goes to another, until the client selects a tab itself or the member leaves. Without
+// `member`, follows nobody. A member is not followed around a circle of followers.
+message Follow {
+  optional uint64 member = 1;
+}
+
+// Where another member's pointer is on the tab the client watches, in the tab's logical
+// pixels. It gives no input by being there: this is for seeing where someone points.
+// Whoever watches the tab is told, a few dozen times a second at most, and nobody is told
+// again what they missed.
+message Pointer {
+  uint64 member = 1;
+  // None once the pointer left the tab's picture.
+  optional Point at = 2;
+}
+
+message Point {
+  double x = 1;
+  double y = 2;
+}
+
+// Where the client's pointer is over the tab it watches while what it does there is no
+// input, as while it draws: the others see it as they see a pointer that gives input.
+message Pointing {
+  // None once the pointer left the tab's picture.
+  optional Point at = 1;
+}
+
+// A point of a stroke the client draws over the tab it watches, in the tab's logical
+// pixels. A stroke is a mark for the others to see: it is no input, it is part of nothing
+// the session keeps, and those who watch the tab let it fade once it ended. Anyone in the
+// session draws, also who may only watch.
+message Draw {
+  // Which of the client's strokes the point is of.
+  uint32 stroke = 1;
+  StrokePhase phase = 2;
+  double x = 3;
+  double y = 4;
+}
+
+enum StrokePhase {
+  STROKE_PHASE_UNSPECIFIED = 0;
+  STROKE_PHASE_START = 1;
+  STROKE_PHASE_MOVE = 2;
+  STROKE_PHASE_END = 3;
+}
+
+// A point of a stroke another member draws over the tab the client watches.
+message Stroke {
+  uint64 member = 1;
+  uint32 stroke = 2;
+  StrokePhase phase = 3;
+  double x = 4;
+  double y = 5;
+}
+
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  // Watches.
+  ROLE_VIEW = 1;
+  // Gives input.
+  ROLE_CONTROL = 2;
+  // Takes a tab from whoever holds it.
+  ROLE_ADMIN = 3;
+}
+
+message HeldTab {
+  uint32 tab = 1;
+  // The member who holds it.
+  uint64 holder = 2;
+  // The member who asks the holder for it.
+  optional uint64 asked_by = 3;
+}
+
+// About the tab the client watches.
+message Lease {
+  LeaseAction action = 1;
+}
+
+enum LeaseAction {
+  LEASE_ACTION_UNSPECIFIED = 0;
+  // Asks for the tab. One nobody holds is the client's at once, and so is any an admin
+  // asks for. Another holder is asked, and the tab is the client's when the holder allows
+  // it or does not answer for ten seconds.
+  LEASE_ACTION_TAKE = 1;
+  // Lets go of the tab the client holds.
+  LEASE_ACTION_RELEASE = 2;
+  // Answers the member who asks for the tab the client holds.
+  LEASE_ACTION_ALLOW = 3;
+  LEASE_ACTION_KEEP = 4;
+}
+
+// The watched target's page was asked for its menu, as by a right click, and showed none
+// of its own: the browser shows none either. What the menu would be of is told, for the
+// client to show one. Sent to the client that drives the target's tab.
+message Menu {
+  // The link under the pointer.
+  optional string link = 1;
+  // The picture under the pointer.
+  optional string image = 2;
+  // The text that is selected.
+  optional string text = 3;
+  // There is a field to write into under the pointer.
+  bool editable = 4;
+}
+
+// Takes the watched target's page elsewhere.
+message Go {
+  oneof to {
+    // A page on the web; or nothing, with `new_tab`, for an empty new tab.
+    string url = 1;
+    Along along = 2;
+  }
+  // The page opens in a new tab rather than in the target's.
+  bool new_tab = 3;
+}
+
+// Where along a page's history.
+enum Along {
+  ALONG_UNSPECIFIED = 0;
+  ALONG_BACK = 1;
+  ALONG_FORWARD = 2;
+  ALONG_RELOAD = 3;
+}
+
+// Closes a target's tab, for a client that may give it input: one nobody else holds.
+message Close {
+  uint32 tab = 1;
+}
+
+// Something a client asked for was not done. What is done is not answered: it shows in
+// what the session tells anyway.
+message Failed {
+  Asked asked = 1;
+  // Why, for a person to read.
+  string reason = 2;
+}
+
+enum Asked {
+  ASKED_UNSPECIFIED = 0;
+  ASKED_GO = 1;
+  ASKED_CLOSE = 2;
+  ASKED_COPY_PICTURE = 3;
+  ASKED_FILES_CHOSEN = 4;
+  ASKED_FOLLOW = 5;
+}
+
+// Asks for a picture the watched target's page shows. The session answers with
+// `clipboard`, the picture in the form the page has it, such as `image/jpeg`.
+message CopyPicture {
+  string url = 1;
+}
+
+// The pages that ask for files and have no answer yet, as a page does when a file input
+// is clicked: the browser shows no dialog of its own. Sent in answer to `hello` and
+// whenever it changes. A request ends with its answer or with its page.
+message FileRequests {
+  repeated FileRequest requests = 1;
+}
+
+message FileRequest {
+  uint64 id = 1;
+  // The tab whose page asks.
+  uint32 tab = 2;
+  // The page takes more than one file.
+  bool multiple = 3;
+}
+
+// Answers a page's request for files with files a client put into the session first (see
+// `uploads` beside the session socket), by their names there. With none the page is left
+// without, as when a dialog is dismissed.
+message FilesChosen {
+  uint64 id = 1;
+  repeated string files = 2;
+}
+
+// Drops content onto the watched target at a position, as one who dragged it there would:
+// text, a picture, or files, which a client puts into the session first (see `uploads`
+// beside the session socket) and names here.
+message Drop {
+  // In the target's logical pixels.
+  double x = 1;
+  double y = 2;
+  Clipboard content = 3;
+}
+
+// Content that is copied or dragged: the same content in each form it is had in, at most
+// 8 MiB of them together.
+message Clipboard {
+  repeated Form forms = 1;
+
+  message Form {
+    // The form's MIME type. `text/plain` is text, as UTF-8; `text/html` is marked-up text;
+    // `image/png` is a picture; `text/uri-list` is files of the session, as the lines of
+    // their `file://` URIs, which a session takes of its own files only. Other forms are
+    // left out.
+    string type = 1;
+    bytes data = 2;
+  }
+}
+
+// The viewport of the target the client watches: the size its page gets, in logical (CSS)
+// pixels, and how many pixels the page draws to each of them (its `devicePixelRatio`).
+// It is the target's: every client that watches it sees it. A target starts with the
+// session's. The session gives the nearest it can: a side of 64 to 4096, a scale of 0.5
+// to 4, and no more than 4096 pixels a side; `targets` tells what it gave.
+message Viewport {
+  uint32 width = 1;
+  uint32 height = 2;
+  // The target keeps its scale when left out.
+  optional double scale = 3;
+}
+
+// A browser target: a page of the session's browser, shown in a window of its own. It is
+// named by its tab's number, here and wherever else a client or the session names one.
+message Target {
+  // The page's DevTools target id, for whoever speaks DevTools to the browser. It lasts
+  // as long as the page does in one run of the session.
+  string id = 1;
+  string title = 2;
+  string url = 3;
+  // In logical pixels, which pointer positions are in.
+  uint32 width = 4;
+  uint32 height = 5;
+  // Pixels to a logical pixel: the target's picture is `width` x `height` times this.
+  double scale = 6;
+  // The tab's number, which no other tab of the session gets. It stays the tab's when
+  // the session is suspended and resumed, which the target's id does not.
+  uint32 tab = 7;
+  // The tab plays sound now. Never where the session's sound is off.
+  bool sounds = 8;
+  // The page's history has somewhere to go back to, and forward.
+  bool goes_back = 9;
+  bool goes_forward = 10;
+}
+
+// Every target of the session, oldest first. Sent after `hello` and whenever a target
+// opens, closes or changes.
+message Targets {
+  repeated Target targets = 1;
+}
+
+// The tab the client's video shows from now on; none when the session has no target.
+message Selected {
+  optional uint32 tab = 1;
+}
+
+message Cursor {
+  oneof cursor {
+    // A CSS cursor name.
+    string named = 1;
+    Hidden hidden = 2;
+  }
+
+  message Hidden {}
+}

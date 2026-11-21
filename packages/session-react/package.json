@@ -1,7 +1,7 @@
 {
   "name": "@aperture-browser/session-react",
   "version": "0.0.0",
-  "description": "React components for embedding a live Aperture browser session, with or without its tab strip.",
+  "description": "React components for watching and controlling one Aperture session: the workbench with its tab strip, toolbar and menus, or the picture alone.",
   "homepage": "https://github.com/tarik02/aperture#readme",
   "bugs": "https://github.com/tarik02/aperture/issues",
   "license": "MIT",
@@ -41,15 +41,12 @@
     "typecheck": "tsgo --noEmit && tsgo --noEmit -p scripts"
   },
   "dependencies": {
-    "@aperture-browser/api-client": "workspace:*",
-    "@aperture-browser/live-session": "workspace:*",
-    "@atlaskit/pragmatic-drag-and-drop": "catalog:",
+    "@aperture-browser/session-client": "workspace:*",
     "@base-ui/react": "catalog:",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",
     "lucide-react": "catalog:",
     "next-themes": "catalog:",
-    "react-resizable-panels": "catalog:",
     "sonner": "catalog:",
     "tailwind-merge": "catalog:"
   },
@@ -61,6 +58,7 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "effect": "catalog:",
+    "publint": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
     "tailwindcss": "catalog:",

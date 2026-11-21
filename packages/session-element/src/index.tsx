@@ -1,10 +1,18 @@
-import type { SessionAccess } from "@aperture-browser/session-react/headless";
 import { createRoot, type Root } from "react-dom/client";
-import { ApertureSession } from "@aperture-browser/session-react";
+import {
+  ApertureSession,
+  type ApertureSessionFeatures,
+  type ApertureTheme,
+  type PictureWay,
+  type Session,
+  type WorkbenchContributions,
+} from "@aperture-browser/session-react";
 import styles from "@aperture-browser/session-react/styles.css?inline";
-import { attributeAccess } from "./attribute-access.ts";
+// The notices put their styles into the document, which a shadow tree does not take.
+import noticeStyles from "sonner/dist/styles.css?inline";
 
-const documentRules = /@property[^{]*\{[^}]*\}/g;
+// Registered properties are the document's: one declared in a shadow tree is not known.
+const documentRules = /@property[^{]*\{[^}]*\}/gu;
 const installedDocuments = new WeakSet<Document>();
 
 function installDocumentStyles(document: Document) {
@@ -24,56 +32,48 @@ const hostStyles = `
 .mount { height: 100%; }
 `;
 
-type Theme = "light" | "dark" | "system";
-
-export interface ApertureSessionFeatures {
-  readonly tabs?: boolean;
-  readonly navigation?: boolean;
-  readonly addressBar?: boolean;
-  readonly presence?: boolean;
-  readonly drawing?: boolean;
-  readonly menus?: boolean;
-  readonly statusBadge?: boolean;
-  readonly toaster?: boolean;
-}
-
 const hideableFeatures = {
   tabs: "tabs",
   navigation: "navigation",
   "address-bar": "addressBar",
   presence: "presence",
-  drawing: "drawing",
   menus: "menus",
-  "status-badge": "statusBadge",
+  files: "files",
+  recordings: "recordings",
+  "page-menu": "pageMenu",
+  sound: "sound",
   toaster: "toaster",
 } as const satisfies Record<string, keyof ApertureSessionFeatures>;
 
+const isHideable = (name: string): name is keyof typeof hideableFeatures =>
+  name in hideableFeatures;
+
 function hiddenFeatures(value: string | null): ApertureSessionFeatures {
   const features: { -readonly [K in keyof ApertureSessionFeatures]: boolean } = {};
-  for (const name of value?.split(/\s+/) ?? []) {
-    if (name in hideableFeatures) {
-      features[hideableFeatures[name as keyof typeof hideableFeatures]] = false;
+  for (const name of value?.split(/\s+/u) ?? []) {
+    if (isHideable(name)) {
+      features[hideableFeatures[name]] = false;
     }
   }
   return features;
 }
 
+const isTheme = (value: string | null): value is ApertureTheme =>
+  value === "light" || value === "dark" || value === "system";
+
+const isWay = (value: string | null): value is PictureWay =>
+  value === "video" || value === "frames" || value === "tiles";
+
+/**
+ * `<aperture-session url="…" token="…" name="…">`: the workbench of one session, apart from
+ * the page's own styles in a shadow tree. `hide` names the parts to leave out, separated by
+ * spaces; the `features` property does the same from script and wins over it.
+ */
 export class ApertureSessionElement extends HTMLElement {
-  static readonly observedAttributes = ["token", "base-url", "theme", "hide"];
+  static readonly observedAttributes = ["url", "token", "name", "pixels", "theme", "hide"];
 
   #root: Root | null = null;
-  #access: SessionAccess | null = null;
-  #attributeAccess = attributeAccess();
-
-  get access(): SessionAccess | null {
-    return this.#access;
-  }
-
-  set access(access: SessionAccess | null) {
-    this.#access = access;
-    this.#render();
-  }
-
+  #session: Session | null = null;
   #features: ApertureSessionFeatures = {};
 
   get features(): ApertureSessionFeatures {
@@ -85,12 +85,32 @@ export class ApertureSessionElement extends HTMLElement {
     this.#render();
   }
 
+  #contributions: WorkbenchContributions | undefined;
+
+  /**
+   * What is added to the workbench's slots, or put in place of its own; see
+   * `WorkbenchContribution` of `@aperture-browser/session-react`. From script only.
+   */
+  get contributions(): WorkbenchContributions | undefined {
+    return this.#contributions;
+  }
+
+  set contributions(contributions: WorkbenchContributions | undefined) {
+    this.#contributions = contributions;
+    this.#render();
+  }
+
+  /** The session's client, while the element is connected to its session. */
+  get session(): Session | null {
+    return this.#session;
+  }
+
   connectedCallback(): void {
     installDocumentStyles(this.ownerDocument);
     const shadow = this.shadowRoot ?? this.attachShadow({ mode: "open" });
     shadow.replaceChildren();
     const style = document.createElement("style");
-    style.textContent = `${hostStyles}\n${styles}`;
+    style.textContent = `${hostStyles}\n${styles}\n${noticeStyles}`;
     const mount = document.createElement("div");
     mount.className = "mount";
     shadow.append(style, mount);
@@ -107,20 +127,28 @@ export class ApertureSessionElement extends HTMLElement {
     this.#render();
   }
 
+  readonly #heard = (session: Session | null) => {
+    this.#session = session;
+    this.dispatchEvent(new CustomEvent("aperture-session", { detail: session }));
+  };
+
   #render(): void {
-    const access = this.#access ?? this.#attributeAccess(this);
-    // An invalid token still renders, so the session explains why it cannot open.
-    const configured = this.#access !== null || this.hasAttribute("token");
+    const url = this.getAttribute("url");
     const theme = this.getAttribute("theme");
+    const pixels = this.getAttribute("pixels");
     this.#root?.render(
-      configured ? (
+      url === null ? null : (
         <ApertureSession
-          key={access?.baseUrl ?? ""}
-          access={access}
-          theme={theme === "light" || theme === "dark" ? (theme as Theme) : "system"}
+          url={url}
+          token={this.getAttribute("token") ?? undefined}
+          name={this.getAttribute("name") ?? undefined}
+          pixels={isWay(pixels) ? pixels : undefined}
+          theme={isTheme(theme) ? theme : "system"}
           features={{ ...hiddenFeatures(this.getAttribute("hide")), ...this.#features }}
+          contributions={this.#contributions}
+          onSession={this.#heard}
         />
-      ) : null,
+      ),
     );
   }
 }

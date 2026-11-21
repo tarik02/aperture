@@ -1,0 +1,396 @@
+syntax = "proto3";
+
+package aperture.executor.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+// What one node does on request: browser sessions and the snapshots taken of them, on the
+// node's own storage.
+service ExecutorService {
+  // What this executor is and what its sessions may have.
+  rpc GetExecutor(GetExecutorRequest) returns (GetExecutorResponse);
+
+  // Creates a session, from a snapshot or empty, and starts its browser unless asked not to.
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  // Stops the session's browser and keeps its profile.
+  rpc SuspendSession(SuspendSessionRequest) returns (SuspendSessionResponse);
+  // Starts the browser of a suspended or failed session on the profile it left.
+  rpc ResumeSession(ResumeSessionRequest) returns (ResumeSessionResponse);
+  // Sets how the session's browser connections are routed, for a running session at once:
+  // connections made from then on go by the new rules, and open ones stay as they are.
+  rpc UpdateSessionProxy(UpdateSessionProxyRequest) returns (UpdateSessionProxyResponse);
+  // Stops the session and removes its profile and files. Snapshots taken of it stay.
+  rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
+  // The node's sessions as they change: each as it is now, then each again when what
+  // `GetSession` tells of it becomes another, and a word of each that is gone. What a
+  // session uses is not a change. It goes on until whoever watches leaves.
+  rpc WatchSessions(WatchSessionsRequest) returns (stream WatchSessionsResponse);
+  // Drops this node's copy of a session that is at rest where nodes share sessions: the
+  // session stays there, for whichever node resumes it. Refused for a session that runs,
+  // for one whose state here is not the one that is there, and on a node that shares none.
+  rpc EvictSession(EvictSessionRequest) returns (EvictSessionResponse);
+  // The sessions where nodes share them, whichever node has them or none. Refused on a
+  // node that shares none.
+  rpc ListStoredSessions(ListStoredSessionsRequest) returns (ListStoredSessionsResponse);
+
+  // Keeps the session's profile as it is now. A running session is suspended for the
+  // moment it takes and resumed after.
+  rpc CreateSnapshot(CreateSnapshotRequest) returns (CreateSnapshotResponse);
+  rpc GetSnapshot(GetSnapshotRequest) returns (GetSnapshotResponse);
+  rpc ListSnapshots(ListSnapshotsRequest) returns (ListSnapshotsResponse);
+  // Sessions created from the snapshot keep working.
+  rpc DeleteSnapshot(DeleteSnapshotRequest) returns (DeleteSnapshotResponse);
+}
+
+enum SessionState {
+  SESSION_STATE_UNSPECIFIED = 0;
+  // No browser runs; the profile is kept.
+  SESSION_STATE_SUSPENDED = 1;
+  SESSION_STATE_STARTING = 2;
+  SESSION_STATE_RUNNING = 3;
+  SESSION_STATE_SUSPENDING = 4;
+  // The browser ended without being asked to; `failure` says how. The profile is kept.
+  SESSION_STATE_FAILED = 5;
+}
+
+message Executor {
+  string version = 1;
+  // What its sessions offer unless they say otherwise, and the most one may offer.
+  repeated Feature features = 2;
+  // The network its sessions' browsers have unless they say otherwise, and the most one
+  // may have.
+  Network network = 3;
+  // The limits of a session that has none of its own.
+  Limits limits = 4;
+  // Whether it holds sessions to limits on what they use, and counts what they use.
+  bool holds_resources = 5;
+  // Whether its snapshots are kept where other nodes find them: a session is created
+  // from one of them on any node that names the same place.
+  bool shares_snapshots = 6;
+}
+
+message GetExecutorRequest {}
+
+message GetExecutorResponse {
+  Executor executor = 1;
+}
+
+// Something a session offers besides its picture and input.
+enum Feature {
+  FEATURE_UNSPECIFIED = 0;
+  // Its tabs are heard.
+  FEATURE_SOUND = 1;
+  // Clients put files into it, for pages that ask for some.
+  FEATURE_UPLOADS = 2;
+  // Its browser downloads files.
+  FEATURE_DOWNLOADS = 3;
+  // Its tabs are recorded and screenshots kept.
+  FEATURE_RECORDINGS = 4;
+  // What is copied passes between it and its clients.
+  FEATURE_CLIPBOARD = 5;
+  // Its automation endpoint is served.
+  FEATURE_MCP = 6;
+  // Its browser's DevTools endpoint is served.
+  FEATURE_CDP = 7;
+  // Clients attach tunnels.
+  FEATURE_TUNNEL = 8;
+}
+
+message Features {
+  repeated Feature on = 1;
+}
+
+// Where the TCP of a session's browser goes.
+enum NetworkTcp {
+  NETWORK_TCP_UNSPECIFIED = 0;
+  // Nowhere but through the session's proxy, which holds it to the session's rules.
+  NETWORK_TCP_PROXIED = 1;
+  // Out as well: pages still load through the proxy, but nothing holds the browser to it,
+  // and what goes around it reaches the node's network too.
+  NETWORK_TCP_DIRECT = 2;
+}
+
+// Where the UDP of a session's browser goes, which a proxy does not carry.
+enum NetworkUdp {
+  NETWORK_UDP_UNSPECIFIED = 0;
+  // Nowhere: WebRTC has no way out.
+  NETWORK_UDP_NONE = 1;
+  // Out, held to nothing, the node's network included.
+  NETWORK_UDP_DIRECT = 2;
+}
+
+message Network {
+  NetworkTcp tcp = 1;
+  NetworkUdp udp = 2;
+}
+
+message Session {
+  string id = 1;
+  SessionState state = 2;
+  // The snapshot the session was created from.
+  optional string snapshot_id = 3;
+  google.protobuf.Timestamp created_at = 4;
+  // Set while the session is running.
+  optional Endpoints endpoints = 5;
+  optional string failure = 6;
+  // The limits the session is held to: its own where it has them, the executor's where it
+  // does not. One that is left out is not held.
+  Limits limits = 7;
+  // What the session uses, while it runs on an executor that counts it.
+  optional Usage usage = 8;
+  // Since when nobody uses the session, while it runs and nobody does: no client is
+  // connected to it, and this is when the last one left or the last request for it came.
+  optional google.protobuf.Timestamp idle_since = 9;
+  // The session was suspended for sitting idle. It is resumed when someone reaches it:
+  // on any of its endpoints, which answer once it runs. A session that was suspended on
+  // request is not.
+  bool asleep = 10;
+  // What the session offers when it runs.
+  repeated Feature features = 11;
+  // The network its browser has when it runs.
+  Network network = 12;
+}
+
+// What a session may use, and how long it may sit idle. Resources are held only by an
+// executor that has a control group of its own to divide.
+message Limits {
+  // Bytes of memory. A session that needs more loses a process, most likely a tab.
+  optional uint64 memory_bytes = 1;
+  // Bytes of swap a session with a memory limit may use on top of it. It may use none
+  // unless this says so; a session without a memory limit swaps as the node lets it.
+  optional uint64 swap_bytes = 5;
+  // Processors' worth of time: 1.5 is a processor and a half.
+  optional double cpus = 2;
+  // Processes and threads.
+  optional uint64 tasks = 3;
+  // How long nobody may use the session before the executor suspends it, to resume it
+  // when someone reaches it again. A session that records, edits a recording or
+  // downloads is in use.
+  optional google.protobuf.Duration suspend_idle_after = 4;
+}
+
+message Usage {
+  uint64 memory_bytes = 1;
+  // The most it used since it was started.
+  uint64 memory_peak_bytes = 2;
+  // Processor time since it was started.
+  google.protobuf.Duration cpu_time = 3;
+  uint64 tasks = 4;
+  // Processes the session lost to its memory limit since it was started.
+  uint64 oom_kills = 5;
+}
+
+// Where a running session is reached: the executor's paths of it.
+message Endpoints {
+  // The browser's CDP WebSocket. `<cdp_path>/json/version` and the other discovery routes
+  // are below it.
+  string cdp_path = 1;
+  // The session itself, whose own routes are below it: `<path>/ws` is the session socket,
+  // which carries `aperture.live.v1`, `<path>/targets/<id>/screenshot.png` is a browser
+  // target as it looks now, `<path>/files/...` are its files, and `<path>/` is a page that
+  // shows the session, unless the executor leaves that out.
+  string path = 2;
+  // The session's automation, an MCP server over Streamable HTTP.
+  string mcp_path = 3;
+  // Where a client attaches the session's local tunnel: a WebSocket with the subprotocol
+  // `aperture-tunnel.v1`, whose binary messages carry yamux; the session opens a stream
+  // for every connection its rules route `via: local` and asks on it, as a SOCKS5 client,
+  // for the connection to be made on the client's machine.
+  string tunnel_path = 4;
+}
+
+// How a session's browser connections are routed. The first rule that matches a
+// connection decides; one no rule matches is made from the node.
+message ProxyConfig {
+  // The upstreams rules can route through, by name.
+  map<string, ProxyUpstream> upstreams = 1;
+  repeated ProxyRule rules = 2;
+  // How the session resolves names. Left out, it asks the node's own resolvers.
+  optional Dns dns = 3;
+}
+
+// For the names the session resolves itself: those of connections made from its node, and
+// those its browser asks for when it has a network of its own. A proxy or a tunnel
+// resolves what goes through it.
+message Dns {
+  // The addresses of the resolvers to ask; the node's own when there are none.
+  repeated string servers = 1;
+  // The first record that covers a name gives its addresses.
+  repeated DnsRecord records = 2;
+}
+
+message DnsRecord {
+  // A host as in a rule's match: exact, `*.suffix` or `*`.
+  string name = 1;
+  repeated string addresses = 2;
+}
+
+message ProxyUpstream {
+  // A proxy, with its credentials in the URL (`socks5://`, `http://`, `https://`), or a
+  // tunnel the session dials (`ws+yamux+socks5://`, `wss+yamux+socks5://`).
+  string url = 1;
+  // The secret a tunnel is dialed with. Required for a tunnel, and only for one.
+  optional string auth = 2;
+}
+
+message ProxyRule {
+  // `host` or `host:port`; the host is exact, `*.suffix` for subdomains, or `*` for any
+  // host but localhost.
+  string match = 1;
+  // `direct`, `refuse`, `local` (the tunnel a client attached), an upstream's name, or a
+  // proxy's URL.
+  string via = 2;
+  // `host` or `host:port`: where the connections are made instead of where the browser
+  // named.
+  optional string to = 3;
+  // The session answers the browser's TLS itself, with a certificate of its own that the
+  // session's browser takes for the name, and passes on what is inside: a server that
+  // speaks no TLS is `https://` to the session's pages. Such a rule is for port 443 unless
+  // its match names another.
+  bool tls = 4;
+}
+
+message Snapshot {
+  string id = 1;
+  optional string name = 2;
+  // The session it was taken of.
+  string session_id = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message CreateSessionRequest {
+  optional string snapshot_id = 1;
+  // Create the session without starting its browser.
+  bool suspended = 2;
+  optional ProxyConfig proxy = 3;
+  // The session's own limits. One that is left out is the executor's; zero is none, also
+  // where the executor has one.
+  Limits limits = 4;
+  // What the session offers: these and nothing else. Left out, all that the executor
+  // lets sessions offer. One the executor does not let sessions offer is refused.
+  optional Features features = 5;
+  // The network the session's browser has. What is left unspecified is as the executor
+  // has it; `direct` where the executor has it otherwise is refused.
+  Network network = 6;
+  // Cookies and the storage of origins for the session's browser to start with, over
+  // what its snapshot has: the JSON a session's `storage-state` route gives. Not for a
+  // session that is created suspended. A session that does not take it is not created.
+  optional string storage_state = 7;
+}
+
+message CreateSessionResponse {
+  Session session = 1;
+}
+
+message GetSessionRequest {
+  string id = 1;
+}
+
+message GetSessionResponse {
+  Session session = 1;
+}
+
+message ListSessionsRequest {}
+
+message ListSessionsResponse {
+  repeated Session sessions = 1;
+}
+
+message SuspendSessionRequest {
+  string id = 1;
+}
+
+message SuspendSessionResponse {
+  Session session = 1;
+}
+
+message ResumeSessionRequest {
+  string id = 1;
+  // Resume the session although another node says it has it, for a node that died with
+  // the session on it: the session is as it was last suspended. Only executors that say
+  // which sessions they have refuse one for that.
+  bool takeover = 2;
+}
+
+message ResumeSessionResponse {
+  Session session = 1;
+}
+
+message UpdateSessionProxyRequest {
+  string id = 1;
+  // Left out, everything goes direct again.
+  optional ProxyConfig proxy = 2;
+}
+
+message UpdateSessionProxyResponse {}
+
+message DeleteSessionRequest {
+  string id = 1;
+}
+
+message DeleteSessionResponse {}
+
+message WatchSessionsRequest {}
+
+message WatchSessionsResponse {
+  oneof event {
+    // A session as it is now: one there was when the watching began, a new one, or one
+    // that changed.
+    Session session = 1;
+    // The id of a session this node has no more: deleted, or evicted.
+    string gone = 2;
+  }
+}
+
+message EvictSessionRequest {
+  string id = 1;
+}
+
+message EvictSessionResponse {}
+
+message ListStoredSessionsRequest {}
+
+message ListStoredSessionsResponse {
+  repeated StoredSession sessions = 1;
+}
+
+// A session as it is where nodes share sessions.
+message StoredSession {
+  string id = 1;
+  optional string snapshot_id = 2;
+  google.protobuf.Timestamp created_at = 3;
+  // The node that says it has the session, where nodes say so and one does.
+  optional string held_by = 4;
+}
+
+message CreateSnapshotRequest {
+  string session_id = 1;
+  optional string name = 2;
+}
+
+message CreateSnapshotResponse {
+  Snapshot snapshot = 1;
+}
+
+message GetSnapshotRequest {
+  string id = 1;
+}
+
+message GetSnapshotResponse {
+  Snapshot snapshot = 1;
+}
+
+message ListSnapshotsRequest {}
+
+message ListSnapshotsResponse {
+  repeated Snapshot snapshots = 1;
+}
+
+message DeleteSnapshotRequest {
+  string id = 1;
+}
+
+message DeleteSnapshotResponse {}

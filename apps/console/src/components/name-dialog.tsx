@@ -1,0 +1,77 @@
+import { Button } from "@aperture-browser/ui/components/button";
+import {
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@aperture-browser/ui/components/dialog";
+import { useForm, useStore } from "@tanstack/react-form";
+import { FreshDialog } from "#/components/fresh-dialog.tsx";
+import { TextField } from "#/components/text-field.tsx";
+import { required } from "#/lib/validation.ts";
+
+type NameDialogProps = {
+  title: string;
+  description?: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Makes what is named; the dialog closes once it is made, and stays when it is not. */
+  onSubmit: (name: string) => Promise<unknown>;
+};
+
+/** Makes something that needs nothing but a name. */
+export function NameDialog({ open, onOpenChange, ...form }: NameDialogProps) {
+  return (
+    <FreshDialog open={open} onOpenChange={onOpenChange}>
+      <NameForm {...form} onDone={() => onOpenChange(false)} />
+    </FreshDialog>
+  );
+}
+
+function NameForm({
+  title,
+  description,
+  onSubmit,
+  onDone,
+}: Omit<NameDialogProps, "open" | "onOpenChange"> & { onDone: () => void }) {
+  const form = useForm({
+    defaultValues: { name: "" },
+    onSubmit: async ({ value }) => {
+      try {
+        await onSubmit(value.name.trim());
+      } catch {
+        // Told of where it was asked for.
+        return;
+      }
+      onDone();
+    },
+  });
+  const submitting = useStore(form.store, (state) => state.isSubmitting);
+
+  return (
+    <form
+      data-console-name-dialog
+      className="aperture:grid aperture:gap-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void form.handleSubmit();
+      }}
+    >
+      <DialogHeader>
+        <DialogTitle>{title}</DialogTitle>
+        {description === undefined ? null : <DialogDescription>{description}</DialogDescription>}
+      </DialogHeader>
+      <form.Field name="name" validators={{ onSubmit: required("A name") }}>
+        {(field) => <TextField field={field} label="Name" autoFocus autoComplete="off" />}
+      </form.Field>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={submitting}>
+          Create
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}

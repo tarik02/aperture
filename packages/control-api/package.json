@@ -1,0 +1,19 @@
+{
+  "name": "@aperture-browser/control-api",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The control plane's API as both its server and its callers read it: the routes, what goes over them, and how they fail.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./errors": "./src/errors.ts"
+  },
+  "scripts": {
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  }
+}

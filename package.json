@@ -4,18 +4,15 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck && tsgo --noEmit -p scripts",
-    "lint": "vp lint && node scripts/check-catalog.ts",
+    "typecheck": "pnpm -r typecheck",
+    "test:e2e": "pnpm --filter @aperture-browser/e2e test",
+    "lint": "vp lint",
     "format": "vp fmt",
     "format:check": "vp fmt --check"
   },
   "devDependencies": {
-    "@aperture-browser/api-client": "workspace:*",
-    "@effect/platform-node": "catalog:",
     "@types/node": "catalog:",
     "@typescript/native-preview": "catalog:",
-    "effect": "catalog:",
-    "publint": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"

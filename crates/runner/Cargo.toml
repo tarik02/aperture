@@ -1,0 +1,52 @@
+[package]
+name = "aperture-runner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+aperture-compositor.workspace = true
+aperture-gateway.workspace = true
+async-trait = "0.1"
+axum = { version = "0.8", features = ["ws"] }
+browse-capture = { git = "https://github.com/anomalyco/browse", rev = "be5528ff2194c8defab74d41e13abb7cb149548e" }
+browse-core = { git = "https://github.com/anomalyco/browse", rev = "be5528ff2194c8defab74d41e13abb7cb149548e" }
+browse-page = { git = "https://github.com/anomalyco/browse", rev = "be5528ff2194c8defab74d41e13abb7cb149548e" }
+aperture-tunnel.workspace = true
+base64 = "0.22"
+fast-socks5 = "1"
+native-tls = "0.2"
+tokio-native-tls = "0.3"
+url = "2"
+ipnet = "2"
+browse-script = { git = "https://github.com/anomalyco/browse", rev = "be5528ff2194c8defab74d41e13abb7cb149548e" }
+buffa = { version = "0.9", features = ["json"] }
+clap = { version = "4", features = ["derive", "env"] }
+connectrpc = "0.9"
+if-addrs = "0.15"
+gstreamer = "0.25"
+gstreamer-app = "0.25"
+gstreamer-allocators = "0.25"
+gstreamer-video = { version = "0.25", features = ["v1_24"] }
+percent-encoding = "2"
+png = "0.18"
+rmcp = { version = "3.9.0", features = ["server", "transport-streamable-http-server"] }
+str0m = { version = "0.24.1", default-features = false, features = ["openssl"] }
+thiserror.workspace = true
+futures-util.workspace = true
+libc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-tungstenite = { workspace = true, features = ["native-tls"] }
+tower-http = { version = "0.6", features = ["fs"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+hickory-resolver = "0.26.3"
+rcgen = "0.14.10"
+sha2 = "0.10"
+
+[build-dependencies]
+connectrpc-build = "0.9"

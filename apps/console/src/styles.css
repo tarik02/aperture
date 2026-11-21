@@ -1,0 +1,14 @@
+@import "@aperture-browser/ui/styles.css";
+@source "./";
+@source "../../../packages/session-react/src";
+
+#root {
+  height: 100%;
+  --aperture-font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 180ms;
+  animation-timing-function: ease-out;
+}

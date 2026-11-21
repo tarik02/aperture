@@ -1,146 +1,69 @@
-import type { ReactNode } from "react";
-import { Link2Off, Loader2 } from "lucide-react";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@aperture-browser/ui/components/empty";
+import { useEffect } from "react";
+import { Loader2 } from "lucide-react";
+import type { ConnectOptions, Session } from "@aperture-browser/session-client";
 import { Toaster } from "@aperture-browser/ui/components/sonner";
-import { BrowserControlPane } from "./components/browser-control-pane.tsx";
-import type { ApertureSessionFeatures, SessionFeatures } from "./features.ts";
-import { showNotice } from "./notices.ts";
-import { ApertureProvider } from "./provider.tsx";
-import { useSession } from "./session.ts";
+import { SessionWorkbench, type SessionWorkbenchProps } from "./components/session-workbench.tsx";
+import type { ApertureSessionFeatures } from "./features.ts";
+import { SessionProvider, useConnectedSession } from "./session.tsx";
 import { ApertureUIRoot, type ApertureTheme } from "./ui-root.tsx";
-import type { SessionAccess } from "@aperture-browser/live-session";
-import * as UrlPath from "@aperture-browser/api-client/url-path";
 
-export interface SessionProps {
-  readonly access: SessionAccess | null;
-  readonly features?: SessionFeatures;
-  /** Rendered at the start of the title bar row, before the tab strip. */
-  readonly leading?: ReactNode;
-  /** Rendered at the end of the title bar row, after the participants. */
-  readonly trailing?: ReactNode;
-  /** Rendered at the start of the toolbar row, before the navigation buttons. */
-  readonly toolbarLeading?: ReactNode;
-  /** Rendered at the end of the toolbar row, before the menus. */
-  readonly toolbarTrailing?: ReactNode;
+export interface ApertureSessionProps
+  extends ConnectOptions, Omit<SessionWorkbenchProps, "features" | "appearance" | "children"> {
+  readonly features?: ApertureSessionFeatures | undefined;
+  readonly theme?: ApertureTheme | undefined;
+  /** With it, the browser menu offers to change the theme. */
+  readonly onThemeChange?: ((theme: ApertureTheme) => void) | undefined;
+  readonly className?: string | undefined;
+  /** Hears of the session's client when there is one, and of none when it is closed. */
+  readonly onSession?: ((session: Session | null) => void) | undefined;
 }
 
-export interface ApertureSessionProps extends SessionProps {
-  readonly features?: ApertureSessionFeatures;
-  readonly theme?: ApertureTheme;
-  readonly className?: string;
-}
+/**
+ * The workbench of one session: connects to it, shows it, and ends the connection when
+ * unmounted. Needs `@aperture-browser/session-react/styles.css`.
+ */
+export function ApertureSession({
+  url,
+  token,
+  name,
+  pixels,
+  features,
+  theme = "system",
+  onThemeChange,
+  className,
+  onSession,
+  ...workbench
+}: ApertureSessionProps) {
+  const { session, reconnect } = useConnectedSession({ url, token, name, pixels });
 
-export function ApertureSession({ theme = "system", className, ...props }: ApertureSessionProps) {
+  useEffect(() => {
+    if (session === null || onSession === undefined) {
+      return undefined;
+    }
+    onSession(session);
+    // Also when the component is unmounted, which no later render tells.
+    return () => onSession(null);
+  }, [onSession, session]);
+
   return (
     <ApertureUIRoot theme={theme} className={className}>
-      <ApertureProvider baseUrl={props.access?.baseUrl}>
-        <Session {...props} />
-        {props.features?.toaster !== false ? (
-          <Toaster theme={theme} richColors closeButton position="bottom-center" />
-        ) : null}
-      </ApertureProvider>
-    </ApertureUIRoot>
-  );
-}
-
-export function Session({
-  access,
-  features,
-  leading,
-  trailing,
-  toolbarLeading,
-  toolbarTrailing,
-}: SessionProps) {
-  const { status, control } = useSession({ access, onNotice: showNotice });
-
-  switch (status) {
-    case "invalid":
-      return (
-        <SessionState
-          icon={<Link2Off />}
-          title="Invalid session access"
-          description="Provide a valid session connection."
-        />
-      );
-    case "loading":
-      return (
-        <SessionState
-          icon={<Loader2 className="aperture:animate-spin" />}
-          title="Opening session"
-        />
-      );
-    case "denied":
-      return (
-        <SessionState
-          icon={<Link2Off />}
-          title="Session access denied"
-          description="Sign in to the app or ask for access to this session."
-        />
-      );
-    case "expired":
-      return (
-        <SessionState
-          icon={<Link2Off />}
-          title="Session access expired"
-          description="Ask the session owner to renew access."
-        />
-      );
-    case "unavailable":
-      return (
-        <SessionState
-          icon={<Link2Off />}
-          title="Session unavailable"
-          description="This session is unavailable or access has been revoked."
-        />
-      );
-    case "ready":
-      return (
-        <div className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-1 aperture:flex-col aperture:overflow-hidden aperture:bg-background">
-          <BrowserControlPane
-            control={control}
-            collaborationRole={control.collaboration.role}
-            cdpUrl={null}
-            shareUrls={null}
-            leading={leading}
-            trailing={trailing}
-            toolbarLeading={toolbarLeading}
-            toolbarTrailing={toolbarTrailing}
-            features={{ devTools: false, ...features }}
-          />
+      {session === null ? (
+        <div className="aperture:flex aperture:h-full aperture:flex-col aperture:items-center aperture:justify-center aperture:gap-2 aperture:bg-background aperture:text-sm aperture:text-muted-foreground">
+          <Loader2 className="aperture:size-5 aperture:animate-spin" />
+          Connecting to the session
         </div>
-      );
-  }
-}
-
-export function devToolsUrl(origin: string, cdpUrl: string, sessionToken: string): string {
-  const sourceUrl = new URL(cdpUrl, origin);
-  const url = new URL(origin);
-  url.pathname = UrlPath.make`${UrlPath.raw(sourceUrl.pathname.replace(/\/$/, ""))}/${sessionToken}`;
-  return url.toString();
-}
-
-function SessionState({
-  icon,
-  title,
-  description,
-}: {
-  icon: ReactNode;
-  title: string;
-  description?: string;
-}) {
-  return (
-    <Empty className="aperture:h-full aperture:border-none">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">{icon}</EmptyMedia>
-        <EmptyTitle>{title}</EmptyTitle>
-        {description ? <EmptyDescription>{description}</EmptyDescription> : null}
-      </EmptyHeader>
-    </Empty>
+      ) : (
+        <SessionProvider session={session} reconnect={reconnect}>
+          <SessionWorkbench
+            {...workbench}
+            features={features}
+            appearance={onThemeChange === undefined ? undefined : { theme, onThemeChange }}
+          />
+        </SessionProvider>
+      )}
+      {features?.toaster === false ? null : (
+        <Toaster theme={theme} richColors closeButton position="bottom-center" />
+      )}
+    </ApertureUIRoot>
   );
 }
