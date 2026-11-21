@@ -10,28 +10,86 @@ import {
 } from "@aperture-browser/ui/components/table";
 import { KeyRound, Plus } from "lucide-react";
 import { useState } from "react";
+import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { NameDialog } from "#/components/name-dialog.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { SecretDialog } from "#/components/secret-dialog.tsx";
 import { TablePage } from "#/components/table-page.tsx";
 import { AccountCell } from "#/features/account/account-cell.tsx";
-import { useCreateAccountMutation } from "#/features/account/account.mutations.ts";
+import {
+  useCreateAccountMutation,
+  useDisableAccountMutation,
+  useRemoveAccountMutation,
+} from "#/features/account/account.mutations.ts";
 import { type Account, useAccountsQuery } from "#/features/account/account.queries.ts";
+import {
+  PersonActionsMenu,
+  PersonContextMenu,
+  type ServiceDoing,
+  serviceActions,
+} from "#/features/account/person-actions-menu.tsx";
+import { useAccountQuery } from "#/features/auth/auth.queries.ts";
 import { TokenCreateDialog } from "#/features/token/token-create-dialog.tsx";
 import { told } from "#/lib/api.ts";
 import { useLast } from "#/lib/use-last.ts";
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
-/** The accounts of what is not a person: each comes with API tokens alone. */
+/** What is asked again before it is done to a service account. */
+type Confirming = Extract<ServiceDoing, "disable" | "delete">;
+
+const CONFIRM: Record<
+  Confirming,
+  { title: (name: string) => string; description: string; confirmLabel: string }
+> = {
+  disable: {
+    title: (name) => `Disable ${name}?`,
+    description: "Its API tokens stop working. What is its stays.",
+    confirmLabel: "Disable",
+  },
+  delete: {
+    title: (name) => `Delete ${name}?`,
+    description: "Its API tokens and places in workspaces go with it. This is not undone.",
+    confirmLabel: "Delete",
+  },
+};
+
+/**
+ * The accounts of what is not a person: each comes with API tokens alone, and is kept
+ * out and removed as a person's is.
+ */
 export function ServiceAccountsPage() {
   const accounts = useAccountsQuery();
+  const own = useAccountQuery();
   const create = useCreateAccountMutation();
+  const disable = useDisableAccountMutation();
+  const remove = useRemoveAccountMutation();
+  const [confirming, setConfirming] = useState<{ doing: Confirming; account: Account }>();
+  const confirmed = useLast(confirming);
+  const done = { onSettled: () => setConfirming(undefined) };
   const [creating, setCreating] = useState(false);
   const [tokenFor, setTokenFor] = useState<Account>();
   const tokenAccount = useLast(tokenFor);
   const [secret, setSecret] = useState<string>();
   const services = accounts.data?.filter((account) => account.kind === "service");
+
+  const select = (account: Account, doing: ServiceDoing) => {
+    if (doing === "token") {
+      setTokenFor(account);
+    } else if (doing === "enable") {
+      disable.mutate({ id: account.id, disabled: false });
+    } else {
+      setConfirming({ doing, account });
+    }
+  };
+
+  const confirm = ({ doing, account }: NonNullable<typeof confirming>) => {
+    if (doing === "disable") {
+      disable.mutate({ id: account.id, disabled: true }, done);
+    } else {
+      remove.mutate(account.id, done);
+    }
+  };
 
   return (
     <TablePage>
@@ -63,37 +121,68 @@ export function ServiceAccountsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {services?.map((account) => (
-              <TableRow key={account.id} data-console-service={account.name}>
-                <TableCell>
-                  <AccountCell account={account} />
-                </TableCell>
-                <TableCell>
-                  <Badge variant={account.admin ? "default" : "outline"}>
-                    {account.admin ? "admin" : "service"}
-                  </Badge>
-                </TableCell>
-                <TableCell className="aperture:text-muted-foreground">
-                  {when.format(new Date(account.createdAt.epochMilliseconds))}
-                </TableCell>
-                <TableCell>
-                  <div className="aperture:flex aperture:justify-end aperture:gap-1">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      data-console-service-token
-                      onClick={() => setTokenFor(account)}
-                    >
-                      <KeyRound />
-                      New API token
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
+            {services?.map((account) => {
+              const actions = serviceActions(account, own.data?.id === account.id);
+              const onSelect = (doing: ServiceDoing) => select(account, doing);
+              return (
+                <PersonContextMenu key={account.id} actions={actions} onSelect={onSelect}>
+                  <TableRow
+                    data-console-service={account.name}
+                    data-console-service-state={account.disabledAt === null ? "in-use" : "disabled"}
+                  >
+                    <TableCell>
+                      <AccountCell account={account} />
+                    </TableCell>
+                    <TableCell>
+                      <span className="aperture:flex aperture:gap-1">
+                        <Badge variant={account.admin ? "default" : "outline"}>
+                          {account.admin ? "admin" : "service"}
+                        </Badge>
+                        {account.disabledAt === null ? null : (
+                          <Badge variant="destructive">disabled</Badge>
+                        )}
+                      </span>
+                    </TableCell>
+                    <TableCell className="aperture:text-muted-foreground">
+                      {when.format(new Date(account.createdAt.epochMilliseconds))}
+                    </TableCell>
+                    <TableCell>
+                      <div className="aperture:flex aperture:items-center aperture:justify-end aperture:gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          data-console-service-token
+                          onClick={() => onSelect("token")}
+                        >
+                          <KeyRound />
+                          New API token
+                        </Button>
+                        <PersonActionsMenu
+                          label="Service account actions"
+                          actions={actions.slice(1)}
+                          onSelect={onSelect}
+                        />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                </PersonContextMenu>
+              );
+            })}
           </TableBody>
         </Table>
       )}
+      <ConfirmDialog
+        open={confirming !== undefined}
+        title={
+          confirmed === undefined ? "" : CONFIRM[confirmed.doing].title(confirmed.account.name)
+        }
+        description={confirmed === undefined ? "" : CONFIRM[confirmed.doing].description}
+        confirmLabel={confirmed === undefined ? "" : CONFIRM[confirmed.doing].confirmLabel}
+        variant="destructive"
+        pending={disable.isPending || remove.isPending}
+        onOpenChange={(open) => (open ? undefined : setConfirming(undefined))}
+        onConfirm={() => (confirming === undefined ? undefined : confirm(confirming))}
+      />
       <NameDialog
         title="New service account"
         description="An account for automation. It signs in nowhere: it is used with API tokens, made here."

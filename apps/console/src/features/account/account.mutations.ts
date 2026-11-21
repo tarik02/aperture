@@ -70,7 +70,9 @@ export function useDisableAccountMutation() {
     onSuccess: (account) =>
       toast.success(
         account.disabledAt === null
-          ? `${account.name} signs in again`
+          ? account.kind === "person"
+            ? `${account.name} signs in again`
+            : `${account.name} is in use again`
           : `${account.name} is disabled`,
       ),
     onError: (error) => toastMutationError(error, "The account was not changed"),

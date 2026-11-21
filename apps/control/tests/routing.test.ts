@@ -1752,6 +1752,32 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       expect((yield* Effect.flip(withIt.snapshots.list()))._tag).toBe("Forbidden");
       yield* page.key("Escape", "Escape", ESCAPE);
       yield* page.until(`!document.querySelector("[data-console-secret]")`);
+      // It is kept out and removed as a person is: disabled, its token is nobody's.
+      const doesToBot = (says: string) =>
+        Effect.gen(function* () {
+          yield* page.click(`${bot} [data-console-person-actions]`);
+          yield* choose(page, `[data-slot="dropdown-menu-item"]`, says);
+        });
+      yield* doesToBot("Disable");
+      yield* page.until(`!!document.querySelector('${BUTTONS} button:last-child')`);
+      yield* placed(page);
+      yield* shot(page, fs, "console-service-disable");
+      yield* confirmed;
+      yield* page.until(
+        `!!document.querySelector('${bot}[data-console-service-state="disabled"]')`,
+      );
+      expect((yield* Effect.flip(withIt.accounts.current()))._tag).toBe("Unauthorized");
+      yield* page.click(`${bot} td`, "right");
+      yield* page.until(`!!document.querySelector("[data-console-person-context]")`);
+      expect(yield* page.text("[data-console-person-context]")).toContain("New API token");
+      yield* shot(page, fs, "console-service-accounts-disabled");
+      yield* shotDark(page, fs, "console-service-accounts-disabled-dark");
+      yield* choose(page, `[data-slot="context-menu-item"]`, "Enable");
+      yield* page.until(`!!document.querySelector('${bot}[data-console-service-state="in-use"]')`);
+      expect((yield* withIt.accounts.current()).name).toBe("Deploy bot");
+      yield* doesToBot("Delete");
+      yield* confirmed;
+      yield* page.until(`!document.querySelector('${bot}')`);
 
       // What lets nodes register is kept apart from the nodes.
       yield* page.click(`a[href="/-/registration-tokens"]`);

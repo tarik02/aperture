@@ -29,9 +29,9 @@ import type { Account } from "#/features/account/account.queries.ts";
 /** What is done with a person. */
 export type PersonDoing = "setup-link" | "reset" | "passkeys" | "disable" | "enable" | "delete";
 
-/** One thing done with a person, as a menu of either kind offers it. */
-interface PersonAction {
-  readonly key: PersonDoing;
+/** One thing done with an account, as a menu of either kind offers it. */
+interface AccountAction<Doing extends string = string> {
+  readonly key: Doing;
   readonly label: string;
   readonly icon: LucideIcon;
   readonly disabled?: boolean;
@@ -44,7 +44,10 @@ interface PersonAction {
  * What is done with one person, for their menus. Nobody disables or deletes the account
  * they are signed in with, and nothing is taken from someone who does not have it.
  */
-export const personActions = (account: Account, own: boolean): ReadonlyArray<PersonAction> => [
+export const personActions = (
+  account: Account,
+  own: boolean,
+): ReadonlyArray<AccountAction<PersonDoing>> => [
   { key: "setup-link", label: "Setup link", icon: Link2 },
   {
     key: "reset",
@@ -65,25 +68,39 @@ export const personActions = (account: Account, own: boolean): ReadonlyArray<Per
   { key: "delete", label: "Delete", icon: Trash2, disabled: own, destructive: true },
 ];
 
+/** What is done with a service account: it has nothing to sign in with, so nothing of that. */
+export type ServiceDoing = Extract<PersonDoing, "disable" | "enable" | "delete"> | "token";
+
+/** What is done with one service account, for its menus. */
+export const serviceActions = (
+  account: Account,
+  own: boolean,
+): ReadonlyArray<AccountAction<ServiceDoing>> => [
+  { key: "token", label: "New API token", icon: KeyRound },
+  account.disabledAt === null
+    ? { key: "disable", label: "Disable", icon: UserX, disabled: own, parted: true }
+    : { key: "enable", label: "Enable", icon: UserCheck, parted: true },
+  { key: "delete", label: "Delete", icon: Trash2, disabled: own, destructive: true },
+];
+
 const MENU = "aperture:w-auto aperture:min-w-44 aperture:whitespace-nowrap";
 
-type Menu = {
-  actions: ReadonlyArray<PersonAction>;
-  onSelect: (doing: PersonDoing) => void;
+type Menu<Doing extends string> = {
+  actions: ReadonlyArray<AccountAction<Doing>>;
+  onSelect: (doing: Doing) => void;
 };
 
-/** A person's actions behind a button. */
-export function PersonActionsMenu({ actions, onSelect }: Menu) {
+/** An account's actions behind a button: a person's, unless it is said whose. */
+export function PersonActionsMenu<Doing extends string>({
+  actions,
+  onSelect,
+  label = "Person actions",
+}: Menu<Doing> & { label?: string }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            aria-label="Person actions"
-            data-console-person-actions
-          />
+          <Button size="icon-sm" variant="ghost" aria-label={label} data-console-person-actions />
         }
       >
         <EllipsisVertical />
@@ -109,11 +126,11 @@ export function PersonActionsMenu({ actions, onSelect }: Menu) {
 }
 
 /** The same actions where a right click was, on whatever it wraps. */
-export function PersonContextMenu({
+export function PersonContextMenu<Doing extends string>({
   actions,
   onSelect,
   children,
-}: Menu & { children: React.ReactElement }) {
+}: Menu<Doing> & { children: React.ReactElement }) {
   return (
     <ContextMenu>
       <ContextMenuTrigger render={children} />
