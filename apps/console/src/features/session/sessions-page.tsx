@@ -2,9 +2,9 @@ import { Button } from "@aperture-browser/ui/components/button";
 import { Input } from "@aperture-browser/ui/components/input";
 import { ScrollArea } from "@aperture-browser/ui/components/scroll-area";
 import { Separator } from "@aperture-browser/ui/components/separator";
-import { ChevronDown, Pause, Play, Plus, Trash2, X } from "lucide-react";
+import { ChevronDown, Pause, Play, Plus, Search, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Choice } from "#/components/choice.tsx";
+import { filter, Filters } from "#/components/filter-menu.tsx";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { SessionCreateDialog } from "#/features/session/session-create-dialog.tsx";
@@ -67,6 +67,8 @@ export function SessionsPage() {
   const [confirming, setConfirming] = useState<number>();
   const deleted = useLast(confirming);
   const [creating, setCreating] = useState(false);
+  /** Whether the field to search by is open, where it is not always there. */
+  const [searching, setSearching] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
   /** Where a range that Shift extends starts. */
   const anchor = useRef<string>(undefined);
@@ -123,7 +125,7 @@ export function SessionsPage() {
   const clear = { onSettled: () => setSelected(new Set()) };
 
   return (
-    <div className="aperture:relative aperture:h-full">
+    <div className="aperture:relative aperture:flex aperture:h-full aperture:flex-col">
       <PageHeaderActions>
         <Input
           ref={searchInput}
@@ -131,25 +133,36 @@ export function SessionsPage() {
           placeholder="Search sessions"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          className="aperture:h-8 aperture:max-w-56"
+          className="aperture:h-8 aperture:max-w-56 aperture:max-sm:hidden"
         />
-        <Choice
-          size="sm"
-          aria-label="Status"
-          value={status}
-          options={STATUSES}
-          onChange={setStatus}
+        {/* A phone's title bar has no room for the field: it opens below the bar. */}
+        <Button
+          size="icon-sm"
+          variant={searching || sought !== "" ? "secondary" : "ghost"}
+          aria-label="Search sessions"
+          aria-expanded={searching}
+          data-console-search-open
+          className="aperture:sm:hidden"
+          onClick={() => setSearching(!searching)}
+        >
+          <Search />
+        </Button>
+        <Filters
+          filters={[
+            filter({ label: "Status", value: status, options: STATUSES, onChange: setStatus }),
+            filter({ label: "Sort", value: order, options: ORDERS, onChange: setOrder }),
+          ]}
         />
-        <Choice size="sm" aria-label="Sort" value={order} options={ORDERS} onChange={setOrder} />
         <div className="aperture:flex">
           <Button
             data-console-create
             size="sm"
+            aria-label="New session"
             className="aperture:rounded-r-none"
             onClick={() => void openNew(workspace === null ? {} : { workspaceId: workspace.id })}
           >
             <Plus />
-            New session
+            <span className="aperture:max-sm:hidden">New session</span>
           </Button>
           <Button
             data-console-create-custom
@@ -162,8 +175,31 @@ export function SessionsPage() {
           </Button>
         </div>
       </PageHeaderActions>
-      <ScrollArea className="aperture:h-full">
-        <div className="aperture:flex aperture:flex-col aperture:gap-4 aperture:p-4">
+      {searching ? (
+        <div className="aperture:flex aperture:shrink-0 aperture:gap-1 aperture:border-b aperture:p-2 aperture:sm:hidden">
+          <Input
+            type="search"
+            aria-label="Search sessions"
+            placeholder="Search sessions"
+            autoFocus
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Close the search"
+            onClick={() => {
+              setSearch("");
+              setSearching(false);
+            }}
+          >
+            <X />
+          </Button>
+        </div>
+      ) : null}
+      <ScrollArea className="aperture:min-h-0 aperture:flex-1">
+        <div className="aperture:flex aperture:flex-col aperture:gap-4 aperture:p-4 aperture:max-sm:p-3">
           {sessions.isError ? (
             <p role="alert" className="aperture:text-sm aperture:text-destructive">
               {told(sessions.error)}
@@ -177,7 +213,7 @@ export function SessionsPage() {
               {sessions.data.length === 0 ? "No sessions yet." : "No session matches."}
             </p>
           ) : (
-            <div className="aperture:grid aperture:grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] aperture:gap-4">
+            <div className="aperture:grid aperture:grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] aperture:gap-4 aperture:max-sm:gap-3">
               {shown.map((session) => (
                 <SessionCard
                   key={session.id}
@@ -198,7 +234,7 @@ export function SessionsPage() {
             data-console-bulk
             role="toolbar"
             aria-label="Selected sessions"
-            className="aperture:pointer-events-auto aperture:flex aperture:min-h-9 aperture:max-w-full aperture:animate-in aperture:flex-wrap aperture:items-center aperture:gap-2 aperture:rounded-lg aperture:bg-popover aperture:px-2 aperture:py-1 aperture:text-popover-foreground aperture:shadow-md aperture:ring-1 aperture:ring-foreground/10 aperture:duration-150 aperture:fade-in-0 aperture:slide-in-from-bottom-2"
+            className="aperture:pointer-events-auto aperture:flex aperture:min-h-9 aperture:max-w-full aperture:animate-in aperture:items-center aperture:gap-2 aperture:rounded-lg aperture:bg-popover aperture:px-2 aperture:py-1 aperture:text-popover-foreground aperture:shadow-md aperture:ring-1 aperture:ring-foreground/10 aperture:duration-150 aperture:fade-in-0 aperture:slide-in-from-bottom-2"
           >
             <span className="aperture:pl-1 aperture:text-sm aperture:whitespace-nowrap aperture:text-muted-foreground">
               {chosen.length} selected
@@ -207,7 +243,7 @@ export function SessionsPage() {
               orientation="vertical"
               className="aperture:data-vertical:h-5 aperture:data-vertical:self-center"
             />
-            <div className="aperture:flex aperture:flex-wrap aperture:items-center aperture:gap-1">
+            <div className="aperture:flex aperture:items-center aperture:gap-1">
               <Button
                 size="sm"
                 variant="ghost"
@@ -215,7 +251,7 @@ export function SessionsPage() {
                 onClick={() => suspend.mutate(chosen, clear)}
               >
                 <Pause />
-                Suspend
+                <span className="aperture:max-sm:sr-only">Suspend</span>
               </Button>
               <Button
                 size="sm"
@@ -224,7 +260,7 @@ export function SessionsPage() {
                 onClick={() => resume.mutate(chosen, clear)}
               >
                 <Play />
-                Resume
+                <span className="aperture:max-sm:sr-only">Resume</span>
               </Button>
               <Button
                 size="sm"
@@ -233,7 +269,7 @@ export function SessionsPage() {
                 onClick={() => setConfirming(chosen.length)}
               >
                 <Trash2 />
-                Delete
+                <span className="aperture:max-sm:sr-only">Delete</span>
               </Button>
             </div>
             <Separator
@@ -247,7 +283,7 @@ export function SessionsPage() {
               onClick={() => setSelected(new Set())}
             >
               <X />
-              Clear
+              <span className="aperture:max-sm:sr-only">Clear</span>
             </Button>
           </div>
         </div>
@@ -262,12 +298,14 @@ export function SessionsPage() {
         pending={remove.isPending}
         onOpenChange={(open) => (open ? undefined : setConfirming(undefined))}
         onConfirm={() =>
-          remove.mutate(chosen, {
-            onSettled: () => {
-              setConfirming(undefined);
-              setSelected(new Set());
-            },
-          })
+          chosen.length === 0 || remove.isPending
+            ? undefined
+            : remove.mutate(chosen, {
+                onSettled: () => {
+                  setConfirming(undefined);
+                  setSelected(new Set());
+                },
+              })
         }
       />
     </div>

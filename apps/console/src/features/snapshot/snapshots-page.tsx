@@ -1,5 +1,4 @@
 import { Badge } from "@aperture-browser/ui/components/badge";
-import { Button } from "@aperture-browser/ui/components/button";
 import {
   Table,
   TableBody,
@@ -12,6 +11,8 @@ import { Pencil, Play, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { DescribeDialog } from "#/components/describe-dialog.tsx";
+import { LongName } from "#/components/long-name.tsx";
+import { type RowAction, RowActions, RowContextMenu } from "#/components/row-actions.tsx";
 import { TablePage } from "#/components/table-page.tsx";
 import { TagList } from "#/components/tag-list.tsx";
 import { useOpenNewSession } from "#/features/session/session.mutations.ts";
@@ -38,72 +39,73 @@ function SnapshotRow({ snapshot }: { snapshot: Snapshot }) {
       ...(snapshot.workspaceId === null ? {} : { workspaceId: snapshot.workspaceId }),
     });
 
+  const actions: ReadonlyArray<RowAction> = [
+    {
+      key: "start",
+      label: "New session",
+      icon: Play,
+      shown: "button",
+      onSelect: () => void start(),
+    },
+    { key: "edit", label: "Edit", icon: Pencil, shown: "icon", onSelect: () => setEditing(true) },
+    {
+      key: "delete",
+      label: "Delete",
+      icon: Trash2,
+      shown: "icon",
+      destructive: true,
+      parted: true,
+      onSelect: () => setConfirming(true),
+    },
+  ];
+
   return (
-    <TableRow data-console-snapshot={snapshot.id}>
-      <TableCell>
-        <div className="aperture:grid aperture:gap-0.5">
-          <span className="aperture:font-medium">{snapshot.name ?? "Unnamed"}</span>
-          {snapshot.description === null ? null : (
-            <span className="aperture:max-w-96 aperture:truncate aperture:text-sm aperture:text-muted-foreground">
-              {snapshot.description}
+    <RowContextMenu actions={actions}>
+      <TableRow data-console-snapshot={snapshot.id}>
+        <TableCell>
+          <div className="aperture:grid aperture:gap-0.5">
+            <LongName className="aperture:font-medium">{snapshot.name ?? "Unnamed"}</LongName>
+            {snapshot.description === null ? null : (
+              <LongName className="aperture:max-w-96 aperture:text-sm aperture:text-muted-foreground">
+                {snapshot.description}
+              </LongName>
+            )}
+            <span className="aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
+              {snapshot.id}
             </span>
-          )}
-          <span className="aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
-            {snapshot.id}
-          </span>
-          <TagList tags={snapshot.tags} />
-        </div>
-      </TableCell>
-      <TableCell>
-        <Badge variant="outline">{snapshot.shared ? "shared" : "one node"}</Badge>
-      </TableCell>
-      <TableCell className="aperture:text-muted-foreground">
-        {when.format(new Date(snapshot.createdAt.epochMilliseconds))}
-      </TableCell>
-      <TableCell>
-        <div className="aperture:flex aperture:justify-end aperture:gap-1">
-          <Button
-            size="sm"
-            variant="outline"
-            data-console-snapshot-start
-            onClick={() => void start()}
-          >
-            <Play />
-            New session
-          </Button>
-          <Button size="icon-sm" variant="ghost" aria-label="Edit" onClick={() => setEditing(true)}>
-            <Pencil />
-          </Button>
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            aria-label="Delete"
-            onClick={() => setConfirming(true)}
-          >
-            <Trash2 />
-          </Button>
-        </div>
-        <DescribeDialog
-          title="Edit snapshot"
-          nameLabel="Name"
-          withDescription
-          initial={snapshot}
-          open={editing}
-          onOpenChange={setEditing}
-          onSubmit={(said) => describe.mutateAsync({ id: snapshot.id, ...said })}
-        />
-        <ConfirmDialog
-          open={confirming}
-          title="Delete this snapshot?"
-          description="Sessions created from it keep working."
-          confirmLabel="Delete"
-          variant="destructive"
-          pending={remove.isPending}
-          onOpenChange={setConfirming}
-          onConfirm={() => remove.mutate(snapshot.id, { onSettled: () => setConfirming(false) })}
-        />
-      </TableCell>
-    </TableRow>
+            <TagList tags={snapshot.tags} />
+          </div>
+        </TableCell>
+        <TableCell>
+          <Badge variant="outline">{snapshot.shared ? "shared" : "one node"}</Badge>
+        </TableCell>
+        <TableCell label="Created" className="aperture:text-muted-foreground">
+          {when.format(new Date(snapshot.createdAt.epochMilliseconds))}
+        </TableCell>
+        <TableCell>
+          <RowActions actions={actions} label="Snapshot actions" />
+          <DescribeDialog
+            title="Edit snapshot"
+            nameLabel="Name"
+            withDescription
+            initial={snapshot}
+            open={editing}
+            onOpenChange={setEditing}
+            onSubmit={(said) => describe.mutateAsync({ id: snapshot.id, ...said })}
+          />
+          <ConfirmDialog
+            open={confirming}
+            title="Delete this snapshot?"
+            description="Sessions created from it keep working."
+            confirmLabel="Delete"
+            variant="destructive"
+            pending={remove.isPending}
+            onOpenChange={setConfirming}
+            onConfirm={() => remove.mutate(snapshot.id, { onSettled: () => setConfirming(false) })}
+          />
+        </TableCell>
+      </TableRow>
+    </RowContextMenu>
   );
 }
 

@@ -8,6 +8,7 @@ import {
   TableRow,
 } from "@aperture-browser/ui/components/table";
 import { Link } from "@tanstack/react-router";
+import { LongName } from "#/components/long-name.tsx";
 import { TablePage } from "#/components/table-page.tsx";
 import { useNodesQuery } from "#/features/node/node.queries.ts";
 import { told } from "#/lib/api.ts";
@@ -54,7 +55,9 @@ export function NodesPage() {
         <TableBody>
           {nodes.data?.map((node) => (
             <TableRow key={node.id} data-console-node={node.name}>
-              <TableCell className="aperture:font-medium">{node.name}</TableCell>
+              <TableCell className="aperture:font-medium">
+                <LongName>{node.name}</LongName>
+              </TableCell>
               <TableCell>
                 <Badge variant={node.alive ? "default" : "destructive"}>
                   {node.alive ? "alive" : "silent"}
@@ -63,10 +66,10 @@ export function NodesPage() {
               <TableCell className="aperture:font-mono aperture:text-xs">
                 {node.internalUrl}
               </TableCell>
-              <TableCell className="aperture:text-muted-foreground">
+              <TableCell label="Version" className="aperture:text-muted-foreground">
                 {node.offers?.version ?? "not reached yet"}
               </TableCell>
-              <TableCell className="aperture:text-muted-foreground">
+              <TableCell label="Last seen" className="aperture:text-muted-foreground">
                 {when.format(new Date(node.lastSeenAt.epochMilliseconds))}
               </TableCell>
             </TableRow>

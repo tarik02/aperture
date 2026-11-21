@@ -4,6 +4,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@aperture-browser/ui/components/dropdown-menu";
 import {
@@ -15,6 +18,7 @@ import {
 } from "@aperture-browser/ui/components/context-menu";
 import { useNavigate } from "@tanstack/react-router";
 import {
+  AppWindow,
   Camera,
   EllipsisVertical,
   ExternalLink,
@@ -45,7 +49,7 @@ import {
 import { SaveSnapshotDialog } from "#/features/snapshot/save-snapshot-dialog.tsx";
 
 /** One thing done with a session, as a menu of either kind offers it. */
-interface SessionAction {
+export interface SessionAction {
   readonly key: string;
   readonly label: string;
   readonly icon: LucideIcon;
@@ -60,7 +64,7 @@ interface SessionAction {
  * What is done with one session, for its menus: the button's and the one a right click
  * opens offer the same, and share the dialogs those lead to.
  */
-export function useSessionActions(session: Session) {
+export function useSessionActions(session: Session, onDeleted?: () => void) {
   const navigate = useNavigate();
   const suspend = useSessionActionMutation("suspend");
   const resume = useSessionActionMutation("resume");
@@ -146,7 +150,9 @@ export function useSessionActions(session: Session) {
         variant="destructive"
         pending={remove.isPending}
         onOpenChange={(open) => setDialog(open ? "delete" : null)}
-        onConfirm={() => remove.mutate(session.id, { onSettled: () => setDialog(null) })}
+        onConfirm={() =>
+          remove.mutate(session.id, { onSettled: () => setDialog(null), onSuccess: onDeleted })
+        }
       />
       <DescribeDialog
         title="Edit session"
@@ -201,21 +207,40 @@ export function SessionActionsMenu({ actions }: { actions: ReadonlyArray<Session
         <EllipsisVertical />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className={MENU}>
-        {actions.map((action) => (
-          <Fragment key={action.key}>
-            {action.parted === true ? <DropdownMenuSeparator /> : null}
-            <DropdownMenuItem
-              disabled={action.disabled === true}
-              variant={action.destructive === true ? "destructive" : "default"}
-              onClick={action.onSelect}
-            >
-              <action.icon />
-              {action.label}
-            </DropdownMenuItem>
-          </Fragment>
-        ))}
+        <SessionActionItems actions={actions} />
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function SessionActionItems({ actions }: { actions: ReadonlyArray<SessionAction> }) {
+  return actions.map((action) => (
+    <Fragment key={action.key}>
+      {action.parted === true ? <DropdownMenuSeparator /> : null}
+      <DropdownMenuItem
+        disabled={action.disabled === true}
+        variant={action.destructive === true ? "destructive" : "default"}
+        onClick={action.onSelect}
+      >
+        <action.icon />
+        {action.label}
+      </DropdownMenuItem>
+    </Fragment>
+  ));
+}
+
+/** The same actions as a menu within another menu, for where the session is open already. */
+export function SessionActionsSubmenu({ actions }: { actions: ReadonlyArray<SessionAction> }) {
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger data-console-session-submenu>
+        <AppWindow />
+        Session
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className={MENU}>
+        <SessionActionItems actions={actions.filter((action) => action.key !== "open")} />
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   );
 }
 

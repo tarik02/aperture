@@ -62,7 +62,8 @@ export function SessionCard({ session, selected, onSelect }: SessionCardProps) {
           </span>
           <label
             className={cn(
-              "aperture:absolute aperture:top-2 aperture:right-2 aperture:flex aperture:size-6 aperture:items-center aperture:justify-center aperture:rounded-md aperture:bg-background/90 aperture:opacity-0 aperture:transition-opacity aperture:group-hover/card:opacity-100 aperture:focus-within:opacity-100",
+              // A finger has no hover: there it is always shown, and large enough to press.
+              "aperture:absolute aperture:top-2 aperture:right-2 aperture:flex aperture:size-6 aperture:items-center aperture:justify-center aperture:rounded-md aperture:bg-background/90 aperture:opacity-0 aperture:transition-opacity aperture:group-hover/card:opacity-100 aperture:focus-within:opacity-100 aperture:pointer-coarse:top-1 aperture:pointer-coarse:right-1 aperture:pointer-coarse:size-10 aperture:pointer-coarse:opacity-100 aperture:pointer-coarse:[&>input]:size-5",
               selected && "aperture:opacity-100",
             )}
           >
@@ -81,7 +82,10 @@ export function SessionCard({ session, selected, onSelect }: SessionCardProps) {
             className="aperture:pointer-events-none aperture:absolute aperture:inset-x-0 aperture:bottom-0 aperture:flex aperture:items-start aperture:gap-2 aperture:border-t aperture:border-foreground/10 aperture:bg-background/85 aperture:py-2 aperture:pr-1.5 aperture:pl-3 aperture:backdrop-blur-md"
           >
             <div className="aperture:grid aperture:min-w-0 aperture:flex-1 aperture:gap-0.5">
-              <span className="aperture:truncate aperture:text-sm aperture:font-medium">
+              <span
+                title={title}
+                className="aperture:truncate aperture:text-sm aperture:font-medium"
+              >
                 {title}
                 {more > 0 ? <span className="aperture:text-muted-foreground"> +{more}</span> : null}
               </span>
@@ -94,7 +98,8 @@ export function SessionCard({ session, selected, onSelect }: SessionCardProps) {
               {/* One line of them: more would take the picture's room. */}
               <TagList
                 tags={session.tags}
-                className="aperture:flex-nowrap aperture:overflow-hidden aperture:pt-0.5 aperture:*:shrink-0"
+                most={2}
+                className="aperture:flex-nowrap aperture:pt-0.5"
               />
             </div>
             <span className="aperture:pointer-events-auto">

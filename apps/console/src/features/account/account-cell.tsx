@@ -1,12 +1,15 @@
+import { LongName } from "#/components/long-name.tsx";
 import type { Account } from "#/features/account/account.queries.ts";
 
 /** Who an account is, as a row tells it: the name, the address where there is one, and the id. */
 export function AccountCell({ account }: { account: Account }) {
   return (
     <div className="aperture:grid aperture:gap-0.5">
-      <span className="aperture:font-medium">{account.name}</span>
+      <LongName className="aperture:font-medium">{account.name}</LongName>
       {account.email === null ? null : (
-        <span className="aperture:text-sm aperture:text-muted-foreground">{account.email}</span>
+        <LongName className="aperture:text-sm aperture:text-muted-foreground">
+          {account.email}
+        </LongName>
       )}
       <span className="aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
         {account.id}

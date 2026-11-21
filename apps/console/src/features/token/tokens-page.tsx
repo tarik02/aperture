@@ -8,9 +8,11 @@ import {
   TableHeader,
   TableRow,
 } from "@aperture-browser/ui/components/table";
-import { Plus } from "lucide-react";
+import { Ban, Plus } from "lucide-react";
 import { useState } from "react";
-import { Choice } from "#/components/choice.tsx";
+import { filter, Filters } from "#/components/filter-menu.tsx";
+import { LongName } from "#/components/long-name.tsx";
+import { type RowAction, RowActions, RowContextMenu } from "#/components/row-actions.tsx";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { SecretDialog } from "#/components/secret-dialog.tsx";
@@ -90,12 +92,10 @@ export function TokensPage() {
   return (
     <TablePage>
       <PageHeaderActions>
-        <Choice
-          size="sm"
-          aria-label="Which tokens"
-          value={shown}
-          options={SHOWN}
-          onChange={setShown}
+        <Filters
+          filters={[
+            filter({ label: "Which tokens", value: shown, options: SHOWN, onChange: setShown }),
+          ]}
         />
         <Button data-console-token-new size="sm" onClick={() => setCreating(true)}>
           <Plus />
@@ -122,44 +122,57 @@ export function TokensPage() {
         <TableBody>
           {listed.map((token) => {
             const state = stateOf(token);
+            const actions: ReadonlyArray<RowAction> =
+              state === "active"
+                ? [
+                    {
+                      key: "revoke",
+                      label: "Revoke",
+                      icon: Ban,
+                      destructive: true,
+                      shown: "button",
+                      onSelect: () => setRevoking(token),
+                    },
+                  ]
+                : [];
             return (
-              <TableRow key={token.id} data-console-token={token.name}>
-                <TableCell className="aperture:font-medium">{token.name}</TableCell>
-                <TableCell>
-                  <Badge variant={state === "active" ? "default" : "outline"}>{state}</Badge>
-                </TableCell>
-                <TableCell>
-                  {token.scopes === null ? (
-                    <span className="aperture:text-muted-foreground">Everything</span>
-                  ) : (
-                    <span className="aperture:flex aperture:max-w-64 aperture:flex-wrap aperture:gap-1">
-                      {token.scopes.map((scope) => (
-                        <Badge key={scope} variant="secondary" data-console-token-scope={scope}>
-                          {scope}
-                        </Badge>
-                      ))}
-                    </span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <TokenReach resources={token.resources} />
-                </TableCell>
-                <TableCell className="aperture:text-muted-foreground">
-                  {when.format(new Date(token.createdAt.epochMilliseconds))}
-                </TableCell>
-                <TableCell className="aperture:text-muted-foreground">
-                  {token.expiresAt === null
-                    ? "Never"
-                    : when.format(new Date(token.expiresAt.epochMilliseconds))}
-                </TableCell>
-                <TableCell className="aperture:text-right">
-                  {state === "active" ? (
-                    <Button size="sm" variant="outline" onClick={() => setRevoking(token)}>
-                      Revoke
-                    </Button>
-                  ) : null}
-                </TableCell>
-              </TableRow>
+              <RowContextMenu key={token.id} actions={actions}>
+                <TableRow data-console-token={token.name}>
+                  <TableCell className="aperture:font-medium">
+                    <LongName>{token.name}</LongName>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={state === "active" ? "default" : "outline"}>{state}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    {token.scopes === null ? (
+                      <span className="aperture:text-muted-foreground">Everything</span>
+                    ) : (
+                      <span className="aperture:flex aperture:max-w-64 aperture:flex-wrap aperture:gap-1">
+                        {token.scopes.map((scope) => (
+                          <Badge key={scope} variant="secondary" data-console-token-scope={scope}>
+                            {scope}
+                          </Badge>
+                        ))}
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <TokenReach resources={token.resources} />
+                  </TableCell>
+                  <TableCell label="Created" className="aperture:text-muted-foreground">
+                    {when.format(new Date(token.createdAt.epochMilliseconds))}
+                  </TableCell>
+                  <TableCell label="Expires" className="aperture:text-muted-foreground">
+                    {token.expiresAt === null
+                      ? "Never"
+                      : when.format(new Date(token.expiresAt.epochMilliseconds))}
+                  </TableCell>
+                  <TableCell>
+                    <RowActions actions={actions} label="Token actions" />
+                  </TableCell>
+                </TableRow>
+              </RowContextMenu>
             );
           })}
         </TableBody>

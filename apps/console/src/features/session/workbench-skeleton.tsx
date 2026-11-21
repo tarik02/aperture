@@ -1,6 +1,8 @@
 import { cn } from "@aperture-browser/ui/utils";
+import { SidebarTrigger } from "@aperture-browser/ui/components/sidebar";
 import { Skeleton } from "@aperture-browser/ui/components/skeleton";
 import { Spinner } from "@aperture-browser/ui/components/spinner";
+import { useState } from "react";
 import { SESSION_PICTURE } from "#/lib/view-transition.ts";
 
 type WorkbenchSkeletonProps = {
@@ -23,6 +25,8 @@ export function WorkbenchSkeleton({
   note,
   over = false,
 }: WorkbenchSkeletonProps) {
+  // Which address gave no picture: another one is tried anew.
+  const [missing, setMissing] = useState<string>();
   return (
     <main
       data-console-session-note={note ?? "loading"}
@@ -37,6 +41,11 @@ export function WorkbenchSkeleton({
         data-workbench-titlebar-skeleton=""
         className="aperture:flex aperture:h-8 aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:bg-muted/40 aperture:px-2"
       >
+        {/* The way to the sidebar is where the workbench has it, and works before there is one. */}
+        <SidebarTrigger
+          data-console-sidebar-trigger
+          className="aperture:pointer-events-auto aperture:-ml-2 aperture:aspect-square aperture:h-full aperture:w-auto aperture:shrink-0 aperture:rounded-none"
+        />
         <Skeleton className="aperture:h-5 aperture:w-44 aperture:rounded-md" />
         <Skeleton className="aperture:size-5 aperture:rounded-md" />
         <span className="aperture:flex-1" />
@@ -55,13 +64,13 @@ export function WorkbenchSkeleton({
         className="aperture:relative aperture:min-h-0 aperture:flex-1 aperture:overflow-hidden aperture:bg-muted/30"
         style={{ viewTransitionName: SESSION_PICTURE }}
       >
-        {picture === undefined ? null : (
+        {picture === undefined || missing === picture ? null : (
           <img
             alt=""
             aria-hidden
             src={picture}
             // One that has no picture shows none.
-            onError={(event) => event.currentTarget.remove()}
+            onError={() => setMissing(picture)}
             className="aperture:absolute aperture:inset-0 aperture:size-full aperture:scale-105 aperture:object-cover aperture:object-top aperture:blur-md"
           />
         )}

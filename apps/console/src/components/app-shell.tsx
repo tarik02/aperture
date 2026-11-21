@@ -3,6 +3,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@aperture-browser/ui/components/sidebar";
+import { cn } from "@aperture-browser/ui/utils";
 import { useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
 import { AppSidebar } from "#/components/app-sidebar.tsx";
@@ -18,7 +19,12 @@ type AppShellProps = {
 };
 
 /** As tall as the window and no taller: what is inside scrolls, and fills what it does not. */
-const FILLS = "aperture:h-svh";
+// Less what the on-screen keyboard covers, where the browser does not take that off itself.
+const FILLS = "aperture:h-[calc(100dvh-var(--keyboard-inset,0px))]";
+
+/** Clear of what a phone's screen has at its edges, where the page is laid out under them. */
+const INSET =
+  "aperture:h-full aperture:min-h-0 aperture:overflow-hidden aperture:pr-[env(safe-area-inset-right)] aperture:pb-[env(safe-area-inset-bottom)] aperture:pl-[env(safe-area-inset-left)]";
 
 export function AppShell({ layout, children }: AppShellProps) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -31,7 +37,7 @@ export function AppShell({ layout, children }: AppShellProps) {
     return (
       <SidebarProvider key="workbench" defaultOpen={false} className={FILLS}>
         <AppSidebar collapsible="offcanvas" />
-        <SidebarInset className="aperture:h-full aperture:min-h-0 aperture:overflow-hidden">
+        <SidebarInset className={cn(INSET, "aperture:pt-[env(safe-area-inset-top)]")}>
           <WindowTitlebar />
           {children}
         </SidebarInset>
@@ -42,18 +48,18 @@ export function AppShell({ layout, children }: AppShellProps) {
   return (
     <SidebarProvider key="page" className={FILLS}>
       <AppSidebar collapsible="icon" />
-      <SidebarInset className="aperture:h-full aperture:min-h-0 aperture:overflow-hidden">
+      <SidebarInset className={INSET}>
         <header
           data-app-titlebar=""
-          className="aperture:flex aperture:h-12 aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:border-b aperture:px-3"
+          className="aperture:flex aperture:h-[calc(3rem+env(safe-area-inset-top))] aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:border-b aperture:px-3 aperture:pt-[env(safe-area-inset-top)]"
         >
           <SidebarTrigger className="aperture:-ml-1" />
-          <h1 className="aperture:shrink-0 aperture:truncate aperture:pr-2 aperture:text-sm aperture:font-semibold aperture:max-sm:sr-only">
+          <h1 className="aperture:min-w-0 aperture:shrink-0 aperture:truncate aperture:pr-2 aperture:text-sm aperture:font-semibold aperture:max-sm:flex-1 aperture:max-sm:shrink">
             {page}
           </h1>
           <div
             ref={setHeaderActions}
-            className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:justify-end aperture:gap-2"
+            className="aperture:flex aperture:min-w-0 aperture:items-center aperture:justify-end aperture:gap-2 aperture:max-sm:shrink-0 aperture:max-sm:gap-1 aperture:sm:flex-1"
           />
         </header>
         <div className="aperture:relative aperture:min-h-0 aperture:flex-1">

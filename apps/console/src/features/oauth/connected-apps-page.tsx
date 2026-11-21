@@ -1,5 +1,4 @@
 import { Badge } from "@aperture-browser/ui/components/badge";
-import { Button } from "@aperture-browser/ui/components/button";
 import {
   Table,
   TableBody,
@@ -8,8 +7,11 @@ import {
   TableHeader,
   TableRow,
 } from "@aperture-browser/ui/components/table";
+import { Unplug } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
+import { LongName } from "#/components/long-name.tsx";
+import { type RowAction, RowActions, RowContextMenu } from "#/components/row-actions.tsx";
 import { TablePage } from "#/components/table-page.tsx";
 import { useRevokeGrantMutation } from "#/features/oauth/oauth.mutations.ts";
 import { type Grant, useGrantsQuery } from "#/features/oauth/oauth.queries.ts";
@@ -63,45 +65,67 @@ export function ConnectedAppsPage() {
         <p role="alert" className="aperture:text-sm aperture:text-destructive">
           {told(grants.error)}
         </p>
-      ) : null}
-      <Table stickyActionColumn>
-        <TableHeader>
-          <TableRow>
-            <TableHead>App</TableHead>
-            <TableHead>Scopes</TableHead>
-            <TableHead>Resources</TableHead>
-            <TableHead>Connected</TableHead>
-            <TableHead className="aperture:w-px" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {(grants.data ?? []).map((grant) => (
-            <TableRow key={grant.id} data-console-grant={grant.clientName}>
-              <TableCell className="aperture:font-medium">{grant.clientName}</TableCell>
-              <TableCell>
-                <span className="aperture:flex aperture:max-w-64 aperture:flex-wrap aperture:gap-1">
-                  {grant.scopes.map((scope) => (
-                    <Badge key={scope} variant="secondary" data-console-grant-scope={scope}>
-                      {scope}
-                    </Badge>
-                  ))}
-                </span>
-              </TableCell>
-              <TableCell>
-                <Reach resources={grant.resources} />
-              </TableCell>
-              <TableCell className="aperture:text-muted-foreground">
-                {when.format(new Date(grant.createdAt.epochMilliseconds))}
-              </TableCell>
-              <TableCell className="aperture:text-right">
-                <Button size="sm" variant="outline" onClick={() => setRevoking(grant)}>
-                  Disconnect
-                </Button>
-              </TableCell>
+      ) : grants.data?.length === 0 ? (
+        <p
+          data-console-empty
+          className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
+        >
+          No connected apps yet.
+        </p>
+      ) : (
+        <Table stickyActionColumn>
+          <TableHeader>
+            <TableRow>
+              <TableHead>App</TableHead>
+              <TableHead>Scopes</TableHead>
+              <TableHead>Resources</TableHead>
+              <TableHead>Connected</TableHead>
+              <TableHead className="aperture:w-px" />
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {(grants.data ?? []).map((grant) => {
+              const actions: ReadonlyArray<RowAction> = [
+                {
+                  key: "disconnect",
+                  label: "Disconnect",
+                  icon: Unplug,
+                  destructive: true,
+                  shown: "button",
+                  onSelect: () => setRevoking(grant),
+                },
+              ];
+              return (
+                <RowContextMenu key={grant.id} actions={actions}>
+                  <TableRow data-console-grant={grant.clientName}>
+                    <TableCell className="aperture:font-medium">
+                      <LongName>{grant.clientName}</LongName>
+                    </TableCell>
+                    <TableCell>
+                      <span className="aperture:flex aperture:max-w-64 aperture:flex-wrap aperture:gap-1">
+                        {grant.scopes.map((scope) => (
+                          <Badge key={scope} variant="secondary" data-console-grant-scope={scope}>
+                            {scope}
+                          </Badge>
+                        ))}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <Reach resources={grant.resources} />
+                    </TableCell>
+                    <TableCell label="Connected" className="aperture:text-muted-foreground">
+                      {when.format(new Date(grant.createdAt.epochMilliseconds))}
+                    </TableCell>
+                    <TableCell>
+                      <RowActions actions={actions} label="App actions" />
+                    </TableCell>
+                  </TableRow>
+                </RowContextMenu>
+              );
+            })}
+          </TableBody>
+        </Table>
+      )}
       <ConfirmDialog
         open={revoking !== undefined}
         title={`Disconnect ${revoked?.clientName ?? "this app"}?`}

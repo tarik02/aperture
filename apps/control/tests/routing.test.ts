@@ -528,7 +528,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
 
       // A session from a snapshot is opened at once, before there is one.
       yield* noteStarting(page);
-      yield* page.click("[data-console-snapshot-start]");
+      yield* page.click(`[data-console-snapshot] [data-console-row-action="start"]`);
       const fromSnapshot = yield* started(page);
       expect((yield* ada.api.sessions.get({ params: { id: fromSnapshot } })).snapshotId).not.toBe(
         null,
@@ -599,7 +599,8 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
           `!!document.querySelector("[data-workbench-titlebar] [data-console-sidebar-trigger]")`,
         ),
       ).toBe(true);
-      const sheet = `!!document.querySelector('[data-slot="sidebar"][data-mobile="true"]')`;
+      // What it holds stays while it is closed, for the dialogs that are opened from it.
+      const sheet = `!!document.querySelector('[data-slot="sidebar"][data-mobile="true"][data-open]')`;
       // The pointer comes to the edge again where its first coming was too early to be seen.
       yield* until(
         "the sidebar of a small window",
@@ -1007,6 +1008,108 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* short.close;
       expect(page.errors()).toEqual([]);
     }),
+  );
+
+  it.effect(
+    "on a phone the menu closes when it leads elsewhere, a table and a dialog fit, and a finger scrolls the session",
+    () =>
+      Effect.gen(function* () {
+        const proxy = yield* Proxy.Proxy;
+        const viewer = yield* Viewer.Viewer;
+        const fs = yield* FileSystem.FileSystem;
+        const id = path.split("/").at(-1) ?? "";
+        const page = yield* viewer.open(`${proxy.url}/-/tokens`, {
+          width: 390,
+          height: 844,
+          mobile: true,
+        });
+        // A table's rows are blocks of their own there: nothing of it is off to the side.
+        yield* page.until(`!!document.querySelector("[data-console-token]")`);
+        yield* shot(page, fs, "console-phone-tokens");
+        expect(
+          yield* page.evaluate(
+            `(() => {
+              const table = document.querySelector('[data-slot="table-container"] [data-slot="scroll-area-viewport"]');
+              const rows = [...document.querySelectorAll("[data-console-token] td")];
+              return {
+                page: document.documentElement.scrollWidth <= innerWidth,
+                table: table.scrollWidth <= table.clientWidth,
+                cells: rows.every((cell) => cell.getBoundingClientRect().right <= innerWidth),
+              };
+            })()`,
+          ),
+        ).toEqual({ page: true, table: true, cells: true });
+
+        // The menu is a drawer, which is gone once what was pressed in it led elsewhere.
+        const drawer = `[data-mobile="true"][data-open]`;
+        yield* page
+          .click(`[data-slot="sidebar-trigger"]`)
+          .pipe(
+            Effect.andThen(page.until(`!!document.querySelector('${drawer}')`, "2 seconds")),
+            Effect.retry({ times: 5 }),
+          );
+        yield* page.until(
+          `document.querySelector('${drawer}').getAnimations().every((one) => one.playState === "finished")`,
+        );
+        yield* shot(page, fs, "console-phone-drawer");
+        yield* page.click(`${drawer} a[href="/-/sessions"]`);
+        yield* page.until(
+          `location.pathname === "/-/sessions" && !document.querySelector('${drawer}')`,
+        );
+
+        // A dialog is a sheet at the foot of the screen, with all of its buttons on it.
+        yield* page.until(`!!document.querySelector("[data-console-create-custom]")`);
+        yield* page.click("[data-console-create-custom]");
+        yield* page.until(`!!document.querySelector('${BUTTONS} button')`);
+        yield* placed(page);
+        yield* shot(page, fs, "console-phone-dialog");
+        expect(
+          yield* page.evaluate(
+            `[...document.querySelectorAll('${BUTTONS} button')].every((button) => {
+              const box = button.getBoundingClientRect();
+              return box.top >= 0 && box.bottom <= innerHeight && box.left >= 0 && box.right <= innerWidth;
+            })`,
+          ),
+        ).toBe(true);
+        yield* closed(page);
+
+        // A finger that moves over the session's picture scrolls its page: it is no mouse
+        // with its button held, which would select what it passes over.
+        yield* page.evaluate(`void (location.href = ${JSON.stringify(`/-/sessions/${id}`)})`);
+        yield* Viewer.ready(page);
+        const tall = `data:text/html,<title>tall</title><body style="margin:0;height:6000px"><script>let pressed = false; addEventListener("mousedown", () => { pressed = true; }); addEventListener("scroll", () => { document.title = pressed ? "pressed" : "scrolled"; });</script>`;
+        const title = `apertureSession.getSnapshot().targets.find((target) => target.tab === apertureSession.getSnapshot().selected)?.title`;
+        // The page is put there by automation, which opens what is no page on the web, and
+        // is watched once it is there.
+        const agent = yield* Mcp.connect(`${proxy.url}${path}`, ada.token);
+        yield* agent.call("navigate", { url: tall });
+        const opened = `apertureSession.getSnapshot().targets.find((target) => target.title === "tall")`;
+        yield* page.until(`!!${opened}`, "30 seconds");
+        yield* page.evaluate(`void apertureSession.select(${opened}.tab)`);
+        yield* page.until(`${title} === "tall"`, "30 seconds");
+        yield* page.until(`!!document.querySelector("[data-aperture-drawn]")`, "30 seconds");
+        const stage = yield* page.box("[data-aperture-stage]");
+        const finger = (type: string, y?: number) =>
+          page.cdp.call("Input.dispatchTouchEvent", {
+            type,
+            touchPoints: y === undefined ? [] : [{ x: stage.x, y }],
+          });
+        // The picture may still be on its way when the page says it is there: the finger
+        // is drawn over it again until the page has moved.
+        yield* Effect.gen(function* () {
+          yield* finger("touchStart", stage.y + 200);
+          for (let moved = 20; moved <= 300; moved += 20) {
+            yield* finger("touchMove", stage.y + 200 - moved);
+            yield* Effect.sleep("16 millis");
+          }
+          yield* finger("touchEnd");
+          yield* page.until(`${title} !== "tall"`, "3 seconds");
+        }).pipe(Effect.retry({ times: 5 }));
+        expect(yield* page.evaluate(title, Schema.String)).toBe("scrolled");
+        yield* shot(page, fs, "console-phone-workbench");
+        expect(page.errors()).toEqual([]);
+        yield* page.close;
+      }),
   );
 
   it.effect("the console is installed as an app whose title bars stand for the window's", () =>
@@ -2184,7 +2287,9 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
           expect.arrayContaining(["Owner of the shared", "Grace the guest"]),
         );
 
+        // Taking a link back is asked again, as whatever is not undone is.
         yield* page.click(`[data-console-share="For the guest"] button`);
+        yield* choose(page, `[data-slot="dialog-footer"] button`, "Revoke");
         yield* page.until(`!document.querySelector('[data-console-share="For the guest"]')`);
         yield* guest.until(
           `!!document.querySelector('[data-console-guest="refused"]')`,

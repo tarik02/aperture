@@ -8,7 +8,20 @@ import { Button } from "@aperture-browser/ui/components/button";
 import { SidebarTrigger } from "@aperture-browser/ui/components/sidebar";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import {
+  type SessionAction,
+  SessionActionsSubmenu,
+  useSessionActions,
+} from "#/features/session/session-actions-menu.tsx";
 import { useNewSession } from "#/features/session/new-sessions.ts";
 import { WorkbenchSkeleton } from "#/features/session/workbench-skeleton.tsx";
 import { useDocumentTitle } from "#/lib/document-title.ts";
@@ -30,6 +43,20 @@ type StateProps = {
   action?: React.ReactNode;
 };
 
+/** What a session showed last, behind what is said of it; nothing where it has no picture. */
+function Backdrop({ source }: { source: string }) {
+  const [missing, setMissing] = useState<string>();
+  return missing === source ? null : (
+    <img
+      alt=""
+      aria-hidden
+      src={source}
+      onError={() => setMissing(source)}
+      className="aperture:absolute aperture:inset-0 aperture:size-full aperture:scale-105 aperture:object-cover aperture:object-top aperture:opacity-40 aperture:blur-md"
+    />
+  );
+}
+
 /** Why a session's workbench is not shown, in the workbench's place. */
 function State({ children, note, session, action }: StateProps) {
   return (
@@ -37,19 +64,19 @@ function State({ children, note, session, action }: StateProps) {
       data-console-session-note={note ?? ""}
       className="aperture:relative aperture:flex aperture:min-h-0 aperture:flex-1 aperture:items-center aperture:justify-center aperture:overflow-hidden aperture:p-4"
     >
+      {/* The way to the sidebar, which the workbench's title bar has and this has not. */}
+      <SidebarTrigger
+        data-console-sidebar-trigger
+        className="aperture:absolute aperture:top-[max(0.5rem,env(safe-area-inset-top))] aperture:left-[max(0.5rem,env(safe-area-inset-left))] aperture:z-10"
+      />
       {session === undefined || session.path === null ? null : (
-        <img
-          alt=""
-          aria-hidden
-          src={`${session.path}/preview.png?at=${session.observedAt.epochMilliseconds}`}
-          // One that has no picture shows none.
-          onError={(event) => event.currentTarget.remove()}
-          className="aperture:absolute aperture:inset-0 aperture:size-full aperture:scale-105 aperture:object-cover aperture:object-top aperture:opacity-40 aperture:blur-md"
+        <Backdrop
+          source={`${session.path}/preview.png?at=${session.observedAt.epochMilliseconds}`}
         />
       )}
       <section className="aperture:relative aperture:flex aperture:w-full aperture:max-w-sm aperture:flex-col aperture:items-center aperture:gap-4 aperture:rounded-xl aperture:border aperture:bg-card/90 aperture:p-6 aperture:text-center aperture:shadow-sm aperture:backdrop-blur">
         {session === undefined ? null : (
-          <h1 className="aperture:max-w-full aperture:truncate aperture:text-base aperture:font-semibold">
+          <h1 className="aperture:max-w-full aperture:text-base aperture:font-semibold aperture:wrap-anywhere">
             {session.label ?? "Session"}
           </h1>
         )}
@@ -78,9 +105,13 @@ const expose = (session: Session | null) => {
   window.apertureSession = session ?? undefined;
 };
 
+/** What is done with the session that is open, for the workbench's own menu. */
+const Actions = createContext<ReadonlyArray<SessionAction>>([]);
+
 /**
- * The way to the sidebar from the workbench, which has no title bar of the console's: it
- * stands before the tabs, where a narrow window and a finger find it as well.
+ * What the console adds to the workbench. The way to the sidebar, which has no title bar
+ * of the console's here: it stands before the tabs, where a narrow window and a finger
+ * find it as well. And what is done with the session, in the browser's menu.
  */
 const CONTRIBUTIONS: ReadonlyArray<WorkbenchContribution> = [
   {
@@ -92,6 +123,15 @@ const CONTRIBUTIONS: ReadonlyArray<WorkbenchContribution> = [
         className="aperture:aspect-square aperture:h-full aperture:w-auto aperture:shrink-0 aperture:rounded-none"
       />
     ),
+  },
+  {
+    id: "console.session",
+    slot: "menu.browser",
+    group: "console.session",
+    order: 50,
+    component: function SessionItems() {
+      return <SessionActionsSubmenu actions={useContext(Actions)} />;
+    },
   },
 ];
 
@@ -174,7 +214,6 @@ function useDrawn(workbench: React.RefObject<HTMLElement | null>, path: string |
 export function SessionWorkbench({ sessionId }: { sessionId: string }) {
   const session = useSessionQuery(sessionId);
   const resume = useSessionActionMutation("resume");
-  const { theme, setTheme } = useTheme();
   const workbench = useRef<HTMLDivElement>(null);
   const [client, setClient] = useState<Session | null>(null);
   const watch = useCallback((opened: Session | null) => {
@@ -206,7 +245,7 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
   }, [runs, resume.reset]);
 
   if (session.isError) {
-    return <State>{told(session.error)}</State>;
+    return <State note="missing">{told(session.error, "The session was not looked up.")}</State>;
   }
   if (session.data === undefined) {
     // Its card's picture moves into this one's place while the session is asked for.
@@ -221,7 +260,8 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
   const { observedState, unreachableSince, failure } = session.data;
   // Asked to run: what follows is the wait for it, whatever the record still says.
   const starting = resume.isPending || resume.isSuccess;
-  if (session.data.path === null || observedState === "gone") {
+  const { path } = session.data;
+  if (path === null || observedState === "gone") {
     return <State session={session.data}>This session is on no node any more.</State>;
   }
   if (unreachableSince !== null) {
@@ -264,22 +304,52 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
       </WorkbenchSkeleton>
     );
   }
+  return (
+    <Running
+      session={{ ...session.data, path }}
+      workbench={workbench}
+      drawn={drawn}
+      kept={kept}
+      watch={watch}
+    />
+  );
+}
+
+type RunningProps = {
+  session: SessionRecord & { path: string };
+  workbench: React.RefObject<HTMLDivElement | null>;
+  drawn: boolean;
+  kept: string | undefined;
+  watch: (opened: Session | null) => void;
+};
+
+/** The session's workbench, with what is done with the session in its menu. */
+function Running({ session, workbench, drawn, kept, watch }: RunningProps) {
+  const { theme, setTheme } = useTheme();
+  const navigate = useNavigate();
+  const { actions, dialogs } = useSessionActions(
+    session,
+    () => void navigate({ to: "/-/sessions" }),
+  );
   // Connected anew when the session moves: its path is another then.
   return (
     <div
       ref={workbench}
       className="aperture:relative aperture:flex aperture:min-h-0 aperture:flex-1 aperture:flex-col"
     >
-      <ApertureSession
-        key={session.data.path}
-        url={session.data.path}
-        theme={isTheme(theme) ? theme : "system"}
-        onThemeChange={setTheme}
-        onSession={watch}
-        contributions={CONTRIBUTIONS}
-      />
+      <Actions.Provider value={actions}>
+        <ApertureSession
+          key={session.path}
+          url={session.path}
+          theme={isTheme(theme) ? theme : "system"}
+          onThemeChange={setTheme}
+          onSession={watch}
+          contributions={CONTRIBUTIONS}
+        />
+      </Actions.Provider>
       {/* Until the session draws itself: no empty picture between the two. */}
       {drawn ? null : <WorkbenchSkeleton over note="connecting" picture={kept} />}
+      {dialogs}
     </div>
   );
 }

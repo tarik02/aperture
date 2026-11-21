@@ -8,10 +8,12 @@ import {
   TableHeader,
   TableRow,
 } from "@aperture-browser/ui/components/table";
-import { Plus, Trash2, Users } from "lucide-react";
+import { Pencil, Plus, Trash2, Users } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
+import { LongName } from "#/components/long-name.tsx";
 import { NameDialog } from "#/components/name-dialog.tsx";
+import { type RowAction, RowActions, RowContextMenu } from "#/components/row-actions.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { TablePage } from "#/components/table-page.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
@@ -19,6 +21,7 @@ import { WorkspaceMembersDialog } from "#/features/workspace/workspace-members-d
 import {
   useCreateWorkspaceMutation,
   useDeleteWorkspaceMutation,
+  useRenameWorkspaceMutation,
   useWorkspacesQuery,
   type Workspace,
 } from "#/features/workspace/workspace.queries.ts";
@@ -28,55 +31,75 @@ const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle
 function WorkspaceRow({ workspace }: { workspace: Workspace }) {
   const account = useAccountQuery();
   const remove = useDeleteWorkspaceMutation();
-  const [dialog, setDialog] = useState<"members" | "delete" | null>(null);
+  const rename = useRenameWorkspaceMutation();
+  const [dialog, setDialog] = useState<"members" | "rename" | "delete" | null>(null);
   const administers = workspace.role === "admin" || account.data?.admin === true;
+  const actions: ReadonlyArray<RowAction> = [
+    {
+      key: "members",
+      label: "Members",
+      icon: Users,
+      shown: "button",
+      onSelect: () => setDialog("members"),
+    },
+    ...(administers
+      ? ([
+          { key: "rename", label: "Rename", icon: Pencil, onSelect: () => setDialog("rename") },
+          {
+            key: "delete",
+            label: "Delete",
+            icon: Trash2,
+            destructive: true,
+            parted: true,
+            onSelect: () => setDialog("delete"),
+          },
+        ] satisfies ReadonlyArray<RowAction>)
+      : []),
+  ];
 
   return (
-    <TableRow data-console-workspace={workspace.name}>
-      <TableCell className="aperture:font-medium">{workspace.name}</TableCell>
-      <TableCell>
-        <Badge variant={workspace.role === "admin" ? "default" : "outline"}>
-          {workspace.role ?? "not a member"}
-        </Badge>
-      </TableCell>
-      <TableCell className="aperture:text-muted-foreground">
-        {when.format(new Date(workspace.createdAt.epochMilliseconds))}
-      </TableCell>
-      <TableCell>
-        <div className="aperture:flex aperture:justify-end aperture:gap-1">
-          <Button size="sm" variant="outline" onClick={() => setDialog("members")}>
-            <Users />
-            Members
-          </Button>
-          {administers ? (
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label="Delete"
-              onClick={() => setDialog("delete")}
-            >
-              <Trash2 />
-            </Button>
-          ) : null}
-        </div>
-        <WorkspaceMembersDialog
-          workspace={workspace}
-          administers={administers}
-          open={dialog === "members"}
-          onOpenChange={(open) => setDialog(open ? "members" : null)}
-        />
-        <ConfirmDialog
-          open={dialog === "delete"}
-          title={`Delete ${workspace.name}?`}
-          description="Only a workspace with no sessions and no snapshots left is deleted."
-          confirmLabel="Delete"
-          variant="destructive"
-          pending={remove.isPending}
-          onOpenChange={(open) => setDialog(open ? "delete" : null)}
-          onConfirm={() => remove.mutate(workspace.id, { onSettled: () => setDialog(null) })}
-        />
-      </TableCell>
-    </TableRow>
+    <RowContextMenu actions={actions}>
+      <TableRow data-console-workspace={workspace.name}>
+        <TableCell className="aperture:font-medium">
+          <LongName>{workspace.name}</LongName>
+        </TableCell>
+        <TableCell>
+          <Badge variant={workspace.role === "admin" ? "default" : "outline"}>
+            {workspace.role ?? "not a member"}
+          </Badge>
+        </TableCell>
+        <TableCell label="Created" className="aperture:text-muted-foreground">
+          {when.format(new Date(workspace.createdAt.epochMilliseconds))}
+        </TableCell>
+        <TableCell>
+          <RowActions actions={actions} label="Workspace actions" />
+          <NameDialog
+            title="Rename workspace"
+            initial={workspace.name}
+            submitLabel="Rename"
+            open={dialog === "rename"}
+            onOpenChange={(open) => setDialog(open ? "rename" : null)}
+            onSubmit={(name) => rename.mutateAsync({ id: workspace.id, name })}
+          />
+          <WorkspaceMembersDialog
+            workspace={workspace}
+            administers={administers}
+            open={dialog === "members"}
+            onOpenChange={(open) => setDialog(open ? "members" : null)}
+          />
+          <ConfirmDialog
+            open={dialog === "delete"}
+            title={`Delete ${workspace.name}?`}
+            description="Only a workspace with no sessions and no snapshots left is deleted."
+            confirmLabel="Delete"
+            variant="destructive"
+            pending={remove.isPending}
+            onOpenChange={(open) => setDialog(open ? "delete" : null)}
+            onConfirm={() => remove.mutate(workspace.id, { onSettled: () => setDialog(null) })}
+          />
+        </TableCell>
+      </TableRow>
+    </RowContextMenu>
   );
 }
 
@@ -96,7 +119,6 @@ export function WorkspacesPage() {
       </PageHeaderActions>
       <NameDialog
         title="New workspace"
-        description="Its members all have its sessions and snapshots."
         open={creating}
         onOpenChange={setCreating}
         onSubmit={(name) => create.mutateAsync(name)}
@@ -106,7 +128,7 @@ export function WorkspacesPage() {
           data-console-empty
           className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
         >
-          No workspaces yet. Make one to keep sessions and snapshots with others.
+          No workspaces yet.
         </p>
       ) : (
         <Table stickyActionColumn>

@@ -24,6 +24,7 @@ import {
   UserX,
 } from "lucide-react";
 import { Fragment } from "react";
+import { usePhone } from "#/lib/use-phone.ts";
 import type { Account } from "#/features/account/account.queries.ts";
 
 /** What is done with a person. */
@@ -95,7 +96,15 @@ export function PersonActionsMenu<Doing extends string>({
   actions,
   onSelect,
   label = "Person actions",
-}: Menu<Doing> & { label?: string }) {
+  buttoned,
+}: Menu<Doing> & {
+  label?: string;
+  /** The action that has a button of its own beside the menu, where the row has room for one. */
+  buttoned?: Doing;
+}) {
+  const phone = usePhone();
+  // What has a button of its own is not in the menu as well.
+  const listed = phone ? actions : actions.filter((action) => action.key !== buttoned);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -106,7 +115,7 @@ export function PersonActionsMenu<Doing extends string>({
         <EllipsisVertical />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className={MENU}>
-        {actions.map((action, index) => (
+        {listed.map((action, index) => (
           <Fragment key={action.key}>
             {action.parted === true && index > 0 ? <DropdownMenuSeparator /> : null}
             <DropdownMenuItem

@@ -77,9 +77,14 @@ export function TagEditor({ entries, onChange, error, disabled, hideLabel }: Tag
         >
           <TableHeader>
             <TableRow className="aperture:hover:bg-transparent">
-              <TableHead className="aperture:h-7 aperture:px-1">Key</TableHead>
-              <TableHead className="aperture:h-7 aperture:px-1">Value</TableHead>
-              <TableHead className="aperture:h-7 aperture:w-9 aperture:px-1 aperture:text-right">
+              {/* They stay while the tags scroll below them: the way to add one is never out of reach. */}
+              <TableHead className="aperture:sticky aperture:-top-1 aperture:z-10 aperture:h-7 aperture:px-1">
+                Key
+              </TableHead>
+              <TableHead className="aperture:sticky aperture:-top-1 aperture:z-10 aperture:h-7 aperture:px-1">
+                Value
+              </TableHead>
+              <TableHead className="aperture:sticky aperture:-top-1 aperture:z-10 aperture:h-7 aperture:w-9 aperture:px-1 aperture:text-right aperture:pointer-coarse:w-11">
                 <Button
                   type="button"
                   variant="ghost"

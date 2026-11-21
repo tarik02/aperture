@@ -47,7 +47,7 @@ function AlertDialogContent({
         data-slot="alert-dialog-content"
         data-size={size}
         className={cn(
-          "aperture:group/alert-dialog-content aperture:fixed aperture:inset-x-0 aperture:bottom-0 aperture:z-50 aperture:grid aperture:w-full aperture:max-w-none aperture:gap-4 aperture:rounded-t-xl aperture:bg-popover aperture:p-4 aperture:text-popover-foreground aperture:ring-1 aperture:ring-foreground/10 aperture:duration-100 aperture:outline-none aperture:data-[size=default]:sm:max-w-sm aperture:data-[size=sm]:sm:max-w-xs aperture:data-closed:animate-out aperture:data-closed:fade-out-0 aperture:data-closed:slide-out-to-bottom-2 aperture:data-open:animate-in aperture:data-open:fade-in-0 aperture:data-open:slide-in-from-bottom-2 aperture:sm:top-1/2 aperture:sm:left-1/2 aperture:sm:bottom-auto aperture:sm:-translate-x-1/2 aperture:sm:-translate-y-1/2 aperture:sm:rounded-xl aperture:sm:data-closed:zoom-out-95 aperture:sm:data-open:zoom-in-95",
+          "aperture:group/alert-dialog-content aperture:fixed aperture:inset-x-0 aperture:bottom-(--keyboard-inset,0px) aperture:z-50 aperture:grid aperture:w-full aperture:max-w-none aperture:gap-4 aperture:rounded-t-xl aperture:bg-popover aperture:p-4 aperture:pb-(--dialog-pad-bottom) aperture:text-popover-foreground aperture:[--dialog-pad-bottom:max(1rem,env(safe-area-inset-bottom))] aperture:sm:[--dialog-pad-bottom:1rem] aperture:ring-1 aperture:ring-foreground/10 aperture:duration-100 aperture:outline-none aperture:data-[size=default]:sm:max-w-sm aperture:data-[size=sm]:sm:max-w-xs aperture:data-closed:animate-out aperture:data-closed:fade-out-0 aperture:data-closed:slide-out-to-bottom-2 aperture:data-open:animate-in aperture:data-open:fade-in-0 aperture:data-open:slide-in-from-bottom-2 aperture:sm:top-1/2 aperture:sm:left-1/2 aperture:sm:bottom-auto aperture:sm:-translate-x-1/2 aperture:sm:-translate-y-1/2 aperture:sm:rounded-xl aperture:sm:data-closed:zoom-out-95 aperture:sm:data-open:zoom-in-95",
           className,
         )}
         {...props}
@@ -61,7 +61,7 @@ function AlertDialogHeader({ className, ...props }: React.ComponentProps<"div">)
     <div
       data-slot="alert-dialog-header"
       className={cn(
-        "aperture:grid aperture:grid-rows-[auto_1fr] aperture:place-items-center aperture:gap-1.5 aperture:text-center aperture:has-data-[slot=alert-dialog-media]:grid-rows-[auto_auto_1fr] aperture:has-data-[slot=alert-dialog-media]:gap-x-4 aperture:sm:group-data-[size=default]/alert-dialog-content:place-items-start aperture:sm:group-data-[size=default]/alert-dialog-content:text-left aperture:sm:group-data-[size=default]/alert-dialog-content:has-data-[slot=alert-dialog-media]:grid-rows-[auto_1fr]",
+        "aperture:grid aperture:min-w-0 aperture:grid-cols-[minmax(0,1fr)] aperture:grid-rows-[auto_1fr] aperture:place-items-center aperture:gap-1.5 aperture:text-center aperture:has-data-[slot=alert-dialog-media]:grid-rows-[auto_auto_1fr] aperture:has-data-[slot=alert-dialog-media]:gap-x-4 aperture:sm:group-data-[size=default]/alert-dialog-content:place-items-start aperture:sm:group-data-[size=default]/alert-dialog-content:text-left aperture:sm:group-data-[size=default]/alert-dialog-content:has-data-[slot=alert-dialog-media]:grid-rows-[auto_1fr]",
         className,
       )}
       {...props}
@@ -74,7 +74,7 @@ function AlertDialogFooter({ className, ...props }: React.ComponentProps<"div">)
     <div
       data-slot="alert-dialog-footer"
       className={cn(
-        "aperture:-mx-4 aperture:-mb-4 aperture:flex aperture:flex-col-reverse aperture:gap-2 aperture:rounded-b-xl aperture:border-t aperture:bg-muted/50 aperture:p-4 aperture:group-data-[size=sm]/alert-dialog-content:grid aperture:group-data-[size=sm]/alert-dialog-content:grid-cols-2 aperture:sm:flex-row aperture:sm:justify-end",
+        "aperture:-mx-4 aperture:-mb-(--dialog-pad-bottom) aperture:flex aperture:flex-col-reverse aperture:gap-2 aperture:border-t aperture:bg-muted/50 aperture:p-4 aperture:pb-(--dialog-pad-bottom) aperture:sm:rounded-b-xl aperture:group-data-[size=sm]/alert-dialog-content:grid aperture:group-data-[size=sm]/alert-dialog-content:grid-cols-2 aperture:sm:flex-row aperture:sm:justify-end",
         className,
       )}
       {...props}
@@ -100,7 +100,7 @@ function AlertDialogTitle({ className, ...props }: AlertDialogPrimitive.Title.Pr
     <AlertDialogPrimitive.Title
       data-slot="alert-dialog-title"
       className={cn(
-        "aperture:text-base aperture:font-medium aperture:sm:group-data-[size=default]/alert-dialog-content:group-has-data-[slot=alert-dialog-media]/alert-dialog-content:col-start-2",
+        "aperture:max-w-full aperture:min-w-0 aperture:text-base aperture:font-medium aperture:wrap-anywhere aperture:sm:group-data-[size=default]/alert-dialog-content:group-has-data-[slot=alert-dialog-media]/alert-dialog-content:col-start-2",
         className,
       )}
       {...props}
@@ -113,7 +113,7 @@ function AlertDialogDescription({ className, ...props }: AlertDialogPrimitive.De
     <AlertDialogPrimitive.Description
       data-slot="alert-dialog-description"
       className={cn(
-        "aperture:text-sm aperture:text-balance aperture:text-muted-foreground aperture:md:text-pretty aperture:*:[a]:underline aperture:*:[a]:underline-offset-3 aperture:*:[a]:hover:text-foreground",
+        "aperture:max-w-full aperture:min-w-0 aperture:text-sm aperture:text-balance aperture:text-muted-foreground aperture:wrap-anywhere aperture:md:text-pretty aperture:*:[a]:underline aperture:*:[a]:underline-offset-3 aperture:*:[a]:hover:text-foreground",
         className,
       )}
       {...props}

@@ -7,6 +7,7 @@ import {
   SidebarMenuItem,
 } from "@aperture-browser/ui/components/sidebar";
 import { Link } from "@tanstack/react-router";
+import { useCloseDrawer } from "#/lib/drawer.ts";
 import { useRecentSessions } from "#/features/session/recent-sessions.ts";
 import { useOpenSession } from "#/features/session/use-open-session.ts";
 import { SessionPicture, useSessionPicture } from "#/features/session/session-picture.tsx";
@@ -19,6 +20,7 @@ const THUMBNAIL_WIDTH = 120;
 function RecentSession({ session, active }: { session: Session; active: boolean }) {
   const { source, target } = useSessionPicture(session, THUMBNAIL_WIDTH);
   const open = useOpenSession(session.id, source);
+  const closeDrawer = useCloseDrawer();
 
   return (
     <SidebarMenuItem>
@@ -29,7 +31,10 @@ function RecentSession({ session, active }: { session: Session; active: boolean 
           <Link
             to="/-/sessions/$sessionId"
             params={{ sessionId: session.id }}
-            onClick={open.onClick}
+            onClick={(event) => {
+              closeDrawer();
+              open.onClick(event);
+            }}
           />
         }
       >

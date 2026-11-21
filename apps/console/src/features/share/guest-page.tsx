@@ -126,7 +126,7 @@ export function GuestPage({ shareId }: { shareId: string }) {
   return (
     <div
       data-console-guest="session"
-      className="aperture:flex aperture:h-svh aperture:min-h-0 aperture:flex-col"
+      className="aperture:flex aperture:h-[calc(100dvh-var(--keyboard-inset,0px))] aperture:min-h-0 aperture:flex-col aperture:pt-[env(safe-area-inset-top)] aperture:pr-[env(safe-area-inset-right)] aperture:pb-[env(safe-area-inset-bottom)] aperture:pl-[env(safe-area-inset-left)]"
     >
       <ApertureSession
         key={link.data.path}

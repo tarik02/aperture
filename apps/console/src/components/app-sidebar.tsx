@@ -10,7 +10,12 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from "@aperture-browser/ui/components/sidebar";
+import { Button } from "@aperture-browser/ui/components/button";
+import { X } from "lucide-react";
+import { useEffect } from "react";
+import { useCloseDrawer } from "#/lib/drawer.ts";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { ApertureMark } from "#/components/aperture-mark.tsx";
 import { AuthMenu } from "#/components/auth-menu.tsx";
@@ -29,6 +34,10 @@ export function AppSidebar({ collapsible }: { collapsible: "icon" | "offcanvas" 
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const account = useAccountQuery();
   const activeItem = resolveNavItem(pathname);
+  const { isMobile } = useSidebar();
+  const closeDrawer = useCloseDrawer();
+  // Wherever the page went, the drawer is not left over it.
+  useEffect(closeDrawer, [pathname, closeDrawer]);
 
   return (
     <Sidebar collapsible={collapsible} peekOnHover={collapsible === "offcanvas"}>
@@ -39,7 +48,7 @@ export function AppSidebar({ collapsible }: { collapsible: "icon" | "offcanvas" 
         >
           <div
             data-sidebar-logo=""
-            className="aperture:grid aperture:size-8 aperture:shrink-0 aperture:place-items-center aperture:rounded-lg aperture:bg-sidebar-primary aperture:text-sidebar-primary-foreground"
+            className="aperture:grid aperture:size-8 aperture:shrink-0 aperture:place-items-center aperture:rounded-lg aperture:bg-primary aperture:text-primary-foreground"
           >
             <ApertureMark />
           </div>
@@ -51,6 +60,18 @@ export function AppSidebar({ collapsible }: { collapsible: "icon" | "offcanvas" 
               {window.location.host}
             </span>
           </span>
+          {isMobile ? (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Close the menu"
+              data-console-drawer-close
+              className="aperture:ml-auto"
+              onClick={closeDrawer}
+            >
+              <X />
+            </Button>
+          ) : null}
         </div>
         <WorkspaceSwitcher />
       </SidebarHeader>
@@ -88,6 +109,7 @@ function NavGroup({
   items: NavItem[];
   activeItem: NavItem | undefined;
 }) {
+  const closeDrawer = useCloseDrawer();
   return (
     <SidebarGroup>
       <SidebarGroupLabel>{label}</SidebarGroupLabel>
@@ -97,7 +119,7 @@ function NavGroup({
             <SidebarMenuItem key={item.title}>
               <SidebarMenuButton
                 isActive={item === activeItem}
-                render={<Link to={item.to} />}
+                render={<Link to={item.to} onClick={closeDrawer} />}
                 tooltip={item.title}
               >
                 <item.icon />

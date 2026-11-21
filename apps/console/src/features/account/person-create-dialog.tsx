@@ -1,7 +1,6 @@
 import { Button } from "@aperture-browser/ui/components/button";
 import {
   DialogBody,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -54,9 +53,6 @@ function CreateForm({ onDone }: { onDone: () => void }) {
     >
       <DialogHeader>
         <DialogTitle>New person</DialogTitle>
-        <DialogDescription>
-          They sign in once they set a password with a setup link, which you give them.
-        </DialogDescription>
       </DialogHeader>
       <DialogBody>
         <form.Field name="name" validators={{ onSubmit: required("A name") }}>

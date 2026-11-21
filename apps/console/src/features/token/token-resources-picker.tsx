@@ -96,7 +96,14 @@ export function TokenResourcesPicker({ id, chosen, invalid, onChange }: TokenRes
         const lowered = sought.trim().toLowerCase();
         return one.label.toLowerCase().includes(lowered) || one.id.toLowerCase().includes(lowered);
       }}
-      onValueChange={(next: Option[]) => onChange(next.map(({ kind, id }) => ({ kind, id })))}
+      onValueChange={(next: Option[], details) => {
+        // Escape closes the list; it does not take back what was chosen from it.
+        if (details.reason === "escape-key") {
+          details.allowPropagation();
+          return;
+        }
+        onChange(next.map(({ kind, id }) => ({ kind, id })));
+      }}
     >
       <ComboboxChips ref={anchor} data-console-token-resources>
         <ComboboxValue>

@@ -10,6 +10,7 @@ import {
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { NameDialog } from "#/components/name-dialog.tsx";
+import { LongName } from "#/components/long-name.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { SecretDialog } from "#/components/secret-dialog.tsx";
 import { TablePage } from "#/components/table-page.tsx";
@@ -43,7 +44,7 @@ export function RegistrationTokensPage() {
           data-console-empty
           className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
         >
-          No registration tokens yet. A node registers itself with one.
+          No registration tokens yet.
         </p>
       ) : (
         <Table>
@@ -56,8 +57,10 @@ export function RegistrationTokensPage() {
           <TableBody>
             {tokens.data?.map((token) => (
               <TableRow key={token.id} data-console-registration-token={token.name}>
-                <TableCell className="aperture:font-medium">{token.name}</TableCell>
-                <TableCell className="aperture:text-muted-foreground">
+                <TableCell className="aperture:font-medium">
+                  <LongName>{token.name}</LongName>
+                </TableCell>
+                <TableCell label="Created" className="aperture:text-muted-foreground">
                   {when.format(new Date(token.createdAt.epochMilliseconds))}
                 </TableCell>
               </TableRow>
@@ -67,7 +70,6 @@ export function RegistrationTokensPage() {
       )}
       <NameDialog
         title="New registration token"
-        description="A node that starts with it registers itself here. It is shown once."
         open={creating}
         onOpenChange={setCreating}
         onSubmit={async (name) => setSecret((await create.mutateAsync(name)).token)}

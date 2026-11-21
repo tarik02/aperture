@@ -7,8 +7,49 @@ import { XIcon } from "lucide-react";
 import { usePortalContainer } from "../portal.tsx";
 import { ScrollArea } from "./scroll-area.tsx";
 
-function Dialog({ ...props }: DialogPrimitive.Root.Props) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />;
+/** What opens over a dialog from within it, while it is open: a list, a menu. */
+const POPUPS = [
+  '[data-slot="select-content"][data-open]',
+  '[data-slot="combobox-content"][data-open]',
+  '[data-slot="autocomplete-content"][data-open]',
+  '[data-slot$="menu-content"][data-open]',
+  '[data-slot="popover-content"][data-open]',
+].join(", ");
+
+/**
+ * The presses of Escape that found something open over a dialog. They are noted before
+ * anything hears them: what was open closes on the same press, and is closed by the time
+ * the dialog is asked to.
+ */
+const forPopup = new WeakSet<Event>();
+if (typeof window !== "undefined") {
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key === "Escape" && document.querySelector(POPUPS) !== null) {
+        forPopup.add(event);
+      }
+    },
+    true,
+  );
+}
+
+function Dialog({ onOpenChange, ...props }: DialogPrimitive.Root.Props) {
+  return (
+    <DialogPrimitive.Root
+      data-slot="dialog"
+      onOpenChange={(open, details) => {
+        // Escape closes what opened last: a list that is open over the dialog, and not the
+        // dialog with what was typed into it.
+        if (!open && details.reason === "escape-key" && forPopup.has(details.event)) {
+          details.cancel();
+          return;
+        }
+        onOpenChange?.(open, details);
+      }}
+      {...props}
+    />
+  );
 }
 
 function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
@@ -60,7 +101,7 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "aperture:fixed aperture:inset-x-0 aperture:bottom-0 aperture:z-50 aperture:grid aperture:max-h-[calc(100svh-0.75rem)] aperture:w-full aperture:max-w-none aperture:gap-4 aperture:overflow-y-auto aperture:rounded-t-xl aperture:bg-popover aperture:p-4 aperture:text-sm aperture:text-popover-foreground aperture:ring-1 aperture:ring-foreground/10 aperture:duration-100 aperture:outline-none aperture:data-closed:animate-out aperture:data-closed:fade-out-0 aperture:data-closed:slide-out-to-bottom-2 aperture:data-open:animate-in aperture:data-open:fade-in-0 aperture:data-open:slide-in-from-bottom-2 aperture:sm:top-1/2 aperture:sm:left-1/2 aperture:sm:bottom-auto aperture:sm:max-h-[calc(100svh-2rem)] aperture:sm:max-w-md aperture:sm:-translate-x-1/2 aperture:sm:-translate-y-1/2 aperture:sm:rounded-xl aperture:sm:data-closed:zoom-out-95 aperture:sm:data-open:zoom-in-95",
+          "aperture:group/dialog aperture:fixed aperture:inset-x-0 aperture:bottom-(--keyboard-inset,0px) aperture:z-50 aperture:grid aperture:max-h-[calc(100dvh-0.75rem-env(safe-area-inset-top)-var(--keyboard-inset,0px))] aperture:w-full aperture:max-w-none aperture:gap-4 aperture:overflow-y-auto aperture:rounded-t-xl aperture:bg-popover aperture:p-4 aperture:pb-(--dialog-pad-bottom) aperture:text-sm aperture:[--dialog-pad-bottom:max(1rem,env(safe-area-inset-bottom))] aperture:sm:[--dialog-pad-bottom:1rem] aperture:text-popover-foreground aperture:ring-1 aperture:ring-foreground/10 aperture:duration-100 aperture:outline-none aperture:data-closed:animate-out aperture:data-closed:fade-out-0 aperture:data-closed:slide-out-to-bottom-2 aperture:data-open:animate-in aperture:data-open:fade-in-0 aperture:data-open:slide-in-from-bottom-2 aperture:sm:top-1/2 aperture:sm:left-1/2 aperture:sm:bottom-auto aperture:sm:max-h-[calc(100svh-2rem)] aperture:sm:max-w-md aperture:sm:-translate-x-1/2 aperture:sm:-translate-y-1/2 aperture:sm:rounded-xl aperture:sm:data-closed:zoom-out-95 aperture:sm:data-open:zoom-in-95",
           height === undefined
             ? undefined
             : "aperture:flex aperture:h-(--dialog-height) aperture:flex-col aperture:overflow-hidden",
@@ -80,7 +121,7 @@ function DialogContent({
             render={
               <Button
                 variant="ghost"
-                className="aperture:absolute aperture:top-2 aperture:right-2"
+                className="aperture:absolute aperture:top-2 aperture:right-2 aperture:pointer-coarse:top-1 aperture:pointer-coarse:right-1"
                 size="icon-sm"
               />
             }
@@ -99,7 +140,8 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="dialog-header"
       className={cn(
-        "aperture:flex aperture:shrink-0 aperture:flex-col aperture:gap-2 aperture:pb-2",
+        // Beside the button that closes it, where there is one.
+        "aperture:flex aperture:min-w-0 aperture:shrink-0 aperture:flex-col aperture:gap-2 aperture:pb-2 aperture:group-has-[>[data-slot=dialog-close]]/dialog:pr-8",
         className,
       )}
       {...props}
@@ -138,7 +180,9 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "aperture:-mx-4 aperture:-mb-4 aperture:flex aperture:shrink-0 aperture:flex-col-reverse aperture:gap-2 aperture:rounded-b-xl aperture:border-t aperture:bg-muted/50 aperture:p-4 aperture:sm:flex-row aperture:sm:justify-end",
+        // On a phone it stays at the sheet's foot while what is above it scrolls, clear of
+        // the home indicator.
+        "aperture:-mx-4 aperture:-mb-(--dialog-pad-bottom) aperture:flex aperture:shrink-0 aperture:flex-col-reverse aperture:gap-2 aperture:border-t aperture:bg-[color-mix(in_oklch,var(--popover),var(--muted)_50%)] aperture:p-4 aperture:pb-(--dialog-pad-bottom) aperture:max-sm:sticky aperture:max-sm:-bottom-(--dialog-pad-bottom) aperture:sm:flex-row aperture:sm:justify-end aperture:sm:rounded-b-xl",
         className,
       )}
       {...props}
@@ -155,7 +199,10 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("aperture:text-base aperture:leading-none aperture:font-medium", className)}
+      className={cn(
+        "aperture:min-w-0 aperture:text-base aperture:leading-tight aperture:font-medium aperture:wrap-anywhere",
+        className,
+      )}
       {...props}
     />
   );
@@ -166,7 +213,7 @@ function DialogDescription({ className, ...props }: DialogPrimitive.Description.
     <DialogPrimitive.Description
       data-slot="dialog-description"
       className={cn(
-        "aperture:text-sm aperture:text-muted-foreground aperture:*:[a]:underline aperture:*:[a]:underline-offset-3 aperture:*:[a]:hover:text-foreground",
+        "aperture:min-w-0 aperture:text-sm aperture:text-muted-foreground aperture:wrap-anywhere aperture:*:[a]:underline aperture:*:[a]:underline-offset-3 aperture:*:[a]:hover:text-foreground",
         className,
       )}
       {...props}

@@ -71,10 +71,52 @@ export const forget = async () => {
   await fetch(COOKIE, { method: "DELETE" });
 };
 
-/** What a failed call says, in words for whoever reads the page. */
+/** What each failure says where the API gave it no words of its own. */
+const SAID: Readonly<Record<string, string>> = {
+  Unauthorized: "You are not signed in.",
+  Forbidden: "You are not allowed to do this.",
+  AccountNotFound: "There is no such account.",
+  SessionNotFound: "This session does not exist. It may have been deleted.",
+  NoNode: "No node is there to run the session on.",
+  SessionHasNoNode: "This session is on no node.",
+  NodeUnreachable: "The session's node is out of reach.",
+  NodeRefused: "The session's node refused.",
+  SnapshotNotFound: "This snapshot does not exist. It may have been deleted.",
+  SessionElsewhere: "This session is on another node now.",
+  ApiTokenNotFound: "There is no such API token.",
+  WorkspaceNotFound: "There is no such workspace.",
+  WorkspaceInUse: "The workspace still has sessions or snapshots.",
+  EmailTaken: "Someone has this email address already.",
+  PersonNotFound: "There is no such person.",
+  AccountInvalid: "The account cannot be as asked.",
+  AccountInUse: "The account still has sessions or snapshots.",
+  OAuthClientNotFound: "There is no such app.",
+  RedirectRefused: "The app may not be sent back to that address.",
+  GrantNotFound: "This app is not connected any more.",
+  ShareNotFound: "There is no such share link.",
+  ShareRefused: "This share link lets nobody in.",
+  TooManyTries: "Too many tries. Wait a while and try again.",
+  // What the client itself fails with, before or after the API answered.
+  HttpClientError: "The control plane was not reached. Check the connection and try again.",
+  RequestError: "The control plane was not reached. Check the connection and try again.",
+  ResponseError: "The control plane gave an answer that was not understood.",
+  HttpApiDecodeError: "What was sent is not what the control plane takes.",
+  HttpApiSchemaError: "What was sent is not what the control plane takes.",
+  ParseError: "The control plane gave an answer that was not understood.",
+  SchemaError: "The control plane gave an answer that was not understood.",
+};
+
+/** Words of a program for a program: an address, a place in what was sent. */
+const RAW = /^Transport error|^StatusCode|^Decode error|^Expected |\bat \[|^\{/u;
+
+/** What a failed call says, in words for whoever reads the page: never nothing. */
 export const told = (error: unknown, fallback = "The control plane was not reached") => {
-  if (isFailure(error)) {
-    return error.message ?? error._tag;
+  const said = isFailure(error) || error instanceof Error ? (error.message ?? "").trim() : "";
+  if (said !== "" && !RAW.test(said)) {
+    return said;
   }
-  return error instanceof Error ? error.message : fallback;
+  if (isFailure(error)) {
+    return SAID[error._tag] ?? fallback;
+  }
+  return fallback;
 };

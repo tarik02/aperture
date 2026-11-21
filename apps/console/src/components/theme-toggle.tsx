@@ -22,7 +22,7 @@ export function ThemeToggle() {
                 aria-label={option.label}
                 onClick={() => changeMode(option.value)}
                 className={cn(
-                  "aperture:flex aperture:h-6 aperture:flex-1 aperture:items-center aperture:justify-center aperture:rounded-md aperture:text-sidebar-foreground/60 aperture:transition-colors aperture:hover:text-sidebar-foreground aperture:[&_svg]:size-3.5",
+                  "aperture:flex aperture:h-6 aperture:flex-1 aperture:pointer-coarse:h-10 aperture:items-center aperture:justify-center aperture:rounded-md aperture:text-sidebar-foreground/60 aperture:transition-colors aperture:hover:text-sidebar-foreground aperture:[&_svg]:size-3.5",
                   mode === option.value &&
                     "aperture:bg-sidebar aperture:text-sidebar-foreground aperture:shadow-xs",
                 )}

@@ -108,7 +108,7 @@ export function ServiceAccountsPage() {
           data-console-empty
           className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
         >
-          No service accounts yet. One is for automation: it has API tokens and no password.
+          No service accounts yet.
         </p>
       ) : (
         <Table stickyActionColumn>
@@ -143,7 +143,7 @@ export function ServiceAccountsPage() {
                         )}
                       </span>
                     </TableCell>
-                    <TableCell className="aperture:text-muted-foreground">
+                    <TableCell label="Created" className="aperture:text-muted-foreground">
                       {when.format(new Date(account.createdAt.epochMilliseconds))}
                     </TableCell>
                     <TableCell>
@@ -152,6 +152,7 @@ export function ServiceAccountsPage() {
                           size="sm"
                           variant="outline"
                           data-console-service-token
+                          className="aperture:max-sm:hidden"
                           onClick={() => onSelect("token")}
                         >
                           <KeyRound />
@@ -159,7 +160,8 @@ export function ServiceAccountsPage() {
                         </Button>
                         <PersonActionsMenu
                           label="Service account actions"
-                          actions={actions.slice(1)}
+                          actions={actions}
+                          buttoned="token"
                           onSelect={onSelect}
                         />
                       </div>
@@ -185,7 +187,6 @@ export function ServiceAccountsPage() {
       />
       <NameDialog
         title="New service account"
-        description="An account for automation. It signs in nowhere: it is used with API tokens, made here."
         open={creating}
         onOpenChange={setCreating}
         onSubmit={(name) => create.mutateAsync({ name })}

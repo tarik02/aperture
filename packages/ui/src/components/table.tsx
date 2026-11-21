@@ -7,12 +7,15 @@ type TableContextValue = {
   stickyHeader: boolean;
   stickyFirstColumn: boolean;
   stickyLastColumn: boolean;
+  /** Whether a row is a block of its own on a phone, in place of a line of columns. */
+  stacks: boolean;
 };
 
 const TableContext = React.createContext<TableContextValue>({
   stickyHeader: false,
   stickyFirstColumn: false,
   stickyLastColumn: false,
+  stacks: false,
 });
 
 type TableProps = React.ComponentProps<"table"> & {
@@ -155,7 +158,7 @@ function ScrollingTable({
   const { shellRef, viewportRef, contentRef } = useScrollBoundaries<HTMLTableElement>();
   const stickyLastColumn = stickyLastColumnProp || stickyActionColumn;
   const context = React.useMemo(
-    () => ({ stickyHeader, stickyFirstColumn, stickyLastColumn }),
+    () => ({ stickyHeader, stickyFirstColumn, stickyLastColumn, stacks: true }),
     [stickyHeader, stickyFirstColumn, stickyLastColumn],
   );
 
@@ -224,6 +227,8 @@ function ScrollingTable({
             data-sticky-last-column={stickyLastColumn || undefined}
             className={cn(
               "aperture:w-full aperture:min-w-max aperture:caption-bottom aperture:text-sm",
+              // On a phone a row is a block of its own: what it is, then the rest in lines.
+              "aperture:max-sm:block aperture:max-sm:min-w-0",
               className,
             )}
             {...props}
@@ -262,20 +267,26 @@ function ScrollingTable({
 }
 
 function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
+  const { stacks } = React.useContext(TableContext);
   return (
     <thead
       data-slot="table-header"
-      className={cn("aperture:[&_tr]:border-b", className)}
+      className={cn("aperture:[&_tr]:border-b", stacks && "aperture:max-sm:hidden", className)}
       {...props}
     />
   );
 }
 
 function TableBody({ className, ...props }: React.ComponentProps<"tbody">) {
+  const { stacks } = React.useContext(TableContext);
   return (
     <tbody
       data-slot="table-body"
-      className={cn("aperture:[&_tr:last-child]:border-0", className)}
+      className={cn(
+        "aperture:[&_tr:last-child]:border-0",
+        stacks && "aperture:max-sm:block",
+        className,
+      )}
       {...props}
     />
   );
@@ -295,11 +306,16 @@ function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
 }
 
 function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
+  const { stacks } = React.useContext(TableContext);
   return (
     <tr
       data-slot="table-row"
       className={cn(
-        "aperture:group/table-row aperture:border-b aperture:[&:has([aria-expanded=true])>td]:bg-muted/50 aperture:[&:hover>td]:bg-[color-mix(in_oklch,var(--background),var(--muted)_50%)] aperture:data-[state=selected]:[&>td]:bg-muted aperture:data-[state=selected]:[&:hover>td]:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_6%)]",
+        "aperture:group/table-row aperture:border-b aperture:sm:[&:has([aria-expanded=true])>td]:bg-muted/50 aperture:sm:[&:hover>td]:bg-[color-mix(in_oklch,var(--background),var(--muted)_50%)] aperture:sm:data-[state=selected]:[&>td]:bg-muted aperture:sm:data-[state=selected]:[&:hover>td]:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_6%)]",
+        stacks &&
+          "aperture:max-sm:relative aperture:max-sm:flex aperture:max-sm:flex-wrap aperture:max-sm:items-center aperture:max-sm:gap-x-3 aperture:max-sm:gap-y-1.5 aperture:max-sm:px-1 aperture:max-sm:py-3",
+        // Room for the row's menu, which stands at its corner.
+        stacks && "aperture:max-sm:in-data-sticky-last-column:pr-12",
         className,
       )}
       {...props}
@@ -327,18 +343,28 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   );
 }
 
-function TableCell({ className, ...props }: React.ComponentProps<"td">) {
-  const { stickyFirstColumn, stickyLastColumn } = React.useContext(TableContext);
+function TableCell({
+  className,
+  label,
+  ...props
+}: React.ComponentProps<"td"> & {
+  /** What the cell tells, said before it on a phone, where no header stands above it. */
+  label?: string;
+}) {
+  const { stickyFirstColumn, stickyLastColumn, stacks } = React.useContext(TableContext);
 
   return (
     <td
       data-slot="table-cell"
+      data-label={label}
       className={cn(
         "aperture:p-2 aperture:align-middle aperture:whitespace-nowrap aperture:transition-colors aperture:[&:has([role=checkbox])]:pr-0",
+        stacks &&
+          "aperture:max-sm:block aperture:max-sm:max-w-full aperture:max-sm:min-w-0 aperture:max-sm:p-0 aperture:max-sm:whitespace-normal aperture:max-sm:wrap-anywhere aperture:max-sm:first:basis-full aperture:max-sm:empty:hidden aperture:max-sm:data-label:before:mr-1 aperture:max-sm:data-label:before:text-muted-foreground aperture:max-sm:data-label:before:content-[attr(data-label)]",
         stickyFirstColumn &&
-          "aperture:first:sticky aperture:first:left-0 aperture:first:z-10 aperture:first:border-r aperture:first:border-border aperture:first:bg-background",
+          "aperture:sm:first:sticky aperture:sm:first:left-0 aperture:sm:first:z-10 aperture:sm:first:border-r aperture:sm:first:border-border aperture:sm:first:bg-background",
         stickyLastColumn &&
-          "aperture:last:sticky aperture:last:right-0 aperture:last:z-10 aperture:last:border-l aperture:last:border-border aperture:last:bg-background",
+          "aperture:sm:last:sticky aperture:sm:last:right-0 aperture:sm:last:z-10 aperture:sm:last:border-l aperture:sm:last:border-border aperture:sm:last:bg-background aperture:max-sm:last:absolute aperture:max-sm:last:top-1.5 aperture:max-sm:last:right-0",
         className,
       )}
       {...props}

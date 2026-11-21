@@ -12,6 +12,7 @@ import {
 import { useForm, useStore } from "@tanstack/react-form";
 import { useId, useState } from "react";
 import { ApertureMark } from "#/components/aperture-mark.tsx";
+import { useDocumentTitle } from "#/lib/document-title.ts";
 import { WindowTitlebar } from "#/components/window-titlebar.tsx";
 import { Choice } from "#/components/choice.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
@@ -66,18 +67,20 @@ const askedIn = (search: string): Asked | undefined => {
 };
 
 function Frame({ title, children }: { title: string; children: React.ReactNode }) {
+  useDocumentTitle(title);
   return (
-    <main className="aperture:flex aperture:h-full aperture:items-center aperture:justify-center aperture:overflow-y-auto aperture:bg-muted/40 aperture:p-4">
+    <main className="aperture:flex aperture:h-full aperture:items-start aperture:justify-center aperture:overflow-y-auto aperture:bg-muted/40 aperture:p-4 aperture:pt-[max(1rem,env(safe-area-inset-top))] aperture:sm:items-center">
       <WindowTitlebar over />
       <div
         data-console-consent
-        className="aperture:flex aperture:w-full aperture:max-w-lg aperture:flex-col aperture:gap-4 aperture:rounded-xl aperture:border aperture:bg-card aperture:p-6 aperture:shadow-sm"
+        // A name an app gave itself may be any length: it breaks within the card.
+        className="aperture:flex aperture:w-full aperture:max-w-lg aperture:min-w-0 aperture:flex-col aperture:gap-4 aperture:rounded-xl aperture:border aperture:bg-card aperture:p-6 aperture:shadow-sm aperture:wrap-anywhere aperture:sm:my-auto"
       >
         <header className="aperture:flex aperture:flex-col aperture:items-center aperture:gap-3 aperture:text-center">
           <span className="aperture:grid aperture:size-10 aperture:place-items-center aperture:rounded-xl aperture:bg-primary aperture:text-primary-foreground">
             <ApertureMark className="aperture:size-5.5" />
           </span>
-          <h1 className="aperture:text-base aperture:font-semibold">{title}</h1>
+          <h1 className="aperture:max-w-full aperture:text-base aperture:font-semibold">{title}</h1>
         </header>
         {children}
       </div>

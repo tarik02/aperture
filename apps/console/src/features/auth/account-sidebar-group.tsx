@@ -12,12 +12,18 @@ import { useState } from "react";
 import { AccountSecurityDialog } from "#/features/auth/account-security-dialog.tsx";
 import { usePersonQuery } from "#/features/auth/auth.queries.ts";
 import { McpSetupDialog } from "#/features/mcp/mcp-setup-dialog.tsx";
+import { useCloseDrawer } from "#/lib/drawer.ts";
 import { type NavItem, primaryNavItems } from "#/lib/navigation.ts";
 
 /** What is the account's own, whoever's workspace is shown: how it signs in and what acts for it. */
 export function AccountSidebarGroup({ activeItem }: { activeItem: NavItem | undefined }) {
   const person = usePersonQuery();
   const [dialog, setDialog] = useState<"security" | "mcp" | null>(null);
+  const closeDrawer = useCloseDrawer();
+  const show = (which: "security" | "mcp") => {
+    closeDrawer();
+    setDialog(which);
+  };
 
   return (
     <SidebarGroup>
@@ -30,7 +36,7 @@ export function AccountSidebarGroup({ activeItem }: { activeItem: NavItem | unde
               <SidebarMenuButton
                 data-console-security
                 tooltip="Security"
-                onClick={() => setDialog("security")}
+                onClick={() => show("security")}
               >
                 <ShieldCheck />
                 <span data-sidebar-collapse-label>Security</span>
@@ -43,7 +49,7 @@ export function AccountSidebarGroup({ activeItem }: { activeItem: NavItem | unde
               <SidebarMenuItem key={item.title}>
                 <SidebarMenuButton
                   isActive={item === activeItem}
-                  render={<Link to={item.to} />}
+                  render={<Link to={item.to} onClick={closeDrawer} />}
                   tooltip={item.title}
                 >
                   <item.icon />
@@ -55,7 +61,7 @@ export function AccountSidebarGroup({ activeItem }: { activeItem: NavItem | unde
             <SidebarMenuButton
               data-console-mcp-open
               tooltip="Connect an MCP client"
-              onClick={() => setDialog("mcp")}
+              onClick={() => show("mcp")}
             >
               <Plug />
               <span data-sidebar-collapse-label>Connect an MCP client</span>

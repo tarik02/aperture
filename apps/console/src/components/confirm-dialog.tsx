@@ -41,7 +41,13 @@ export function ConfirmDialog({
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button type="button" variant={variant} disabled={pending} onClick={onConfirm}>
+          {/* Once is enough: not again while it is done, nor while the dialog closes. */}
+          <Button
+            type="button"
+            variant={variant}
+            disabled={pending || !open}
+            onClick={() => (pending || !open ? undefined : onConfirm())}
+          >
             {confirmLabel}
           </Button>
         </DialogFooter>

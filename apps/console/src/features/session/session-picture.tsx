@@ -7,8 +7,10 @@ import { type Session, useSessionTargetsQuery } from "#/features/session/session
 export function useSessionPicture(session: Session, width: number) {
   const shown = useSessionTargetsQuery(session);
   const target = shown.data?.targets[0];
+  // A running session is asked what it shows; what was kept is of one that rests.
+  const asking = session.observedState === "running" && shown.data === undefined && !shown.isError;
   const source =
-    session.path === null
+    session.path === null || asking
       ? undefined
       : target === undefined
         ? // Kept when it was last suspended; a session that never was has none.

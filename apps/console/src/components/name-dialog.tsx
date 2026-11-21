@@ -14,6 +14,10 @@ import { required } from "#/lib/validation.ts";
 type NameDialogProps = {
   title: string;
   description?: string;
+  /** The name there is already, where one is changed. */
+  initial?: string;
+  /** What the button that takes the name says. */
+  submitLabel?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Makes what is named; the dialog closes once it is made, and stays when it is not. */
@@ -36,11 +40,13 @@ export function NameDialog({ open, onOpenChange, ...form }: NameDialogProps) {
 function NameForm({
   title,
   description,
+  initial = "",
+  submitLabel = "Create",
   onSubmit,
   onDone,
 }: Omit<NameDialogProps, "open" | "onOpenChange"> & { onDone: () => void }) {
   const form = useForm({
-    defaultValues: { name: "" },
+    defaultValues: { name: initial },
     onSubmit: async ({ value }) => {
       try {
         await onSubmit(value.name.trim());
@@ -76,7 +82,7 @@ function NameForm({
           Cancel
         </Button>
         <Button type="submit" disabled={submitting}>
-          Create
+          {submitLabel}
         </Button>
       </DialogFooter>
     </form>

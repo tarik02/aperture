@@ -16,7 +16,7 @@ import { Skeleton } from "./skeleton.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip.tsx";
 import { PanelLeftIcon } from "lucide-react";
 
-const SIDEBAR_WIDTH_MOBILE = "min(15rem, 85vw)";
+const SIDEBAR_WIDTH_MOBILE = "min(17rem, 85vw)";
 const PEEK_OPEN_DELAY_MS = 120;
 const PEEK_CLOSE_DELAY_MS = 280;
 
@@ -83,7 +83,9 @@ function Sidebar({
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
-          className="aperture:w-(--sidebar-width) aperture:bg-sidebar aperture:p-0 aperture:text-sidebar-foreground aperture:[&>button]:hidden"
+          // What it holds opens dialogs, which stay when it has closed for them.
+          keepMounted
+          className="aperture:w-(--sidebar-width) aperture:bg-sidebar aperture:p-0 aperture:pt-[env(safe-area-inset-top)] aperture:pb-[env(safe-area-inset-bottom)] aperture:pl-[env(safe-area-inset-left)] aperture:text-sidebar-foreground aperture:[&>button]:hidden"
           style={
             {
               "--sidebar-width": SIDEBAR_WIDTH_MOBILE,

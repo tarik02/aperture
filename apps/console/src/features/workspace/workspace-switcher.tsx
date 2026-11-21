@@ -37,7 +37,10 @@ export function WorkspaceSwitcher() {
         </span>
         <ChevronsUpDown data-sidebar-collapse-label className="aperture:opacity-60" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="aperture:min-w-52">
+      <DropdownMenuContent
+        align="start"
+        className="aperture:max-w-[min(20rem,calc(100vw-1rem))] aperture:min-w-52"
+      >
         <DropdownMenuRadioGroup
           value={selected?.id ?? PERSONAL}
           onValueChange={(value: string) => selectWorkspace(value === PERSONAL ? null : value)}
@@ -45,7 +48,7 @@ export function WorkspaceSwitcher() {
           <DropdownMenuRadioItem value={PERSONAL}>Personal</DropdownMenuRadioItem>
           {workspaces.data?.map((workspace) => (
             <DropdownMenuRadioItem key={workspace.id} value={workspace.id}>
-              {workspace.name}
+              <span className="aperture:min-w-0 aperture:wrap-anywhere">{workspace.name}</span>
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>

@@ -3,6 +3,7 @@
 @import "@fontsource-variable/geist";
 @import "./tokens.css";
 @import "./theme.css";
+@import "./touch.css";
 @source "./components";
 
 @layer base {

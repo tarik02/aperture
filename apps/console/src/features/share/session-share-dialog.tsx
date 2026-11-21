@@ -5,6 +5,7 @@ import { useForm, useStore } from "@tanstack/react-form";
 import { Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Choice } from "#/components/choice.tsx";
+import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { FreshDialog } from "#/components/fresh-dialog.tsx";
 import { SecretDialog } from "#/components/secret-dialog.tsx";
 import { TextField } from "#/components/text-field.tsx";
@@ -15,6 +16,7 @@ import {
   useRevokeShareMutation,
   useSharesQuery,
 } from "#/features/share/share.queries.ts";
+import { useLast } from "#/lib/use-last.ts";
 import { required } from "#/lib/validation.ts";
 
 const ROLES = [
@@ -78,6 +80,8 @@ function Links({ session, open }: { session: Session; open: boolean }) {
   const create = useCreateShareMutation(session.id);
   const revoke = useRevokeShareMutation(session.id);
   const [link, setLink] = useState<string>();
+  const [revoking, setRevoking] = useState<{ id: string; name: string }>();
+  const revoked = useLast(revoking);
   const form = useForm({
     defaultValues: { name: "", role: "watch" as Role, lasts: "24" as Lasts },
     onSubmit: async ({ value, formApi }) => {
@@ -107,24 +111,27 @@ function Links({ session, open }: { session: Session; open: boolean }) {
       {/* Above the links, so that it stays where it is as they come and go. */}
       <form
         data-console-share-create
-        className="aperture:flex aperture:shrink-0 aperture:items-start aperture:gap-2"
+        className="aperture:flex aperture:shrink-0 aperture:flex-wrap aperture:items-start aperture:gap-2"
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
           void form.handleSubmit();
         }}
       >
-        <form.Field name="name" validators={{ onSubmit: required("A name") }}>
-          {(field) => (
-            <TextField
-              field={field}
-              label="Who it is for"
-              placeholder="Who it is for"
-              autoComplete="off"
-              labelHidden
-            />
-          )}
-        </form.Field>
+        {/* On a phone the name has a line of its own, above what the link lets and how long. */}
+        <div className="aperture:min-w-0 aperture:flex-1 aperture:max-sm:basis-full">
+          <form.Field name="name" validators={{ onSubmit: required("A name") }}>
+            {(field) => (
+              <TextField
+                field={field}
+                label="Who it is for"
+                placeholder="Who it is for"
+                autoComplete="off"
+                labelHidden
+              />
+            )}
+          </form.Field>
+        </div>
         <form.Field name="role">
           {(field) => (
             <Choice
@@ -132,6 +139,7 @@ function Links({ session, open }: { session: Session; open: boolean }) {
               value={field.state.value}
               options={ROLES}
               onChange={field.handleChange}
+              className="aperture:max-sm:flex-1"
             />
           )}
         </form.Field>
@@ -142,6 +150,7 @@ function Links({ session, open }: { session: Session; open: boolean }) {
               value={field.state.value}
               options={LASTS}
               onChange={field.handleChange}
+              className="aperture:max-sm:flex-1"
             />
           )}
         </form.Field>
@@ -163,7 +172,7 @@ function Links({ session, open }: { session: Session; open: boolean }) {
               className="aperture:flex aperture:items-center aperture:gap-2 aperture:text-sm"
             >
               <span className="aperture:grid aperture:min-w-0 aperture:flex-1">
-                <span className="aperture:truncate aperture:font-medium">{share.name}</span>
+                <span className="aperture:font-medium aperture:wrap-anywhere">{share.name}</span>
                 <span className="aperture:truncate aperture:text-xs aperture:text-muted-foreground">
                   {story(share)}
                 </span>
@@ -175,8 +184,7 @@ function Links({ session, open }: { session: Session; open: boolean }) {
                 size="icon-sm"
                 variant="ghost"
                 aria-label={`Revoke ${share.name}`}
-                disabled={revoke.isPending}
-                onClick={() => revoke.mutate(share.id)}
+                onClick={() => setRevoking(share)}
               >
                 <Trash2 />
               </Button>
@@ -185,6 +193,20 @@ function Links({ session, open }: { session: Session; open: boolean }) {
         </ul>
       </DialogBody>
       <SecretDialog title="Share link" secret={link} onClose={() => setLink(undefined)} />
+      <ConfirmDialog
+        open={revoking !== undefined}
+        title={`Revoke the link of ${revoked?.name ?? "this guest"}?`}
+        description="Whoever came by it is put out at once."
+        confirmLabel="Revoke"
+        variant="destructive"
+        pending={revoke.isPending}
+        onOpenChange={(next) => (next ? undefined : setRevoking(undefined))}
+        onConfirm={() =>
+          revoking === undefined
+            ? undefined
+            : revoke.mutate(revoking.id, { onSettled: () => setRevoking(undefined) })
+        }
+      />
     </>
   );
 }

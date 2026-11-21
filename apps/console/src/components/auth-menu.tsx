@@ -6,6 +6,7 @@ import { LogOut } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
+import { useCloseDrawer } from "#/lib/drawer.ts";
 import { forget } from "#/lib/api.ts";
 import { signOut as endSignIn } from "#/lib/identity.ts";
 import { keepToken } from "#/lib/token.ts";
@@ -23,6 +24,7 @@ export function AuthMenu() {
   const queries = useQueryClient();
   const [confirming, setConfirming] = useState(false);
   const name = account.data?.name ?? "Account";
+  const closeDrawer = useCloseDrawer();
 
   const signOut = () => {
     void Promise.allSettled([forget(), endSignIn()]).then(() => {
@@ -58,7 +60,10 @@ export function AuthMenu() {
               size="icon-sm"
               aria-label="Sign out"
               data-console-sign-out
-              onClick={() => setConfirming(true)}
+              onClick={() => {
+                closeDrawer();
+                setConfirming(true);
+              }}
               className="aperture:group-data-[collapsible=icon]:hidden"
             />
           }

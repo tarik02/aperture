@@ -1,7 +1,6 @@
 import { Button } from "@aperture-browser/ui/components/button";
 import {
   DialogBody,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -71,9 +70,6 @@ function ProxyHeader() {
   return (
     <DialogHeader>
       <DialogTitle>Routing</DialogTitle>
-      <DialogDescription>
-        Where the session's browser connections go. It takes effect for new connections.
-      </DialogDescription>
     </DialogHeader>
   );
 }

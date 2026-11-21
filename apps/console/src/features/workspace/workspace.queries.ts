@@ -43,6 +43,18 @@ export function useCreateWorkspaceMutation() {
   });
 }
 
+export function useRenameWorkspaceMutation() {
+  const queries = useQueryClient();
+  return useMutation({
+    mutationFn: (workspace: { id: string; name: string }) =>
+      call((api) =>
+        api.workspaces.rename({ params: { id: workspace.id }, payload: { name: workspace.name } }),
+      ),
+    onError: (error) => toastMutationError(error, "The workspace was not renamed"),
+    onSettled: () => queries.invalidateQueries({ queryKey: queryKeys.workspaces }),
+  });
+}
+
 export function useDeleteWorkspaceMutation() {
   const queries = useQueryClient();
   return useMutation({

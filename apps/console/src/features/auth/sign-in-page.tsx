@@ -26,8 +26,8 @@ type Way = "password" | "token" | "code" | "backup-code";
 
 function Refused({ error }: { error: unknown }) {
   return (
-    <p role="alert" className="aperture:text-sm aperture:text-destructive">
-      {told(error)}
+    <p role="alert" className="aperture:text-sm aperture:text-destructive aperture:wrap-anywhere">
+      {told(error, "You were not signed in.")}
     </p>
   );
 }

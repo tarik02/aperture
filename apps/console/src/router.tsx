@@ -6,6 +6,7 @@ import {
   redirect,
 } from "@tanstack/react-router";
 import { AppShell } from "#/components/app-shell.tsx";
+import { AdminOnly, NotFound, RouteError } from "#/components/route-state.tsx";
 import { PeoplePage } from "#/features/account/people-page.tsx";
 import { ServiceAccountsPage } from "#/features/account/service-accounts-page.tsx";
 import { SignInPage } from "#/features/auth/sign-in-page.tsx";
@@ -24,6 +25,7 @@ import { WorkspacesPage } from "#/features/workspace/workspaces-page.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
 import { InvitePage } from "#/features/auth/invite-page.tsx";
 import { useDeployWatch } from "#/lib/deploy-watch.ts";
+import { useKeyboardInset } from "#/lib/keyboard-inset.ts";
 import { useWindowControlsOverlay } from "#/lib/window-controls-overlay.ts";
 
 /** Nothing is shown to whoever is not signed in but the way in. */
@@ -39,6 +41,7 @@ function Signed() {
 function Root() {
   useWindowControlsOverlay();
   useDeployWatch();
+  useKeyboardInset();
   return <Outlet />;
 }
 
@@ -113,24 +116,44 @@ const workspaces = createRoute({
   component: WorkspacesPage,
 });
 
-const nodes = createRoute({ getParentRoute: () => pages, path: "/-/nodes", component: NodesPage });
+const nodes = createRoute({
+  getParentRoute: () => pages,
+  path: "/-/nodes",
+  component: () => (
+    <AdminOnly>
+      <NodesPage />
+    </AdminOnly>
+  ),
+});
 
 const registrationTokens = createRoute({
   getParentRoute: () => pages,
   path: "/-/registration-tokens",
-  component: RegistrationTokensPage,
+  component: () => (
+    <AdminOnly>
+      <RegistrationTokensPage />
+    </AdminOnly>
+  ),
 });
 
 const people = createRoute({
   getParentRoute: () => pages,
   path: "/-/people",
-  component: PeoplePage,
+  component: () => (
+    <AdminOnly>
+      <PeoplePage />
+    </AdminOnly>
+  ),
 });
 
 const serviceAccounts = createRoute({
   getParentRoute: () => pages,
   path: "/-/service-accounts",
-  component: ServiceAccountsPage,
+  component: () => (
+    <AdminOnly>
+      <ServiceAccountsPage />
+    </AdminOnly>
+  ),
 });
 
 const events = createRoute({
@@ -157,6 +180,8 @@ const session = createRoute({
 });
 
 export const router = createRouter({
+  defaultErrorComponent: RouteError,
+  defaultNotFoundComponent: NotFound,
   routeTree: root.addChildren([
     invite,
     share,

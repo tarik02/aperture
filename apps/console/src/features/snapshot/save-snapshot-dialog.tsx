@@ -1,7 +1,6 @@
 import { Button } from "@aperture-browser/ui/components/button";
 import {
   DialogBody,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -76,10 +75,6 @@ function SaveHeader() {
   return (
     <DialogHeader>
       <DialogTitle>Save to snapshot</DialogTitle>
-      <DialogDescription>
-        The session's profile as it is now: its cookies, storage and extensions. New sessions start
-        from it.
-      </DialogDescription>
     </DialogHeader>
   );
 }

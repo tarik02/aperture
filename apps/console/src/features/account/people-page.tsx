@@ -165,7 +165,7 @@ export function PeoplePage() {
           data-console-empty
           className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
         >
-          Nobody yet. A person signs in with their email, once they set a password.
+          Nobody yet.
         </p>
       ) : (
         <Table stickyActionColumn>
@@ -204,7 +204,7 @@ export function PeoplePage() {
                     <TableCell>
                       <SignsInWith account={account} />
                     </TableCell>
-                    <TableCell className="aperture:text-muted-foreground">
+                    <TableCell label="Created" className="aperture:text-muted-foreground">
                       {when.format(new Date(account.createdAt.epochMilliseconds))}
                     </TableCell>
                     <TableCell>
@@ -213,13 +213,18 @@ export function PeoplePage() {
                           size="sm"
                           variant="outline"
                           data-console-setup-link
+                          className="aperture:max-sm:hidden"
                           disabled={setupLink.isPending}
                           onClick={() => onSelect("setup-link")}
                         >
                           <Link2 />
                           Setup link
                         </Button>
-                        <PersonActionsMenu actions={actions.slice(1)} onSelect={onSelect} />
+                        <PersonActionsMenu
+                          actions={actions}
+                          buttoned="setup-link"
+                          onSelect={onSelect}
+                        />
                       </div>
                     </TableCell>
                   </TableRow>
