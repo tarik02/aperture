@@ -1,17 +1,10 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture-browser/ui/components/tooltip";
 import { cn } from "@aperture-browser/ui/utils";
-import { Monitor, Moon, Sun } from "lucide-react";
-import { useTheme } from "next-themes";
-
-const themeOptions = [
-  { value: "system", label: "Auto", icon: Monitor },
-  { value: "light", label: "Light", icon: Sun },
-  { value: "dark", label: "Dark", icon: Moon },
-] as const;
+import { themeOptions, useThemeMode } from "#/components/theme-mode.ts";
 
 /** Light, dark or following the system, as three icon buttons. */
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
+  const { mode, changeMode } = useThemeMode();
   return (
     <div
       role="radiogroup"
@@ -25,12 +18,12 @@ export function ThemeToggle() {
               <button
                 type="button"
                 role="radio"
-                aria-checked={theme === option.value}
+                aria-checked={mode === option.value}
                 aria-label={option.label}
-                onClick={() => setTheme(option.value)}
+                onClick={() => changeMode(option.value)}
                 className={cn(
                   "aperture:flex aperture:h-6 aperture:flex-1 aperture:items-center aperture:justify-center aperture:rounded-md aperture:text-sidebar-foreground/60 aperture:transition-colors aperture:hover:text-sidebar-foreground aperture:[&_svg]:size-3.5",
-                  theme === option.value &&
+                  mode === option.value &&
                     "aperture:bg-sidebar aperture:text-sidebar-foreground aperture:shadow-xs",
                 )}
               />

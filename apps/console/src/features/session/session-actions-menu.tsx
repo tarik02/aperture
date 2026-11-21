@@ -57,7 +57,10 @@ export function SessionActionsMenu({ session }: { session: Session }) {
         >
           <EllipsisVertical />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent
+          align="end"
+          className="aperture:w-auto aperture:min-w-44 aperture:whitespace-nowrap"
+        >
           <DropdownMenuItem
             onClick={() =>
               navigate({ to: "/-/sessions/$sessionId", params: { sessionId: session.id } })
@@ -76,7 +79,7 @@ export function SessionActionsMenu({ session }: { session: Session }) {
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setDialog("describe")}>
             <Tags />
-            Edit label and tags
+            Edit details
           </DropdownMenuItem>
           <DropdownMenuItem disabled={!placed} onClick={() => setDialog("proxy")}>
             <Waypoints />

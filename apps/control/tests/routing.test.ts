@@ -58,8 +58,14 @@ const started = (page: Viewer.Page) =>
     return yield* page.evaluate(`location.pathname.split("/").at(-1)`, Schema.String);
   });
 
-const DARK = `void document.querySelector('[role="radio"][aria-label="Dark"]').click()`;
-const AUTO = `void document.querySelector('[role="radio"][aria-label="Auto"]').click()`;
+/**
+ * Chooses a theme at once. The fade into it never ends in a page nobody looks at, which
+ * takes no clicks while it fades, so the checks' pages have none.
+ */
+const theme = (label: string) =>
+  `(document.startViewTransition = undefined, void document.querySelector('[role="radio"][aria-label="${label}"]').click())`;
+const DARK = theme("Dark");
+const AUTO = theme("Auto");
 
 /** A node that registers itself, and takes the tickets the control plane signs. */
 const node = Layer.effect(
@@ -195,6 +201,18 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.until(`!!document.querySelector('${card} [data-console-tag="team=shop"]')`);
       expect(yield* page.text(card)).toContain("Checkout flow");
       yield* shot(page, fs, "console-sessions");
+
+      // What is selected is acted on from a bar that floats over the sessions.
+      yield* page.click(`${card} input[type="checkbox"]`);
+      yield* page.until(`!!document.querySelector("[data-console-bulk]")`);
+      yield* page.click(`${card} [aria-label="Session actions"]`);
+      yield* page.until(`!!document.querySelector('[data-slot="dropdown-menu-content"]')`);
+      yield* shot(page, fs, "console-bulk");
+      yield* page.key("Escape", "Escape", ESCAPE);
+      // The menu holds the page until it is gone.
+      yield* page.until(`!document.querySelector('[data-slot="dropdown-menu-content"]')`);
+      yield* page.click(`[data-console-bulk] [aria-label="Clear selection"]`);
+      yield* page.until(`!document.querySelector("[data-console-bulk]")`);
 
       // A token is made in the page, and told there once.
       yield* page.click(`a[href="/-/tokens"]`);

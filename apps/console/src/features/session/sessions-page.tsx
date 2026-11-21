@@ -163,11 +163,15 @@ export function SessionsPage() {
       {chosen.length > 0 ? (
         <div
           data-console-bulk
-          className="aperture:flex aperture:items-center aperture:gap-2 aperture:rounded-lg aperture:border aperture:bg-muted/50 aperture:px-3 aperture:py-1.5 aperture:text-sm"
+          role="toolbar"
+          aria-label="Selected sessions"
+          // Floats over the sessions, where it is at hand however far the page is scrolled.
+          className="aperture:fixed aperture:bottom-6 aperture:left-1/2 aperture:z-40 aperture:flex aperture:max-w-[calc(100vw-2rem)] aperture:-translate-x-1/2 aperture:animate-in aperture:items-center aperture:gap-2 aperture:rounded-full aperture:border aperture:bg-popover aperture:py-1.5 aperture:pr-1.5 aperture:pl-4 aperture:text-sm aperture:text-popover-foreground aperture:shadow-lg aperture:duration-150 aperture:fade-in-0 aperture:slide-in-from-bottom-4"
         >
-          <span className="aperture:flex-1">{chosen.length} selected</span>
+          <span className="aperture:pr-2 aperture:whitespace-nowrap">{chosen.length} selected</span>
           <Button
             size="sm"
+            className="aperture:rounded-full"
             variant="outline"
             disabled={busy}
             onClick={() => suspend.mutate(chosen, clear)}
@@ -177,6 +181,7 @@ export function SessionsPage() {
           </Button>
           <Button
             size="sm"
+            className="aperture:rounded-full"
             variant="outline"
             disabled={busy}
             onClick={() => resume.mutate(chosen, clear)}
@@ -186,6 +191,7 @@ export function SessionsPage() {
           </Button>
           <Button
             size="sm"
+            className="aperture:rounded-full"
             variant="destructive"
             disabled={busy}
             onClick={() => setConfirming(chosen.length)}
@@ -195,6 +201,7 @@ export function SessionsPage() {
           </Button>
           <Button
             size="icon-sm"
+            className="aperture:rounded-full"
             variant="ghost"
             aria-label="Clear selection"
             onClick={() => setSelected(new Set())}
