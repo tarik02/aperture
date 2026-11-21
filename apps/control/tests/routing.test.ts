@@ -1929,6 +1929,20 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
             Schema.String,
           ),
         ).toBe(ada.email);
+
+        // Disabled, they are signed out where they are, and told why the provider's word
+        // signs them in no more.
+        const account = yield* bootstrap.accounts
+          .list()
+          .pipe(Effect.map((all) => all.find((one) => one.email === ada.email)));
+        yield* bootstrap.accounts.disable({ params: { id: account?.id ?? "" } });
+        yield* page.evaluate("void location.reload()");
+        yield* through(ada.email);
+        yield* page.until(`!!document.querySelector("[data-console-sso-refused]")`);
+        expect(yield* page.text("[data-console-sso-refused]")).toBe(
+          "This account is disabled. Ask an admin.",
+        );
+        yield* shot(page, fs, "console-sign-in-disabled");
         expect(page.errors()).toEqual([]);
       }),
   );
