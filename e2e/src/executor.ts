@@ -158,7 +158,8 @@ export const start = Effect.fn("Executor.start")(function* (options: ExecutorOpt
     }
     for (const session of yield* fs.readDirectory(`${data}/sessions`)) {
       const from = `${data}/sessions/${session}/logs/runner.log`;
-      yield* fs.copyFile(from, `${logs}/runner-${session}.log`);
+      // The same session may have run on several nodes.
+      yield* fs.copyFile(from, `${logs}/runner-${session}-on-${port}.log`);
     }
   }).pipe(Effect.ignore);
   yield* Effect.addFinalizer(() =>
