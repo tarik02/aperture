@@ -1,5 +1,6 @@
 import * as Executor from "@aperture-browser/e2e/src/executor.ts";
 import { request } from "@aperture-browser/e2e/src/http.ts";
+import * as Mcp from "@aperture-browser/e2e/src/mcp.ts";
 import { directory, logsDirectory } from "@aperture-browser/e2e/src/process.ts";
 import { suite } from "@aperture-browser/e2e/src/suite.ts";
 import * as Viewer from "@aperture-browser/e2e/src/viewer.ts";
@@ -41,6 +42,7 @@ const node = Layer.effect(
     const file = `${yield* directory}/registration-token`;
     yield* fs.writeFileString(file, token.token);
     return yield* Executor.start({
+      features: ["mcp", "cdp", "uploads", "downloads", "recordings", "clipboard", "sound"],
       env: {
         APERTURE_TICKET_KEY: control.ticketKey,
         APERTURE_CONTROL_PLANE: control.url,
@@ -83,6 +85,10 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         "30 seconds",
       );
       expect(answer.body).toEqual((yield* executor.session(created.id, "GET", "/targets")).body);
+
+      // What is not a person comes the same way: automation, with the account's token.
+      const agent = yield* Mcp.connect(`${proxy.url}${path}`, ada.token);
+      expect((yield* agent.tools).length).toBeGreaterThan(0);
 
       expect((yield* request(proxy.url, "", "GET", targets)).status).toBe(401);
       expect((yield* request(proxy.url, "apc_not-a-token", "GET", targets)).status).toBe(401);

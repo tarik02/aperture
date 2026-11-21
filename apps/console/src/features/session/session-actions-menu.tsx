@@ -11,6 +11,7 @@ import {
   Camera,
   EllipsisVertical,
   ExternalLink,
+  Info,
   Link2,
   Pause,
   Play,
@@ -23,6 +24,7 @@ import { toast } from "sonner";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { DescribeDialog } from "#/components/describe-dialog.tsx";
 import { SessionProxyDialog } from "#/features/proxy/session-proxy-dialog.tsx";
+import { SessionDetailsDialog } from "#/features/session/session-details-dialog.tsx";
 import type { Session } from "#/features/session/session.queries.ts";
 import {
   useDescribeSessionMutation,
@@ -37,7 +39,9 @@ export function SessionActionsMenu({ session }: { session: Session }) {
   const resume = useSessionActionMutation("resume");
   const remove = useSessionActionMutation("delete");
   const describe = useDescribeSessionMutation();
-  const [dialog, setDialog] = useState<"delete" | "snapshot" | "describe" | "proxy" | null>(null);
+  const [dialog, setDialog] = useState<
+    "delete" | "snapshot" | "describe" | "proxy" | "details" | null
+  >(null);
   const placed = session.nodeId !== null;
 
   const copyLink = async () => {
@@ -65,6 +69,10 @@ export function SessionActionsMenu({ session }: { session: Session }) {
           <DropdownMenuItem onClick={() => void copyLink()}>
             <Link2 />
             Copy link
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setDialog("details")}>
+            <Info />
+            Details
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setDialog("describe")}>
             <Tags />
@@ -120,6 +128,11 @@ export function SessionActionsMenu({ session }: { session: Session }) {
             { onSuccess: () => setDialog(null) },
           )
         }
+      />
+      <SessionDetailsDialog
+        session={session}
+        open={dialog === "details"}
+        onOpenChange={(open) => setDialog(open ? "details" : null)}
       />
       <SessionProxyDialog
         sessionId={session.id}

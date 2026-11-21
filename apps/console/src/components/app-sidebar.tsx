@@ -15,6 +15,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { AuthMenu } from "#/components/auth-menu.tsx";
 import { ThemeToggle } from "#/components/theme-toggle.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
+import { RecentSessionsSidebarGroup } from "#/features/session/recent-sessions-sidebar-group.tsx";
 import { type NavItem, primaryNavItems, resolveNavItem } from "#/lib/navigation.ts";
 
 /**
@@ -56,6 +57,7 @@ export function AppSidebar({ collapsible }: { collapsible: "icon" | "offcanvas" 
         {adminItems.length > 0 ? (
           <NavGroup label="Administration" items={adminItems} activeItem={activeItem} />
         ) : null}
+        <RecentSessionsSidebarGroup pathname={pathname} />
       </SidebarContent>
       <SidebarFooter className="aperture:gap-2">
         <ThemeToggle />
