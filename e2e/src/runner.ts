@@ -30,6 +30,10 @@ export const Target = Schema.Struct({
   width: Schema.Number,
   height: Schema.Number,
   scale: Schema.Number,
+  /** How the tab's pages are shown, as it was set: `auto`, `desktop` or `mobile`. */
+  mode: Schema.String,
+  /** Its pages are shown as on a phone now. */
+  mobile: Schema.Boolean,
 });
 export type Target = typeof Target.Type;
 

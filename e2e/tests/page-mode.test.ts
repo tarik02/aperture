@@ -1,0 +1,381 @@
+import { expect } from "@effect/vitest";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
+import * as Mcp from "../src/mcp.ts";
+import * as Runner from "../src/runner.ts";
+import * as Site from "../src/site.ts";
+import { suite } from "../src/suite.ts";
+import { type Page, ready, snapshot, Viewer } from "../src/viewer.ts";
+import * as ViewerLive from "../src/viewer.ts";
+import { happens, until } from "../src/wait.ts";
+import { clickPicture, comes } from "../src/workbench.ts";
+
+/** A site that tells each page what the page was asked for with. */
+class Echo extends Context.Service<Echo, Site.Site>()("@aperture-browser/e2e/page-mode/Echo") {}
+
+const echo = Site.by((request) =>
+  Site.html(`<!doctype html>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>seen</title>
+    <body style="margin:0;height:3000px">
+    <script>
+      window.asked = ${JSON.stringify({ ...request.headers })};
+      window.got = [];
+      for (const kind of ["touchstart", "click"]) addEventListener(kind, () => got.push(kind), true);
+    </script>
+    </body>`),
+);
+
+const session = Layer.mergeAll(
+  Runner.layer({ features: ["cdp", "mcp"], args: ["--egress-allow", "127.0.0.1"] }),
+  ViewerLive.layer,
+  Layer.effect(Echo, Site.serve(echo)),
+);
+
+/** What a page says of what it is shown on. */
+const Said = Schema.Struct({
+  agent: Schema.String,
+  platform: Schema.String,
+  mobile: Schema.Boolean,
+  system: Schema.String,
+  brands: Schema.String,
+  versions: Schema.String,
+  forms: Schema.String,
+  touches: Schema.Number,
+  coarse: Schema.Boolean,
+  width: Schema.Number,
+  loaded: Schema.Number,
+  asked: Schema.Record(Schema.String, Schema.String),
+  got: Schema.Array(Schema.String),
+});
+
+const SAYS = `(async () => {
+  const told = await navigator.userAgentData.getHighEntropyValues(["fullVersionList", "formFactors"]);
+  return {
+    agent: navigator.userAgent,
+    platform: navigator.platform,
+    mobile: navigator.userAgentData.mobile,
+    system: navigator.userAgentData.platform,
+    brands: JSON.stringify(navigator.userAgentData.brands),
+    versions: JSON.stringify(told.fullVersionList),
+    forms: JSON.stringify(told.formFactors),
+    touches: navigator.maxTouchPoints,
+    coarse: matchMedia("(pointer: coarse)").matches,
+    width: innerWidth,
+    loaded: performance.timeOrigin,
+    asked: window.asked ?? {},
+    got: window.got ?? [],
+  };
+})()`;
+
+/** What the page of a tab says, asked through the session's DevTools. */
+const says = (tab: number) =>
+  Effect.gen(function* () {
+    const runner = yield* Runner.Runner;
+    const cdp = yield* runner.cdp;
+    const target = (yield* runner.targets).find((one) => one.tab === tab);
+    const page = yield* cdp.attach(target?.id ?? "");
+    return yield* page.evaluate(SAYS, Said);
+  }).pipe(Effect.scoped);
+
+/** The version of the browser a user agent names. */
+const version = (agent: string) => /Chrome\/([\d.]+)/u.exec(agent)?.[1];
+
+/** A tab as the automation lists it. */
+const Listed = Schema.fromJsonString(
+  Schema.Array(Schema.Struct({ tab: Schema.Number, mode: Schema.String, mobile: Schema.Boolean })),
+);
+
+const PNG_WIDTH_AT = 16;
+
+suite(session)("how a tab's pages are shown, with a desktop, a phone and the automation", (it) => {
+  let bob: Page;
+  let ada: Page;
+  let tab: number;
+  let desk: typeof Said.Type;
+
+  /** The tab's small picture, as whoever holds `token` is given it. */
+  const preview = (token: string | undefined, has?: string) =>
+    Effect.gen(function* () {
+      const runner = yield* Runner.Runner;
+      const client = yield* HttpClient.HttpClient;
+      const answered = yield* client.execute(
+        HttpClientRequest.get(`${runner.url}/targets/${tab}/preview.png`).pipe(
+          token === undefined ? (bare) => bare : HttpClientRequest.bearerToken(token),
+          has === undefined ? (bare) => bare : HttpClientRequest.setHeader("if-none-match", has),
+        ),
+      );
+      const picture = new Uint8Array(yield* answered.arrayBuffer);
+      return { status: answered.status, tag: answered.headers["etag"], picture };
+    });
+
+  /** Lets go of the tab one holds, and has the other take it with a click. */
+  const handOver = (from: Page, to: Page) =>
+    Effect.gen(function* () {
+      yield* from.evaluate("apertureSession.lease('release')");
+      yield* comes(from, "s.presence.held.length === 0");
+      // The picture is put in another place while its tab changes size: a click that
+      // misses it then is made again.
+      return yield* happens(
+        clickPicture(to, 40, 40).pipe(
+          Effect.andThen(
+            comes(
+              to,
+              `s.presence.held.some((h) => h.tab === ${tab} && h.holder === s.presence.you)`,
+              "2 seconds",
+            ),
+          ),
+        ),
+        "20 seconds",
+      );
+    });
+
+  it.effect("a tab's pages are a desktop's while nobody holds it from a phone", () =>
+    Effect.gen(function* () {
+      const runner = yield* Runner.Runner;
+      const viewer = yield* Viewer;
+      const site = yield* Echo;
+      bob = yield* viewer.open(runner.page({ name: "Bob" }));
+      yield* ready(bob);
+      tab = yield* snapshot(bob, "s.selected", Schema.Number);
+      yield* bob.evaluate(`apertureSession.go({ url: ${JSON.stringify(site.url)} })`);
+      expect(yield* comes(bob, "watched.title === 'seen'", "20 seconds")).toBe(true);
+      // Its click holds the tab, from a desktop.
+      yield* clickPicture(bob, 40, 40);
+      expect(yield* comes(bob, "s.presence.held.length === 1")).toBe(true);
+
+      desk = yield* says(tab);
+      expect(desk.agent).not.toContain("Mobile");
+      expect(desk.mobile).toBe(false);
+      expect(desk.touches).toBe(0);
+      expect(desk.asked["sec-ch-ua-mobile"]).toBe("?0");
+      expect(yield* snapshot(bob, "[s.phone, watched.mode, watched.mobile].join()")).toBe(
+        "false,auto,false",
+      );
+    }),
+  );
+
+  it.effect("a phone that watches changes nothing", () =>
+    Effect.gen(function* () {
+      const runner = yield* Runner.Runner;
+      const viewer = yield* Viewer;
+      ada = yield* viewer.open(runner.page({ name: "Ada" }), {
+        width: 390,
+        height: 844,
+        mobile: true,
+      });
+      yield* ready(ada, 2);
+      expect(yield* snapshot(ada, "s.phone")).toBe(true);
+      yield* Effect.sleep("2 seconds");
+      expect(yield* snapshot(ada, "[watched.mode, watched.mobile].join()")).toBe("auto,false");
+      expect((yield* says(tab)).width).toBe(desk.width);
+    }),
+  );
+
+  it.effect("the tab is a phone's once the phone holds it, and the page there stays loaded", () =>
+    Effect.gen(function* () {
+      expect(yield* handOver(bob, ada)).toBe(true);
+      // The page takes the size of the phone's window, less the workbench's bar.
+      expect(yield* comes(ada, "watched.mobile && watched.width === 390")).toBe(true);
+      expect(yield* snapshot(bob, "[s.phone, watched.mobile, watched.width].join()")).toBe(
+        "false,true,390",
+      );
+      const stage = yield* ada.box("[data-aperture-stage]");
+      expect(yield* snapshot(ada, "watched.height")).toBe(stage.height);
+      // No bands beside the picture or above and below it, once it is drawn at its size.
+      const picture = yield* until(
+        "the picture filling its stage",
+        ada
+          .box("[data-aperture-surface=video]")
+          .pipe(Effect.map((box) => box.height === stage.height && box)),
+      );
+      expect(picture.width).toBe(stage.width);
+
+      const now = yield* until(
+        "the page being a phone's",
+        says(tab).pipe(Effect.map((said) => said.width === 390 && said)),
+      );
+      expect(now.loaded).toBe(desk.loaded);
+      expect(now.touches).toBe(5);
+      expect(now.coarse).toBe(true);
+    }),
+  );
+
+  it.effect("what it loads then is asked for as a phone asks, by the same browser", () =>
+    Effect.gen(function* () {
+      yield* ada.evaluate("apertureSession.go({ along: 'reload' })");
+      const phone = yield* until(
+        "the page loading again",
+        says(tab).pipe(Effect.map((said) => said.loaded !== desk.loaded && said)),
+      );
+      expect(phone.agent).toMatch(/\(Linux; Android [^)]+\).* Mobile Safari\//u);
+      expect(phone.asked["user-agent"]).toBe(phone.agent);
+      expect(version(phone.agent)).toBe(version(desk.agent));
+      expect(phone.asked["sec-ch-ua-mobile"]).toBe("?1");
+      expect(phone.asked["sec-ch-ua-platform"]).toBe('"Android"');
+      // The brands and the version are the browser's own: a phone differs in neither.
+      expect(phone.asked["sec-ch-ua"]).toBe(desk.asked["sec-ch-ua"]);
+      expect(phone.brands).toBe(desk.brands);
+      expect(phone.versions).toBe(desk.versions);
+      expect(phone.mobile).toBe(true);
+      expect(phone.system).toBe("Android");
+      expect(phone.forms).toBe('["Mobile"]');
+      expect(phone.platform).toBe("Linux armv81");
+      expect(phone.width).toBe(390);
+
+      // A page takes no input for a moment after it has come: it is tapped until it is.
+      const touched = yield* until(
+        "the page being touched",
+        clickPicture(ada, 100, 100).pipe(
+          Effect.andThen(Effect.sleep("700 millis")),
+          Effect.andThen(says(tab)),
+          Effect.map((said) => said.got.includes("click") && said.got),
+        ),
+        "20 seconds",
+      );
+      expect(touched).toContain("touchstart");
+    }),
+  );
+
+  it.effect("a desktop that watches leaves it a phone's, and one that takes it does not", () =>
+    Effect.gen(function* () {
+      yield* Effect.sleep("1 second");
+      expect(yield* snapshot(bob, "watched.mobile")).toBe(true);
+      expect(yield* handOver(ada, bob)).toBe(true);
+      expect(yield* comes(bob, "!watched.mobile && watched.width >= 500")).toBe(true);
+      const back = yield* until(
+        "the page being a desktop's",
+        says(tab).pipe(Effect.map((said) => said.touches === 0 && said)),
+      );
+      expect(back.agent).toBe(desk.agent);
+      expect(yield* snapshot(ada, "[watched.mode, watched.mobile].join()")).toBe("auto,false");
+    }),
+  );
+
+  it.effect("the automation reads the mode, and gives a tab input without changing it", () =>
+    Effect.gen(function* () {
+      const runner = yield* Runner.Runner;
+      const mcp = yield* Mcp.connect(runner.url, runner.token);
+      const listed = yield* mcp
+        .call("tabs", {})
+        .pipe(Effect.flatMap(Schema.decodeUnknownEffect(Listed)));
+      expect(listed).toEqual([{ tab, mode: "auto", mobile: false }]);
+
+      // The phone holds the tab, and the automation takes it from nobody: it has no device.
+      expect(yield* handOver(bob, ada)).toBe(true);
+      expect(yield* comes(ada, "watched.mobile")).toBe(true);
+      yield* ada.evaluate("apertureSession.lease('release')");
+      yield* comes(ada, "s.presence.held.length === 0");
+      yield* mcp.call("click", { tab, x: 60, y: 60 });
+      expect(yield* snapshot(ada, "s.presence.members.some((m) => m.agent)")).toBe(true);
+      yield* Effect.sleep("1 second");
+      expect(yield* snapshot(ada, "[watched.mode, watched.mobile].join()")).toBe("auto,true");
+    }),
+  );
+
+  it.effect("a mode the automation sets stays, whoever holds the tab", () =>
+    Effect.gen(function* () {
+      const runner = yield* Runner.Runner;
+      const mcp = yield* Mcp.connect(runner.url, runner.token);
+      const before = (yield* says(tab)).loaded;
+      const set = yield* mcp
+        .call("tabs", { action: "mode", tab, mode: "desktop" })
+        .pipe(Effect.flatMap(Schema.decodeUnknownEffect(Listed)));
+      expect(set).toEqual([{ tab, mode: "desktop", mobile: false }]);
+      // The page loads again, as a desktop's.
+      const again = yield* until(
+        "the page loading again",
+        says(tab).pipe(Effect.map((said) => said.loaded !== before && said)),
+      );
+      expect(again.asked["sec-ch-ua-mobile"]).toBe("?0");
+
+      yield* clickPicture(ada, 40, 40);
+      expect(
+        yield* comes(ada, "s.presence.held.some((h) => h.holder === s.presence.you)", "20 seconds"),
+      ).toBe(true);
+      yield* Effect.sleep("1 second");
+      expect(yield* snapshot(ada, "[watched.mode, watched.mobile].join()")).toBe("desktop,false");
+
+      // The session's own route sets it as well, and tells it.
+      const put = yield* runner.request("PUT", `/targets/${tab}/mode`, { mode: "mobile" });
+      expect(put.status).toBe(204);
+      expect(yield* comes(bob, "watched.mode === 'mobile' && watched.mobile")).toBe(true);
+      const told = (yield* runner.targets).find((one) => one.tab === tab);
+      expect([told?.mode, told?.mobile]).toEqual(["mobile", true]);
+      expect(yield* handOver(ada, bob)).toBe(true);
+      yield* Effect.sleep("1 second");
+      expect(yield* snapshot(bob, "[watched.mode, watched.mobile].join()")).toBe("mobile,true");
+      // A window that is no phone's leaves a phone's page the size it has.
+      expect(yield* snapshot(bob, "watched.width < 500")).toBe(true);
+    }),
+  );
+
+  it.effect("a member sets the mode of the tab it holds, and of no tab another holds", () =>
+    Effect.gen(function* () {
+      yield* ada.evaluate(
+        "(window.failures = [], apertureSession.onFailure((f) => window.failures.push(f.asked)), 1)",
+      );
+      yield* ada.evaluate("apertureSession.setMode('desktop')");
+      yield* until("the phone being refused", ada.evaluate("window.failures.includes('setMode')"));
+      expect(yield* snapshot(bob, "watched.mode")).toBe("mobile");
+
+      yield* bob.evaluate("apertureSession.setMode('auto')");
+      // As on what its holder uses, which is a desktop.
+      expect(yield* comes(bob, "watched.mode === 'auto' && !watched.mobile")).toBe(true);
+    }),
+  );
+
+  it.effect("a tab opened from a phone's tab is a phone's from its first page", () =>
+    Effect.gen(function* () {
+      const site = yield* Echo;
+      expect(yield* handOver(bob, ada)).toBe(true);
+      expect(yield* comes(ada, "watched.mobile")).toBe(true);
+      yield* ada.evaluate(
+        `apertureSession.go({ url: ${JSON.stringify(`${site.url}/new`)} }, { newTab: true })`,
+      );
+      expect(
+        yield* comes(ada, "watched.url.endsWith('/new') && watched.title === 'seen'", "20 seconds"),
+      ).toBe(true);
+      expect(yield* snapshot(ada, "[watched.mode, watched.mobile].join()")).toBe("auto,true");
+      const opened = yield* snapshot(ada, "s.selected", Schema.Number);
+      expect((yield* says(opened)).asked["sec-ch-ua-mobile"]).toBe("?1");
+      // It was asked for once, as a phone's: not as a desktop's first.
+      expect(site.asked().filter((path) => path === "/new")).toHaveLength(1);
+    }),
+  );
+
+  it.effect("a tab has a small picture, made once in a while, for whoever is let in", () =>
+    Effect.gen(function* () {
+      const runner = yield* Runner.Runner;
+      const first = yield* preview(runner.token);
+      expect(first.status).toBe(200);
+      expect(new TextDecoder().decode(first.picture.subarray(1, 4))).toBe("PNG");
+      const width = new DataView(first.picture.buffer).getUint32(PNG_WIDTH_AT);
+      expect(width).toBeLessThanOrEqual(360);
+      expect(first.tag).toBeDefined();
+
+      // Asked again at once, it is the same one, and whoever has it is told so.
+      const second = yield* preview(runner.token);
+      expect(second.tag).toBe(first.tag);
+      const had = yield* preview(runner.token, first.tag);
+      expect(had.status).toBe(304);
+      expect(had.picture).toHaveLength(0);
+
+      expect((yield* preview(undefined)).status).toBe(401);
+      expect((yield* preview("not the token")).status).toBe(401);
+      const none = yield* runner.request("GET", "/targets/999/preview.png");
+      expect(none.status).toBe(404);
+    }),
+  );
+
+  it.effect("the pages threw nothing", () =>
+    Effect.sync(() => {
+      expect(bob.errors()).toEqual([]);
+      expect(ada.errors()).toEqual([]);
+    }),
+  );
+});

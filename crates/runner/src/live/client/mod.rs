@@ -10,7 +10,7 @@ use std::{
 };
 
 use anyhow::{Context as _, bail, ensure};
-use aperture_compositor::{Button, Cursor, Form, Forms, Input, Viewport, WindowId, data};
+use aperture_compositor::{Button, Cursor, Form, Forms, Input, WindowId, data};
 use aperture_runner::{Access, Area};
 use axum::extract::ws::{Message as Frame, WebSocket};
 use buffa::Message as _;
@@ -33,7 +33,7 @@ use crate::{
     pages::{self, Along, History},
     presence::{Identity, Mark, Membership, Phase, Present, Shown},
     proto::aperture::live::v1::{self as pb, client_message, server_message},
-    targets::Target,
+    targets::{Like, Mode, Target},
 };
 
 /// What a client may do in one area.
@@ -83,6 +83,7 @@ pub async fn serve(live: Live, socket: WebSocket, identity: Identity) {
         history: live.pages.history(),
         live,
         socket,
+        phone: false,
         greeted: false,
         json: false,
         pixels: pb::Pixels::PIXELS_UNSPECIFIED,
@@ -130,6 +131,8 @@ struct Client {
     /// The client as one of those in the session.
     member: Membership,
     socket: WebSocket,
+    /// The client is used from a phone, as it says.
+    phone: bool,
     /// The client said hello.
     greeted: bool,
     /// The client's last message came as JSON text.
@@ -268,6 +271,7 @@ impl Client {
                         return Ok(());
                     }
                     self.send_presence().await?;
+                    self.drive();
                     self.keep_up().await?;
                 }
                 mark = self.marks.recv() => match mark {
@@ -346,6 +350,15 @@ impl Client {
             Message::Viewport(viewport) => {
                 self.resize(&viewport);
                 Ok(())
+            }
+            Message::Device(device) => {
+                self.phone = device.phone;
+                self.drive();
+                Ok(())
+            }
+            Message::SetMode(set) => {
+                let set = self.set_mode(set.mode.as_known());
+                self.answer(pb::Asked::ASKED_SET_MODE, set).await
             }
             Message::RtcOffer(offer) => self.connect_video(&offer.sdp).await,
             Message::VideoShown(shown) => match self.delivery.shown(shown.time_us) {
@@ -475,24 +488,46 @@ impl Client {
 
     /// Gives the watched target another size, for a client that holds its tab.
     fn resize(&self, viewport: &pb::Viewport) {
-        let watched = self.selected.as_ref().and_then(|(id, window)| {
-            let targets = self.live.targets.borrow();
-            let target = targets.iter().find(|target| target.id == *id)?;
-            Some((*window, target.scale))
-        });
-        if let Some((window, scale)) = watched
+        if let Some((target, _)) = &self.selected
             && self.grant(Area::Tabs).write
             && self.holds()
         {
-            self.live.compositor.set_viewport(
-                window,
-                Viewport {
-                    width: viewport.width,
-                    height: viewport.height,
-                    scale: viewport.scale.unwrap_or(scale),
-                },
-            );
+            let tabs = &self.live.tabs;
+            tabs.resize(target, viewport.width, viewport.height, viewport.scale);
         }
+    }
+
+    /// Has the tab the client holds shown as on what the client is used from, where the
+    /// tab goes by its holder. Watching a tab holds nothing, and changes nothing.
+    fn drive(&self) {
+        if let Some((target, _)) = &self.selected
+            && self.grant(Area::Tabs).write
+            && self.leads()
+        {
+            self.live.tabs.drive(target, self.phone);
+        }
+    }
+
+    /// Sets how the watched tab's pages are shown, for a client that holds the tab.
+    fn set_mode(&self, mode: Option<pb::PageMode>) -> anyhow::Result<()> {
+        ensure!(self.grant(Area::Tabs).write, NOT_ALLOWED);
+        let mode = match mode {
+            Some(pb::PageMode::PAGE_MODE_AUTO) => Mode::Auto,
+            Some(pb::PageMode::PAGE_MODE_DESKTOP) => Mode::Desktop,
+            Some(pb::PageMode::PAGE_MODE_MOBILE) => Mode::Mobile,
+            Some(pb::PageMode::PAGE_MODE_UNSPECIFIED) | None => bail!("no mode was named"),
+        };
+        let target = self.held()?;
+        let tabs = &self.live.tabs;
+        tabs.set_mode(&target, mode, Some(self.phone), true);
+        Ok(())
+    }
+
+    /// The target the client watches, as it is told now.
+    fn target(&self) -> Option<Target> {
+        let (id, _) = self.selected.as_ref()?;
+        let targets = self.live.targets.borrow();
+        targets.iter().find(|target| target.id == *id).cloned()
     }
 
     /// The target the client watches, for what only its tab's holder does to it.
@@ -527,7 +562,9 @@ impl Client {
                 Some(pb::go::To::Along(_)) => bail!("a new tab has no history to go along"),
                 None => String::new(),
             };
-            self.opened = Some(pages.open_tab(&url).await?);
+            // A tab opened from one that is shown as on a phone is shown so too.
+            let like = self.target().as_ref().map(Like::of);
+            self.opened = Some(pages.open_tab(&url, like).await?);
             return Ok(());
         }
         // Where a tab goes is no input to its page: it takes no lease.
@@ -696,11 +733,14 @@ impl Client {
             }
             return;
         };
+        // Positions come in the page's pixels, which a window has more of where the page
+        // is narrower than a window gets.
+        let zoom = self.target().map_or(1.0, |target| target.zoom);
         let input = match message {
             Message::PointerMotion(m) => Input::PointerMotion {
                 window,
-                x: m.x,
-                y: m.y,
+                x: m.x * zoom,
+                y: m.y * zoom,
             },
             Message::PointerButton(m) => {
                 let button = match m.button.as_known() {
@@ -713,16 +753,16 @@ impl Client {
                 };
                 Input::PointerButton {
                     window,
-                    x: m.x,
-                    y: m.y,
+                    x: m.x * zoom,
+                    y: m.y * zoom,
                     button,
                     pressed: m.pressed,
                 }
             }
             Message::PointerScroll(m) => Input::PointerScroll {
                 window,
-                x: m.x,
-                y: m.y,
+                x: m.x * zoom,
+                y: m.y * zoom,
                 dx: m.dx,
                 dy: m.dy,
             },
@@ -743,14 +783,16 @@ impl Client {
                 };
                 Input::Drop {
                     window,
-                    x: m.x,
-                    y: m.y,
+                    x: m.x * zoom,
+                    y: m.y * zoom,
                     content,
                 }
             }
             Message::Hello(_)
             | Message::Select(_)
             | Message::Viewport(_)
+            | Message::Device(_)
+            | Message::SetMode(_)
             | Message::Lease(_)
             | Message::RtcOffer(_)
             | Message::VideoShown(_)

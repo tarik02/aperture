@@ -41,6 +41,30 @@ const SETTLE_WITHIN: Duration = Duration::from_secs(5);
 /// Pages change their titles and close without the extension saying so.
 const RECONCILE_EVERY: Duration = Duration::from_millis(500);
 
+/// The narrowest the browser makes a window, in logical pixels: asked for less, it stays
+/// this wide. A page shown as on a phone that is to be narrower is drawn larger into a
+/// window this wide.
+pub const NARROWEST: u32 = 500;
+
+/// The viewport a tab gets when it comes to be shown as on a phone and nobody gave it one.
+const PHONE: Viewport = Viewport {
+    width: 412,
+    height: 915,
+    scale: 2.625,
+};
+
+/// How a tab's pages are shown, as it is set.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    /// As on what whoever holds the tab uses: as on a phone once someone holds it from
+    /// one, as on a desktop once someone holds it from anything else.
+    #[default]
+    Auto,
+    Desktop,
+    Mobile,
+}
+
 /// A page and the window that shows it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Target {
@@ -53,13 +77,45 @@ pub struct Target {
     pub window: WindowId,
     pub title: String,
     pub url: String,
-    /// In logical pixels.
+    /// The page's viewport, in its logical pixels.
     pub width: u32,
     pub height: u32,
-    /// Pixels to a logical pixel.
+    /// Pixels to a logical pixel of the page.
     pub scale: f64,
+    /// How many logical pixels of the window one of the page takes: more than one for a
+    /// page narrower than a window gets.
+    pub zoom: f64,
+    pub mode: Mode,
+    /// The page is shown as on a phone: what the mode comes to.
+    pub mobile: bool,
+    /// How many times the page was to load again for being shown another way.
+    pub loads: u32,
     /// The page that opened this one, where a page did.
     pub opener: Option<String>,
+}
+
+/// How a tab that is yet to come is shown from its start.
+#[derive(Debug, Clone, Copy)]
+pub struct Like {
+    pub mode: Mode,
+    pub mobile: bool,
+    /// The page's viewport, for one shown as on a phone.
+    pub viewport: Option<Viewport>,
+}
+
+impl Like {
+    /// As the target is shown.
+    pub fn of(target: &Target) -> Self {
+        Self {
+            mode: target.mode,
+            mobile: target.mobile,
+            viewport: target.mobile.then_some(Viewport {
+                width: target.width,
+                height: target.height,
+                scale: target.scale,
+            }),
+        }
+    }
 }
 
 /// The target a tab's number or a target's id names, as whoever names one may give
@@ -115,6 +171,57 @@ struct Ready {
     tab: u32,
     browser_tab: i64,
     opener: Option<String>,
+    mode: Mode,
+    mobile: bool,
+    /// The page's viewport as it was last given here; the window's own without.
+    asked: Option<Viewport>,
+    /// The viewport the tab had before it came to be shown as on a phone.
+    desktop: Option<Viewport>,
+    loads: u32,
+}
+
+impl Ready {
+    /// The page's viewport where it is narrower than a window gets.
+    fn narrow(&self) -> Option<Viewport> {
+        self.asked
+            .filter(|asked| self.mobile && asked.width < NARROWEST)
+    }
+
+    /// Takes a viewport for the page, and gives the one its window gets for it.
+    fn place(&mut self, asked: Viewport) -> Viewport {
+        let asked = asked.bounded();
+        self.asked = Some(asked);
+        match self.narrow() {
+            Some(narrow) => {
+                let zoom = f64::from(NARROWEST) / f64::from(narrow.width);
+                Viewport {
+                    width: NARROWEST,
+                    height: (f64::from(narrow.height) * zoom).round() as u32,
+                    scale: narrow.scale / zoom,
+                }
+            }
+            None => asked,
+        }
+    }
+
+    /// Shows the page as on a phone, or no longer: gives the viewport its window gets,
+    /// when that changes how it is shown. `now` is the page's viewport as it is.
+    fn show(&mut self, mobile: bool, now: Viewport, otherwise: Viewport) -> Option<Viewport> {
+        if self.mobile == mobile {
+            return None;
+        }
+        self.mobile = mobile;
+        let next = if mobile {
+            // A viewport as narrow as a phone's was asked for a phone already: the tab
+            // keeps it, and had none of a desktop's to come back to.
+            let asked = self.asked.filter(|asked| asked.width < NARROWEST);
+            self.desktop = asked.is_none().then_some(now);
+            asked.unwrap_or(PHONE)
+        } else {
+            self.desktop.take().unwrap_or(otherwise)
+        };
+        Some(self.place(next))
+    }
 }
 
 /// What is kept of a tab from one run of the session to the next: the browser brings the
@@ -123,10 +230,12 @@ struct Ready {
 struct KeptTab {
     tab: u32,
     url: String,
-    /// The tab's viewport.
+    /// The viewport of the tab's page.
     width: u32,
     height: u32,
     scale: f64,
+    mode: Mode,
+    mobile: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -148,6 +257,8 @@ struct State {
     kept: Kept,
     /// The tabs are kept as they are, whatever becomes of them: the session is ending.
     frozen: bool,
+    /// How pages that are yet to be targets are shown once they are, by their ids.
+    expected: HashMap<String, Like>,
 }
 
 /// How long the browser has to bring back the tabs of the session's last run. A tab that
@@ -165,6 +276,63 @@ struct Inner {
     kept: PathBuf,
     /// What the extension tells of the tabs' sound goes here.
     sound: Arc<Sound>,
+    /// The viewport a tab starts with.
+    viewport: Viewport,
+}
+
+/// The session's tabs, for giving them another viewport and another way to be shown.
+#[derive(Clone)]
+pub struct Tabs(Arc<Inner>);
+
+impl Tabs {
+    /// Gives the target's page a viewport, as near to the one asked for as it can be
+    /// given; it keeps its scale when none is named.
+    pub fn resize(&self, target: &str, width: u32, height: u32, scale: Option<f64>) {
+        self.0.change(target, |ready, now, _| {
+            let scale = scale.unwrap_or(now.scale);
+            Some(ready.place(Viewport {
+                width,
+                height,
+                scale,
+            }))
+        });
+    }
+
+    /// Sets how the target's pages are shown. `phone` is whether whoever sets it uses a
+    /// phone, which is what `Mode::Auto` comes to; without, the tab stays as it is shown.
+    /// Where that changes how it is shown and `reload` is set, its page loads again.
+    /// False when there is no such target.
+    pub fn set_mode(&self, target: &str, mode: Mode, phone: Option<bool>, reload: bool) -> bool {
+        self.0.change(target, |ready, now, otherwise| {
+            ready.mode = mode;
+            let mobile = match mode {
+                Mode::Desktop => false,
+                Mode::Mobile => true,
+                Mode::Auto => phone.unwrap_or(ready.mobile),
+            };
+            let placed = ready.show(mobile, now, otherwise);
+            if placed.is_some() && reload {
+                ready.loads += 1;
+            }
+            placed
+        })
+    }
+
+    /// Someone holds the target's tab, from a phone or not: a tab that goes by its holder
+    /// is shown as on what they use. The page it has is left as it loaded.
+    pub fn drive(&self, target: &str, phone: bool) {
+        self.0.change(target, |ready, now, otherwise| {
+            (ready.mode == Mode::Auto)
+                .then(|| ready.show(phone, now, otherwise))
+                .flatten()
+        });
+    }
+
+    /// The page, which is yet to be a target, is shown this way once it is one.
+    pub fn expect(&self, page: String, like: Like) {
+        let mut state = self.0.state.lock().expect("not poisoned");
+        state.expected.insert(page, like);
+    }
 }
 
 pub struct Registry {
@@ -180,6 +348,7 @@ impl Registry {
         compositor: Handle,
         kept: PathBuf,
         sound: Arc<Sound>,
+        viewport: Viewport,
     ) -> std::io::Result<Self> {
         // The socket an earlier run left; binding says what else is in the way.
         let _ = std::fs::remove_file(socket);
@@ -205,6 +374,7 @@ impl Registry {
             targets: watch::Sender::new(Vec::new()),
             kept,
             sound,
+            viewport,
         });
 
         tokio::spawn({
@@ -275,9 +445,45 @@ impl Registry {
     pub fn targets(&self) -> watch::Receiver<Vec<Target>> {
         self.inner.targets.subscribe()
     }
+
+    pub fn tabs(&self) -> Tabs {
+        Tabs(self.inner.clone())
+    }
 }
 
 impl Inner {
+    /// Changes how a target is shown: `change` is given the target, its page's viewport
+    /// as it is and the one a tab starts with, and gives the viewport the target's window
+    /// gets when that is another. False when there is no such target.
+    fn change(
+        &self,
+        target: &str,
+        change: impl FnOnce(&mut Ready, Viewport, Viewport) -> Option<Viewport>,
+    ) -> bool {
+        let placed = {
+            let windows = self.compositor.windows();
+            let windows = windows.borrow();
+            let mut state = self.state.lock().expect("not poisoned");
+            let Some(ready) = state.ready.get_mut(target) else {
+                return false;
+            };
+            let Some(window) = windows.iter().find(|window| window.id == ready.window) else {
+                return false;
+            };
+            let now = ready.narrow().unwrap_or(Viewport {
+                width: window.width,
+                height: window.height,
+                scale: window.scale,
+            });
+            change(ready, now, self.viewport).map(|placed| (ready.window, placed))
+        };
+        if let Some((window, placed)) = placed {
+            self.compositor.set_viewport(window, placed);
+        }
+        self.publish();
+        true
+    }
+
     /// Requests and their answers are framed as Chromium frames native messages: the
     /// length, in the machine's byte order, then JSON. What the extension tells of the
     /// tabs' sound comes the same way, and is not answered.
@@ -429,13 +635,8 @@ impl Inner {
             .context("the browser is not attached yet")?;
 
         let pages = pages(&browser).await?;
-        let (fresh, returned) = self.state.lock().expect("not poisoned").settle(&pages);
-        for (window, back) in returned {
-            let viewport = Viewport {
-                width: back.width,
-                height: back.height,
-                scale: back.scale,
-            };
+        let (fresh, placed) = self.state.lock().expect("not poisoned").settle(&pages);
+        for (window, viewport) in placed {
             self.compositor.set_viewport(window, viewport);
         }
         for page in fresh {
@@ -470,6 +671,12 @@ impl Inner {
             .into_iter()
             .filter_map(|(id, ready)| {
                 let window = windows.iter().find(|window| window.id == ready.window)?;
+                let narrow = ready.narrow();
+                let page = narrow.unwrap_or(Viewport {
+                    width: window.width,
+                    height: window.height,
+                    scale: window.scale,
+                });
                 Some(Target {
                     id: id.clone(),
                     tab: ready.tab,
@@ -477,9 +684,14 @@ impl Inner {
                     window: ready.window,
                     title: ready.title.clone(),
                     url: ready.url.clone(),
-                    width: window.width,
-                    height: window.height,
-                    scale: window.scale,
+                    width: page.width,
+                    height: page.height,
+                    scale: page.scale,
+                    zoom: narrow
+                        .map_or(1.0, |narrow| f64::from(NARROWEST) / f64::from(narrow.width)),
+                    mode: ready.mode,
+                    mobile: ready.mobile,
+                    loads: ready.loads,
                     opener: ready.opener.clone(),
                 })
             })
@@ -492,6 +704,8 @@ impl Inner {
                 width: target.width,
                 height: target.height,
                 scale: target.scale,
+                mode: target.mode,
+                mobile: target.mobile,
             });
             let kept = Kept {
                 last: state.last_tab,
@@ -517,10 +731,11 @@ impl Inner {
 impl State {
     /// Takes in the browser's pages: a settled window with exactly one page is that page's
     /// target, and a page that is gone takes its target along. Gives the pages that became
-    /// targets, and the tabs of the last run that are back, each with the window it is in.
-    fn settle(&mut self, pages: &[Page]) -> (Vec<String>, Vec<(WindowId, KeptTab)>) {
+    /// targets, and the viewports their windows get where they start with one of their
+    /// own: the tabs of the last run that are back, and those that start as on a phone.
+    fn settle(&mut self, pages: &[Page]) -> (Vec<String>, Vec<(WindowId, Viewport)>) {
         let mut fresh = Vec::new();
-        let mut returned = Vec::new();
+        let mut placed = Vec::new();
         let unresolved = pages.iter().any(|page| page.window.is_none());
         for (chromium_window, binding) in &self.bindings {
             if !binding.settled {
@@ -558,29 +773,60 @@ impl State {
                 .iter()
                 .position(|kept| kept.url == page.url)
                 .map(|at| self.returning.remove(at));
-            let tab = match back {
+            let expected = self.expected.remove(&page.id);
+            // A tab a page opened is shown as its opener is.
+            let opener = page
+                .opener
+                .as_ref()
+                .and_then(|opener| self.ready.get(opener));
+            let (tab, like) = match back {
                 Some(back) => {
-                    returned.push((binding.window, back.clone()));
-                    back.tab
+                    let like = Like {
+                        mode: back.mode,
+                        mobile: back.mobile,
+                        viewport: Some(Viewport {
+                            width: back.width,
+                            height: back.height,
+                            scale: back.scale,
+                        }),
+                    };
+                    (back.tab, like)
                 }
                 None => {
                     self.last_tab += 1;
-                    self.last_tab
+                    let like = expected.or(opener.map(|opener| Like {
+                        mode: opener.mode,
+                        mobile: opener.mobile,
+                        viewport: opener.asked.filter(|_| opener.mobile),
+                    }));
+                    let like = like.unwrap_or(Like {
+                        mode: Mode::Auto,
+                        mobile: false,
+                        viewport: None,
+                    });
+                    (self.last_tab, like)
                 }
             };
-            self.ready.insert(
-                page.id.clone(),
-                Ready {
-                    chromium_window: *chromium_window,
-                    window: binding.window,
-                    title: String::new(),
-                    url: String::new(),
-                    order: self.next_order,
-                    tab,
-                    browser_tab: binding.tab,
-                    opener: page.opener.clone(),
-                },
-            );
+            let mut ready = Ready {
+                chromium_window: *chromium_window,
+                window: binding.window,
+                title: String::new(),
+                url: String::new(),
+                order: self.next_order,
+                tab,
+                browser_tab: binding.tab,
+                opener: page.opener.clone(),
+                mode: like.mode,
+                mobile: like.mobile,
+                asked: None,
+                desktop: None,
+                loads: 0,
+            };
+            let viewport = like.viewport.or(like.mobile.then_some(PHONE));
+            if let Some(viewport) = viewport {
+                placed.push((binding.window, ready.place(viewport)));
+            }
+            self.ready.insert(page.id.clone(), ready);
         }
         self.ready.retain(|id, ready| {
             let Some(page) = pages.iter().find(|page| page.id == *id) else {
@@ -591,7 +837,10 @@ impl State {
             ready.url.clone_from(&page.url);
             true
         });
-        (fresh, returned)
+        // A page that is gone before it was a target is expected no longer.
+        self.expected
+            .retain(|id, _| pages.iter().any(|page| page.id == *id));
+        (fresh, placed)
     }
 }
 

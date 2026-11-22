@@ -14,7 +14,10 @@ use tokio::{
 };
 use tracing::warn;
 
-use crate::{cdp, targets::Target};
+use crate::{
+    cdp,
+    targets::{Like, Tabs, Target},
+};
 
 /// A page asked for files. The browser shows no dialog of its own: whoever uses the
 /// session answers.
@@ -87,9 +90,126 @@ const SCRIPT: &str = r#"(() => {
   }, true);
 })()"#;
 
+/// How a page is shown: as the browser shows it, or as on a phone.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Shown {
+    mobile: bool,
+    /// The page's viewport and how many pixels it draws to a logical one.
+    width: u32,
+    height: u32,
+    scale: f64,
+    zoom: f64,
+}
+
+impl Shown {
+    fn of(target: &Target) -> Self {
+        Self {
+            mobile: target.mobile,
+            width: target.width,
+            height: target.height,
+            scale: target.scale,
+            zoom: target.zoom,
+        }
+    }
+}
+
+/// What a phone's browser of the same make says its platform is. The browser's version
+/// and its brands stay the session's browser's own: a phone differs in nothing else.
+const PHONE_PLATFORM: &str = "(Linux; Android 10; K)";
+const PHONE_MODEL: &str = "Pixel 8";
+const PHONE_SYSTEM: &str = "14.0.0";
+
+/// The user agent of a phone's browser of the make and version of this one.
+fn phone_agent(own: &str) -> Option<String> {
+    let (before, rest) = own.split_once('(')?;
+    let (_, after) = rest.split_once(')')?;
+    let phone = format!("{before}{PHONE_PLATFORM}{after}");
+    Some(phone.replacen(" Safari/", " Mobile Safari/", 1))
+}
+
+/// What a page is told to say it is where it is shown as on a phone.
+fn phone(agent: &str) -> Value {
+    json!({
+        "userAgent": agent,
+        "platform": "Linux armv81",
+        "userAgentMetadata": {
+            "platform": "Android",
+            "platformVersion": PHONE_SYSTEM,
+            "architecture": "",
+            "model": PHONE_MODEL,
+            "mobile": true,
+            "bitness": "",
+            "wow64": false,
+            "formFactors": ["Mobile"],
+        },
+    })
+}
+
+/// Has a page shown as on a phone, or as the browser shows it. A phone's page gets a
+/// phone's user agent with the client hints that go with it, touch in place of a mouse,
+/// and a viewport the page lays itself out for as for a phone's.
+async fn show(
+    browser: &cdp::Client,
+    session: &str,
+    agent: &str,
+    shown: Shown,
+) -> Result<(), cdp::Error> {
+    let call = |method: &'static str, params: Value| browser.call_in(Some(session), method, params);
+    if !shown.mobile {
+        call("Emulation.setUserAgentOverride", json!({ "userAgent": "" })).await?;
+        call("Emulation.clearDeviceMetricsOverride", json!({})).await?;
+        call(
+            "Emulation.setEmitTouchEventsForMouse",
+            json!({ "enabled": false }),
+        )
+        .await?;
+        call(
+            "Emulation.setTouchEmulationEnabled",
+            json!({ "enabled": false }),
+        )
+        .await?;
+        return Ok(());
+    }
+    call("Emulation.setUserAgentOverride", phone(agent)).await?;
+    let upright = shown.height >= shown.width;
+    // No size of its own: the page has the window's, less by what it is drawn larger.
+    call(
+        "Emulation.setDeviceMetricsOverride",
+        json!({
+            "width": 0,
+            "height": 0,
+            "deviceScaleFactor": shown.scale,
+            "mobile": true,
+            "scale": shown.zoom,
+            "screenWidth": shown.width,
+            "screenHeight": shown.height,
+            "positionX": 0,
+            "positionY": 0,
+            "screenOrientation": {
+                "type": if upright { "portraitPrimary" } else { "landscapePrimary" },
+                "angle": if upright { 0 } else { 90 },
+            },
+        }),
+    )
+    .await?;
+    call(
+        "Emulation.setTouchEmulationEnabled",
+        json!({ "enabled": true, "maxTouchPoints": 5 }),
+    )
+    .await?;
+    // The session's pointer is a mouse to the browser, whoever moves it.
+    call(
+        "Emulation.setEmitTouchEventsForMouse",
+        json!({ "enabled": true, "configuration": "mobile" }),
+    )
+    .await?;
+    Ok(())
+}
+
 #[derive(Clone)]
 pub struct Pages {
     browser: cdp::Client,
+    tabs: Tabs,
     open: watch::Sender<Vec<Open>>,
     menus: broadcast::Sender<Menu>,
     /// The targets' pages by the DevTools session each is attached as.
@@ -117,11 +237,13 @@ impl Pages {
     /// Attaches the pages of `targets` as they come, and follows what they ask for.
     pub fn follow(
         browser: cdp::Client,
+        tabs: Tabs,
         mut targets: watch::Receiver<Vec<Target>>,
         uploads: bool,
     ) -> Self {
         let pages = Self {
             browser: browser.clone(),
+            tabs,
             open: watch::Sender::new(Vec::new()),
             menus: broadcast::Sender::new(16),
             attached: Arc::new(watch::Sender::new(Vec::new())),
@@ -134,6 +256,8 @@ impl Pages {
             uploads,
             asked: 0,
             frames: Vec::new(),
+            agent: None,
+            shown: HashMap::new(),
         };
         // The pages there are by now are looked at first.
         targets.mark_changed();
@@ -144,11 +268,7 @@ impl Pages {
                         if changed.is_err() {
                             return;
                         }
-                        let pages = targets
-                            .borrow_and_update()
-                            .iter()
-                            .map(|target| target.id.clone())
-                            .collect();
+                        let pages = targets.borrow_and_update().clone();
                         follower.keep(pages).await;
                     }
                     event = follower.events.next() => match event {
@@ -244,22 +364,45 @@ impl Pages {
         Ok(())
     }
 
-    /// Opens a tab, on a page on the web or on none, and gives its page.
-    pub async fn open_tab(&self, url: &str) -> anyhow::Result<String> {
-        let url = if url.is_empty() {
-            NEW_TAB
-        } else {
+    /// Opens a tab, on a page on the web or on none, and gives its page. The tab is shown
+    /// `like` another where one is given: as on a phone from its first page on, where
+    /// that one is.
+    pub async fn open_tab(&self, url: &str, like: Option<Like>) -> anyhow::Result<String> {
+        if !url.is_empty() {
             ensure_web(url)?;
-            url
+        }
+        let phone = like.is_some_and(|like| like.mobile);
+        // A page asked for before the tab is shown as on a phone would be a desktop's:
+        // the tab opens empty, and goes to its page once it is shown as it is to be.
+        let first = match (url.is_empty(), phone) {
+            (true, _) => NEW_TAB,
+            (false, true) => "about:blank",
+            (false, false) => url,
         };
         let made = self
             .browser
-            .call("Target.createTarget", json!({ "url": url }))
+            .call("Target.createTarget", json!({ "url": first }))
             .await?;
         let page = made["targetId"]
             .as_str()
-            .context("the browser named no tab")?;
-        Ok(page.to_owned())
+            .context("the browser named no tab")?
+            .to_owned();
+        if let Some(like) = like {
+            self.tabs.expect(page.clone(), like);
+        }
+        if first != url && !url.is_empty() {
+            let (pages, page, url) = (self.clone(), page.clone(), url.to_owned());
+            tokio::spawn(async move {
+                let gone = pages.call(&page, "Page.navigate", json!({ "url": url }));
+                if let Err(err) = gone.await {
+                    warn!(
+                        page,
+                        "a tab that was opened did not go to its page: {err:#}"
+                    );
+                }
+            });
+        }
+        Ok(page)
     }
 
     /// Takes note of which ways the history of a page goes now.
@@ -380,17 +523,29 @@ struct Follower {
     /// The frames of the targets' pages that are pages of their own to the browser, each
     /// by the target it is in and the DevTools session it is attached as.
     frames: Vec<(String, String)>,
+    /// A phone's user agent of this browser's make, once it was asked what it is.
+    agent: Option<String>,
+    /// How each target's page is shown, and how many times it was told to load again.
+    shown: HashMap<String, (Shown, u32)>,
 }
 
 impl Follower {
     /// Attaches the pages that are new, and forgets what was of those that are gone.
-    async fn keep(&mut self, pages: Vec<String>) {
-        let Pages {
-            browser,
-            open,
-            attached,
-            ..
-        } = &self.pages;
+    async fn keep(&mut self, targets: Vec<Target>) {
+        let pages: Vec<String> = targets.iter().map(|target| target.id.clone()).collect();
+        self.shown.retain(|target, _| pages.contains(target));
+        for target in &targets {
+            let session = {
+                let attached = self.pages.attached.borrow();
+                let found = attached.iter().find(|(page, _)| *page == target.id);
+                found.map(|(_, session)| session.clone())
+            };
+            match session {
+                Some(session) => self.show(target, &session, false).await,
+                None => self.attach(target).await,
+            }
+        }
+        let Pages { open, attached, .. } = &self.pages;
         attached.send_modify(|attached| {
             attached.retain(|(target, _)| pages.contains(target));
         });
@@ -405,17 +560,79 @@ impl Follower {
             open.retain(|asked| pages.contains(&asked.request.target));
             open.len() != before
         });
-        for page in pages {
-            if attached.borrow().iter().any(|(target, _)| *target == page) {
-                continue;
+    }
+
+    /// Attaches a page that is new, shown as its tab is before anything is asked of it.
+    async fn attach(&mut self, target: &Target) {
+        let page = &target.id;
+        match attach(&self.pages.browser, page).await {
+            Ok(session) => {
+                self.show(target, &session, true).await;
+                self.pages.look_back(page, &session).await;
+                let attached = &self.pages.attached;
+                attached.send_modify(|attached| attached.push((page.clone(), session)));
             }
-            match attach(browser, &page).await {
-                Ok(session) => {
-                    self.pages.look_back(&page, &session).await;
-                    attached.send_modify(|attached| attached.push((page, session)));
-                }
-                Err(err) => warn!(page, "a page asks the browser, not the session: {err:#}"),
+            Err(err) => warn!(page, "a page asks the browser, not the session: {err:#}"),
+        }
+    }
+
+    /// Has a target's page shown as its tab is, where it is not yet, and loads it again
+    /// where it was told to. A page that is `new` here and came as a desktop's loads
+    /// again too: a tab the browser brought back, or one a page opened.
+    async fn show(&mut self, target: &Target, session: &str, new: bool) {
+        let now = (Shown::of(target), target.loads);
+        let before = self.shown.get(&target.id).copied();
+        if before == Some(now) || (before.is_none() && !target.mobile) {
+            self.shown.insert(target.id.clone(), now);
+            return;
+        }
+        let browser = &self.pages.browser;
+        if self.agent.is_none() {
+            let told = browser.call("Browser.getVersion", json!({})).await;
+            self.agent = told
+                .ok()
+                .and_then(|told| phone_agent(told["userAgent"].as_str()?));
+        }
+        let Some(agent) = &self.agent else {
+            warn!("the browser does not say what it is: no page is shown as on a phone");
+            return;
+        };
+        if before.map(|(shown, _)| shown) != Some(now.0)
+            && let Err(err) = show(browser, session, agent, now.0).await
+        {
+            warn!(
+                page = target.id,
+                "a page is not shown as its tab is: {err:#}"
+            );
+            return;
+        }
+        // A phone's page that got shorter did so for a keyboard, as a rule: what is typed
+        // into stays where it is seen, as a phone's browser keeps it.
+        let shorter = before
+            .is_some_and(|(shown, _)| shown.mobile && now.0.mobile && now.0.height < shown.height);
+        if shorter {
+            let reveal = json!({
+                "expression": "document.activeElement?.matches?.('input, textarea, select, [contenteditable]') && document.activeElement.scrollIntoView({ block: 'center' })",
+            });
+            let revealed = browser.call_in(Some(session), "Runtime.evaluate", reveal);
+            if let Err(err) = revealed.await {
+                warn!(
+                    page = target.id,
+                    "what is typed into may be out of sight: {err:#}"
+                );
             }
+        }
+        let again = match before {
+            Some((_, loads)) => loads != now.1,
+            None => new && target.url.starts_with("http"),
+        };
+        self.shown.insert(target.id.clone(), now);
+        if again
+            && let Err(err) = browser
+                .call_in(Some(session), "Page.reload", json!({}))
+                .await
+        {
+            warn!(page = target.id, "a page did not load again: {err:#}");
         }
     }
 
@@ -448,6 +665,30 @@ impl Follower {
                     .any(|(_, of)| *of == session);
                 if page {
                     self.pages.look_back(&target, &session).await;
+                }
+                // Another DevTools session attached to the page, as an automation's is,
+                // has the document that comes say the platform the browser is on: it is
+                // told again what a phone's says.
+                let phone_shown = self
+                    .shown
+                    .get(&target)
+                    .is_some_and(|(shown, _)| shown.mobile);
+                let came = event.method == "Page.frameNavigated"
+                    && event.params["frame"]["parentId"].is_null();
+                if page
+                    && came
+                    && phone_shown
+                    && let Some(agent) = &self.agent
+                {
+                    let browser = &self.pages.browser;
+                    let told = browser.call_in(
+                        Some(&session),
+                        "Emulation.setUserAgentOverride",
+                        phone(agent),
+                    );
+                    if let Err(err) = told.await {
+                        warn!(page = target, "a page is not told it is a phone's: {err:#}");
+                    }
                 }
             }
             "Target.attachedToTarget" => {

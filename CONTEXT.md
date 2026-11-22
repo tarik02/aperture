@@ -30,6 +30,10 @@ _Avoid_: Window, surface, view
 **Tab**:
 A target's number, which no other tab of the session gets and which stays the same when the session is suspended and resumed. It is how a target is named: in the live protocol, in leases, automation and recordings. The session's HTTP routes and automation take a target id in its place, for whoever speaks DevTools.
 
+**Page mode**:
+How a tab's pages are shown: as on a desktop, as on a phone, or _auto_, which is as on what whoever holds the tab's lease uses. A phone's pages get a phone's user agent and client hints, of the session's own browser and version, touch in place of a mouse, and a phone's viewport. It is the tab's, whoever watches: watching changes nothing, and neither does the automation, which has no device and sets the mode where one is to stay. A mode that is set loads the page again; a holder that changes leaves the page as it loaded.
+_Avoid_: Device emulation, responsive mode
+
 **Live protocol**:
 The messages a client and a session exchange on the session socket (`aperture.live.v1`): targets, input, clipboard, files, presence, and the target's pixels as WebRTC video, encoded frames or tiles.
 _Avoid_: Collaboration protocol, transport

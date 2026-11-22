@@ -34,6 +34,8 @@ suite(session)("tickets into a session served on its own", (it) => {
       const tickets = yield* Tickets.Tickets;
       yield* answers(yield* tickets.ticket({}), [
         ["GET", "/targets", 200],
+        ["GET", "/targets/1/preview.png", 200],
+        ["PUT", "/targets/1/mode", 403, { mode: "mobile" }],
         ["GET", "/", 200],
         ["GET", "/recordings", 403],
         ["POST", "/screenshots", 403],

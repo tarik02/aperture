@@ -18,6 +18,7 @@ import type {
   ClipboardForm,
   Failure,
   LeaseAction,
+  PageMode,
   PointerMark,
   Snapshot,
   StrokePhase,
@@ -62,6 +63,7 @@ export type {
   FileRequest,
   HeldTab,
   LeaseAction,
+  PageMode,
   PointerMark,
   StrokePhase,
   StrokePoint,
@@ -108,6 +110,11 @@ export interface Session {
   readonly setViewport: (viewport: ViewportSize | "fit", options?: FitOptions) => void;
   /** Gives the watched target another scale and leaves its size, fitted or not, as it is. */
   readonly setScale: (scale: number) => void;
+  /**
+   * Sets how the watched tab's pages are shown, for a member that holds the tab. Where
+   * that changes how they are shown, the page loads again.
+   */
+  readonly setMode: (mode: PageMode) => void;
   /**
    * Changes how the picture comes. A key that is left out keeps what it has; one that is
    * there and undefined leaves the choice to the session again.
@@ -183,6 +190,11 @@ export interface Session {
   readonly fileUrl: (path: string) => string;
   /** The tab as it looks now; `width` asks for a smaller picture, that many pixels wide. */
   readonly screenshotUrl: (tab: number, width?: number) => string;
+  /**
+   * The tab as it looked a moment ago, small: for a list of the tabs. The session makes
+   * one in a while, however often it is asked.
+   */
+  readonly previewUrl: (tab: number) => string;
   readonly recordings: {
     readonly list: () => Promise<Recording[]>;
     readonly get: (id: string) => Promise<Recording>;
@@ -223,6 +235,7 @@ export const connect = (options: ConnectOptions): Session => {
     closeTab: (tab) => Effect.runSync(session.closeTab(tab)),
     setViewport: (viewport, options) => Effect.runSync(session.setViewport(viewport, options)),
     setScale: (scale) => Effect.runSync(session.setScale(scale)),
+    setMode: (mode) => Effect.runSync(session.setMode(mode)),
     setPicture: (change) => Effect.runSync(session.setPicture(change)),
     setMuted: (tab, muted) => Effect.runSync(session.setMuted(tab, muted)),
     lease: (action) => Effect.runSync(session.lease(action)),
@@ -252,6 +265,7 @@ export const connect = (options: ConnectOptions): Session => {
     chooseFiles: (request, names) => Effect.runSync(session.chooseFiles(request, names)),
     fileUrl: session.fileUrl,
     screenshotUrl: session.screenshotUrl,
+    previewUrl: session.previewUrl,
     recordings: {
       list: () => promised(session.recordings.list),
       get: (id) => promised(session.recordings.get(id)),

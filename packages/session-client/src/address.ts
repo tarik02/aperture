@@ -52,5 +52,9 @@ export const screenshotUrl = (address: Address, tab: number, width?: number) => 
   return url.toString();
 };
 
+/** The tab as it looks now, small: for a list of the tabs. */
+export const previewUrl = (address: Address, tab: number) =>
+  authenticated(address, UrlPath.make`/targets/${tab}/preview.png`).toString();
+
 export const headers = (address: Address): Record<string, string> =>
   address.token === undefined ? {} : { Authorization: `Bearer ${address.token}` };

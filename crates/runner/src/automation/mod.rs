@@ -70,7 +70,8 @@ const READS_ONLY: &[&str] = &[
 
 const INSTRUCTIONS: &str = "A browser session. Its pages are tabs: `tabs` lists them, \
     `navigate` without a `tab` opens one and returns its id, and every other tool takes \
-    that `tab`. A tab is named by its number or by its DevTools target id. Read a page with \
+    that `tab`. A tab is named by its number or by its DevTools target id. A tab shows its \
+    pages as on a desktop or as on a phone, which `tabs` tells and sets. Read a page with \
     `snapshot`, which gives elements refs that `click`, `fill` and the other tools take, or \
     look at it with `screenshot`. People may be watching the session and using it too.";
 
@@ -100,19 +101,23 @@ impl Automation {
     pub fn new(
         browser: cdp::Client,
         targets: watch::Receiver<Vec<Target>>,
+        shown: crate::targets::Tabs,
         recordings: Recordings,
         files: PathBuf,
         presence: &Arc<Presence>,
     ) -> Self {
         let session = Arc::new(Session {
             browser,
-            targets,
+            targets: targets.clone(),
             recordings: recordings.clone(),
             tabs: Mutex::default(),
             presence: presence.clone(),
         });
         let mut tools: Vec<Arc<dyn Tool>> = vec![
-            Arc::new(TabsTool),
+            Arc::new(TabsTool {
+                targets: targets.clone(),
+                shown,
+            }),
             Arc::new(RecordingTool(recordings.clone())),
         ];
         let theirs = browse_page::tools()

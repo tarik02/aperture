@@ -17,6 +17,12 @@ export type Along = "back" | "forward" | "reload";
 
 export type LeaseAction = "take" | "release" | "allow" | "keep";
 
+/**
+ * How a tab's pages are shown: as on a desktop, as on a phone, or as on what its holder
+ * uses, which is a phone's once someone holds the tab from one.
+ */
+export type PageMode = "auto" | "desktop" | "mobile";
+
 /** A page of the session's browser. */
 export interface Target {
   /** Lasts as long as the page does in one run of the session. */
@@ -30,6 +36,10 @@ export interface Target {
   readonly height: number;
   /** Pixels to a logical pixel. */
   readonly scale: number;
+  /** How the tab's pages are shown, as it was set. */
+  readonly mode: PageMode;
+  /** The tab's pages are shown as on a phone now: what the mode comes to. */
+  readonly mobile: boolean;
   /** The tab plays sound now. */
   readonly sounds: boolean;
   /** The page's history has somewhere to go back to, and forward. */
@@ -197,7 +207,7 @@ export interface ClipboardEvent {
 
 /** Something this client asked for over the session socket was not done. */
 export interface Failure {
-  readonly asked: "go" | "close" | "copyPicture" | "chooseFiles" | "follow" | undefined;
+  readonly asked: "go" | "close" | "copyPicture" | "chooseFiles" | "follow" | "setMode" | undefined;
   /** Why, as the session says it. */
   readonly reason: string;
 }
@@ -252,6 +262,11 @@ export interface Snapshot {
   readonly menu: (Menu & { readonly x: number; readonly y: number }) | undefined;
   /** The watched target's viewport follows the attached stage's size. */
   readonly fit: boolean;
+  /**
+   * This client is used from a phone: a finger points at it and its window is narrow. A
+   * tab whose mode is `auto` is shown as on a phone once this client holds it.
+   */
+  readonly phone: boolean;
 }
 
 export const FORMATS = {
@@ -288,6 +303,12 @@ export const LEASE_ACTIONS = {
   keep: pb.LeaseAction.KEEP,
 } as const satisfies Record<LeaseAction, pb.LeaseAction>;
 
+export const PAGE_MODES = {
+  auto: pb.PageMode.AUTO,
+  desktop: pb.PageMode.DESKTOP,
+  mobile: pb.PageMode.MOBILE,
+} as const satisfies Record<PageMode, pb.PageMode>;
+
 const ROLES: Partial<Record<pb.Role, Role>> = {
   [pb.Role.VIEW]: "view",
   [pb.Role.CONTROL]: "control",
@@ -300,6 +321,7 @@ const ASKED: Partial<Record<pb.Asked, NonNullable<Failure["asked"]>>> = {
   [pb.Asked.COPY_PICTURE]: "copyPicture",
   [pb.Asked.FILES_CHOSEN]: "chooseFiles",
   [pb.Asked.FOLLOW]: "follow",
+  [pb.Asked.SET_MODE]: "setMode",
 };
 
 const STROKE_PHASES: Partial<Record<pb.StrokePhase, StrokePhase>> = {
@@ -358,6 +380,8 @@ export const targetOf = (target: pb.Target): Target => ({
   width: target.width,
   height: target.height,
   scale: target.scale,
+  mode: named(PAGE_MODES, target.mode) ?? "auto",
+  mobile: target.mobile,
   sounds: target.sounds,
   goesBack: target.goesBack,
   goesForward: target.goesForward,

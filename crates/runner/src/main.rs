@@ -238,6 +238,11 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
         compositor.clone(),
         spec.state_dir.join("tabs.json"),
         sound.clone(),
+        aperture_compositor::Viewport {
+            width: spec.viewport.width,
+            height: spec.viewport.height,
+            scale: spec.viewport.scale,
+        },
     )
     .context("failed to listen for the extension")?;
 
@@ -389,7 +394,13 @@ impl Session {
                 .await
                 .context("failed to follow the browser's downloads")?;
         let targets = || self.registry.targets();
-        let pages = pages::Pages::follow(devtools.clone(), targets(), spec.features.uploads);
+        let tabs = self.registry.tabs();
+        let pages = pages::Pages::follow(
+            devtools.clone(),
+            tabs.clone(),
+            targets(),
+            spec.features.uploads,
+        );
 
         let streams = live::stream::Streams::new(self.compositor.clone());
         let recordings = Recordings::new(
@@ -411,6 +422,7 @@ impl Session {
         let automation = Arc::new(automation::Automation::new(
             devtools.clone(),
             targets(),
+            tabs.clone(),
             recordings.clone(),
             spec.files_dir.clone(),
             &presence,
@@ -420,6 +432,8 @@ impl Session {
             compositor: self.compositor.clone(),
             streams,
             targets: targets(),
+            tabs,
+            previews: Arc::default(),
             recordings: recordings.clone(),
             egress: self.egress.clone(),
             rtc_ports: spec.rtc_ports,

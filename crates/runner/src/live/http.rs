@@ -7,7 +7,7 @@ use std::{
     sync::Arc,
 };
 
-use aperture_compositor::{Frame, Handle, Viewport};
+use aperture_compositor::{Frame, Handle};
 use aperture_runner::{Features, PortRange, proxy};
 use axum::{
     Json, Router,
@@ -41,7 +41,7 @@ use crate::{
     files::{self, Download, Progress, UPLOADS},
     pages::Pages,
     presence::{Identity, Presence},
-    targets::Target,
+    targets::{Mode, Tabs, Target},
 };
 
 /// The most a state that is put into the session takes.
@@ -55,6 +55,10 @@ pub struct Live {
     pub compositor: Handle,
     pub streams: Arc<Streams>,
     pub targets: watch::Receiver<Vec<Target>>,
+    /// The tabs, for giving them another viewport and another way to be shown.
+    pub tabs: Tabs,
+    /// The small pictures of the tabs that were last made.
+    pub previews: Arc<shots::Previews>,
     pub recordings: Recordings,
     pub egress: Arc<Egress>,
     pub rtc_ports: Option<PortRange>,
@@ -80,7 +84,9 @@ pub async fn serve(socket: &Path, live: Live, automation: Arc<Automation>) -> st
         .route("/ws", get(session_socket))
         .route("/targets", get(targets_list))
         .route("/targets/{id}/screenshot.png", get(screenshot))
+        .route("/targets/{id}/preview.png", get(preview))
         .route("/targets/{id}/viewport", put(viewport_set))
+        .route("/targets/{id}/mode", put(mode_set))
         .route("/proxy", put(proxy_update))
         .route(
             "/storage-state",
@@ -376,6 +382,10 @@ struct TargetView {
     width: u32,
     height: u32,
     scale: f64,
+    /// How the tab's pages are shown, as it was set: `auto`, `desktop` or `mobile`.
+    mode: Mode,
+    /// Its pages are shown as on a phone now: what the mode comes to.
+    mobile: bool,
 }
 
 async fn targets_list(State(live): State<Live>) -> Json<Vec<TargetView>> {
@@ -391,9 +401,40 @@ async fn targets_list(State(live): State<Live>) -> Json<Vec<TargetView>> {
             width: target.width,
             height: target.height,
             scale: target.scale,
+            mode: target.mode,
+            mobile: target.mobile,
         })
         .collect();
     Json(targets)
+}
+
+/// A target as it looks now, small: for a list of the tabs. One picture of a tab is made
+/// in a while, whoever asks and however often, and whoever has it already is told so.
+async fn preview(
+    State(live): State<Live>,
+    RoutePath(id): RoutePath<String>,
+    headers: HeaderMap,
+) -> Result<Response, Refusal> {
+    let target = live.target(Some(&id))?;
+    let known: Vec<String> = live
+        .targets
+        .borrow()
+        .iter()
+        .map(|target| target.id.clone())
+        .collect();
+    let made = live.previews.of(&live.compositor, &target, &known).await?;
+    let caching = [
+        (header::ETAG, made.tag.clone()),
+        (header::CACHE_CONTROL, "private, no-cache".to_owned()),
+    ];
+    let has = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|tag| tag.to_str().ok());
+    if has == Some(made.tag.as_str()) {
+        return Ok((StatusCode::NOT_MODIFIED, caching).into_response());
+    }
+    let png = Body::from(made.png.clone());
+    Ok((caching, [(header::CONTENT_TYPE, "image/png")], png).into_response())
 }
 
 /// How a screenshot is asked for.
@@ -436,14 +477,29 @@ async fn viewport_set(
     Json(asked): Json<ViewportView>,
 ) -> Result<StatusCode, Refusal> {
     let target = live.target(Some(&id))?;
-    live.compositor.set_viewport(
-        target.window,
-        Viewport {
-            width: asked.width,
-            height: asked.height,
-            scale: asked.scale.unwrap_or(target.scale),
-        },
-    );
+    live.tabs
+        .resize(&target.id, asked.width, asked.height, asked.scale);
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct ModeView {
+    mode: Mode,
+    /// Whether the page loads again where the tab comes to be shown another way; it does
+    /// when left out.
+    reload: Option<bool>,
+}
+
+/// Sets how a target's pages are shown. `auto` leaves the tab as it is shown until
+/// someone holds it: whoever asks here has no device to go by.
+async fn mode_set(
+    State(live): State<Live>,
+    RoutePath(id): RoutePath<String>,
+    Json(asked): Json<ModeView>,
+) -> Result<StatusCode, Refusal> {
+    let target = live.target(Some(&id))?;
+    let reload = asked.reload.unwrap_or(true);
+    live.tabs.set_mode(&target.id, asked.mode, None, reload);
     Ok(StatusCode::NO_CONTENT)
 }
 

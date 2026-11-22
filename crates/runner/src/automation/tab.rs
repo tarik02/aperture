@@ -190,20 +190,27 @@ impl TabSession {
     /// what the compositor has no input for, which goes to the page as it is.
     async fn deliver(&self, method: &str, params: &Value) -> Option<()> {
         let window = self.window()?;
+        // The page's pixels, which a window has more of where the page is narrower than
+        // a window gets.
+        let zoom = {
+            let targets = self.targets.borrow();
+            let target = targets.iter().find(|target| target.id == self.target);
+            target.map_or(1.0, |target| target.zoom)
+        };
         let (input, settles) = match (method, params["type"].as_str()?) {
             ("Input.dispatchMouseEvent", "mouseMoved") => (
                 Input::PointerMotion {
                     window,
-                    x: params["x"].as_f64()?,
-                    y: params["y"].as_f64()?,
+                    x: params["x"].as_f64()? * zoom,
+                    y: params["y"].as_f64()? * zoom,
                 },
                 false,
             ),
             ("Input.dispatchMouseEvent", kind @ ("mousePressed" | "mouseReleased")) => (
                 Input::PointerButton {
                     window,
-                    x: params["x"].as_f64()?,
-                    y: params["y"].as_f64()?,
+                    x: params["x"].as_f64()? * zoom,
+                    y: params["y"].as_f64()? * zoom,
                     button: match params["button"].as_str()? {
                         "left" => Button::Left,
                         "right" => Button::Right,
@@ -230,7 +237,7 @@ impl TabSession {
         let now = self.recordings.now();
         match &input {
             Input::PointerMotion { x, y, .. } => {
-                let fields = json!({ "x": x, "y": y });
+                let fields = json!({ "x": x / zoom, "y": y / zoom });
                 self.recordings
                     .note(Some(&self.target), "move", now, fields);
             }
@@ -241,8 +248,8 @@ impl TabSession {
                 ..
             } => {
                 let fields = json!({
-                    "x": x,
-                    "y": y,
+                    "x": x / zoom,
+                    "y": y / zoom,
                     "button": params["button"],
                     "count": params["clickCount"].as_u64().unwrap_or(1),
                 });

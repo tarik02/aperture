@@ -1,11 +1,13 @@
 //! Screenshots of targets, kept in the session's files next to its recordings.
 
 use std::{
+    collections::HashMap,
     path::Path,
-    time::{SystemTime, UNIX_EPOCH},
+    sync::{Arc, Mutex},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use aperture_compositor::Frame;
+use aperture_compositor::{Frame, Handle};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
@@ -17,6 +19,81 @@ const DIRECTORY: &str = "screenshots";
 pub const PREVIEW_WIDTH: u32 = 480;
 
 const PREVIEW: &str = ".preview.png";
+
+/// How wide the small picture of a tab is, for a list of the tabs.
+const TAB_WIDTH: u32 = 360;
+/// How long a tab's small picture stands for the tab before another is made.
+const TAB_FRESH_FOR: Duration = Duration::from_secs(2);
+
+/// A tab's small picture.
+pub struct TabPreview {
+    pub png: Vec<u8>,
+    /// What tells this picture from any other, as an entity tag.
+    pub tag: String,
+    made: Instant,
+}
+
+/// A tab's small picture as it was last made. Whoever asks for it while it is made waits
+/// for that one.
+type Made = Arc<tokio::sync::Mutex<Option<Arc<TabPreview>>>>;
+
+/// The small pictures of the tabs, each made no more than once in a while.
+#[derive(Default)]
+pub struct Previews {
+    /// By target.
+    made: Mutex<HashMap<String, Made>>,
+}
+
+impl Previews {
+    /// The target's small picture: the one there is while it is fresh, a new one after.
+    /// `known` are the targets there are, whose pictures are kept.
+    pub async fn of(
+        &self,
+        compositor: &Handle,
+        target: &crate::targets::Target,
+        known: &[String],
+    ) -> Result<Arc<TabPreview>, aperture_compositor::Error> {
+        let slot = {
+            let mut made = self.made.lock().expect("not poisoned");
+            made.retain(|id, _| known.contains(id));
+            made.entry(target.id.clone()).or_default().clone()
+        };
+        let mut slot = slot.lock().await;
+        if let Some(fresh) = slot
+            .as_ref()
+            .filter(|preview| preview.made.elapsed() < TAB_FRESH_FOR)
+        {
+            return Ok(fresh.clone());
+        }
+        let frame = compositor.screenshot(target.window).await?;
+        let encoded = tokio::task::spawn_blocking(move || {
+            let (width, height, rgba) = if frame.width > TAB_WIDTH {
+                shrunk(&frame, TAB_WIDTH)
+            } else {
+                (frame.width, frame.height, frame.rgba)
+            };
+            encode_png(width, height, rgba)
+        });
+        let png = encoded
+            .await
+            .map_err(|err| aperture_compositor::Error::Render(err.to_string()))?
+            .map_err(|err| aperture_compositor::Error::Render(err.to_string()))?;
+        // The same picture as before keeps its tag, so whoever has it is told so.
+        let tag = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            png.hash(&mut hasher);
+            format!("\"{:016x}\"", hasher.finish())
+        };
+        let preview = Arc::new(TabPreview {
+            png,
+            tag,
+            made: Instant::now(),
+        });
+        *slot = Some(preview.clone());
+        Ok(preview)
+    }
+}
 
 /// What is told of a screenshot, next to its picture.
 const KEPT: &str = ".screenshot.json";

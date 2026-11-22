@@ -4,6 +4,7 @@ use aperture_compositor::Cursor;
 use aperture_runner::Area;
 
 use super::{Client, Grant};
+use crate::targets::Mode;
 use crate::{
     files::Progress,
     live::sound,
@@ -110,6 +111,13 @@ impl Client {
                 width: target.width,
                 height: target.height,
                 scale: target.scale,
+                mode: match target.mode {
+                    Mode::Auto => pb::PageMode::PAGE_MODE_AUTO,
+                    Mode::Desktop => pb::PageMode::PAGE_MODE_DESKTOP,
+                    Mode::Mobile => pb::PageMode::PAGE_MODE_MOBILE,
+                }
+                .into(),
+                mobile: target.mobile,
                 sounds: sounding.contains(&target.browser_tab),
                 ..Default::default()
             })

@@ -6,10 +6,16 @@ use browse_core::{TabInfo, TabOptions, Tool, ToolContext, ToolOutput, ToolSpec};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::live::record::Recordings;
+use crate::{
+    live::record::Recordings,
+    targets::{self, Mode, Target},
+};
 
-/// The session's tabs: which there are, opening one, closing one.
-pub(super) struct TabsTool;
+/// The session's tabs: which there are, opening one, closing one, and how one is shown.
+pub(super) struct TabsTool {
+    pub targets: tokio::sync::watch::Receiver<Vec<Target>>,
+    pub shown: targets::Tabs,
+}
 
 #[async_trait]
 impl Tool for TabsTool {
@@ -17,18 +23,28 @@ impl Tool for TabsTool {
         ToolSpec {
             name: "tabs".into(),
             description: "The session's tabs. `list` (the default) gives each tab's number, \
-                DevTools target id, url and title; `new` opens one, at `url` when given, and \
-                returns it; `close` closes `tab`."
+                DevTools target id, url, title, viewport, and how its pages are shown: its \
+                `mode` (`auto`, `desktop` or `mobile`) and whether that is `mobile` now. \
+                `new` opens one, at `url` when given, and returns it; `close` closes `tab`. \
+                `mode` sets `tab`'s `mode`: `mobile` shows its pages as on a phone (a phone's \
+                user agent and client hints, touch, a phone's viewport), `desktop` as on a \
+                desktop, and either stays until it is set again. With `auto`, the default, \
+                the tab is shown as on whatever device the person who last took it over \
+                uses, and nothing changes while people only watch: set `desktop` or \
+                `mobile` for a tab that has to stay one. The page loads again when its tab \
+                comes to be shown another way, unless `reload` is false."
                 .into(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "action": { "type": "string", "enum": ["list", "new", "close"] },
+                    "action": { "type": "string", "enum": ["list", "new", "close", "mode"] },
                     "url": { "type": "string", "description": "new: the page to open." },
                     "tab": {
                         "type": ["integer", "string"],
-                        "description": "close: the tab's number or target id.",
+                        "description": "close, mode: the tab's number or target id.",
                     },
+                    "mode": { "type": "string", "enum": ["auto", "desktop", "mobile"] },
+                    "reload": { "type": "boolean", "description": "mode: load the page again (default true)." },
                 },
             }),
         }
@@ -36,10 +52,26 @@ impl Tool for TabsTool {
 
     async fn call(&self, ctx: ToolContext, args: Value) -> anyhow::Result<ToolOutput> {
         let targets = |tabs: Vec<TabInfo>| {
+            let shown = self.targets.borrow();
             let listed: Vec<Value> = tabs
                 .into_iter()
                 .map(|tab| {
-                    json!({ "tab": tab.tab, "target": tab.chosen, "url": tab.url, "title": tab.title })
+                    let target = shown
+                        .iter()
+                        .find(|target| Some(&target.id) == tab.chosen.as_ref());
+                    json!({
+                        "tab": tab.tab,
+                        "target": tab.chosen,
+                        "url": tab.url,
+                        "title": tab.title,
+                        "mode": target.map(|target| target.mode),
+                        "mobile": target.map(|target| target.mobile),
+                        "viewport": target.map(|target| json!({
+                            "width": target.width,
+                            "height": target.height,
+                            "scale": target.scale,
+                        })),
+                    })
                 })
                 .collect();
             ToolOutput::text(Value::from(listed).to_string())
@@ -48,6 +80,8 @@ impl Tool for TabsTool {
         struct Asked {
             action: Option<String>,
             url: Option<String>,
+            mode: Option<Mode>,
+            reload: Option<bool>,
         }
         let asked: Asked = serde_json::from_value(args.clone()).context("invalid arguments")?;
         match asked.action.as_deref().unwrap_or("list") {
@@ -62,7 +96,29 @@ impl Tool for TabsTool {
                 ctx.browser.close_tab(tab).await?;
                 Ok(ToolOutput::text(format!("closed tab {tab}")))
             }
-            other => bail!("unknown action {other}; use list, new or close"),
+            "mode" => {
+                let tab = browse_core::require_tab(&args)?;
+                let mode = asked
+                    .mode
+                    .context("pass the `mode`: auto, desktop or mobile")?;
+                let tabs = ctx.browser.tabs().await?;
+                let named = tabs.into_iter().find(|listed| listed.tab == tab);
+                let target = named.and_then(|tab| tab.chosen).context("no such tab")?;
+                let reload = asked.reload.unwrap_or(true);
+                anyhow::ensure!(
+                    self.shown.set_mode(&target, mode, None, reload),
+                    "no such tab"
+                );
+                // What the tab is by now, which is told a moment after it is set.
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                let tabs = ctx.browser.tabs().await?;
+                Ok(targets(
+                    tabs.into_iter()
+                        .filter(|listed| listed.tab == tab)
+                        .collect(),
+                ))
+            }
+            other => bail!("unknown action {other}; use list, new, close or mode"),
         }
     }
 }

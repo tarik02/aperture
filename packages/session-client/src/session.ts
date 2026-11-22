@@ -9,7 +9,7 @@ import * as Queue from "effect/Queue";
 import * as Result from "effect/Result";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
-import { type Address, fileUrl, screenshotUrl, socketUrl } from "./address.ts";
+import { type Address, fileUrl, previewUrl, screenshotUrl, socketUrl } from "./address.ts";
 import * as Clipboard from "./clipboard.ts";
 import { CODECS, decodable, waysHere } from "./codecs.ts";
 import type { SessionError } from "./errors.ts";
@@ -30,6 +30,8 @@ import {
   FORMATS,
   LEASE_ACTIONS,
   type LeaseAction,
+  PAGE_MODES,
+  type PageMode,
   menuOf,
   type Picture,
   type PictureSettings,
@@ -140,6 +142,8 @@ export interface SessionService {
   ) => Effect.Effect<void>;
   /** Gives the watched target another scale and leaves its size, fitted or not, as it is. */
   readonly setScale: (scale: number) => Effect.Effect<void>;
+  /** Sets how the watched tab's pages are shown, for a member that holds the tab. */
+  readonly setMode: (mode: PageMode) => Effect.Effect<void>;
   readonly setPicture: (change: PictureChange) => Effect.Effect<void>;
   /**
    * Mutes a tab for this client, or lets it be heard again. A tab is heard while it is
@@ -186,6 +190,8 @@ export interface SessionService {
   readonly fileUrl: (path: string) => string;
   /** The target as it looks now; `width` asks for a smaller picture, that many pixels wide. */
   readonly screenshotUrl: (tab: number, width?: number) => string;
+  /** The target as it looked a moment ago, small: for a list of the tabs. */
+  readonly previewUrl: (tab: number) => string;
   readonly recordings: {
     readonly list: Effect.Effect<Http.Recording[], SessionError>;
     readonly get: (id: string) => Effect.Effect<Http.Recording, SessionError>;
@@ -227,6 +233,25 @@ const SOUND_SETTLES_MS = 300;
 
 const pixels = (side: number) => Math.max(0, Math.round(side));
 
+/** The widest the shorter side of a phone's window is, in CSS pixels. */
+const PHONE_WITHIN = 600;
+/**
+ * The most pixels a page shown as on a phone draws to one of its own, unless it is given
+ * another scale: a phone's screen has three and more, and a picture of that many is three
+ * times the video of one of two, which reads as well on a screen that small.
+ */
+const SHARPEST = 2;
+
+/**
+ * Whether this is a phone: a finger is what points, and the window is narrow. A tablet
+ * and a laptop with a touch screen are none.
+ */
+const onPhone = () =>
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(pointer: coarse)").matches &&
+  Math.min(window.innerWidth, window.innerHeight) <= PHONE_WITHIN;
+
 /**
  * Connects to a session. Closing the scope unwires what is attached, ends the picture's
  * WebRTC connection and decoder, then the sound, then the session socket.
@@ -256,6 +281,7 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
     muted: [],
     menu: undefined,
     fit: false,
+    phone: onPhone(),
   };
   const listeners = new Set<() => void>();
   const clipboardListeners = new Set<(event: ClipboardEvent) => void>();
@@ -310,6 +336,7 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
   const socket = yield* Socket.open(socketUrl(address), {
     opened: () => {
       update({ connection: { state: "open" } });
+      socket.send({ case: "device", value: { phone: snapshot.phone } });
       runFork(start());
     },
     message: (message) => receive(message),
@@ -752,12 +779,17 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
     return !presence.members.some((one) => one.id !== presence.you && one.tab === target.tab);
   };
 
-  /** The target that was last fitted because it was this member's to size. */
-  let followed: number | undefined;
+  /**
+   * The target that was last fitted because it was this member's to size, and whether it
+   * was shown as on a phone then: it is fitted another way once that changes.
+   */
+  let followed: string | undefined;
 
   /** Fits the watched target once it becomes this member's to size, and each one that does. */
   const follow = () => {
-    const mine = fitting && free() ? snapshot.selected : undefined;
+    const target = watched();
+    const mine =
+      fitting && target !== undefined && free() ? `${target.tab} ${target.mobile}` : undefined;
     if (mine === followed) {
       return;
     }
@@ -772,25 +804,40 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
    * `unasked` is for what no one chose just now, such as the window changing its size.
    */
   const fit = (unasked: boolean) => {
-    if (!fitting || attached === undefined || watched() === undefined) {
+    const target = watched();
+    if (!fitting || attached === undefined || target === undefined) {
       return;
     }
     if (unasked && !free()) {
       return;
     }
     const { clientWidth, clientHeight } = attached.stage;
-    if (clientWidth > 0 && clientHeight > 0) {
-      // A stage narrower than a browser's window gets has a page of its shape, shown
-      // smaller: one of the stage's height would leave bands above and below it.
-      const widened = Math.max(1, NARROWEST / clientWidth);
-      send({
-        case: "viewport",
-        value: {
-          width: Math.round(clientWidth * widened),
-          height: Math.round(clientHeight * widened),
-        },
-      });
+    if (clientWidth <= 0 || clientHeight <= 0) {
+      return;
     }
+    if (target.mobile) {
+      // A phone's page has the size of a phone: of this one, where this is one, each of
+      // its pixels as many of the screen's as the screen has, up to what is worth sending.
+      if (snapshot.phone) {
+        const scale = Math.min(Math.max(window.devicePixelRatio, 1), SHARPEST);
+        send({ case: "viewport", value: { width: clientWidth, height: clientHeight, scale } });
+      } else if (target.mode === "auto") {
+        // A tab that goes by its holder is a desktop's once this member holds it, and is
+        // fitted then. One that was set to be a phone's keeps the size it has.
+        send({ case: "lease", value: { action: LEASE_ACTIONS.take } });
+      }
+      return;
+    }
+    // A stage narrower than a browser's window gets has a page of its shape, shown
+    // smaller: one of the stage's height would leave bands above and below it.
+    const widened = Math.max(1, NARROWEST / clientWidth);
+    send({
+      case: "viewport",
+      value: {
+        width: Math.round(clientWidth * widened),
+        height: Math.round(clientHeight * widened),
+      },
+    });
   };
 
   const listed = async (files: readonly File[]) => {
@@ -875,6 +922,33 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
     }
     runFork(hello());
   };
+
+  // What this client is used from changes as its window does: a phone turned on its side
+  // is still one, a window made narrow under a mouse is none.
+  if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
+    const coarse = window.matchMedia("(pointer: coarse)");
+    const looked = () => {
+      const phone = onPhone();
+      if (phone === snapshot.phone) {
+        return;
+      }
+      update({ phone });
+      socket.send({ case: "device", value: { phone } });
+      followed = undefined;
+      follow();
+    };
+    yield* Effect.acquireRelease(
+      Effect.sync(() => {
+        window.addEventListener("resize", looked);
+        coarse.addEventListener("change", looked);
+      }),
+      () =>
+        Effect.sync(() => {
+          window.removeEventListener("resize", looked);
+          coarse.removeEventListener("change", looked);
+        }),
+    );
+  }
 
   // Registered last, so that it runs first: nothing that ends after it starts anything.
   yield* Effect.addFinalizer(() =>
@@ -968,6 +1042,8 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
           send({ case: "viewport", value: { width, height, scale } });
         }
       }),
+    setMode: (mode) =>
+      Effect.sync(() => send({ case: "setMode", value: { mode: PAGE_MODES[mode] } })),
     setPicture: (change) => Effect.sync(() => setPicture(change)),
     setMuted: (tab, muted) =>
       Effect.sync(() => {
@@ -997,6 +1073,7 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
       ),
     fileUrl: (path) => fileUrl(address, path),
     screenshotUrl: (tab, width) => screenshotUrl(address, tab, width),
+    previewUrl: (tab) => previewUrl(address, tab),
     recordings: {
       list: Http.listRecordings(address),
       get: (id) => Http.getRecording(address, id),

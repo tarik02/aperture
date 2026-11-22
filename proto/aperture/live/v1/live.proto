@@ -50,6 +50,8 @@ message ClientMessage {
     Follow follow = 19;
     Draw draw = 20;
     Pointing pointing = 21;
+    Device device = 22;
+    SetMode set_mode = 23;
   }
 }
 
@@ -497,6 +499,35 @@ enum Asked {
   ASKED_COPY_PICTURE = 3;
   ASKED_FILES_CHOSEN = 4;
   ASKED_FOLLOW = 5;
+  ASKED_SET_MODE = 6;
+}
+
+// What the client is used from. A client says so after `hello`, and again when it changes.
+message Device {
+  // A phone: a finger points at it, and its screen is narrow. A tab whose mode is
+  // `PAGE_MODE_AUTO` shows its pages as on a phone while a client that is one holds it.
+  bool phone = 1;
+}
+
+// How a tab's pages are shown.
+enum PageMode {
+  PAGE_MODE_UNSPECIFIED = 0;
+  // As on what its holder uses: as on a phone once a client that is a phone holds the
+  // tab, and as on a desktop once one that is none does. Watching changes nothing, and
+  // neither does the session's automation, which has no device: the tab stays as it was.
+  // A page that is there when this changes is left as it loaded; the pages that load
+  // after are asked for as the tab is by then.
+  PAGE_MODE_AUTO = 1;
+  PAGE_MODE_DESKTOP = 2;
+  // As on a phone: a phone's user agent and client hints, touch in place of a mouse, and
+  // a viewport pages lay themselves out for as for a phone's.
+  PAGE_MODE_MOBILE = 3;
+}
+
+// Sets the mode of the tab the client watches, for a client that holds it. Where that
+// changes how the tab's pages are shown, the page is loaded again, as it is then.
+message SetMode {
+  PageMode mode = 1;
 }
 
 // Asks for a picture the watched target's page shows. The session answers with
@@ -557,7 +588,9 @@ message Clipboard {
 // pixels, and how many pixels the page draws to each of them (its `devicePixelRatio`).
 // It is the target's: every client that watches it sees it. A target starts with the
 // session's. The session gives the nearest it can: a side of 64 to 4096, a scale of 0.5
-// to 4, and no more than 4096 pixels a side; `targets` tells what it gave.
+// to 4, and no more than 4096 pixels a side; `targets` tells what it gave. A page shown
+// as on a desktop is no narrower than the browser makes a window, 500; one shown as on a
+// phone is.
 message Viewport {
   uint32 width = 1;
   uint32 height = 2;
@@ -586,6 +619,10 @@ message Target {
   // The page's history has somewhere to go back to, and forward.
   bool goes_back = 9;
   bool goes_forward = 10;
+  // How the tab's pages are shown, as it was set.
+  PageMode mode = 11;
+  // The tab's pages are shown as on a phone now: what `mode` comes to.
+  bool mobile = 12;
 }
 
 // Every target of the session, oldest first. Sent after `hello` and whenever a target
