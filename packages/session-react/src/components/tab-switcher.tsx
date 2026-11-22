@@ -3,18 +3,25 @@ import { Plus, Smartphone, X } from "lucide-react";
 import type { Presence, Session, Target } from "@aperture-browser/session-client";
 import { Button } from "@aperture-browser/ui/components/button";
 import {
-  Sheet,
-  SheetClose,
-  SheetContent,
-  SheetDescription,
-  SheetTitle,
-} from "@aperture-browser/ui/components/sheet";
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerDescription,
+  DrawerTitle,
+} from "@aperture-browser/ui/components/drawer";
 import { cn } from "@aperture-browser/ui/utils";
 import { useInputState } from "../hooks/use-actions.ts";
+import { useShortWindow } from "../hooks/use-media.ts";
 import { useSession, useSessionSnapshot } from "../session.tsx";
 import { useWorkbench } from "../workbench/context.tsx";
 import { TabFavicon, tabLabel } from "./browser-tab-strip.tsx";
 import { automationName, MemberDot } from "./session-presence.tsx";
+
+/**
+ * How much of the window's height the sheet takes: as it opens, and dragged up. A window
+ * as short as a phone's on its side has the one height.
+ */
+const HEIGHTS = [0.6, 1];
 
 /** How often the picture of a tab that is in view is asked for again. */
 const PICTURE_EVERY_MS = 4000;
@@ -29,30 +36,43 @@ export interface TabSwitcherProps {
 
 /**
  * The session's tabs as cards, each with a small picture of its page: the way from one tab
- * to another where there is no room for a row of them.
+ * to another where there is no room for a row of them. It is a sheet over the window's
+ * foot, part of the way up, that is dragged up for more of them and down to be rid of it;
+ * a tab that is chosen and a press beside it are rid of it as well.
  */
 export function TabSwitcher({ open, onOpenChange }: TabSwitcherProps) {
   const session = useSession();
   const snapshot = useSessionSnapshot();
   const { features, targetFaviconUrl } = useWorkbench();
   const { changes } = useInputState();
+  const short = useShortWindow();
   const { targets, presence } = snapshot;
+  const [height, setHeight] = useState<number | string | null>(HEIGHTS[0] ?? null);
+  // Each time it opens it is part of the way up again.
+  useEffect(() => {
+    if (open) {
+      setHeight(HEIGHTS[0] ?? null);
+    }
+  }, [open]);
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="bottom"
-        showCloseButton={false}
+    <Drawer
+      open={open}
+      onOpenChange={onOpenChange}
+      {...(short ? {} : { snapPoints: HEIGHTS, snapPoint: height, onSnapPointChange: setHeight })}
+    >
+      <DrawerContent
         data-workbench-tab-switcher=""
-        className="aperture:gap-0 aperture:data-[side=bottom]:h-[calc(100dvh-var(--keyboard-inset,0px)-env(safe-area-inset-top)-1.5rem)] aperture:rounded-t-2xl aperture:pr-[env(safe-area-inset-right)] aperture:pb-[env(safe-area-inset-bottom)] aperture:pl-[env(safe-area-inset-left)]"
+        data-height={short ? "full" : height === HEIGHTS[0] ? "part" : "full"}
+        className="aperture:h-[calc(100dvh-env(safe-area-inset-top)-1.5rem)] aperture:pr-[env(safe-area-inset-right)] aperture:pl-[env(safe-area-inset-left)]"
       >
-        <div className="aperture:flex aperture:h-14 aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:pr-2 aperture:pl-4">
-          <SheetTitle className="aperture:min-w-0 aperture:flex-1 aperture:truncate">
+        <div className="aperture:flex aperture:h-13 aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:pr-3 aperture:pl-4 aperture:select-none">
+          <DrawerTitle className="aperture:min-w-0 aperture:flex-1 aperture:truncate">
             {targets.length === 1 ? "1 tab" : `${targets.length} tabs`}
-          </SheetTitle>
-          <SheetDescription className="aperture:sr-only">
+          </DrawerTitle>
+          <DrawerDescription className="aperture:sr-only">
             The session's tabs. Choose one to watch it.
-          </SheetDescription>
+          </DrawerDescription>
           <Button
             type="button"
             variant="secondary"
@@ -66,11 +86,10 @@ export function TabSwitcher({ open, onOpenChange }: TabSwitcherProps) {
             <Plus />
             New tab
           </Button>
-          <SheetClose render={<Button type="button" variant="ghost" />}>Done</SheetClose>
         </div>
-        <div
+        <DrawerBody
           role="list"
-          className="aperture:grid aperture:min-h-0 aperture:flex-1 aperture:auto-rows-min aperture:grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] aperture:gap-3 aperture:overflow-y-auto aperture:overscroll-contain aperture:px-3 aperture:pt-1 aperture:pb-4"
+          className="aperture:grid aperture:auto-rows-min aperture:grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] aperture:gap-3 aperture:px-3 aperture:pt-1 aperture:pb-[max(1rem,env(safe-area-inset-bottom))]"
         >
           {targets.map((target) => (
             <TabCard
@@ -78,7 +97,7 @@ export function TabSwitcher({ open, onOpenChange }: TabSwitcherProps) {
               target={target}
               active={target.tab === snapshot.selected}
               presence={features.presence ? presence : undefined}
-              faviconSrc={targetFaviconUrl?.(target)}
+              faviconSrc={targetFaviconUrl(target)}
               closes={changes}
               onSelect={() => {
                 session.select(target.tab);
@@ -87,9 +106,9 @@ export function TabSwitcher({ open, onOpenChange }: TabSwitcherProps) {
               onClose={() => session.closeTab(target.tab)}
             />
           ))}
-        </div>
-      </SheetContent>
-    </Sheet>
+        </DrawerBody>
+      </DrawerContent>
+    </Drawer>
   );
 }
 
@@ -207,7 +226,7 @@ function TabPicture({ target, asked }: { target: Target; asked: boolean }) {
   const session = useSession();
   const src = useTabPicture(session, target, asked);
   return (
-    <div className="aperture:aspect-[5/6] aperture:w-full aperture:overflow-hidden aperture:bg-muted">
+    <div className="aperture:aspect-[4/3] aperture:w-full aperture:overflow-hidden aperture:bg-muted">
       {src === undefined ? null : (
         <img
           src={src}

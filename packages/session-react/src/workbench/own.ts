@@ -5,6 +5,14 @@ import {
   PageTextItems,
 } from "../components/page-menu.tsx";
 import { PageModeItem } from "../components/page-mode.tsx";
+import {
+  PhoneClipboardItem,
+  PhoneDrawItem,
+  PhoneFilesItem,
+  PhoneRecordingItem,
+  PhoneTypeItem,
+  PhoneViewItem,
+} from "../components/phone-menu.tsx";
 import { PictureItems, PointersItem, ViewportItems } from "../components/picture-menu.tsx";
 import {
   KeptItems,
@@ -121,6 +129,40 @@ export const workbenchContributions: readonly WorkbenchContribution[] = [
     slot: "menu.browser",
     group: "session",
     order: 1000,
+    component: ReconnectItem,
+  },
+
+  { id: "phone.lease", slot: "menu.phone", group: "lease", order: 100, component: LeaseItems },
+  { id: "phone.type", slot: "menu.phone", group: "input", order: 200, component: PhoneTypeItem },
+  {
+    id: "phone.clipboard",
+    slot: "menu.phone",
+    group: "input",
+    order: 300,
+    component: PhoneClipboardItem,
+  },
+  { id: "phone.draw", slot: "menu.phone", group: "input", order: 400, component: PhoneDrawItem },
+  { id: "phone.page-mode", slot: "menu.phone", group: "page", order: 500, component: PageModeItem },
+  {
+    id: "phone.files",
+    slot: "menu.phone",
+    group: "session",
+    order: 600,
+    component: PhoneFilesItem,
+  },
+  {
+    id: "phone.recording",
+    slot: "menu.phone",
+    group: "session",
+    order: 700,
+    component: PhoneRecordingItem,
+  },
+  { id: "phone.view", slot: "menu.phone", group: "view", order: 900, component: PhoneViewItem },
+  {
+    id: "phone.reconnect",
+    slot: "menu.phone",
+    group: "connection",
+    order: 1100,
     component: ReconnectItem,
   },
 

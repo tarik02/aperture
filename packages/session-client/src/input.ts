@@ -39,6 +39,8 @@ export interface Wiring {
   /** The right button went down at a place, where a menu the session reports is shown. */
   readonly menuAt: (at: Point) => void;
   readonly dismissMenu: () => void;
+  /** A finger moved the page by this much, in the target's pixels, or flung it on. */
+  readonly dragged: (by: Point) => void;
   /** The stage has another size. */
   readonly resized: () => void;
   readonly failed: (what: string, cause: unknown) => void;
@@ -196,11 +198,13 @@ export const wire = Effect.fn("Input.wire")(function* (surfaces: Surfaces, wirin
       send({ case: "pointerButton", value: { ...at, button: pressedButton, pressed: false } });
     };
 
-    const scroll = (at: Point, by: Point) =>
+    const scroll = (at: Point, by: Point) => {
       send({
         case: "pointerScroll",
         value: { ...at, dx: by.x / NOTCH.pixels, dy: by.y / NOTCH.pixels },
       });
+      wiring.dragged(by);
+    };
 
     const fling = (at: Point, speed: Point) => {
       let before = performance.now();

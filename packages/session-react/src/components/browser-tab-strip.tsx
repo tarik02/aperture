@@ -78,7 +78,7 @@ export function BrowserTabStrip() {
               recording={recordingTabs.has(target.tab)}
               asksForFiles={snapshot.fileRequests.some((request) => request.tab === target.tab)}
               presence={showPresence ? presence : undefined}
-              faviconSrc={targetFaviconUrl?.(target)}
+              faviconSrc={targetFaviconUrl(target)}
               disabled={!open}
               changes={changes}
               previewHandle={previewHandle}

@@ -43,7 +43,7 @@ export interface Workbench {
   readonly drawing: boolean;
   readonly setDrawing: (drawing: boolean) => void;
   readonly appearance: Appearance | undefined;
-  readonly targetFaviconUrl: ((target: Target) => string | undefined) | undefined;
+  readonly targetFaviconUrl: (target: Target) => string | undefined;
 }
 
 const WorkbenchContext = createContext<Workbench | null>(null);
@@ -60,8 +60,8 @@ export interface WorkbenchProviderProps {
   /** Lets the browser menu change the theme. */
   readonly appearance?: Appearance | undefined;
   /**
-   * A tab's icon. Without it tabs show none: the session does not tell a page's icon, and
-   * asking the page's site for it would tell that site who watches.
+   * A tab's icon, in place of the one the session fetches for its page. The session's
+   * own browser asks the page's site for it, which is told nothing of who watches.
    */
   readonly targetFaviconUrl?: ((target: Target) => string | undefined) | undefined;
   readonly children?: ReactNode;
@@ -88,6 +88,9 @@ export function WorkbenchProvider({
   usePageModeNotices();
   useRememberedFit(fit);
 
+  const session = useSession();
+  const faviconUrl = targetFaviconUrl ?? session.faviconUrl;
+
   const [viewed, view] = useState<string | undefined>(undefined);
   const [drawing, setDrawing] = useState(false);
   useEscapeEndsDrawing(drawing, setDrawing);
@@ -102,9 +105,9 @@ export function WorkbenchProvider({
       drawing,
       setDrawing,
       appearance,
-      targetFaviconUrl,
+      targetFaviconUrl: faviconUrl,
     }),
-    [features, recordings, contributions, viewed, drawing, appearance, targetFaviconUrl],
+    [features, recordings, contributions, viewed, drawing, appearance, faviconUrl],
   );
   return <WorkbenchContext.Provider value={value}>{children}</WorkbenchContext.Provider>;
 }
@@ -236,12 +239,14 @@ function usePageModeNotices() {
       return;
     }
     toast(
-      watched.mobile ? "This tab is shown as on a phone" : "This tab is shown as on a desktop",
+      watched.mobile
+        ? "This tab is now shown as on a phone"
+        : "This tab is now shown as on a desktop",
       {
         id: "aperture-session-page-mode",
         description: watched.mobile
-          ? "Reload if the page still looks like a desktop's."
-          : "Reload if the page still looks like a phone's.",
+          ? "Reload it if the page still has its desktop layout."
+          : "Reload it if the page still has its phone layout.",
         duration: 8000,
         action: { label: "Reload", onClick: () => session.go({ along: "reload" }) },
       },

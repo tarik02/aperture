@@ -23,6 +23,7 @@ import type {
   Snapshot,
   StrokePhase,
   StrokePoint,
+  Target,
 } from "./model.ts";
 import {
   type ConnectOptions,
@@ -149,6 +150,14 @@ export interface Session {
    * the session did not do, with the reason.
    */
   readonly onFailure: (listener: (failure: Failure) => void) => () => void;
+  /**
+   * A finger moved the watched tab's page, by this much of the target's pixels each time:
+   * down the page where `y` is more than nothing. It tells what the finger did, whether
+   * or not the page had anywhere to go.
+   */
+  readonly onDragged: (
+    listener: (by: { readonly x: number; readonly y: number }) => void,
+  ) => () => void;
   /** Where the other members' pointers are on the watched tab, as they move. */
   readonly onPointer: (listener: (pointer: PointerMark) => void) => () => void;
   /** The strokes the other members draw over the watched tab, point by point. */
@@ -195,6 +204,12 @@ export interface Session {
    * one in a while, however often it is asked.
    */
   readonly previewUrl: (tab: number) => string;
+  /**
+   * The icon of the target's page, which the session fetches as its browser does anything
+   * else of the page: the page's site is told nothing of who watches. None for a page
+   * that is not of the web.
+   */
+  readonly faviconUrl: (target: Target) => string | undefined;
   readonly recordings: {
     readonly list: () => Promise<Recording[]>;
     readonly get: (id: string) => Promise<Recording>;
@@ -250,6 +265,7 @@ export const connect = (options: ConnectOptions): Session => {
     writeClipboard: (forms) => Effect.runSync(session.writeClipboard(forms)),
     onClipboard: session.onClipboard,
     onFailure: session.onFailure,
+    onDragged: session.onDragged,
     onPointer: session.onPointer,
     onStroke: session.onStroke,
     follow: (member) => Effect.runSync(session.follow(member)),
@@ -266,6 +282,7 @@ export const connect = (options: ConnectOptions): Session => {
     fileUrl: session.fileUrl,
     screenshotUrl: session.screenshotUrl,
     previewUrl: session.previewUrl,
+    faviconUrl: session.faviconUrl,
     recordings: {
       list: () => promised(session.recordings.list),
       get: (id) => promised(session.recordings.get(id)),

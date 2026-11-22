@@ -56,5 +56,15 @@ export const screenshotUrl = (address: Address, tab: number, width?: number) => 
 export const previewUrl = (address: Address, tab: number) =>
   authenticated(address, UrlPath.make`/targets/${tab}/preview.png`).toString();
 
+/**
+ * The icon of the tab's page, fetched by the session. `site` is what the page is of: the
+ * icon is kept by its address here, and another site's is another address.
+ */
+export const faviconUrl = (address: Address, tab: number, site: string) => {
+  const url = authenticated(address, UrlPath.make`/targets/${tab}/favicon`);
+  url.searchParams.set("of", site);
+  return url.toString();
+};
+
 export const headers = (address: Address): Record<string, string> =>
   address.token === undefined ? {} : { Authorization: `Bearer ${address.token}` };

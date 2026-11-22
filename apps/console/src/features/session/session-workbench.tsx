@@ -2,7 +2,6 @@ import type { Session } from "@aperture-browser/session-client";
 import {
   ApertureSession,
   type ApertureTheme,
-  usePhone,
   type WorkbenchContribution,
 } from "@aperture-browser/session-react";
 import { Button } from "@aperture-browser/ui/components/button";
@@ -111,6 +110,10 @@ const expose = (session: Session | null) => {
 /** What is done with the session that is open, for the workbench's own menu. */
 const Actions = createContext<ReadonlyArray<SessionAction>>([]);
 
+function SessionItems() {
+  return <SessionActionsSubmenu actions={useContext(Actions)} />;
+}
+
 /**
  * What the console adds to the workbench. The way to the sidebar, which has no title bar
  * of the console's here: it stands before the tabs, where a narrow window and a finger
@@ -130,14 +133,11 @@ const CONTRIBUTIONS: ReadonlyArray<WorkbenchContribution> = [
   {
     // A phone's workbench has no title bar: the way to the sidebar is in its menu.
     id: "console.sidebar.phone",
-    slot: "menu.browser",
-    group: "console.session",
-    order: 40,
+    slot: "menu.phone",
+    group: "console",
+    order: 1000,
     component: function SidebarItem() {
       const { toggleSidebar } = useSidebar();
-      if (!usePhone()) {
-        return null;
-      }
       return (
         <DropdownMenuItem data-console-sidebar-trigger onClick={toggleSidebar}>
           <PanelLeft />
@@ -151,9 +151,14 @@ const CONTRIBUTIONS: ReadonlyArray<WorkbenchContribution> = [
     slot: "menu.browser",
     group: "console.session",
     order: 50,
-    component: function SessionItems() {
-      return <SessionActionsSubmenu actions={useContext(Actions)} />;
-    },
+    component: SessionItems,
+  },
+  {
+    id: "console.session.phone",
+    slot: "menu.phone",
+    group: "session",
+    order: 800,
+    component: SessionItems,
   },
 ];
 

@@ -1542,53 +1542,148 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         expect(yield* page.evaluate(title, Schema.String)).toBe("scrolled");
         yield* shot(page, fs, "console-phone-workbench");
 
-        // A phone's workbench is the picture with one bar below it, in place of a browser's
-        // rows above it: all of it is on the screen, and what is pressed in it is large
-        // enough for a finger.
+        // A phone's workbench is the picture with one bar over its foot, in place of a
+        // browser's rows above it. The finger that moved the page down put the bar away:
+        // a small mark stands for it, and the picture has all the room there is.
+        const phone = "[data-workbench-phone]";
         const bar = "[data-workbench-phone-bar]";
-        expect(
-          yield* page.evaluate(
-            `(() => {
-              const box = (selector) => document.querySelector(selector)?.getBoundingClientRect();
-              const bar = box(${JSON.stringify(bar)});
-              // Without who else is in the session, which is there when someone is.
-              const pressed = [...document.querySelectorAll(${JSON.stringify(`${bar} button:not([data-session-presence])`)})];
-              return {
-                rows: document.querySelectorAll("[data-workbench-titlebar], [data-workbench-toolbar]").length,
-                below: box("[data-aperture-stage]").bottom <= bar.top,
-                within: bar.left >= 0 && bar.right <= innerWidth && bar.bottom <= innerHeight,
-                pressed: pressed.map((one) => one.getAttribute("aria-label").replace(/\\d+/u, "n")),
-                large: pressed.every((one) => {
-                  const size = one.getBoundingClientRect();
-                  return size.width >= 40 && size.height >= 40;
-                }),
-              };
-            })()`,
-          ),
-        ).toEqual({
-          rows: 0,
-          below: true,
-          within: true,
-          pressed: ["Back", "Forward", "Address", "Tabs: n", "Menu"],
-          large: true,
-        });
+        const mark = "[data-workbench-phone-mark]";
+        const barAt = `document.querySelector(${JSON.stringify(phone)}).dataset.bar`;
+        const still = (selector: string) =>
+          page.until(
+            `document.querySelector(${JSON.stringify(selector)}).getAnimations({ subtree: true }).every((one) => one.playState === "finished")`,
+          );
+        /** A finger put down, moved from one place to another, and lifted after a rest. */
+        const drawn = (x: number, from: number, to: number) =>
+          Effect.gen(function* () {
+            const touch = (type: string, y?: number) =>
+              page.cdp.call("Input.dispatchTouchEvent", {
+                type,
+                touchPoints: y === undefined ? [] : [{ x, y }],
+              });
+            yield* touch("touchStart", from);
+            for (let step = 1; step <= 10; step += 1) {
+              yield* touch("touchMove", from + ((to - from) * step) / 10);
+              yield* Effect.sleep("16 millis");
+            }
+            // A finger that rests before it is lifted flings nothing on.
+            yield* Effect.sleep("150 millis");
+            yield* touch("touchEnd");
+          });
+        const tapAt = (x: number, y: number) =>
+          Effect.gen(function* () {
+            yield* page.cdp.call("Input.dispatchTouchEvent", {
+              type: "touchStart",
+              touchPoints: [{ x, y }],
+            });
+            yield* page.cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+          });
         // The finger that scrolled holds the tab, from a phone: its pages are a phone's.
         const watched = `apertureSession.getSnapshot().targets.find((target) => target.tab === apertureSession.getSnapshot().selected)`;
         yield* page.until(`${watched}.mobile && ${watched}.width === innerWidth`, "20 seconds");
+        yield* page.until(`${barAt} === "away"`);
+        const sized = `${watched}.width + "x" + ${watched}.height`;
+        const size = yield* page.evaluate(sized, Schema.String);
+        expect(
+          yield* page.evaluate(
+            `(() => {
+              const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+              const all = box(${JSON.stringify(phone)});
+              const stage = box("[data-aperture-stage]");
+              return {
+                rows: document.querySelectorAll("[data-workbench-titlebar], [data-workbench-toolbar]").length,
+                fills: stage.top === all.top && stage.bottom === all.bottom && stage.width === all.width,
+                page: ${watched}.height === Math.round(stage.height),
+                bar: document.querySelector(${JSON.stringify(bar)}).inert,
+              };
+            })()`,
+          ),
+        ).toEqual({ rows: 0, fills: true, page: true, bar: true });
+        yield* still(phone);
+        yield* shot(page, fs, "console-phone-workbench-bar-away");
 
-        // The address is typed across the bar, and left with what it was.
+        // Pressing the mark brings the bar back, over the picture and within the screen,
+        // with the way back alone before the address, and what is pressed in it large
+        // enough for a finger. The page that was flung is at rest by then.
+        yield* Effect.sleep("1500 millis");
+        yield* page.click(mark);
+        yield* page.until(`${barAt} === "shown"`);
+        yield* still(phone);
+        yield* shot(page, fs, "console-phone-workbench-bar");
+        const laid = `(() => {
+          const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+          const pill = box("[data-workbench-phone-pill]");
+          const stage = box("[data-aperture-stage]");
+          // Without who else is in the session, which is there when someone is.
+          const pressed = [...document.querySelectorAll(${JSON.stringify(`${bar} button:not([data-session-presence])`)})];
+          return {
+            over: pill.top >= stage.top && pill.bottom <= stage.bottom,
+            within: pill.left >= 0 && pill.right <= innerWidth && pill.bottom <= innerHeight,
+            pressed: pressed.map((one) => one.getAttribute("aria-label").replace(/\\d+/u, "n")),
+            large: pressed.every((one) => {
+              const size = one.getBoundingClientRect();
+              return size.width >= 40 && size.height >= 40;
+            }),
+          };
+        })()`;
+        expect(yield* page.evaluate(laid)).toEqual({
+          over: true,
+          within: true,
+          pressed: ["Back", "Address", "Tabs: n", "Menu"],
+          large: true,
+        });
+
+        // Moving the page down puts the bar away and moving it up brings it back, and the
+        // page has the size it had through all of it: nothing of it is drawn anew.
+        yield* drawn(stage.x, stage.y + 100, stage.y - 20);
+        yield* page.until(`${barAt} === "away"`);
+        yield* drawn(stage.x, stage.y - 20, stage.y + 40);
+        yield* page.until(`${barAt} === "shown"`);
+        yield* Effect.sleep("500 millis");
+        expect(yield* page.evaluate(sized, Schema.String)).toBe(size);
+
+        // Swiped down, the bar is away as well; and the mark, swiped down, is gone too,
+        // for a page that has something of its own under it, until the page is moved up.
+        const pill = yield* page.box("[data-workbench-phone-pill]");
+        yield* drawn(pill.x, pill.y, pill.y + 40);
+        yield* page.until(`${barAt} === "away"`);
+        yield* still(phone);
+        const small = yield* page.box(mark);
+        yield* drawn(small.x, small.y - 4, small.y + 8);
+        yield* page.until(`${barAt} === "gone"`);
+        expect(
+          yield* page.evaluate(
+            `document.querySelector(${JSON.stringify(mark)}).closest("[inert]") !== null`,
+          ),
+        ).toBe(true);
+        yield* drawn(stage.x, stage.y - 20, stage.y + 40);
+        yield* page.until(`${barAt} === "shown"`);
+        yield* still(phone);
+
+        // The address is typed across the bar, which stays while it is, whatever a finger
+        // does with the page meanwhile; and it is left with what it was.
         yield* page.click("[data-workbench-address-button]");
         yield* page.until(
           `document.activeElement === document.querySelector("[data-workbench-address]")`,
         );
         expect(yield* page.evaluate(`document.activeElement.value === ${watched}.url`)).toBe(true);
+        yield* drawn(stage.x, stage.y + 100, stage.y - 100);
+        expect(
+          yield* page.evaluate(
+            `${barAt} === "shown" && document.activeElement === document.querySelector("[data-workbench-address]")`,
+          ),
+        ).toBe(true);
         yield* shot(page, fs, "console-phone-workbench-address");
         yield* page.key("Escape", "Escape", 27);
         yield* page.until(`!!document.querySelector("[data-workbench-address-button]")`);
+        expect(yield* page.evaluate(sized, Schema.String)).toBe(size);
 
-        // The tabs are cards with a picture each, and pressing one goes to its tab.
+        // The tabs are a sheet of cards with a picture each, part of the way up the
+        // window at first.
         const switcher = "[data-workbench-tab-switcher]";
         const tabs = `apertureSession.getSnapshot().targets`;
+        const height = `document.querySelector('${switcher}')?.dataset.height`;
+        const top = `document.querySelector('${switcher}').getBoundingClientRect().top`;
         yield* page.click("[data-workbench-tabs]");
         yield* page.until(
           `document.querySelectorAll('${switcher} [data-tab-card]').length === ${tabs}.length && ${tabs}.length > 1`,
@@ -1597,29 +1692,52 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
           `document.querySelectorAll('${switcher} [data-tab-card-picture]').length === ${tabs}.length`,
           "20 seconds",
         );
-        yield* page.until(
-          `document.querySelector('${switcher}').getAnimations().every((one) => one.playState === "finished")`,
-        );
+        yield* still(switcher);
         yield* shot(page, fs, "console-phone-workbench-tabs");
         expect(
           yield* page.evaluate(
             `(() => {
               const cards = [...document.querySelectorAll('${switcher} [data-tab-card]')];
               return {
+                height: ${height},
+                part: ${top} > innerHeight * 0.3 && ${top} < innerHeight * 0.5,
                 watched: cards.filter((card) => card.hasAttribute("data-active")).map((card) => Number(card.dataset.tabCard)),
                 closes: cards.every((card) => {
                   const size = card.querySelector("[data-tab-card-close]").getBoundingClientRect();
                   return size.width >= 40 && size.height >= 40;
                 }),
                 page: document.documentElement.scrollWidth <= innerWidth,
+                bar: ${barAt},
               };
             })()`,
           ),
         ).toEqual({
+          height: "part",
+          part: true,
           watched: [yield* page.evaluate(`apertureSession.getSnapshot().selected`, Schema.Number)],
           closes: true,
           page: true,
+          bar: "shown",
         });
+        // Dragged up by its head it is whole, and dragged down it is gone.
+        const head = yield* page.evaluate(top, Schema.Number);
+        yield* drawn(stage.x, head + 30, 80);
+        yield* page.until(`${height} === "full" && ${top} < innerHeight * 0.1`);
+        yield* still(switcher);
+        yield* shot(page, fs, "console-phone-workbench-tabs-full");
+        yield* drawn(stage.x, (yield* page.evaluate(top, Schema.Number)) + 30, stage.y * 2 - 20);
+        yield* page.until(`!document.querySelector('${switcher}')`);
+        // A swipe up the bar opens it, and a press beside it is rid of it.
+        const swiped = yield* page.box("[data-workbench-phone-pill]");
+        yield* drawn(swiped.x, swiped.y, swiped.y - 60);
+        yield* page.until(`${height} === "part"`);
+        yield* still(switcher);
+        yield* tapAt(stage.x, 40);
+        yield* page.until(`!document.querySelector('${switcher}')`);
+        // And so is pressing a card, which goes to its tab.
+        yield* page.click("[data-workbench-tabs]");
+        yield* page.until(`${height} === "part"`);
+        yield* still(switcher);
         const other = yield* page.evaluate(
           `${tabs}.find((target) => target.tab !== apertureSession.getSnapshot().selected).tab`,
           Schema.Number,
@@ -1629,20 +1747,107 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
           `apertureSession.getSnapshot().selected === ${other} && !document.querySelector('${switcher}')`,
         );
 
-        // The menu has what the toolbar's buttons and the browser's menu do elsewhere, how
-        // the page is shown, what is done with the session, and the way to the sidebar.
+        // The menu is a sheet: what is done most as a row of buttons, the way forward
+        // among them, then the rest by kind, with what is done with the session and the
+        // way to the sidebar.
+        const menu = "[data-workbench-phone-menu]";
+        const sheet = `document.querySelector("[data-menu-sheet]").getBoundingClientRect()`;
+        const pageOf = (title: string) => `[data-menu-sheet-page="${title}"]`;
         yield* page.click("[data-workbench-menu]");
-        yield* page.until(`!!document.querySelector("[data-workbench-page-mode]")`);
-        yield* page.until(
-          `document.querySelector('[data-slot="dropdown-menu-content"]').getAnimations().every((one) => one.playState === "finished")`,
-        );
+        yield* page.until(`!!document.querySelector('${menu} [data-workbench-page-mode]')`);
+        yield* still(menu);
         yield* shot(page, fs, "console-phone-workbench-menu");
         expect(
           yield* page.evaluate(
-            `["[data-workbench-keyboard]", "[data-session-files-button]", "[data-workbench-page-mode]", "[data-console-session-submenu]", "[data-console-sidebar-trigger]"].filter((item) => document.querySelector('[data-slot="dropdown-menu-content"] ' + item) === null)`,
+            `["[data-phone-menu-forward]", "[data-phone-menu-reload]", "[data-phone-menu-copy-url]", "[data-phone-menu-new-tab]", "[data-workbench-keyboard]", "[data-phone-menu-page=clipboard]", "[data-workbench-page-mode]", "[data-session-files-button]", "[data-phone-menu-page=recording]", "[data-console-session-submenu]", "[data-phone-menu-page=view]", "[data-console-sidebar-trigger]"].filter((item) => document.querySelector('${menu} ' + item) === null)`,
           ),
         ).toEqual([]);
-        yield* page.click(`[data-slot="dropdown-menu-content"] [data-console-sidebar-trigger]`);
+        expect(
+          yield* page.evaluate(
+            `(() => {
+              const forward = document.querySelector('${menu} [data-phone-menu-forward]');
+              const sheet = ${sheet};
+              return {
+                forward: forward.hasAttribute("data-disabled") === !${watched}.goesForward,
+                foot: Math.round(sheet.bottom) === innerHeight && sheet.left === 0 && sheet.width === innerWidth,
+                rows: [...document.querySelectorAll('${menu} [role^=menuitem]')].every((row) => row.getBoundingClientRect().height >= 40),
+              };
+            })()`,
+          ),
+        ).toEqual({ forward: true, foot: true, rows: true });
+        // What has more to it is a page of the sheet, which slides in over it with the
+        // way back, and a page of a page is one as well: the sheet keeps its height.
+        const kept = yield* page.evaluate(`${sheet}.height`, Schema.Number);
+        yield* page.click(`${menu} [data-phone-menu-page=view]`);
+        yield* page.until(`!!document.querySelector('${pageOf("View")}')`);
+        yield* still(pageOf("View"));
+        yield* shot(page, fs, "console-phone-workbench-menu-view");
+        expect(
+          yield* page.evaluate(
+            `document.querySelector('${pageOf("View")}').getBoundingClientRect().height`,
+          ),
+        ).toBe(kept);
+        yield* page.click(`${pageOf("View")} [data-phone-menu-page=picture]`);
+        yield* page.until(`!!document.querySelector('${pageOf("Picture and viewport")}')`);
+        yield* still(pageOf("Picture and viewport"));
+        expect(
+          yield* page.evaluate(
+            `document.querySelector('${pageOf("Picture and viewport")}').getBoundingClientRect().height`,
+          ),
+        ).toBe(kept);
+        yield* page.click(`${pageOf("Picture and viewport")} [data-menu-sheet-back]`);
+        yield* page.until(`!document.querySelector('${pageOf("Picture and viewport")}')`);
+        // The bar is a slim one where that is chosen, which this browser remembers.
+        // The page that was left may still take the press that follows it: it is pressed
+        // again where it did not take.
+        const slim = `document.querySelector(${JSON.stringify(bar)}).hasAttribute("data-slim")`;
+        yield* Effect.gen(function* () {
+          if (!(yield* page.evaluate(slim, Schema.Boolean))) {
+            yield* page.click(`${pageOf("View")} [data-phone-menu-slim]`);
+          }
+          yield* page.until(slim, "3 seconds");
+        }).pipe(Effect.retry({ times: 4 }));
+        yield* page.click(`${pageOf("View")} [data-menu-sheet-back]`);
+        yield* page.until(`!document.querySelector('${pageOf("View")}')`);
+        yield* page.click(`${menu} [data-console-session-submenu]`);
+        yield* page.until(`!!document.querySelector('${pageOf("Session")}')`);
+        yield* still(pageOf("Session"));
+        yield* shot(page, fs, "console-phone-workbench-menu-session");
+        // A press beside the sheet is rid of it, whichever page it shows.
+        yield* tapAt(stage.x, 20);
+        yield* page.until(`!document.querySelector('${menu}')`);
+        yield* still(phone);
+        yield* shot(page, fs, "console-phone-workbench-compact");
+        expect(
+          yield* page.evaluate(
+            `document.querySelector("[data-workbench-phone-pill]").getBoundingClientRect().width < innerWidth * 0.8`,
+          ),
+        ).toBe(true);
+        expect(yield* page.evaluate(laid)).toEqual({
+          over: true,
+          within: true,
+          pressed: ["Back", "Address", "Tabs: n", "Menu"],
+          large: true,
+        });
+        yield* page.evaluate(`void location.reload()`);
+        yield* Viewer.ready(page);
+        yield* page.until(
+          `document.querySelector(${JSON.stringify(bar)})?.hasAttribute("data-slim") === true`,
+          "30 seconds",
+        );
+        yield* page.evaluate(`localStorage.removeItem("aperture.session.phone-bar.slim")`);
+
+        // Dragged down by its top the menu is gone.
+        yield* page.click("[data-workbench-menu]");
+        yield* page.until(`!!document.querySelector('${menu} [data-workbench-page-mode]')`);
+        yield* still(menu);
+        const grip = yield* page.box("[data-slot=dropdown-menu-sheet-grip]");
+        yield* drawn(grip.x, grip.y, grip.y + 160);
+        yield* page.until(`!document.querySelector('${menu}')`);
+        yield* page.click("[data-workbench-menu]");
+        yield* page.until(`!!document.querySelector('${menu} [data-console-sidebar-trigger]')`);
+        yield* still(menu);
+        yield* page.click(`${menu} [data-console-sidebar-trigger]`);
         yield* page.until(`!!document.querySelector('${drawer}')`);
         expect(page.errors()).toEqual([]);
         yield* page.close;

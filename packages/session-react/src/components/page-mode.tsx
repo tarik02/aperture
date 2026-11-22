@@ -38,7 +38,9 @@ export function PageModeItem() {
       >
         {watched?.mobile === true ? <Smartphone /> : <Monitor />}
         <span className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:justify-between aperture:gap-3">
-          <span className="aperture:shrink-0">Page mode</span>
+          <span data-menu-title="" className="aperture:shrink-0">
+            Page mode
+          </span>
           <span className="aperture:truncate aperture:text-muted-foreground">
             {watched?.mode === "auto" ? `Auto · ${shown}` : label}
           </span>

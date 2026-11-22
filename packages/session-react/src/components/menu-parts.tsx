@@ -55,7 +55,9 @@ export function SettingSubTrigger({
   return (
     <DropdownMenuSubTrigger disabled={disabled}>
       <span className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:justify-between aperture:gap-3">
-        <span className="aperture:shrink-0">{name}</span>
+        <span data-menu-title="" className="aperture:shrink-0">
+          {name}
+        </span>
         <span className="aperture:truncate aperture:text-muted-foreground">{value}</span>
       </span>
     </DropdownMenuSubTrigger>

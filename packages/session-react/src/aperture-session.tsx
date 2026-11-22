@@ -67,8 +67,10 @@ export function ApertureSession({
           richColors
           closeButton
           position="bottom-center"
-          // Above the bar a phone's workbench has at its foot.
-          mobileOffset={{ bottom: "5rem" }}
+          // Above the bar a phone's workbench has over its foot, and the keyboard.
+          mobileOffset={{
+            bottom: "calc(var(--keyboard-inset, 0px) + env(safe-area-inset-bottom, 0px) + 4.5rem)",
+          }}
         />
       )}
     </ApertureUIRoot>

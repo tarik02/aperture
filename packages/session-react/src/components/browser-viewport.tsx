@@ -100,7 +100,13 @@ export function BrowserViewport({ className }: BrowserViewportProps) {
       {open && showLease ? <MemberMarks /> : null}
       {open && showLease ? <LeaseOverlay /> : null}
       {open && showLease && lease.state === "view-only" ? (
-        <div className="aperture:pointer-events-none aperture:absolute aperture:bottom-2 aperture:left-2 aperture:z-10">
+        <div
+          className={cn(
+            "aperture:pointer-events-none aperture:absolute aperture:left-2 aperture:z-10",
+            // A phone's bar is over the picture's foot.
+            snapshot.phone ? "aperture:top-2" : "aperture:bottom-2",
+          )}
+        >
           <Badge variant="outline" className="aperture:bg-background/90" data-session-view-only="">
             <Eye />
             View only

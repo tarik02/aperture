@@ -9,7 +9,14 @@ import * as Queue from "effect/Queue";
 import * as Result from "effect/Result";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
-import { type Address, fileUrl, previewUrl, screenshotUrl, socketUrl } from "./address.ts";
+import {
+  type Address,
+  faviconUrl,
+  fileUrl,
+  previewUrl,
+  screenshotUrl,
+  socketUrl,
+} from "./address.ts";
 import * as Clipboard from "./clipboard.ts";
 import { CODECS, decodable, waysHere } from "./codecs.ts";
 import type { SessionError } from "./errors.ts";
@@ -41,6 +48,7 @@ import {
   type StrokePhase,
   type StrokePoint,
   strokeOf,
+  type Target,
   type PictureWay,
   PIXELS,
   featuresOf,
@@ -104,6 +112,14 @@ export interface SessionService {
   /** What this client asked for and the session did not do. */
   readonly failures: Stream.Stream<Failure>;
   readonly onFailure: (listener: (failure: Failure) => void) => () => void;
+  /**
+   * A finger moved the watched tab's page, by this much of the target's pixels each time:
+   * down the page where `y` is more than nothing. It tells what the finger did, whether
+   * or not the page had anywhere to go.
+   */
+  readonly onDragged: (
+    listener: (by: { readonly x: number; readonly y: number }) => void,
+  ) => () => void;
   /** Where the other members' pointers are on the watched tab, as they move. */
   readonly onPointer: (listener: (pointer: PointerMark) => void) => () => void;
   /** The strokes the other members draw over the watched tab, point by point. */
@@ -192,6 +208,12 @@ export interface SessionService {
   readonly screenshotUrl: (tab: number, width?: number) => string;
   /** The target as it looked a moment ago, small: for a list of the tabs. */
   readonly previewUrl: (tab: number) => string;
+  /**
+   * The icon of the target's page, which the session fetches as its browser does anything
+   * else of the page: the page's site is told nothing of who watches. None for a page
+   * that is not of the web.
+   */
+  readonly faviconUrl: (target: Target) => string | undefined;
   readonly recordings: {
     readonly list: Effect.Effect<Http.Recording[], SessionError>;
     readonly get: (id: string) => Effect.Effect<Http.Recording, SessionError>;
@@ -312,6 +334,13 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
     clipboardListeners.add(listener);
     return () => {
       clipboardListeners.delete(listener);
+    };
+  };
+  const draggedListeners = new Set<(by: { readonly x: number; readonly y: number }) => void>();
+  const onDragged: SessionService["onDragged"] = (listener) => {
+    draggedListeners.add(listener);
+    return () => {
+      draggedListeners.delete(listener);
     };
   };
   const failureListeners = new Set<(failure: Failure) => void>();
@@ -860,6 +889,11 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
       menuAt = at;
     },
     dismissMenu: () => update({ menu: undefined }),
+    dragged: (by) => {
+      for (const listener of draggedListeners) {
+        listener(by);
+      }
+    },
     resized: () => fit(true),
     failed: (what, cause) => {
       runFork(Effect.logWarning(`${what} did not reach the session`, cause));
@@ -989,6 +1023,7 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
       ),
     ),
     onFailure,
+    onDragged,
     onPointer: listening(pointerListeners),
     onStroke: listening(strokeListeners),
     follow: (member) =>
@@ -1074,6 +1109,10 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
     fileUrl: (path) => fileUrl(address, path),
     screenshotUrl: (tab, width) => screenshotUrl(address, tab, width),
     previewUrl: (tab) => previewUrl(address, tab),
+    faviconUrl: (target) => {
+      const site = /^https?:\/\/[^/?#]+/u.exec(target.url)?.[0];
+      return site === undefined ? undefined : faviconUrl(address, target.tab, site);
+    },
     recordings: {
       list: Http.listRecordings(address),
       get: (id) => Http.getRecording(address, id),
