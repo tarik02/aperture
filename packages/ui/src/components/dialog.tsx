@@ -34,11 +34,29 @@ if (typeof window !== "undefined") {
   );
 }
 
-function Dialog({ onOpenChange, ...props }: DialogPrimitive.Root.Props) {
+function Dialog({
+  onOpenChange,
+  dismissible = true,
+  ...props
+}: DialogPrimitive.Root.Props & {
+  /**
+   * Whether Escape and a press beside it close it. Not where it shows what is shown once:
+   * that is closed by a button of its own, and by nothing done in passing.
+   */
+  dismissible?: boolean;
+}) {
   return (
     <DialogPrimitive.Root
       data-slot="dialog"
       onOpenChange={(open, details) => {
+        if (
+          !open &&
+          !dismissible &&
+          (details.reason === "escape-key" || details.reason === "outside-press")
+        ) {
+          details.cancel();
+          return;
+        }
         // Escape closes what opened last: a list that is open over the dialog, and not the
         // dialog with what was typed into it.
         if (!open && details.reason === "escape-key" && forPopup.has(details.event)) {
@@ -69,6 +87,8 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
   return (
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
+      // Over a dialog it opened from as well: that one is behind it, and is seen to be.
+      forceRender
       className={cn(
         "aperture:fixed aperture:inset-0 aperture:isolate aperture:z-50 aperture:bg-black/10 aperture:duration-100 aperture:supports-backdrop-filter:backdrop-blur-xs aperture:data-open:animate-in aperture:data-open:fade-in-0 aperture:data-closed:animate-out aperture:data-closed:fade-out-0",
         className,

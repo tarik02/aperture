@@ -95,7 +95,7 @@ export function AppSidebar({ collapsible }: { collapsible: "icon" | "offcanvas" 
       </SidebarContent>
       <SidebarFooter className="aperture:gap-2">
         <ThemeToggle />
-        <AuthMenu />
+        <AuthMenu icons={collapsible === "icon"} />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

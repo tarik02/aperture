@@ -3,7 +3,6 @@ import { Button } from "@aperture-browser/ui/components/button";
 import { Checkbox } from "@aperture-browser/ui/components/checkbox";
 import {
   Field,
-  FieldDescription,
   FieldError,
   FieldLabel,
   FieldLegend,
@@ -190,7 +189,7 @@ function Consent({ asked }: { asked: Asked }) {
         <form.Field
           name="scopes"
           validators={{
-            onSubmit: ({ value }) => (value.length === 0 ? "Tick at least one scope" : undefined),
+            onSubmit: ({ value }) => (value.length === 0 ? "Tick at least one scope." : undefined),
           }}
         >
           {(field) => {
@@ -229,7 +228,7 @@ function Consent({ asked }: { asked: Asked }) {
                     </label>
                   ))}
                 </div>
-                <FieldError>{said}</FieldError>
+                <FieldError reserved>{said}</FieldError>
               </FieldSet>
             );
           }}
@@ -239,7 +238,7 @@ function Consent({ asked }: { asked: Asked }) {
           validators={{
             onSubmit: ({ value }) =>
               value !== null && value.length === 0
-                ? "Choose at least one workspace, session or snapshot"
+                ? "Choose at least one workspace, session or snapshot."
                 : undefined,
           }}
         >
@@ -261,19 +260,14 @@ function Consent({ asked }: { asked: Asked }) {
                   }
                 />
                 {field.state.value === null ? null : (
-                  <>
-                    <TokenResourcesPicker
-                      id={resourcesId}
-                      chosen={field.state.value}
-                      invalid={said !== undefined}
-                      onChange={field.handleChange}
-                    />
-                    <FieldDescription>
-                      A workspace stands for all the sessions and snapshots in it.
-                    </FieldDescription>
-                  </>
+                  <TokenResourcesPicker
+                    id={resourcesId}
+                    chosen={field.state.value}
+                    invalid={said !== undefined}
+                    onChange={field.handleChange}
+                  />
                 )}
-                <FieldError>{said}</FieldError>
+                <FieldError reserved>{said}</FieldError>
               </Field>
             );
           }}
@@ -282,7 +276,7 @@ function Consent({ asked }: { asked: Asked }) {
           <Button type="button" variant="outline" data-console-consent-deny onClick={deny}>
             Deny
           </Button>
-          <Button type="submit" data-console-consent-allow disabled={submitting}>
+          <Button type="submit" data-console-consent-allow pending={submitting}>
             Connect
           </Button>
         </div>

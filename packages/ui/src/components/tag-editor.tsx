@@ -149,12 +149,9 @@ export function TagEditor({ entries, onChange, error, disabled, hideLabel }: Tag
             )}
           </TableBody>
         </Table>
+        {/* Its line is kept while it says nothing: what stands below the tags does not move. */}
+        <FieldError reserved>{error}</FieldError>
       </Field>
-      {error ? (
-        <Field data-invalid>
-          <FieldError>{error}</FieldError>
-        </Field>
-      ) : null}
     </FieldGroup>
   );
 }

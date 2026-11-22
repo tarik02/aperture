@@ -33,7 +33,7 @@ export function CopyButton({
       await navigator.clipboard.writeText(value);
       setCopied(true);
     } catch {
-      toast.error("The browser did not let this page copy");
+      toast.error("The browser did not let this page copy.");
     }
   };
 

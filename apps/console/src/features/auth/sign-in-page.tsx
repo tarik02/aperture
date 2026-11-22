@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { CodeInput } from "#/components/code-input.tsx";
 import { TextField } from "#/components/text-field.tsx";
 import { AuthCard } from "#/features/auth/auth-card.tsx";
+import { takePasswordSet } from "#/features/auth/password-set.ts";
 import { continueWith, refusal, useProvidersQuery } from "#/features/auth/sso.ts";
 import { callAs, carry, told } from "#/lib/api.ts";
 import {
@@ -19,18 +20,14 @@ import {
   stopAsking,
 } from "#/lib/identity.ts";
 import { queryKeys } from "#/lib/query-keys.ts";
+import { tellSigned } from "#/lib/sign.ts";
 import { keepToken } from "#/lib/token.ts";
 import { all, email, required } from "#/lib/validation.ts";
 
 type Way = "password" | "token" | "code" | "backup-code";
 
-function Refused({ error }: { error: unknown }) {
-  return (
-    <p role="alert" className="aperture:text-sm aperture:text-destructive aperture:wrap-anywhere">
-      {told(error, "You were not signed in.")}
-    </p>
-  );
-}
+/** What a refusal says, for the line a field keeps for it. */
+const refusedWith = (error: unknown) => told(error, "You were not signed in.");
 
 function Another({ children, ...button }: React.ComponentProps<typeof Button>) {
   return (
@@ -43,11 +40,14 @@ function Another({ children, ...button }: React.ComponentProps<typeof Button>) {
 /** Who is signed in is asked anew: by the token, or by the cookies there are now. */
 const useSignedIn = () => {
   const queries = useQueryClient();
-  return () =>
-    Promise.all([
+  return () => {
+    // The other tabs of this browser carry the same cookies now.
+    tellSigned("in");
+    return Promise.all([
       queries.invalidateQueries({ queryKey: queryKeys.account }),
       queries.invalidateQueries({ queryKey: queryKeys.person }),
     ]);
+  };
 };
 
 /**
@@ -72,11 +72,11 @@ export function SignInPage() {
 }
 
 /** The providers there are, each a way in beside the password; why one signed nobody in. */
-function Providers() {
+function Providers({ onRefused }: { onRefused: (error: unknown) => void }) {
   const router = useRouter();
   const providers = useProvidersQuery();
   const [refused] = useState(refusal);
-  const leaving = useMutation({ mutationFn: continueWith });
+  const leaving = useMutation({ mutationFn: continueWith, onError: onRefused });
 
   // What a provider answered is told once, and is not in the address for the next try.
   useEffect(() => {
@@ -99,8 +99,7 @@ function Providers() {
           Continue with {provider.name}
         </Button>
       ))}
-      {leaving.isError ? <Refused error={leaving.error} /> : null}
-      {refused === undefined || leaving.isError ? null : (
+      {refused === undefined ? null : (
         <p
           role="alert"
           data-console-sso-refused
@@ -117,11 +116,12 @@ function Providers() {
  * A passkey, which signs in by itself: asked for with a button, and offered where the
  * address is typed by a browser that does that.
  */
-function WithPasskey() {
+function WithPasskey({ onRefused }: { onRefused: (error: unknown) => void }) {
   const signedIn = useSignedIn();
   const { mutate, ...signing } = useMutation({
     mutationFn: signInWithPasskey,
     onSuccess: (answer) => (answer === "signed-in" ? signedIn() : undefined),
+    onError: (error) => (calledOff(error) ? undefined : onRefused(error)),
   });
 
   useEffect(() => {
@@ -137,19 +137,16 @@ function WithPasskey() {
     return null;
   }
   return (
-    <>
-      <Button
-        type="button"
-        variant="outline"
-        data-console-sign-in-passkey
-        // What is offered where the address is typed waits for as long as the page is there.
-        disabled={(signing.isPending && signing.variables !== true) || signing.data === "signed-in"}
-        onClick={() => mutate(false)}
-      >
-        Sign in with a passkey
-      </Button>
-      {signing.isError && !calledOff(signing.error) ? <Refused error={signing.error} /> : null}
-    </>
+    <Button
+      type="button"
+      variant="outline"
+      data-console-sign-in-passkey
+      // What is offered where the address is typed waits for as long as the page is there.
+      disabled={(signing.isPending && signing.variables !== true) || signing.data === "signed-in"}
+      onClick={() => mutate(false)}
+    >
+      Sign in with a passkey
+    </Button>
   );
 }
 
@@ -160,10 +157,18 @@ function WithPassword({ onWay }: { onWay: (way: Way) => void }) {
       signIn(given.email.trim(), given.password),
     onSuccess: (answer) => (answer === "signed-in" ? signedIn() : onWay("code")),
   });
+  /** What a passkey or a provider was refused with: the last way that was tried says why. */
+  const [otherwise, setOtherwise] = useState<unknown>();
+  // Whoever just set a password with a link that did not sign them in is told it worked.
+  const [passwordSet] = useState(takePasswordSet);
+  const refused = signing.isError ? signing.error : otherwise;
   const form = useForm({
     defaultValues: { email: "", password: "" },
     // What it fails with is shown below the fields.
-    onSubmit: ({ value }) => signing.mutateAsync(value).catch(() => undefined),
+    onSubmit: ({ value }) => {
+      setOtherwise(undefined);
+      return signing.mutateAsync(value).catch(() => undefined);
+    },
   });
   const submitting = useStore(form.store, (state) => state.isSubmitting);
 
@@ -177,6 +182,15 @@ function WithPassword({ onWay }: { onWay: (way: Way) => void }) {
         void form.handleSubmit();
       }}
     >
+      {passwordSet ? (
+        <p
+          role="status"
+          data-console-password-set
+          className="aperture:text-center aperture:text-sm aperture:text-muted-foreground"
+        >
+          Your password is set. Sign in with it.
+        </p>
+      ) : null}
       <form.Field name="email" validators={{ onSubmit: all(required("An email"), email) }}>
         {(field) => (
           <TextField
@@ -195,15 +209,25 @@ function WithPassword({ onWay }: { onWay: (way: Way) => void }) {
             label="Password"
             type="password"
             autoComplete="current-password"
+            refused={refused === undefined ? undefined : refusedWith(refused)}
           />
         )}
       </form.Field>
-      {signing.isError ? <Refused error={signing.error} /> : null}
-      <Button type="submit" disabled={submitting}>
+      <Button type="submit" pending={submitting}>
         Sign in
       </Button>
-      <WithPasskey />
-      <Providers />
+      <WithPasskey
+        onRefused={(error) => {
+          signing.reset();
+          setOtherwise(error);
+        }}
+      />
+      <Providers
+        onRefused={(error) => {
+          signing.reset();
+          setOtherwise(error);
+        }}
+      />
       <div className="aperture:flex aperture:justify-center aperture:gap-4">
         <Another data-console-sign-in-way onClick={() => onWay("token")}>
           Use an API token
@@ -247,11 +271,11 @@ function WithToken({ onWay }: { onWay: (way: Way) => void }) {
             autoComplete="off"
             autoFocus
             placeholder="apc_…"
+            refused={signing.isError ? refusedWith(signing.error) : undefined}
           />
         )}
       </form.Field>
-      {signing.isError ? <Refused error={signing.error} /> : null}
-      <Button type="submit" disabled={submitting}>
+      <Button type="submit" pending={submitting}>
         Sign in
       </Button>
       <div className="aperture:flex aperture:justify-center aperture:gap-4">
@@ -301,16 +325,24 @@ function WithCode({ way, onWay }: { way: "code" | "backup-code"; onWay: (way: Wa
             <CodeInput
               value={field.state.value}
               onChange={field.handleChange}
-              error={field.state.meta.errors.find((error) => typeof error === "string")}
+              error={
+                field.state.meta.errors.find((error) => typeof error === "string") ??
+                (signing.isError ? refusedWith(signing.error) : undefined)
+              }
               onComplete={() => (submitting ? undefined : void form.handleSubmit())}
             />
           ) : (
-            <TextField field={field} label="Backup code" autoComplete="off" autoFocus />
+            <TextField
+              field={field}
+              label="Backup code"
+              autoComplete="off"
+              autoFocus
+              refused={signing.isError ? refusedWith(signing.error) : undefined}
+            />
           )
         }
       </form.Field>
-      {signing.isError ? <Refused error={signing.error} /> : null}
-      <Button type="submit" disabled={submitting}>
+      <Button type="submit" pending={submitting}>
         Sign in
       </Button>
       <div className="aperture:flex aperture:justify-center aperture:gap-4">

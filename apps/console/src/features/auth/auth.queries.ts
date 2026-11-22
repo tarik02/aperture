@@ -8,8 +8,8 @@ import {
   renewBackupCodes,
   turnSecondFactorOff,
 } from "#/lib/identity.ts";
-import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { queryKeys } from "#/lib/query-keys.ts";
+import { noteSignedIn } from "#/lib/sign.ts";
 import { useToken } from "#/lib/token.ts";
 
 /**
@@ -21,7 +21,11 @@ export function useAccountQuery() {
   const token = useToken();
   return useQuery({
     queryKey: [...queryKeys.account, token ?? null],
-    queryFn: () => call((api) => api.accounts.current()),
+    queryFn: async () => {
+      const account = await call((api) => api.accounts.current());
+      noteSignedIn();
+      return account;
+    },
     staleTime: Infinity,
   });
 }
@@ -44,10 +48,11 @@ export function usePasskeysQuery(enabled: boolean) {
   return useQuery({ queryKey: queryKeys.passkeys, queryFn: passkeys, enabled });
 }
 
+// What these fail with is said at the field of the form that asked, by the form.
+
 export function useEnrolMutation() {
   return useMutation({
     mutationFn: enrol,
-    onError: (error) => toastMutationError(error, "The second factor was not set up"),
   });
 }
 
@@ -55,7 +60,6 @@ export function useConfirmEnrolmentMutation() {
   const queries = useQueryClient();
   return useMutation({
     mutationFn: giveCode,
-    onError: (error) => toastMutationError(error, "The code was not taken"),
     onSuccess: () => queries.invalidateQueries({ queryKey: queryKeys.person }),
   });
 }
@@ -63,7 +67,6 @@ export function useConfirmEnrolmentMutation() {
 export function useRenewBackupCodesMutation() {
   return useMutation({
     mutationFn: renewBackupCodes,
-    onError: (error) => toastMutationError(error, "No new backup codes were made"),
   });
 }
 
@@ -71,7 +74,6 @@ export function useTurnSecondFactorOffMutation() {
   const queries = useQueryClient();
   return useMutation({
     mutationFn: turnSecondFactorOff,
-    onError: (error) => toastMutationError(error, "The second factor was not turned off"),
     onSuccess: () => queries.invalidateQueries({ queryKey: queryKeys.person }),
   });
 }

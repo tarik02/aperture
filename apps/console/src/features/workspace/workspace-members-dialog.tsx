@@ -21,6 +21,7 @@ import { Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { Choice } from "#/components/choice.tsx";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
+import { LinesSkeleton } from "#/components/list-skeleton.tsx";
 import { TextField } from "#/components/text-field.tsx";
 import { type Account, useAccountsQuery } from "#/features/account/account.queries.ts";
 import { useMay } from "#/features/auth/access.ts";
@@ -72,13 +73,13 @@ export function WorkspaceMembersDialog({
     try {
       const person = await call((api) => api.accounts.lookup({ query: { email: address.trim() } }));
       if (inside.has(person.id)) {
-        return `${person.name} is a member already`;
+        return `${person.name} is a member already.`;
       }
       found.current = person.id;
       return undefined;
     } catch (error) {
       return isFailure(error) && error._tag === "PersonNotFound"
-        ? "Nobody signs in with this address"
+        ? "Nobody signs in with this address."
         : told(error, "The address was not looked up");
     }
   };
@@ -164,12 +165,13 @@ export function WorkspaceMembersDialog({
                 />
               )}
             </form.Field>
-            <Button type="submit" disabled={submitting}>
+            <Button type="submit" pending={submitting}>
               Add
             </Button>
           </form>
         ) : null}
         <DialogBody>
+          {members.isPending ? <LinesSkeleton /> : null}
           <ul data-console-members className="aperture:grid aperture:gap-2">
             {members.data?.map((member) => (
               <li

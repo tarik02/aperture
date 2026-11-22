@@ -10,14 +10,13 @@ import {
 } from "@aperture-browser/ui/components/dialog";
 import {
   Field,
-  FieldDescription,
   FieldError,
   FieldLabel,
   FieldLegend,
   FieldSet,
 } from "@aperture-browser/ui/components/field";
 import { useForm, useStore } from "@tanstack/react-form";
-import { useId } from "react";
+import { useId, useState } from "react";
 import { Choice } from "#/components/choice.tsx";
 import { FreshDialog } from "#/components/fresh-dialog.tsx";
 import { TextField } from "#/components/text-field.tsx";
@@ -134,6 +133,8 @@ function CreateForm({
     },
   });
   const submitting = useStore(form.store, (state) => state.isSubmitting);
+  /** Whether what each scope lets a token do is said below it, and not only where a pointer rests. */
+  const [explained, setExplained] = useState(false);
 
   return (
     <form
@@ -157,7 +158,7 @@ function CreateForm({
         <form.Field
           name="scopes"
           validators={{
-            onSubmit: ({ value }) => (value.length === 0 ? "Tick at least one scope" : undefined),
+            onSubmit: ({ value }) => (value.length === 0 ? "Tick at least one scope." : undefined),
           }}
         >
           {(field) => {
@@ -167,10 +168,23 @@ function CreateForm({
                 className="aperture:gap-2"
                 data-invalid={said === undefined ? undefined : true}
               >
-                <FieldLegend variant="label">Scopes</FieldLegend>
-                <FieldDescription>
-                  It does what is ticked and nothing else. Writing includes reading.
-                </FieldDescription>
+                {/* What opens the words is beside the legend, above them: it stays where it was pressed. */}
+                <FieldLegend
+                  variant="label"
+                  className="aperture:flex aperture:w-full aperture:items-baseline aperture:justify-between aperture:gap-2"
+                >
+                  Scopes
+                  <Button
+                    type="button"
+                    variant="link"
+                    data-console-scopes-explain
+                    aria-expanded={explained}
+                    className="aperture:h-auto aperture:p-0 aperture:text-xs aperture:font-normal aperture:text-muted-foreground"
+                    onClick={() => setExplained(!explained)}
+                  >
+                    {explained ? "Hide what they do" : "What they do"}
+                  </Button>
+                </FieldLegend>
                 <div
                   data-slot="checkbox-group"
                   className="aperture:grid aperture:gap-x-4 aperture:gap-y-2 aperture:sm:grid-cols-2"
@@ -178,6 +192,7 @@ function CreateForm({
                   {offered.map((one) => (
                     <label
                       key={one.scope}
+                      title={one.lets}
                       className="aperture:flex aperture:items-start aperture:gap-2.5 aperture:text-sm"
                     >
                       <Checkbox
@@ -195,12 +210,16 @@ function CreateForm({
                       />
                       <span className="aperture:grid aperture:gap-0.5">
                         <span className="aperture:font-mono aperture:text-xs">{one.scope}</span>
-                        <span className="aperture:text-muted-foreground">{one.lets}</span>
+                        {explained ? (
+                          <span className="aperture:text-muted-foreground">{one.lets}</span>
+                        ) : null}
                       </span>
                     </label>
                   ))}
                 </div>
-                <FieldError ref={reveal}>{said}</FieldError>
+                <FieldError ref={reveal} reserved>
+                  {said}
+                </FieldError>
               </FieldSet>
             );
           }}
@@ -210,7 +229,7 @@ function CreateForm({
           validators={{
             onSubmit: ({ value }) =>
               value !== null && value.length === 0
-                ? "Choose at least one workspace, session or snapshot"
+                ? "Choose at least one workspace, session or snapshot."
                 : undefined,
           }}
         >
@@ -229,20 +248,16 @@ function CreateForm({
                   }
                 />
                 {field.state.value === null ? null : (
-                  <>
-                    <TokenResourcesPicker
-                      id={resourcesId}
-                      chosen={field.state.value}
-                      invalid={said !== undefined}
-                      onChange={field.handleChange}
-                    />
-                    <FieldDescription>
-                      A workspace stands for all the sessions and snapshots in it, those made later
-                      as well.
-                    </FieldDescription>
-                  </>
+                  <TokenResourcesPicker
+                    id={resourcesId}
+                    chosen={field.state.value}
+                    invalid={said !== undefined}
+                    onChange={field.handleChange}
+                  />
                 )}
-                <FieldError ref={reveal}>{said}</FieldError>
+                <FieldError ref={reveal} reserved>
+                  {said}
+                </FieldError>
               </Field>
             );
           }}
@@ -266,7 +281,7 @@ function CreateForm({
         <Button type="button" variant="outline" onClick={onDone}>
           Cancel
         </Button>
-        <Button type="submit" disabled={submitting}>
+        <Button type="submit" pending={submitting}>
           Create
         </Button>
       </DialogFooter>

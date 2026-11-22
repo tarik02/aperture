@@ -9,6 +9,8 @@ type FreshDialogProps = {
   height?: string;
   /** What has the focus once it has closed, where that is not what had it before. */
   finalFocus?: React.RefObject<HTMLElement | null> | undefined;
+  /** Whether Escape and a press beside it close it; not while it shows what is shown once. */
+  dismissible?: boolean;
   children: React.ReactNode;
 };
 
@@ -22,6 +24,7 @@ export function FreshDialog({
   className,
   height,
   finalFocus,
+  dismissible,
   children,
 }: FreshDialogProps) {
   const [shown, setShown] = useState(open);
@@ -35,13 +38,19 @@ export function FreshDialog({
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
+      dismissible={dismissible}
       onOpenChangeComplete={(next) => {
         if (!next) {
           setShown(false);
         }
       }}
     >
-      <DialogContent className={className} height={height} finalFocus={finalFocus}>
+      <DialogContent
+        className={className}
+        height={height}
+        finalFocus={finalFocus}
+        showCloseButton={dismissible !== false}
+      >
         {shown ? <Fragment key={opened}>{children}</Fragment> : null}
       </DialogContent>
     </Dialog>

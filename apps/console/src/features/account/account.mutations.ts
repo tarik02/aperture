@@ -4,8 +4,11 @@ import { call } from "#/lib/api.ts";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { queryKeys } from "#/lib/query-keys.ts";
 
-/** Makes a person's account, who signs in with the address, or a service's with a name alone. */
-export function useCreateAccountMutation() {
+/**
+ * Makes a person's account, who signs in with the address, or a service's with a name
+ * alone. `quiet` leaves what it fails with to the form that asked, which says it at a field.
+ */
+export function useCreateAccountMutation({ quiet = false }: { quiet?: boolean } = {}) {
   const queries = useQueryClient();
   return useMutation({
     mutationFn: (account: { name: string; email?: string }) =>
@@ -14,7 +17,7 @@ export function useCreateAccountMutation() {
           payload: { ...account, kind: account.email === undefined ? "service" : "person" },
         }),
       ),
-    onError: (error) => toastMutationError(error, "The account was not made"),
+    onError: (error) => (quiet ? undefined : toastMutationError(error, "The account was not made")),
     onSettled: () => queries.invalidateQueries({ queryKey: queryKeys.accounts }),
   });
 }
@@ -22,12 +25,17 @@ export function useCreateAccountMutation() {
 /** A link with which the person of an account sets a password. */
 export function useSetupLinkMutation() {
   return useMutation({
-    mutationFn: async (accountId: string) => {
+    mutationFn: async (account: { readonly id: string; readonly email: string | null }) => {
       const { token } = await call((api) =>
-        api.accounts.createSetupToken({ params: { id: accountId } }),
+        api.accounts.createSetupToken({ params: { id: account.id } }),
       );
-      // After the `#`, so the token is sent nowhere when the link is opened.
-      return `${location.origin}/invite#token=${encodeURIComponent(token)}`;
+      // After the `#`, so the token is sent nowhere when the link is opened. The address
+      // goes with it: whoever sets the password is shown whose it is, and signed in with it.
+      const said = new URLSearchParams({
+        token,
+        ...(account.email === null ? {} : { email: account.email }),
+      });
+      return `${location.origin}/invite#${said.toString()}`;
     },
     onError: (error) => toastMutationError(error, "The link was not made"),
   });

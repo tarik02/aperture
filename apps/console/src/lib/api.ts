@@ -4,7 +4,9 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpApiClient from "effect/http-api/HttpApiClient";
+import { refusedHere, signChanged } from "#/lib/sign.ts";
 import { keepToken, token } from "#/lib/token.ts";
+import { sentence } from "#/lib/words.ts";
 
 /** With no token, the browser's cookies say who asks: those of someone who signed in. */
 const client = (bearer: string | undefined) =>
@@ -39,15 +41,18 @@ export const callAs = <A, E>(
     Effect.flatMap(use),
     Effect.provide(FetchHttpClient.layer),
     Effect.tapError((error) =>
-      // A token that is nobody's any more signs nobody in.
       Effect.sync(() => {
-        if (
-          bearer !== undefined &&
-          isFailure(error) &&
-          error._tag === "Unauthorized" &&
-          bearer === token()
-        ) {
+        if (!isFailure(error) || error._tag !== "Unauthorized" || bearer !== token()) {
+          return;
+        }
+        if (bearer === undefined) {
+          // The cookies sign nobody in any more: signed out in another tab, or run out.
+          refusedHere();
+        } else {
+          // A token that is nobody's any more signs nobody in. The other tabs hear of it
+          // from what the browser keeps.
           keepToken(undefined);
+          signChanged();
         }
       }),
     ),
@@ -96,7 +101,7 @@ const SAID: Readonly<Record<string, string>> = {
   GrantNotFound: "This app is not connected any more.",
   ShareNotFound: "There is no such share link.",
   ShareRefused: "This share link lets nobody in.",
-  TooManyTries: "Too many tries. Wait a while and try again.",
+  TooManyTries: "Too many tries. Try again later.",
   // What the client itself fails with, before or after the API answered.
   HttpClientError: "The control plane was not reached. Check the connection and try again.",
   RequestError: "The control plane was not reached. Check the connection and try again.",
@@ -114,10 +119,7 @@ const RAW = /^Transport error|^StatusCode|^Decode error|^Expected |\bat \[|^\{/u
 export const told = (error: unknown, fallback = "The control plane was not reached") => {
   const said = isFailure(error) || error instanceof Error ? (error.message ?? "").trim() : "";
   if (said !== "" && !RAW.test(said)) {
-    return said;
+    return sentence(said);
   }
-  if (isFailure(error)) {
-    return SAID[error._tag] ?? fallback;
-  }
-  return fallback;
+  return sentence(isFailure(error) ? (SAID[error._tag] ?? fallback) : fallback);
 };

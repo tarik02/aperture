@@ -4,15 +4,15 @@ type Rule = (field: { value: string }) => string | undefined;
 export const required =
   (what: string): Rule =>
   ({ value }) =>
-    value.trim() === "" ? `${what} is required` : undefined;
+    value.trim() === "" ? `${what} is required.` : undefined;
 
 export const email: Rule = ({ value }) =>
-  /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(value.trim()) ? undefined : "Enter an email address";
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(value.trim()) ? undefined : "Enter an email address.";
 
 export const atLeast =
   (length: number, what: string): Rule =>
   ({ value }) =>
-    value.length < length ? `${what} is at least ${length} characters` : undefined;
+    value.length < length ? `${what} is at least ${length} characters.` : undefined;
 
 /** The first thing any of the rules says. */
 export const all =

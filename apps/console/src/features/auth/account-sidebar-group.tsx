@@ -15,10 +15,14 @@ import { usePersonQuery } from "#/features/auth/auth.queries.ts";
 import { McpSetupDialog } from "#/features/mcp/mcp-setup-dialog.tsx";
 import { useCloseDrawer } from "#/lib/drawer.ts";
 import { type NavItem, primaryNavItems } from "#/lib/navigation.ts";
+import { useToken } from "#/lib/token.ts";
 
 /** What is the account's own, whoever's workspace is shown: how it signs in and what acts for it. */
 export function AccountSidebarGroup({ activeItem }: { activeItem: NavItem | undefined }) {
   const person = usePersonQuery();
+  // Whoever signed in with no token is a person: known before they are asked for, so that
+  // nothing in the menu moves down when the answer comes.
+  const signsIn = useToken() === undefined;
   const access = useAccess();
   const [dialog, setDialog] = useState<"security" | "mcp" | null>(null);
   const closeDrawer = useCloseDrawer();
@@ -33,12 +37,12 @@ export function AccountSidebarGroup({ activeItem }: { activeItem: NavItem | unde
       <SidebarGroupContent>
         <SidebarMenu>
           {/* A second factor is a person's: a token signs in with nothing else. */}
-          {person.data ? (
+          {signsIn && person.data !== null ? (
             <SidebarMenuItem>
               <SidebarMenuButton
                 data-console-security
                 tooltip="Security"
-                onClick={() => show("security")}
+                onClick={() => (person.data ? show("security") : undefined)}
               >
                 <ShieldCheck />
                 <span data-sidebar-collapse-label>Security</span>
@@ -46,7 +50,12 @@ export function AccountSidebarGroup({ activeItem }: { activeItem: NavItem | unde
             </SidebarMenuItem>
           ) : null}
           {primaryNavItems
-            .filter((item) => item.group === "account" && access.offers(item))
+            .filter(
+              (item) =>
+                (item.group === "account" ||
+                  (item.otherwise === "account" && !access.may("admin"))) &&
+                access.offers(item),
+            )
             .map((item) => (
               <SidebarMenuItem key={item.title}>
                 <SidebarMenuButton

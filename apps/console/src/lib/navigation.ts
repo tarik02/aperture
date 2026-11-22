@@ -28,6 +28,8 @@ export type NavItem = {
     | "/-/events";
   icon: LucideIcon;
   group: "workspace" | "account" | "admin";
+  /** Where it stands for whoever is no admin, who is shown no group of an admin's. */
+  otherwise?: "account";
   /** What whoever is signed in has to be let do for it to be shown; anyone, without. */
   needs?: Scope;
 };
@@ -72,7 +74,15 @@ export const primaryNavItems: NavItem[] = [
     group: "admin",
     needs: "admin",
   },
-  { title: "Events", to: "/-/events", icon: ScrollText, group: "admin", needs: "events:read" },
+  // An admin reads everyone's; anyone else their own account's and their workspaces'.
+  {
+    title: "Events",
+    to: "/-/events",
+    icon: ScrollText,
+    group: "admin",
+    otherwise: "account",
+    needs: "events:read",
+  },
 ];
 
 export function resolveNavItem(pathname: string) {

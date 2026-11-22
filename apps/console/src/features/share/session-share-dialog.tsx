@@ -7,6 +7,7 @@ import { useState } from "react";
 import { Choice } from "#/components/choice.tsx";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { FreshDialog } from "#/components/fresh-dialog.tsx";
+import { LinesSkeleton } from "#/components/list-skeleton.tsx";
 import { SecretDialog } from "#/components/secret-dialog.tsx";
 import { TextField } from "#/components/text-field.tsx";
 import type { Session } from "#/features/session/session.queries.ts";
@@ -154,7 +155,7 @@ function Links({ session, open }: { session: Session; open: boolean }) {
             />
           )}
         </form.Field>
-        <Button type="submit" disabled={submitting}>
+        <Button type="submit" pending={submitting}>
           New link
         </Button>
       </form>
@@ -164,6 +165,7 @@ function Links({ session, open }: { session: Session; open: boolean }) {
             Nobody is let in by a link.
           </p>
         ) : null}
+        {shares.isPending ? <LinesSkeleton /> : null}
         <ul data-console-shares className="aperture:grid aperture:gap-3">
           {shares.data?.map((share) => (
             <li

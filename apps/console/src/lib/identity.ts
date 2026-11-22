@@ -8,6 +8,7 @@ import {
 } from "@simplewebauthn/browser";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import { sentence } from "#/lib/words.ts";
 
 const Refused = Schema.Struct({
   code: Schema.optional(Schema.String),
@@ -16,10 +17,21 @@ const Refused = Schema.Struct({
 
 /** What is said in words of this page's own, by the code of what was answered. */
 const REFUSALS: Readonly<Record<string, string>> = {
+  INVALID_EMAIL_OR_PASSWORD: "Wrong email or password.",
+  INVALID_PASSWORD: "Wrong password.",
+  INVALID_CODE: "That code is not right.",
+  INVALID_BACKUP_CODE: "That backup code is not right.",
+  INVALID_TWO_FACTOR_COOKIE: "That took too long. Start over.",
+  TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE: "Too many tries. Start over.",
+  INVALID_TOKEN: "This link is good no more. Ask for another.",
+  PASSWORD_TOO_SHORT: "That password is too short.",
+  PASSWORD_TOO_LONG: "That password is too long.",
   SESSION_NOT_FRESH: "Sign out and in again first: you signed in too long ago for this.",
   PASSKEY_NOT_FOUND: "That passkey is none of an account here.",
   CHALLENGE_NOT_FOUND: "That took too long. Try again.",
 };
+
+const TOO_MANY = 429;
 
 /** What signs people in and out, as a browser asks it. Its cookies are the browser's to carry. */
 const ask = async (path: string, body?: object): Promise<unknown> => {
@@ -37,7 +49,10 @@ const ask = async (path: string, body?: object): Promise<unknown> => {
   if (!answer.ok) {
     const refused = Option.getOrUndefined(Schema.decodeUnknownOption(Refused)(said));
     throw new Error(
-      REFUSALS[refused?.code ?? ""] ?? refused?.message ?? `It answered ${answer.status}`,
+      REFUSALS[refused?.code ?? ""] ??
+        (answer.status === TOO_MANY
+          ? "Too many tries. Try again later."
+          : sentence(refused?.message ?? `It answered ${answer.status}`)),
     );
   }
   return said;

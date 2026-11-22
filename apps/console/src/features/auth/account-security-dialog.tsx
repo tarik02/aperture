@@ -15,6 +15,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { CodeInput } from "#/components/code-input.tsx";
 import { CopyField } from "#/components/copy-field.tsx";
+import { LinesSkeleton } from "#/components/list-skeleton.tsx";
 import { FreshDialog } from "#/components/fresh-dialog.tsx";
 import { TextField } from "#/components/text-field.tsx";
 import {
@@ -30,7 +31,7 @@ import {
   useTurnSecondFactorOffMutation,
 } from "#/features/auth/auth.queries.ts";
 import { told } from "#/lib/api.ts";
-import { type Passkey, passkeysSupported, type Person } from "#/lib/identity.ts";
+import { calledOff, type Passkey, passkeysSupported, type Person } from "#/lib/identity.ts";
 import { required } from "#/lib/validation.ts";
 
 /** How far turning the second factor on has come, or what is done with a passkey. */
@@ -78,6 +79,8 @@ export function AccountSecurityDialog({ person, open, onOpenChange }: AccountSec
       // Not `duration-200`: that would also slow the dialog's leaving, past its backdrop's.
       className="aperture:transition-[height] aperture:[transition-duration:200ms] aperture:ease-out"
       height={HEIGHTS[shown]}
+      // The backup codes are shown once: Done closes them, and nothing done in passing.
+      dismissible={shown !== "backup-codes"}
     >
       <Security person={person} onStep={setStep} onDone={() => onOpenChange(false)} />
     </FreshDialog>
@@ -191,6 +194,8 @@ function Passkeys({
           <p role="alert" className="aperture:text-sm aperture:text-destructive">
             {told(passkeys.error)}
           </p>
+        ) : passkeys.isPending ? (
+          <LinesSkeleton lines={2} />
         ) : passkeys.data?.length === 0 ? (
           <p data-console-empty className="aperture:text-sm aperture:text-muted-foreground">
             No passkeys yet.
@@ -257,16 +262,23 @@ function Passkeys({
 function PasskeyName({ passkey, onDone }: { passkey: Passkey | undefined; onDone: () => void }) {
   const add = useAddPasskeyMutation();
   const rename = useRenamePasskeyMutation();
+  const [refused, setRefused] = useState<string>();
   const form = useForm({
     defaultValues: { name: passkey?.name ?? "" },
     onSubmit: async ({ value }) => {
       const name = value.name.trim();
+      setRefused(undefined);
       try {
         await (passkey === undefined
           ? add.mutateAsync(name)
           : rename.mutateAsync({ id: passkey.id, name }));
-      } catch {
-        // The mutation tells of it.
+      } catch (error) {
+        // Whoever called it off themselves is told nothing of that.
+        setRefused(
+          calledOff(error)
+            ? undefined
+            : told(error, passkey === undefined ? "No passkey was added." : "It was not renamed."),
+        );
         return;
       }
       onDone();
@@ -292,6 +304,7 @@ function PasskeyName({ passkey, onDone }: { passkey: Passkey | undefined; onDone
               placeholder="Laptop"
               autoFocus
               autoComplete="off"
+              refused={refused}
             />
           )}
         </form.Field>
@@ -300,7 +313,7 @@ function PasskeyName({ passkey, onDone }: { passkey: Passkey | undefined; onDone
         <Button type="button" variant="outline" onClick={onDone}>
           Cancel
         </Button>
-        <Button type="submit" disabled={submitting}>
+        <Button type="submit" pending={submitting}>
           {passkey === undefined ? "Add" : "Rename"}
         </Button>
       </DialogFooter>
@@ -350,10 +363,12 @@ function WithPassword({
   const enrol = useEnrolMutation();
   const turnOff = useTurnSecondFactorOffMutation();
   const renew = useRenewBackupCodesMutation();
+  const [refused, setRefused] = useState<string>();
   const form = useForm({
     defaultValues: { password: "" },
     onSubmitMeta: { renew: false },
     onSubmit: async ({ value, meta, formApi }) => {
+      setRefused(undefined);
       try {
         if (meta.renew) {
           const backupCodes = await renew.mutateAsync(value.password);
@@ -365,8 +380,8 @@ function WithPassword({
         } else {
           onEnrolling({ step: "confirm", ...(await enrol.mutateAsync(value.password)) });
         }
-      } catch {
-        // The mutation tells of it.
+      } catch (error) {
+        setRefused(told(error, "That was not done."));
       }
     },
   });
@@ -398,6 +413,7 @@ function WithPassword({
               label="Password"
               type="password"
               autoComplete="current-password"
+              refused={refused}
             />
           )}
         </form.Field>
@@ -420,7 +436,7 @@ function WithPassword({
         <Button
           type="submit"
           variant={person.secondFactor ? "destructive" : "default"}
-          disabled={submitting}
+          pending={submitting}
         >
           {person.secondFactor ? "Turn off" : "Turn on"}
         </Button>
@@ -442,14 +458,17 @@ function Confirm({
   const confirm = useConfirmEnrolmentMutation();
   /** Whether what the picture says is shown as text in its place, for whoever cannot scan it. */
   const [manual, setManual] = useState(false);
+  const [refused, setRefused] = useState<string>();
   const form = useForm({
     defaultValues: { code: "" },
     onSubmit: async ({ value, formApi }) => {
+      setRefused(undefined);
       try {
         await confirm.mutateAsync(value.code.trim());
-      } catch {
-        // A code that was not taken is typed anew.
+      } catch (error) {
+        // A code that was not taken is typed anew; why is said below it.
         formApi.reset();
+        setRefused(told(error, "That code was not taken."));
         return;
       }
       toast.success("Two-factor sign-in is on");
@@ -497,7 +516,7 @@ function Confirm({
             <CodeInput
               value={field.state.value}
               onChange={field.handleChange}
-              error={field.state.meta.errors.find((error) => typeof error === "string")}
+              error={field.state.meta.errors.find((error) => typeof error === "string") ?? refused}
               onComplete={() => (submitting ? undefined : void form.handleSubmit())}
             />
           )}
@@ -507,7 +526,7 @@ function Confirm({
         <Button type="button" variant="outline" onClick={onDone}>
           Cancel
         </Button>
-        <Button type="submit" disabled={submitting}>
+        <Button type="submit" pending={submitting}>
           Confirm
         </Button>
       </DialogFooter>

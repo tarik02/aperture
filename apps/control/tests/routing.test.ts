@@ -471,7 +471,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         );
         // Nor one that does nothing: a scope is ticked, and the token is held to it.
         expect(yield* page.text("[data-console-token-create]")).toContain(
-          "Tick at least one scope",
+          "Tick at least one scope.",
         );
         yield* shot(page, fs, "console-token-create-invalid");
         yield* page.click(`[data-console-scope="sessions:read"]`);
@@ -509,7 +509,13 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
           { workspaces: [], sessions: [id], snapshots: [] },
         ]);
         yield* shot(page, fs, "console-token");
+        // It is shown once: Escape does not take it away, and the button that says so does.
         yield* page.key("Escape", "Escape", ESCAPE);
+        yield* rested(page);
+        expect(yield* page.evaluate(`!!document.querySelector("[data-console-secret]")`)).toBe(
+          true,
+        );
+        yield* choose(page, `${DIALOG} button`, "Done");
         // What it shows stays while it closes, and the table tells what the token is held to.
         yield* page.until(`!document.querySelector("[data-console-secret]")`);
         const row = `[data-console-token="from the console"]`;
@@ -1055,10 +1061,10 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         });
       yield* typed("bo@");
       yield* page.key("Enter", "Enter", ENTER);
-      yield* page.until(`${error} === "Enter an email address"`);
+      yield* page.until(`${error} === "Enter an email address."`);
       yield* typed("members.test");
       yield* page.key("Enter", "Enter", ENTER);
-      yield* page.until(`${error} === "Nobody signs in with this address"`);
+      yield* page.until(`${error} === "Nobody signs in with this address."`);
       admitting.push(yield* placed(page, adding));
       const admitted: Array<string> = [];
       for (const [at, name] of ["Bo", "Cy", "Di", "Ed", "Flo", "Gus"].entries()) {
@@ -1557,9 +1563,10 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.evaluate(
         `(localStorage.clear(), fetch("/api/control/route/cookie", { method: "DELETE" }).then((answer) => answer.status))`,
       );
-      yield* page.evaluate("void location.reload()");
+      // The page before the reload has the field as well: the one after is waited for.
+      yield* page.evaluate("void (window.beforeReload = true, location.reload())");
       yield* page.until(
-        `localStorage.length === 0 && !!document.querySelector("[data-console-invite] input")`,
+        `!window.beforeReload && localStorage.length === 0 && !!document.querySelector("[data-console-invite] input")`,
       );
       yield* page.click("[data-console-invite] input");
       yield* page.type(password);
@@ -1685,6 +1692,84 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.until(`!!document.querySelector("[data-console-security]")`);
       expect(page.errors()).toEqual([]);
     }),
+  );
+
+  it.effect(
+    "a list keeps what it is narrowed by in its address, and a tab that signs out or in takes the others along",
+    () =>
+      Effect.gen(function* () {
+        const proxy = yield* Proxy.Proxy;
+        const control = yield* Control.Control;
+        const viewer = yield* Viewer.Viewer;
+        const bootstrap = yield* control.as(control.bootstrapToken);
+        const email = "odo@example.test";
+        const password = "a password of Odo's own";
+        const odo = yield* bootstrap.accounts.create({ payload: { name: "Odo", email } });
+        const { token } = yield* bootstrap.accounts.createSetupToken({ params: { id: odo.id } });
+
+        const page = yield* viewer.open(`${proxy.url}/api/control/openapi.json`);
+        const asked = (path: string, body: object) =>
+          page.evaluate(
+            `fetch(${JSON.stringify(`/api/auth${path}`)}, { method: "POST", headers: { "Content-Type": "application/json" }, body: ${JSON.stringify(JSON.stringify(body))} }).then((answer) => answer.status)`,
+            Schema.Number,
+          );
+        const signIn = (tab: Viewer.Page) =>
+          Effect.gen(function* () {
+            yield* tab.until(`!!document.querySelector('[data-console-sign-in="password"]')`);
+            yield* rested(tab);
+            yield* tab.click(`[data-console-sign-in] input[name="email"]`);
+            yield* tab.type(email);
+            yield* tab.click(`[data-console-sign-in] input[name="password"]`);
+            yield* tab.type(password);
+            yield* tab.key("Enter", "Enter", ENTER);
+          });
+        // The browser is the one the checks before signed in with: nothing of that is left.
+        expect(yield* until("the page being there to sign out from", asked("/sign-out", {}))).toBe(
+          200,
+        );
+        yield* page.evaluate(
+          `(localStorage.clear(), fetch("/api/control/route/cookie", { method: "DELETE" }).then((answer) => answer.status))`,
+        );
+        expect(yield* asked("/reset-password", { token, newPassword: password })).toBe(200);
+        yield* page.evaluate(`void (location.href = "/-/sessions")`);
+        yield* signIn(page);
+        yield* page.until(`!!document.querySelector("[data-console-create]")`);
+
+        // What the list is narrowed by is in the address, and is there again after a reload.
+        const sought = "nothing is called this";
+        const search = `document.querySelector('input[type="search"]')`;
+        const narrowed = `new URLSearchParams(location.search).get("q") === ${JSON.stringify(sought)} && new URLSearchParams(location.search).get("status") === "suspended"`;
+        yield* rested(page);
+        yield* page.click(`input[type="search"]`);
+        yield* page.type(sought);
+        yield* pick(page, `[data-slot="select-trigger"][aria-label="Status"]`, "Suspended");
+        yield* page.until(narrowed);
+        yield* page.evaluate("void location.reload()");
+        yield* page.until(
+          `${narrowed} && ${search}?.value === ${JSON.stringify(sought)} && document.querySelector('[data-slot="select-trigger"][aria-label="Status"]')?.textContent.includes("Suspended") && !!document.querySelector("[data-console-empty]")`,
+        );
+
+        // Another tab of the same browser is signed out with this one, where it was, and
+        // has nothing of whoever was signed in left on it.
+        const other = yield* viewer.open(`${proxy.url}/-/workspaces`);
+        yield* other.until(`!!document.querySelector("[data-console-sign-out]")`);
+        yield* rested(page);
+        yield* page.click("[data-console-sign-out]");
+        yield* page.until(`!!document.querySelector('${BUTTONS} button:last-child')`);
+        yield* placed(page);
+        yield* page.click(`${BUTTONS} button:last-child`);
+        yield* other.until(
+          `!!document.querySelector('[data-console-sign-in="password"]') && !document.querySelector("[data-console-sign-out]") && location.pathname === "/-/workspaces"`,
+        );
+        // And signed in with the other, without being asked anything itself.
+        yield* page.until(`!!document.querySelector('[data-console-sign-in="password"]')`);
+        yield* signIn(other);
+        yield* other.until(`!!document.querySelector("[data-console-sign-out]")`);
+        yield* page.until(`!!document.querySelector("[data-console-sign-out]")`);
+        expect(page.errors()).toEqual([]);
+        expect(other.errors()).toEqual([]);
+        yield* other.close;
+      }),
   );
 
   it.effect("a person adds a passkey in the console, and signs in with it and nothing else", () =>
@@ -1934,8 +2019,16 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.key("Enter", "Enter", ENTER);
       const lin = `[data-console-person="Lin"]`;
       yield* page.until(`!!document.querySelector('${lin}')`);
-      // The dialog is in the way of the row until it has closed.
-      yield* page.until(`!document.querySelector('${person}')`);
+      // Whoever was made is to set a password: the link for it is shown at once.
+      yield* page.until(`!!document.querySelector("[data-console-secret]")`);
+      expect(yield* page.text("[data-console-secret]")).toContain(
+        `email=${encodeURIComponent("lin@example.test")}`,
+      );
+      yield* choose(page, `${DIALOG} button`, "Done");
+      // The dialogs are in the way of the row until they have closed.
+      yield* page.until(
+        `!document.querySelector('${person}') && !document.querySelector("[data-console-secret]")`,
+      );
       // People are told apart from what is not a person, and no token is made for them here.
       expect(yield* page.evaluate(`!!document.querySelector("[data-console-service]")`)).toBe(
         false,
@@ -1944,7 +2037,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.click(`${lin} [data-console-setup-link]`);
       yield* page.until(`!!document.querySelector("[data-console-secret]")`);
       expect(yield* page.text("[data-console-secret]")).toContain("/invite#token=");
-      yield* page.key("Escape", "Escape", ESCAPE);
+      yield* choose(page, `${DIALOG} button`, "Done");
       yield* page.until(`!document.querySelector("[data-console-secret]")`);
       yield* page.hover(`${lin} [data-console-setup-link]`);
       yield* shot(page, fs, "console-people");
@@ -2046,7 +2139,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       expect([whose.name, whose.kind]).toEqual(["Deploy bot", "service"]);
       yield* withIt.sessions.list();
       expect((yield* Effect.flip(withIt.snapshots.list()))._tag).toBe("Forbidden");
-      yield* page.key("Escape", "Escape", ESCAPE);
+      yield* choose(page, `${DIALOG} button`, "Done");
       yield* page.until(`!document.querySelector("[data-console-secret]")`);
       const deploys = `[data-console-token="deploys"]`;
       yield* page.until(`!!document.querySelector('${deploys}')`);

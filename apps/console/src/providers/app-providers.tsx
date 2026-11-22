@@ -2,7 +2,8 @@ import { Toaster } from "@aperture-browser/ui/components/sonner";
 import { TooltipProvider } from "@aperture-browser/ui/components/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { onSignChange } from "#/lib/sign.ts";
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -10,6 +11,16 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
       }),
+  );
+
+  // Whoever is signed in is another, or nobody: nothing asked for the one before is kept.
+  useEffect(
+    () =>
+      onSignChange(() => {
+        queryClient.getMutationCache().clear();
+        void queryClient.resetQueries();
+      }),
+    [queryClient],
   );
 
   return (

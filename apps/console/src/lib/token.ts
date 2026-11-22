@@ -3,6 +3,8 @@ import { useSyncExternalStore } from "react";
 const KEY = "aperture.console.token";
 
 const listeners = new Set<() => void>();
+/** Who hears that another tab signed in or out with a token. */
+const elsewhere = new Set<() => void>();
 
 const read = () => {
   try {
@@ -39,11 +41,22 @@ addEventListener("storage", (event) => {
   if (event.key !== KEY && event.key !== null) {
     return;
   }
+  const before = current;
   current = read();
   for (const listener of listeners) {
     listener();
   }
+  if (current !== before) {
+    for (const listener of elsewhere) {
+      listener();
+    }
+  }
 });
+
+/** Hears that the token changed in another tab: who is signed in here is another then. */
+export const onTokenChangedElsewhere = (listener: () => void) => {
+  elsewhere.add(listener);
+};
 
 const subscribe = (listener: () => void) => {
   listeners.add(listener);

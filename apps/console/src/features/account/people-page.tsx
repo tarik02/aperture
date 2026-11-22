@@ -31,6 +31,7 @@ import {
 } from "#/features/account/person-actions-menu.tsx";
 import { PersonCreateDialog } from "#/features/account/person-create-dialog.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
+import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
 import { useLast } from "#/lib/use-last.ts";
 
@@ -128,7 +129,7 @@ export function PeoplePage() {
 
   const select = (account: Account, doing: PersonDoing) => {
     if (doing === "setup-link") {
-      setupLink.mutate(account.id, { onSuccess: setLink });
+      setupLink.mutate(account, { onSuccess: setLink });
     } else if (doing === "enable") {
       disable.mutate({ id: account.id, disabled: false });
     } else {
@@ -179,6 +180,7 @@ export function PeoplePage() {
             </TableRow>
           </TableHeader>
           <TableBody>
+            {accounts.isPending ? <TableRowsSkeleton columns={5} actions twoLines /> : null}
             {people?.map((account) => {
               const actions = personActions(account, own.data?.id === account.id);
               const onSelect = (doing: PersonDoing) => select(account, doing);
@@ -246,7 +248,12 @@ export function PeoplePage() {
         onOpenChange={(open) => (open ? undefined : setConfirming(undefined))}
         onConfirm={() => (confirming === undefined ? undefined : confirm(confirming))}
       />
-      <PersonCreateDialog open={creating} onOpenChange={setCreating} />
+      <PersonCreateDialog
+        open={creating}
+        onOpenChange={setCreating}
+        // Whoever was made sets a password with a link: it is shown at once, to be sent to them.
+        onCreated={(account) => setupLink.mutate(account, { onSuccess: setLink })}
+      />
       <SecretDialog title="Setup link" secret={link} onClose={() => setLink(undefined)} />
     </TablePage>
   );

@@ -105,7 +105,11 @@ export function TokenResourcesPicker({ id, chosen, invalid, onChange }: TokenRes
         onChange(next.map(({ kind, id }) => ({ kind, id })));
       }}
     >
-      <ComboboxChips ref={anchor} data-console-token-resources>
+      <ComboboxChips
+        ref={anchor}
+        data-console-token-resources
+        title="A workspace stands for all the sessions and snapshots in it, those made later as well"
+      >
         <ComboboxValue>
           {(values: Option[]) => (
             <>

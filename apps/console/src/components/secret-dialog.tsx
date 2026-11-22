@@ -27,8 +27,13 @@ export function SecretDialog({ title, secret, onClose }: SecretDialogProps) {
   };
 
   return (
-    <Dialog open={secret !== undefined} onOpenChange={(open) => (open ? undefined : onClose())}>
-      <DialogContent className="aperture:sm:max-w-lg">
+    <Dialog
+      open={secret !== undefined}
+      // It is not shown again: Escape and a press beside it do not take it away.
+      dismissible={false}
+      onOpenChange={(open) => (open ? undefined : onClose())}
+    >
+      <DialogContent className="aperture:sm:max-w-lg" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>Copy it now: it is not shown again.</DialogDescription>

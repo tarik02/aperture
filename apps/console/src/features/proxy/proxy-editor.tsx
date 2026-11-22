@@ -77,21 +77,21 @@ export const proxyRules = (draft: ProxyDraft) => {
   if (draft.mode === "quick") {
     return /^[a-z][a-z\d+.-]*:\/\/\S+$/iu.test(draft.url.trim())
       ? undefined
-      : "Enter the proxy's address, like socks5://host:1080";
+      : "Enter the proxy's address, like socks5://host:1080.";
   }
   if (draft.mode === "advanced") {
     if (draft.upstreams.some((one) => (one.name.trim() === "") !== (one.url.trim() === ""))) {
-      return "An upstream needs both a name and an address";
+      return "An upstream needs both a name and an address.";
     }
     if (draft.rules.some((rule) => rule.match.trim() === "" || rule.via.trim() === "")) {
-      return "A rule needs both what it matches and where that goes";
+      return "A rule needs both what it matches and where that goes.";
     }
     const upstreams = draft.upstreams.map((one) => one.name.trim());
     const lost = draft.rules.find(
       (rule) => rule.typed !== true && !WAYS.includes(rule.via) && !upstreams.includes(rule.via),
     );
     if (lost !== undefined) {
-      return `A rule goes through ${lost.via}, which is no upstream above`;
+      return `A rule goes through ${lost.via}, which is no upstream above.`;
     }
   }
   return undefined;
@@ -288,7 +288,9 @@ export function ProxyEditor({ draft, error, onChange }: ProxyEditorProps) {
           </section>
         </>
       ) : null}
-      <FieldError ref={reveal}>{error}</FieldError>
+      <FieldError ref={reveal} reserved>
+        {error}
+      </FieldError>
     </div>
   );
 }
