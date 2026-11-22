@@ -203,7 +203,7 @@
           inherit version src;
           pnpm = pnpmLatest;
           fetcherVersion = 4;
-          hash = "sha256-spmdZc8BvlweN+M0mwo/fsXdAD8bZixLzAxJZO3XeD4=";
+          hash = "sha256-0zRvfsd63W795py1lIJ9OJ/weYGvLtBm+iwHYiSfISo=";
         };
 
         # The page that shows a session: one HTML file with everything it needs in it, which the
@@ -292,6 +292,43 @@
           # The links pnpm makes to packages of the workspace that were left out lead nowhere.
           dontCheckForBrokenSymlinks = true;
           meta.mainProgram = "aperture-control";
+        };
+
+        # What moves a v1 installation into v2, packed as the control plane is: it writes
+        # with the control plane's own code, and is told what the control plane is told.
+        migrate = pkgs.stdenvNoCC.mkDerivation {
+          pname = "aperture-migrate";
+          inherit version src;
+          pnpmDeps = workspacePnpmDeps;
+          nativeBuildInputs = [
+            nodeRuntime
+            pnpmLatest
+            pkgs.pnpmConfigHook
+            pkgs.makeWrapper
+          ];
+          env.CI = "true";
+          buildPhase = ''
+            runHook preBuild
+            find . -path '*/node_modules/.bin/*' -type f -exec sed -i 's/command -p //g' {} +
+            pnpm --filter @aperture-browser/migrate build
+            # What only builds and checks it is not what runs it.
+            pnpm install --offline --frozen-lockfile --prod --filter @aperture-browser/migrate
+            runHook postBuild
+          '';
+          installPhase = ''
+            runHook preInstall
+            lib=$out/lib/aperture-migrate
+            mkdir -p $lib/apps/migrate
+            cp -r node_modules $lib/node_modules
+            cp -r apps/migrate/node_modules apps/migrate/dist apps/migrate/package.json $lib/apps/migrate/
+            makeWrapper ${lib.getExe nodeRuntime} $out/bin/aperture-migrate \
+              --add-flags --enable-source-maps \
+              --add-flags $lib/apps/migrate/dist/main.mjs
+            runHook postInstall
+          '';
+          # The links pnpm makes to packages of the workspace that were left out lead nowhere.
+          dontCheckForBrokenSymlinks = true;
+          meta.mainProgram = "aperture-migrate";
         };
 
         sessionLibraries = [
@@ -432,6 +469,7 @@
           aperture-workbench = workbench;
           aperture-console = console;
           aperture-control = control;
+          aperture-migrate = migrate;
           aperture-chromium = runtimeChromium;
           aperture-ffmpeg = runtimeFfmpeg;
         };

@@ -21,6 +21,7 @@ catalog:
   "@effect/platform-node": 4.0.0
   "@effect/platform-node-shared": 4.0.0
   "@effect/sql-pg": 4.0.0
+  "@effect/sql-sqlite-node": 4.0.0
   "@effect/vitest": 4.0.0
   "@simplewebauthn/browser": "^13.3.0"
   "@fontsource-variable/geist": "^5.2.9"
@@ -94,6 +95,7 @@ minimumReleaseAgeExclude:
   - "@effect/openapi-generator@4.0.0"
   - "@effect/platform-node-shared@4.0.0"
   - "@effect/platform-node@4.0.0"
+  - "@effect/sql-sqlite-node@4.0.0"
   - effect-playwright@0.8.0
   - effect@4.0.0
 

@@ -81,6 +81,8 @@ export type Client = Effect.Success<ReturnType<typeof client>>;
 export interface ControlService {
   readonly url: string;
   readonly bootstrapToken: string;
+  /** What it was started with, as its environment: for a program that is run beside it. */
+  readonly settings: Readonly<Record<string, string>>;
   /** The public key its tickets are checked against, as PEM: what an executor is given. */
   readonly ticketKey: string;
   /** Its database, for what a check looks up there itself; none for one that keeps to memory. */
@@ -149,7 +151,7 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
 
   // Its own address is what it tells a proxy to ask it at.
   const port = yield* freePort;
-  const environment = ConfigProvider.fromEnvRecord({
+  const settings: Record<string, string> = {
     APERTURE_CONTROL_LISTEN_PORT: String(port),
     APERTURE_CONTROL_MASTER_KEY: masterKey,
     // Checks sign in more often from one address than anyone is let.
@@ -178,7 +180,8 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
     ...(options.nodeSilentAfter === undefined
       ? {}
       : { APERTURE_CONTROL_NODE_SILENT_AFTER: options.nodeSilentAfter }),
-  });
+  };
+  const environment = ConfigProvider.fromEnvRecord(settings);
   const running = yield* Layer.build(
     (postgres === undefined ? App.layerTest : App.layer).pipe(
       Layer.provideMerge(Server.listen({ host: "127.0.0.1", port })),
@@ -204,6 +207,7 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
   return {
     url,
     bootstrapToken: BOOTSTRAP,
+    settings,
     ticketKey,
     sql,
     as: (token) => client(url, token).pipe(Effect.provide(http)),
