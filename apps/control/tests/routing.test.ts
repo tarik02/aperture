@@ -2064,11 +2064,11 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         expect(yield* about("Gone workspace")).toEqual([null, null]);
 
         // By its kind, chosen from a list of all there are.
-        yield* pick(page, "[data-console-events-kind]", "Workspace deleted");
+        yield* pick(page, `[aria-label="Kind of event"]`, "Workspace deleted");
         yield* page.until(
           `${rows}.length === 1 && ${rows}[0].getAttribute("data-console-event") === "workspace.deleted"`,
         );
-        yield* page.click("[data-console-events-kind]");
+        yield* page.click(`[aria-label="Kind of event"]`);
         yield* page.until(`!!document.querySelector('[data-slot="select-item"]')`);
         yield* Effect.sleep("600 millis");
         yield* shot(page, fs, "console-events-kinds");
@@ -2086,6 +2086,59 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         yield* page.click("[data-console-events-actor]");
         yield* page.type("-nobody-is-called-this");
         yield* page.until(`!!document.querySelector("[data-console-empty]")`);
+
+        // On a phone an event is a block of its own, and what narrows the list is two
+        // buttons in the title bar: the search opens below it, the kinds in a menu.
+        const phone = yield* viewer.open(`${proxy.url}/-/events`, {
+          width: 390,
+          height: 844,
+          mobile: true,
+        });
+        yield* phone.until(`${rows}.length === 50`);
+        yield* shot(phone, fs, "console-phone-events");
+        const scheme = (value: string) =>
+          phone.cdp.call("Emulation.setEmulatedMedia", {
+            features: [{ name: "prefers-color-scheme", value }],
+          });
+        yield* scheme("dark");
+        yield* shot(phone, fs, "console-phone-events-dark");
+        yield* scheme("");
+        expect(
+          yield* phone.evaluate(
+            `(() => {
+              const table = document.querySelector('[data-slot="table-container"] [data-slot="scroll-area-viewport"]');
+              const title = document.querySelector("[data-app-titlebar]");
+              return {
+                page: document.documentElement.scrollWidth <= innerWidth,
+                table: table.scrollWidth <= table.clientWidth,
+                cells: [...document.querySelectorAll('[data-slot="table-cell"]')].every((cell) => cell.getBoundingClientRect().right <= innerWidth),
+                bar: [...title.querySelectorAll("button")].every((button) => { const box = button.getBoundingClientRect(); return box.width === 0 || (box.left >= 0 && box.right <= innerWidth); }),
+              };
+            })()`,
+          ),
+        ).toEqual({ page: true, table: true, cells: true, bar: true });
+        yield* phone.click("[data-console-filters]");
+        yield* phone.until(`!!document.querySelector('[data-slot="dropdown-menu-radio-item"]')`);
+        yield* Effect.sleep("300 millis");
+        yield* shot(phone, fs, "console-phone-events-kinds");
+        yield* choose(phone, `[data-slot="dropdown-menu-radio-item"]`, "Workspace deleted");
+        yield* phone.until(
+          `${rows}.length === 1 && ${rows}[0].getAttribute("data-console-event") === "workspace.deleted"`,
+        );
+        yield* phone.click("[data-console-search-open]");
+        yield* phone.until(
+          `document.activeElement?.getAttribute("aria-label") === "Search by actor"`,
+        );
+        yield* phone.type("-nobody-is-called-this");
+        yield* phone.until(`!!document.querySelector("[data-console-empty]")`);
+        yield* shot(phone, fs, "console-phone-events-search");
+        expect(phone.errors()).toEqual([]);
+        yield* phone.close;
+
+        const wide = yield* viewer.open(`${proxy.url}/-/events`, { width: 1440, height: 900 });
+        yield* wide.until(`${rows}.length === 50`);
+        yield* shot(wide, fs, "console-events-wide");
+        yield* wide.close;
       }),
   );
 

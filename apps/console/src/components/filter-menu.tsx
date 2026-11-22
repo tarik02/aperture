@@ -18,6 +18,11 @@ export interface Filter<Value extends string = string> {
   readonly label: string;
   readonly value: Value;
   readonly options: ReadonlyArray<{ readonly value: Value; readonly label: string }>;
+  /** More to choose from after the options, those of one thing together under what it is. */
+  readonly groups?: ReadonlyArray<{
+    readonly label: string;
+    readonly options: ReadonlyArray<{ readonly value: Value; readonly label: string }>;
+  }>;
   readonly onChange: (value: Value) => void;
 }
 
@@ -40,6 +45,7 @@ export function Filters({ filters }: { filters: ReadonlyArray<Filter> }) {
           aria-label={one.label}
           value={one.value}
           options={one.options}
+          groups={one.groups}
           onChange={one.onChange}
           className="aperture:max-sm:hidden"
         />
@@ -73,6 +79,20 @@ export function Filters({ filters }: { filters: ReadonlyArray<Filter> }) {
                     >
                       {option.label}
                     </DropdownMenuRadioItem>
+                  ))}
+                  {one.groups?.map((group) => (
+                    <DropdownMenuGroup key={group.label}>
+                      <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
+                      {group.options.map((option) => (
+                        <DropdownMenuRadioItem
+                          key={option.value}
+                          value={option.value}
+                          closeOnClick={filters.length === 1}
+                        >
+                          {option.label}
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuGroup>
                   ))}
                 </DropdownMenuRadioGroup>
               </DropdownMenuGroup>

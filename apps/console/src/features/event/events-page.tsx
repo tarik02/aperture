@@ -2,15 +2,6 @@ import type { EventKind } from "@aperture-browser/control-api";
 import { Button } from "@aperture-browser/ui/components/button";
 import { Input } from "@aperture-browser/ui/components/input";
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@aperture-browser/ui/components/select";
-import {
   Table,
   TableBody,
   TableCell,
@@ -19,7 +10,9 @@ import {
   TableRow,
 } from "@aperture-browser/ui/components/table";
 import { Link } from "@tanstack/react-router";
+import { Search, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { filter, Filters } from "#/components/filter-menu.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { TablePage } from "#/components/table-page.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
@@ -39,7 +32,8 @@ const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle
 /** How long nothing is typed before what was typed is searched for. */
 const SEARCHED_AFTER = 300;
 const ALL = "all";
-const KIND_ITEMS = [{ value: ALL, label: "All events" }, ...KINDS.flatMap((group) => group.kinds)];
+const EVERY_KIND = [{ value: ALL, label: "All events" }] as const;
+const KIND_GROUPS = KINDS.map((group) => ({ label: group.label, options: group.kinds }));
 
 /** Where the console shows what an event is about; nowhere for what has no page of its own. */
 type Shown =
@@ -109,7 +103,7 @@ function About({ event, shown }: { event: Event; shown: Shown | undefined }) {
   }
   const name = about.label ?? about.id;
   return (
-    <div className="aperture:grid aperture:gap-0.5">
+    <div className="aperture:grid aperture:gap-0.5 aperture:max-sm:inline-flex aperture:max-sm:flex-wrap aperture:max-sm:items-baseline aperture:max-sm:gap-x-2">
       {shown === undefined ? (
         <span className="aperture:max-w-72 aperture:truncate" title={name}>
           {name}
@@ -137,6 +131,8 @@ export function EventsPage() {
   const [kind, setKind] = useState<EventKind | typeof ALL>(ALL);
   const [search, setSearch] = useState("");
   const [actor, setActor] = useState("");
+  /** Whether the field to search by is open, where it is not always there. */
+  const [searching, setSearching] = useState(false);
   const events = useEventsQuery({
     kind: kind === ALL ? undefined : kind,
     actor: actor === "" ? undefined : actor,
@@ -155,40 +151,59 @@ export function EventsPage() {
         <Input
           data-console-events-actor
           type="search"
+          aria-label="Search by actor"
           placeholder="Search by actor"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          className="aperture:h-8 aperture:max-w-56"
+          className="aperture:h-8 aperture:max-w-56 aperture:max-sm:hidden"
         />
-        <Select
-          items={KIND_ITEMS}
-          value={kind}
-          onValueChange={(next) => {
-            if (next !== null) {
-              setKind(next);
-            }
-          }}
+        {/* A phone's title bar has no room for the field: it opens below the bar. */}
+        <Button
+          size="icon-sm"
+          variant={searching || search.trim() !== "" ? "secondary" : "ghost"}
+          aria-label="Search by actor"
+          aria-expanded={searching}
+          data-console-search-open
+          className="aperture:sm:hidden"
+          onClick={() => setSearching(!searching)}
         >
-          <SelectTrigger size="sm" aria-label="Kind of event" data-console-events-kind>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent align="end" alignItemWithTrigger={false} className="aperture:min-w-60">
-            <SelectGroup>
-              <SelectItem value={ALL}>All events</SelectItem>
-            </SelectGroup>
-            {KINDS.map((group) => (
-              <SelectGroup key={group.label}>
-                <SelectLabel>{group.label}</SelectLabel>
-                {group.kinds.map((one) => (
-                  <SelectItem key={one.value} value={one.value}>
-                    {one.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            ))}
-          </SelectContent>
-        </Select>
+          <Search />
+        </Button>
+        <Filters
+          filters={[
+            filter<EventKind | typeof ALL>({
+              label: "Kind of event",
+              value: kind,
+              options: EVERY_KIND,
+              groups: KIND_GROUPS,
+              onChange: setKind,
+            }),
+          ]}
+        />
       </PageHeaderActions>
+      {searching ? (
+        <div className="aperture:flex aperture:shrink-0 aperture:gap-1 aperture:sm:hidden">
+          <Input
+            type="search"
+            aria-label="Search by actor"
+            placeholder="Search by actor"
+            autoFocus
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Close the search"
+            onClick={() => {
+              setSearch("");
+              setSearching(false);
+            }}
+          >
+            <X />
+          </Button>
+        </div>
+      ) : null}
       {events.isError ? (
         <p role="alert" className="aperture:text-sm aperture:text-destructive">
           {told(events.error)}
@@ -213,11 +228,12 @@ export function EventsPage() {
           <TableBody>
             {listed.map((event) => (
               <TableRow key={event.id} data-console-event={event.kind}>
-                <TableCell className="aperture:whitespace-nowrap aperture:text-muted-foreground">
+                {/* On a phone what happened leads the row's block, and when ends it. */}
+                <TableCell className="aperture:whitespace-nowrap aperture:text-muted-foreground aperture:max-sm:order-last aperture:max-sm:text-xs">
                   {when.format(new Date(event.at.epochMilliseconds))}
                 </TableCell>
-                <TableCell>
-                  <div className="aperture:grid aperture:gap-0.5">
+                <TableCell label="By" className="aperture:max-sm:basis-full">
+                  <div className="aperture:grid aperture:gap-0.5 aperture:max-sm:inline-flex aperture:max-sm:flex-wrap aperture:max-sm:items-baseline aperture:max-sm:gap-x-2">
                     <span
                       className={
                         event.actor.name === null
@@ -234,8 +250,13 @@ export function EventsPage() {
                     )}
                   </div>
                 </TableCell>
-                <TableCell data-console-event-says>{HAPPENED[event.kind](event)}</TableCell>
-                <TableCell>
+                <TableCell
+                  data-console-event-says
+                  className="aperture:max-sm:order-first aperture:max-sm:basis-full aperture:max-sm:font-medium"
+                >
+                  {HAPPENED[event.kind](event)}
+                </TableCell>
+                <TableCell label="About" className="aperture:max-sm:basis-full">
                   <About event={event} shown={shown(event)} />
                 </TableCell>
               </TableRow>

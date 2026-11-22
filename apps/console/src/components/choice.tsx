@@ -3,13 +3,21 @@ import {
   SelectContent,
   SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@aperture-browser/ui/components/select";
 
+type Option<Value extends string> = { readonly value: Value; readonly label: string };
+
 type ChoiceProps<Value extends string> = {
   value: Value;
-  options: ReadonlyArray<{ readonly value: Value; readonly label: string }>;
+  options: ReadonlyArray<Option<Value>>;
+  /** More to choose from after the options, those of one thing together under what it is. */
+  groups?: ReadonlyArray<{
+    readonly label: string;
+    readonly options: ReadonlyArray<Option<Value>>;
+  }>;
   onChange: (value: Value) => void;
   size?: "sm" | "default";
   id?: string;
@@ -21,6 +29,7 @@ type ChoiceProps<Value extends string> = {
 export function Choice<Value extends string>({
   value,
   options,
+  groups = [],
   onChange,
   size,
   id,
@@ -29,7 +38,7 @@ export function Choice<Value extends string>({
 }: ChoiceProps<Value>) {
   return (
     <Select
-      items={options}
+      items={[...options, ...groups.flatMap((group) => group.options)]}
       value={value}
       onValueChange={(next) => {
         if (next !== null) {
@@ -40,7 +49,12 @@ export function Choice<Value extends string>({
       <SelectTrigger id={id} size={size} aria-label={label} className={className}>
         <SelectValue />
       </SelectTrigger>
-      <SelectContent>
+      {/* A list in groups is long: it opens below what opens it, as wide as it needs. */}
+      <SelectContent
+        {...(groups.length === 0
+          ? {}
+          : { align: "end", alignItemWithTrigger: false, className: "aperture:min-w-60" })}
+      >
         <SelectGroup>
           {options.map((option) => (
             <SelectItem key={option.value} value={option.value}>
@@ -48,6 +62,16 @@ export function Choice<Value extends string>({
             </SelectItem>
           ))}
         </SelectGroup>
+        {groups.map((group) => (
+          <SelectGroup key={group.label}>
+            <SelectLabel>{group.label}</SelectLabel>
+            {group.options.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        ))}
       </SelectContent>
     </Select>
   );
