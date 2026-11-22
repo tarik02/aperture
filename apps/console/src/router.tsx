@@ -156,22 +156,6 @@ const accountConnections = createRoute({
   ),
 });
 
-// Where these were before they were tabs of one page: an address someone kept still leads there.
-const tokens = createRoute({
-  getParentRoute: () => pages,
-  path: "/-/tokens",
-  validateSearch: listSearch(TOKENS_SEARCH),
-  component: function Moved() {
-    return <Navigate to="/-/account/tokens" search={tokens.useSearch()} replace />;
-  },
-});
-
-const connectedApps = createRoute({
-  getParentRoute: () => pages,
-  path: "/-/connected-apps",
-  component: () => <Navigate to="/-/account/connections" replace />,
-});
-
 // Bare, as signing in is: whoever comes is sent by an app, and goes back to it.
 const consent = createRoute({
   getParentRoute: () => signed,
@@ -261,16 +245,6 @@ const audit = createRoute({
   ),
 });
 
-// Where the page was before it was called what it is: an address someone kept still leads to it.
-const events = createRoute({
-  getParentRoute: () => pages,
-  path: "/-/events",
-  validateSearch: listSearch(AUDIT_SEARCH),
-  component: function Moved() {
-    return <Navigate to="/-/audit" search={events.useSearch()} replace />;
-  },
-});
-
 const session = createRoute({
   getParentRoute: () => signed,
   path: "/-/sessions/$sessionId",
@@ -300,8 +274,6 @@ export const router = createRouter({
         sessions,
         snapshots,
         account.addChildren([accountHome, accountSecurity, accountTokens, accountConnections]),
-        tokens,
-        connectedApps,
         workspaces,
         nodes,
         registrationTokens,
@@ -310,7 +282,6 @@ export const router = createRouter({
         serviceAccountTokens,
         providers,
         audit,
-        events,
       ]),
       session,
       consent,

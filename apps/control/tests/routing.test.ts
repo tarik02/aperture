@@ -1286,7 +1286,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
 
       // A window too short for the dialog has all of it: it scrolls between its header and
       // its buttons, and what it is told is wrong is brought into view.
-      const short = yield* viewer.open(`${proxy.url}/-/tokens`, {
+      const short = yield* viewer.open(`${proxy.url}/-/account/tokens`, {
         width: 1280,
         height: 420,
       });
@@ -1337,7 +1337,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         const viewer = yield* Viewer.Viewer;
         const fs = yield* FileSystem.FileSystem;
         const id = path.split("/").at(-1) ?? "";
-        const page = yield* viewer.open(`${proxy.url}/-/tokens`, {
+        const page = yield* viewer.open(`${proxy.url}/-/account/tokens`, {
           width: 390,
           height: 844,
           mobile: true,
@@ -2980,13 +2980,11 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       expect(yield* has(`${row} [data-console-row-action="members"]`)).toBe(true);
       expect(yield* has(`${row} [data-console-row-actions]`)).toBe(false);
       yield* shot(page, fs, "console-held-reader-workspaces");
-      // A page that is not the token's says so, where its address is come to: the one it
-      // had before it was a tab of the account's page leads there.
+      // A page that is not the token's says so, where its address is come to.
       yield* page.evaluate(
-        `void (history.pushState({}, "", "/-/tokens"), dispatchEvent(new PopStateEvent("popstate")))`,
+        `void (history.pushState({}, "", "/-/account/tokens"), dispatchEvent(new PopStateEvent("popstate")))`,
       );
       yield* page.until(`!!document.querySelector('[data-console-not-allowed="tokens:write"]')`);
-      expect(yield* page.evaluate(`location.pathname`)).toBe("/-/account/tokens");
       yield* shot(page, fs, "console-held-not-allowed");
       const phone = yield* viewer.open(`${proxy.url}/-/sessions`, {
         width: 390,
@@ -3190,14 +3188,12 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         expect(phone.errors()).toEqual([]);
         yield* phone.close;
 
-        // An address of the page as it was called before leads to it, narrowed as it says.
-        const wide = yield* viewer.open(`${proxy.url}/-/events?kind=workspace.deleted`, {
+        // The page's address says what it is narrowed by.
+        const wide = yield* viewer.open(`${proxy.url}/-/audit?kind=workspace.deleted`, {
           width: 1440,
           height: 900,
         });
-        yield* wide.until(
-          `location.pathname === "/-/audit" && location.search === "?kind=workspace.deleted" && ${rows}.length === 1`,
-        );
+        yield* wide.until(`${rows}.length === 1`);
         yield* wide.evaluate(`void (location.href = "/-/audit")`);
         yield* wide.until(`${rows}.length === 50`);
         yield* shot(wide, fs, "console-audit-wide");
@@ -3293,7 +3289,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       );
 
       // What they gave is theirs to see, and to take back.
-      yield* page.evaluate(`void (location.href = "/-/connected-apps")`);
+      yield* page.evaluate(`void (location.href = "/-/account/connections")`);
       yield* page.until(
         `!!document.querySelector('[data-console-grant="An agent of the checks"] [data-console-grant-scope="sessions:read"]')`,
       );
