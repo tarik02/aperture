@@ -30,10 +30,33 @@ const SYSTEM_ROOTS: &[&str] = &[
     "/lib",
     "/lib64",
     "/bin",
-    "/etc",
     "/nix/store",
     "/var/cache/fontconfig",
 ];
+
+/// Where a browser looks under `/etc` for what its machine's owner has settled for it:
+/// Chromium, and Chrome.
+const POLICY_DIRS: &[&str] = &["chromium/policies/managed", "opt/chrome/policies/managed"];
+
+/// What the browser is not to ask whoever uses a session, as none of it is theirs to keep
+/// there: the browser keeps no passwords, addresses or cards and so does not offer to, it
+/// translates nothing, signs in to nothing and tells of nothing of its own.
+fn policy() -> serde_json::Value {
+    serde_json::json!({
+        "PasswordManagerEnabled": false,
+        "PasswordLeakDetectionEnabled": false,
+        "AutofillAddressEnabled": false,
+        "AutofillCreditCardEnabled": false,
+        "TranslateEnabled": false,
+        "BrowserSignin": 0,
+        "SyncDisabled": true,
+        "DefaultBrowserSettingEnabled": false,
+        "PromotionalTabsEnabled": false,
+        "PrivacySandboxPromptEnabled": false,
+        "MetricsReportingEnabled": false,
+        "BackgroundModeEnabled": false,
+    })
+}
 
 /// Where a GPU's drivers are and what describes the device to them, for a browser that
 /// draws on one.
@@ -204,6 +227,21 @@ fn sandbox(command: &mut Command, spec: &Spec, given: &Given, home: &Path) -> an
             command.args(["--ro-bind", root, root]);
         }
     }
+    // The machine's `/etc` with the session's policy over it: the browser reads its policy
+    // from there and from nowhere it can be pointed at.
+    let etc = spec.runtime_dir.join("etc");
+    for dir in POLICY_DIRS {
+        let dir = etc.join(dir);
+        fs::create_dir_all(&dir)?;
+        fs::write(
+            dir.join("aperture.json"),
+            serde_json::to_vec_pretty(&policy())?,
+        )?;
+    }
+    command
+        .args(["--overlay-src", "/etc", "--overlay-src"])
+        .arg(&etc)
+        .args(["--ro-overlay", "/etc"]);
     if Path::new("/run/systemd/resolve").exists() {
         command.args(["--ro-bind", "/run/systemd/resolve", "/run/systemd/resolve"]);
     }
@@ -329,6 +367,10 @@ fn arguments(spec: &Spec, given: &Given) -> Vec<String> {
         "--no-sandbox",
         "--no-first-run",
         "--no-default-browser-check",
+        // Nor does it ask which search engine to use, or whether to bring back the pages
+        // of a session that did not end well, which it brings back anyway.
+        "--disable-search-engine-choice-screen",
+        "--hide-crash-restore-bubble",
         "--disable-breakpad",
         "--use-gl=angle",
     ];
