@@ -12,6 +12,7 @@ import { V1DatabaseUnusable, V1SchemaUnexpected } from "../errors.ts";
 import {
   ApiToken,
   Count,
+  Install,
   Membership,
   ResourceGrant,
   SCHEMA_VERSION,
@@ -28,15 +29,45 @@ import { V1Source } from "./source.ts";
 export interface V1Location {
   /** v1's `database_path`. */
   readonly database: string;
-  /** v1's `cold_root`, where its snapshots are. */
+  /** v1's `cold_root`, where its snapshots and its sessions' files are. */
   readonly coldRoot: string;
+  /** v1's `store_root`, where its sessions' profiles are. */
+  readonly storeRoot: string;
 }
 
-/** Where v1 keeps a snapshot's profile below its cold root: two levels of its id's first bytes. */
-export const profileOf = (coldRoot: string, id: string) => {
+/** Where v1 keeps what has an id below a root: two levels of the id's first bytes. */
+const bucketed = (root: string, of: string, id: string) => {
   const hex = id.replaceAll("-", "");
-  return `${coldRoot}/snapshots/${hex.slice(0, 2)}/${hex.slice(2, 4)}/${id}/profile`;
+  return `${root}/${of}/${hex.slice(0, 2)}/${hex.slice(2, 4)}/${id}`;
 };
+
+/** Where v1 keeps a snapshot's profile below its cold root. */
+export const profileOf = (coldRoot: string, id: string) =>
+  `${bucketed(coldRoot, "snapshots", id)}/profile`;
+
+/**
+ * Where v1 keeps a session: what its browser wrote above its snapshot and where the two
+ * are mounted as one below the store root, and its files below the cold root.
+ */
+export const sessionOf = (location: V1Location, id: string) => ({
+  upper: `${bucketed(location.storeRoot, "sessions", id)}/upper`,
+  merged: `${bucketed(location.storeRoot, "sessions", id)}/merged`,
+  files: `${bucketed(location.coldRoot, "sessions", id)}/files`,
+});
+
+/** Where something is mounted, as the fifth field of a line of `mountinfo` tells it. */
+const mountPoints = (mountinfo: string) =>
+  new Set(
+    mountinfo
+      .split("\n")
+      .flatMap((line) => line.split(" ").slice(4, 5))
+      // A space, a tab, a newline and a backslash are written as their octal numbers.
+      .map((point) =>
+        point.replaceAll(/\\([0-7]{3})/gu, (_, octal: string) =>
+          String.fromCodePoint(Number.parseInt(octal, 8)),
+        ),
+      ),
+  );
 
 export const makeV1Source = Effect.fn("V1Source.make")(function* (location: V1Location) {
   const fs = yield* FileSystem.FileSystem;
@@ -92,6 +123,29 @@ export const makeV1Source = Effect.fn("V1Source.make")(function* (location: V1Lo
         return yield* new V1SchemaUnexpected({ file, found: version, expected: SCHEMA_VERSION });
       }
       const snapshots = yield* rows(Snapshot, sql`SELECT * FROM snapshots ORDER BY created_at, id`);
+      const sessions = yield* rows(
+        Session,
+        sql`SELECT id, tenant_id, base_snapshot_id, label, status, created_at, expired_at,
+                 proxy_config
+          FROM sessions ORDER BY created_at, id`,
+      );
+      const [install] = yield* rows(
+        Install,
+        sql`SELECT install_id, created_at FROM install_identity`,
+      );
+      if (install === undefined) {
+        return yield* unusable("it does not say which installation it is of");
+      }
+      const where = {
+        ...location,
+        coldRoot: path.resolve(location.coldRoot),
+        storeRoot: path.resolve(location.storeRoot),
+      };
+      const there = (entry: string) => fs.exists(entry).pipe(Effect.orElseSucceed(() => false));
+      // Nothing is mounted where what is mounted cannot be told: on no Linux, v1 ran nothing.
+      const mounted = mountPoints(
+        yield* fs.readFileString("/proc/self/mountinfo").pipe(Effect.orElseSucceed(() => "")),
+      );
       return {
         tenants: yield* rows(Tenant, sql`SELECT * FROM tenants ORDER BY created_at, id`),
         users: yield* rows(User, sql`SELECT * FROM users ORDER BY created_at, id`),
@@ -110,19 +164,28 @@ export const makeV1Source = Effect.fn("V1Source.make")(function* (location: V1Lo
         snapshots: yield* Effect.forEach(
           snapshots,
           Effect.fn(function* (snapshot) {
-            const profile = profileOf(path.resolve(location.coldRoot), snapshot.id);
-            const there = yield* fs.exists(profile).pipe(Effect.orElseSucceed(() => false));
-            return { ...snapshot, profile: there ? profile : null };
+            const profile = profileOf(where.coldRoot, snapshot.id);
+            return { ...snapshot, profile: (yield* there(profile)) ? profile : null };
           }),
         ),
         snapshotTags: yield* rows(
           Tag,
           sql`SELECT snapshot_id AS of, key, value FROM snapshot_tags`,
         ),
-        sessions: yield* rows(
-          Session,
-          sql`SELECT id, tenant_id, label, status, expired_at FROM sessions ORDER BY created_at, id`,
+        sessions: yield* Effect.forEach(
+          sessions,
+          Effect.fn(function* (session) {
+            const { upper, merged, files } = sessionOf(where, session.id);
+            return {
+              ...session,
+              upper: (yield* there(upper)) ? upper : null,
+              files: (yield* there(files)) ? files : null,
+              mounted: mounted.has(merged),
+            };
+          }),
         ),
+        sessionTags: yield* rows(Tag, sql`SELECT session_id AS of, key, value FROM session_tags`),
+        install,
         withoutAHome: yield* counted(sql),
       };
     },

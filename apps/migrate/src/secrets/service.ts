@@ -4,8 +4,7 @@ import type { SecretsFileUnusable } from "../errors.ts";
 
 /** A token that was made in place of one of v1's, with its secret, which is told once. */
 export interface Reissued {
-  /** The token of v1 it is in place of. */
-  readonly v1Id: string;
+  /** Its id, which is that of the token of v1 it is in place of. */
   readonly id: string;
   readonly account: string;
   readonly name: string;

@@ -321,7 +321,9 @@
             mkdir -p $lib/apps/migrate
             cp -r node_modules $lib/node_modules
             cp -r apps/migrate/node_modules apps/migrate/dist apps/migrate/package.json $lib/apps/migrate/
+            # `cp` copies what overlayfs keeps in a session's profile, which is coreutils' to do.
             makeWrapper ${lib.getExe nodeRuntime} $out/bin/aperture-migrate \
+              --prefix PATH : ${lib.makeBinPath [ pkgs.coreutils ]} \
               --add-flags --enable-source-maps \
               --add-flags $lib/apps/migrate/dist/main.mjs
             runHook postInstall

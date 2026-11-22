@@ -34,7 +34,8 @@ const stores = Layer.mergeAll(
  * The control plane's own stores and services on its database, as its settings name it:
  * what is moved is written by what the control plane writes with, so that a person, a
  * token and an event are made here as they are made there. The database itself is given
- * as well, for what is kept together with what they write.
+ * as well, for what is kept together with what they write, and the vault, which seals a
+ * session's routing as the control plane does.
  */
 export const layer = Accounts.layer.pipe(
   Layer.provideMerge(Nodes.layer),
@@ -43,6 +44,6 @@ export const layer = Accounts.layer.pipe(
   Layer.provideMerge(Events.layer),
   Layer.provideMerge(stores),
   Layer.provide(NodeHttpClient.layerUndici),
-  Layer.provide(Vault.layer),
+  Layer.provideMerge(Vault.layer),
   Layer.provide(Settings.layer),
 );

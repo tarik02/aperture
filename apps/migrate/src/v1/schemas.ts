@@ -72,12 +72,49 @@ export type Snapshot = typeof Snapshot.Type;
 export const Session = Schema.Struct({
   id: Schema.String,
   tenantId: Schema.String,
+  /** The snapshot its profile stands on; none for one that began with an empty profile. */
+  baseSnapshotId: Schema.NullOr(Schema.String),
   label: Schema.NullOr(Schema.String),
   status: Schema.Literals(["creating", "running", "suspended", "deleted", "expired", "failed"]),
+  createdAt: Moment,
   /** When v1 removed what it kept of it; never, for one whose profile and files are there. */
   expiredAt: Schema.NullOr(Moment),
+  /** Its routing as v1 kept it, as JSON; none for one whose connections all went direct. */
+  proxyConfig: Schema.NullOr(Schema.String),
 });
 export type Session = typeof Session.Type;
+
+/** What v1 keeps of a session on disk, beside its row. */
+export interface SessionOnDisk {
+  /** What its browser wrote above its snapshot; none where the directory is not there. */
+  readonly upper: string | null;
+  /** Its files; none where it has none. */
+  readonly files: string | null;
+  /** Whether its profile is still mounted, as it is while its browser runs. */
+  readonly mounted: boolean;
+}
+
+/** v1's routing of a session, of which this program reads what v2 has a place for. */
+export const Routing = Schema.fromJsonString(
+  Schema.Struct({
+    upstreams: Schema.optional(
+      Schema.Record(
+        Schema.String,
+        Schema.Struct({ url: Schema.String, auth: Schema.optional(Schema.String) }),
+      ),
+    ),
+    rules: Schema.optional(
+      Schema.Array(Schema.Struct({ match: Schema.String, via: Schema.String })),
+    ),
+  }),
+);
+
+/** What tells one installation of v1 from another, made when it was. */
+export const Install = Schema.Struct({
+  installId: Schema.String.check(Schema.isPattern(/^[0-9a-f]{32}$/iu)),
+  createdAt: Moment,
+});
+export type Install = typeof Install.Type;
 
 /** A tag of a session or a snapshot, by the id of what it is on. */
 export const Tag = Schema.Struct({ of: Schema.String, key: Schema.String, value: Schema.String });
@@ -116,7 +153,9 @@ export interface V1Data {
   /** Each with where its profile is; none where the directory is not there. */
   readonly snapshots: ReadonlyArray<Snapshot & { readonly profile: string | null }>;
   readonly snapshotTags: ReadonlyArray<Tag>;
-  readonly sessions: ReadonlyArray<Session>;
+  readonly sessions: ReadonlyArray<Session & SessionOnDisk>;
+  readonly sessionTags: ReadonlyArray<Tag>;
+  readonly install: Install;
   /** How many rows each table that goes nowhere has. */
   readonly withoutAHome: Readonly<Record<WithoutAHome, number>>;
 }

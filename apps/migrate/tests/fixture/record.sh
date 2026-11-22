@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Records the v1 installation the checks migrate: a real v1, run from its image on a volume
-# of its own, with tenants, people, tokens, sessions and a snapshot of a browser that is
-# signed in to a site. What it leaves is v1.tar.gz beside this file.
+# of its own, with tenants, people, tokens, a snapshot of a browser that is signed in to a
+# site, and sessions: one suspended, with a file, a recording and routing of its own, one
+# of a personal tenant, and one that was running when v1 stopped. What it leaves is
+# v1.tar.gz beside this file.
 #
 #   nix build <v1 checkout>#aperture-docker && podman load -i result
 #   record.sh localhost/aperture:<version>
@@ -42,9 +44,13 @@ for _ in $(seq 1 60); do curl -fsS $url/api/health >/dev/null 2>&1 && break; sle
 
 admin=$(cat "$work/admin-token")
 api() { # token method path [body] [tenant]
-  curl -sS --fail-with-body -X "$2" "$url$3" -H "Authorization: Bearer $1" \
-    ${4:+-H 'Content-Type: application/json' -d "$4"} ${5:+-H "X-Aperture-Tenant-Id: $5"} \
-    || { echo " <- $2 $3" >&2; return 1; }
+  local answer
+  if ! answer=$(curl -sS --fail-with-body -X "$2" "$url$3" -H "Authorization: Bearer $1" \
+    ${4:+-H 'Content-Type: application/json' -d "$4"} ${5:+-H "X-Aperture-Tenant-Id: $5"}); then
+    echo "$answer <- $2 $3" >&2
+    return 1
+  fi
+  printf '%s' "$answer"
 }
 
 # The site the browser signs in to, in the container's own network: its sandbox reaches
@@ -93,24 +99,43 @@ revoked=$(tenant_token "$team" old '["sessions:read"]' | jq -r .token.id)
 api "$admin" POST /api/admin/tokens/"$revoked"/revoke >/dev/null
 tenant_token "$default" default-reader '["sessions:read"]' '"expiresAt":"2099-01-01T00:00:00Z"' >/dev/null
 
-# The browser that signs in, and the snapshot of it.
+# Until a page of the session has the title; gives the page's target.
+page_titled() { # session title tenant
+  for _ in $(seq 1 60); do
+    if target=$(api "$admin" GET /sessions/"$1"/browser/status '' "$3" 2>/dev/null \
+      | jq -er --arg title "$2" 'first(.pages[]? | select(.title == $title)) | .targetId'); then
+      echo "$target"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "the browser did not get to a page titled $2:" >&2
+  api "$admin" GET /sessions/"$1"/browser/status '' "$3" >&2 || true
+  return 1
+}
+
+# The browser that signs in: it has routing of its own, a file and a recording, and is
+# left suspended. The snapshot is of it.
 session=$(api "$admin" POST /api/sessions \
   '{"browser":{"channel":"chromium"},"label":"signing in","tags":{"purpose":"fixture"},
-    "initialTargets":[{"url":"http://127.0.0.1:'$site_port'/login"}]}' "$team" | jq -r .session.id)
-signed_in=no
+    "initialTargets":[{"url":"http://127.0.0.1:'$site_port'/login"}],
+    "proxy":{"upstreams":{"corp":{"url":"socks5://user:secret@proxy.invalid:1080"}},
+      "rules":[{"match":"*.corp.test","via":"corp"},{"match":"blocked.test:443","via":"refuse"},
+        {"match":"[2001:db8::1]:443","via":"refuse"}]}}' "$team" | jq -r .session.id)
+target=$(page_titled "$session" in "$team")
+printf 'kept from v1\n' > "$work/note.txt"
+curl -sS --fail-with-body -X POST "$url/api/sessions/$session/files?directory=uploads" \
+  -H "Authorization: Bearer $admin" -H "X-Aperture-Tenant-Id: $team" \
+  -F "files=@$work/note.txt" >/dev/null
+recording=$(api "$admin" POST /api/sessions/"$session"/recordings \
+  '{"targetId":"'"$target"'","codec":"vp8"}' "$team" | jq -r .recordingId)
+sleep 3
+api "$admin" POST /api/sessions/"$session"/recordings/"$recording"/stop '' "$team" >/dev/null
 for _ in $(seq 1 60); do
-  if api "$admin" GET /sessions/"$session"/browser/status '' "$team" 2>/dev/null \
-    | jq -e '.pages[]? | select(.title == "in")' >/dev/null; then
-    signed_in=yes
-    break
-  fi
+  api "$admin" GET /api/sessions/"$session"/recordings/"$recording" '' "$team" \
+    | jq -e '.editing == false' >/dev/null && break
   sleep 1
 done
-if [ "$signed_in" = no ]; then
-  echo "the browser did not get to the site:" >&2
-  api "$admin" GET /sessions/"$session"/browser/status '' "$team" >&2 || true
-  exit 1
-fi
 # Chromium writes its cookies down a while after it takes them.
 sleep 35
 api "$admin" POST /api/sessions/"$session"/suspend '' "$team" >/dev/null
@@ -119,13 +144,47 @@ snapshot=$(api "$admin" POST /api/sessions/"$session"/promote \
   | jq -r .snapshot.id)
 tenant_token "$team" one-snapshot '["snapshots:read"]' \
   '"resourceMode":"allowlist","resourceGrants":[{"resourceType":"snapshot","resourceId":"'"$snapshot"'"}]' >/dev/null
-# A snapshot that was deleted, and a session that is left suspended.
+# A snapshot that was deleted.
 api "$admin" POST /api/sessions/"$session"/promote '{"name":"dropped"}' "$team" >/dev/null
 api "$admin" DELETE /api/snapshots/dropped '' "$team" >/dev/null
 
+# A session of a personal tenant, suspended. The tenant is hidden from administrators, so
+# v1's own program tells of it and makes the token that works in it.
+v1() { podman exec "$name" aperture-server --config /etc/aperture/aperture.toml admin "$@"; }
+personal=$(v1 tenants list | sed -n "s/^tenant id=\([^ ]*\) .* owner_user_id=$alice\$/\1/p")
+own_token=$(v1 tokens create --name alice-own --authority-type tenant --tenant-id "$personal" \
+  --scopes sessions:read,sessions:write | sed -n '/shown once/{n;p;}')
+own=$(api "$own_token" POST /api/sessions \
+  '{"browser":{"channel":"chromium"},"label":"alice'"'"'s own",
+    "initialTargets":[{"url":"http://127.0.0.1:'$site_port'/own"}]}' | jq -r .session.id)
+for _ in $(seq 1 60); do
+  api "$own_token" GET /sessions/"$own"/browser/status 2>/dev/null \
+    | jq -e '.pages[]? | select(.title == "signed out")' >/dev/null && break
+  sleep 1
+done
+api "$own_token" POST /api/sessions/"$own"/suspend >/dev/null
+
+# A session created from the snapshot, with a second page, that runs when v1 stops: what
+# it wrote is above the snapshot's profile.
+running=$(api "$admin" POST /api/sessions \
+  '{"browser":{"channel":"chromium"},"label":"left running","baseSnapshotName":"signed-in",
+    "initialTargets":[{"url":"http://127.0.0.1:'$site_port'/first"},{"url":"http://127.0.0.1:'$site_port'/second"}]}' "$team" \
+  | jq -r .session.id)
+page_titled "$running" "signed in as alice" "$team" >/dev/null
+# Chromium writes down which pages it has a while after it opens them.
+sleep 35
+
 podman stop "$name" >/dev/null
-# As whoever unpacks it: v1's own user is nobody outside its container.
+# As whoever unpacks it: v1's own user is nobody outside its container. What overlayfs
+# keeps in a session's upper directory goes along: the attributes that say a directory
+# hides what is below it, and the devices that say a file is gone. What a browser keeps to
+# be faster is left out, as is what overlayfs works in.
 volume=$(podman volume inspect -f '{{.Mountpoint}}' "$name")
-podman unshare tar --owner=0 --group=0 -C "$volume" -cf - aperture.db .aperture-root snapshots \
+podman unshare tar --owner=0 --group=0 --xattrs --xattrs-include='user.*' -C "$volume" \
+  --exclude='sessions/*/*/*/cache' --exclude='sessions/*/*/*/work' --exclude='sessions/*/*/*/merged' \
+  --exclude='Cache' --exclude='Code Cache' --exclude='GPUCache' --exclude='GrShaderCache' \
+  --exclude='ShaderCache' --exclude='GraphiteDawnCache' --exclude='component_crx_cache' \
+  --exclude='extensions_crx_cache' --exclude='BrowserMetrics*' --exclude='Safe Browsing' \
+  -cf - aperture.db .aperture-root snapshots sessions \
   | gzip -9n > "$here/v1.tar.gz"
 ls -la "$here/v1.tar.gz"

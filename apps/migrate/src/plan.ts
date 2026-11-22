@@ -1,4 +1,5 @@
-import type { Scope, TokenResources } from "@aperture-browser/control-api";
+import type { ProxyConfig, Scope, TokenResources } from "@aperture-browser/control-api";
+import { routingOf } from "./routing.ts";
 import { type V1Data, WITHOUT_A_HOME, type WithoutAHome } from "./v1/schemas.ts";
 
 /** What the operator said of what v1 has that v2 has no place for as it is. */
@@ -8,85 +9,105 @@ export interface Choices {
    * over: each is made anew, or left behind.
    */
   readonly tokens: "reissue" | "drop" | undefined;
-  /** This program moves no sessions: they are left behind once that is said. */
+  /** Sessions are moved unless they are said to be left behind. */
   readonly sessions: "drop" | undefined;
 }
 
+/** What is told apart by its id in v2, each kind among its own. */
+export type Made = "account" | "workspace" | "snapshot" | "session" | "token";
+export const key = (made: Made, id: string) => `${made}:${id}`;
+
 /** What of v2 a plan is made against. */
 export interface Known {
-  /** What was moved before: `kind:v1 id` to the id it has in v2. */
-  readonly moved: ReadonlyMap<string, string>;
+  /** What v2 has, by `kind:id`, with when each was made. */
+  readonly made: ReadonlyMap<string, Date>;
+  /** Who is in which workspace, as `workspace:account`. */
+  readonly members: ReadonlySet<string>;
   /** The accounts of people v2 has, by the address each signs in with, in lower case. */
   readonly people: ReadonlyMap<string, string>;
-  /** The node that takes the snapshots, where one is named and v2 knows it. */
+  /** The node that takes the snapshots and sessions, where one is named and v2 knows it. */
   readonly node: { readonly name: string; readonly known: boolean } | undefined;
   /** Whether a file was named for the secrets of the tokens that are made anew. */
   readonly secretsFile: boolean;
 }
 
-/** What a moved thing is known by in the record: its kind and what v1 called it. */
-export type Kind = Step["kind"];
-export const key = (kind: Kind, v1Id: string) => `${kind}:${v1Id}`;
-
-/** The one account that takes the tokens of v1's system administrators. */
-export const ADMIN_SERVICE = "tokens";
-
 export type Step =
   | {
-      readonly kind: "user";
-      readonly v1Id: string;
+      readonly kind: "person";
+      readonly id: string;
       readonly name: string;
       readonly email: string;
       readonly admin: boolean;
       readonly disabledAt: Date | null;
-      /** The account v2 has for that address already, which this person is then. */
-      readonly joins: string | null;
+      readonly createdAt: Date;
     }
   | {
-      readonly kind: "tenant-service" | "admin-service";
-      readonly v1Id: string;
+      /** A service account that is the bearer of the tokens made anew, and nothing else. */
+      readonly kind: "bearer";
+      readonly id: string;
       readonly name: string;
       readonly admin: boolean;
+      readonly createdAt: Date;
     }
   | {
-      readonly kind: "tenant";
-      readonly v1Id: string;
+      readonly kind: "workspace";
+      readonly id: string;
       readonly name: string;
       readonly createdAt: Date;
     }
   | {
       readonly kind: "member";
-      readonly v1Id: string;
-      /** The tenant that is the workspace. */
-      readonly tenant: string;
-      /** What is let in, as the record knows it. */
-      readonly account: string;
+      readonly workspaceId: string;
+      readonly accountId: string;
       readonly label: string;
       readonly role: "member" | "admin";
     }
   | {
       readonly kind: "snapshot";
-      readonly v1Id: string;
+      readonly id: string;
       readonly name: string;
       readonly description: string | null;
       readonly tags: Readonly<Record<string, string>>;
-      /** Whose it is, as the record knows them. */
-      readonly account: string;
-      /** The tenant that is the workspace it is of; none for one that is its account's own. */
-      readonly tenant: string | null;
+      /** Whose own it is; none for a workspace's, which v1 says nobody made. */
+      readonly accountId: string | null;
+      readonly workspaceId: string | null;
+      /** The session it was taken of. */
       readonly sessionId: string | null;
       readonly createdAt: Date;
       readonly profile: string;
     }
   | {
+      readonly kind: "session";
+      readonly id: string;
+      readonly label: string | null;
+      readonly tags: Readonly<Record<string, string>>;
+      /** Whose own it is; none for a workspace's, which v1 says nobody made. */
+      readonly accountId: string | null;
+      readonly workspaceId: string | null;
+      /** The snapshot it was created from, where that is moved as well. */
+      readonly snapshotId: string | null;
+      /**
+       * The layer its profile stands on. It is a moved snapshot's, or made of `profile`:
+       * that of a snapshot v1 deleted and still kept for the session.
+       */
+      readonly layer: { readonly id: string; readonly profile: string | null } | null;
+      readonly proxy: ProxyConfig | null;
+      readonly createdAt: Date;
+      /** What its browser wrote above its layer. */
+      readonly upper: string;
+      readonly files: string | null;
+      /** It was running when v1 stopped, and is as its browser left it. */
+      readonly wasRunning: boolean;
+    }
+  | {
       readonly kind: "token";
-      readonly v1Id: string;
+      readonly id: string;
       readonly name: string;
-      /** Whose it is, as the record knows them. */
-      readonly account: string;
+      readonly accountId: string;
       readonly scopes: ReadonlyArray<Scope>;
-      /** The v1 snapshots it is held to; all its account reaches, without. */
-      readonly snapshots: ReadonlyArray<string> | null;
+      /** What it is held to; all its account reaches, without. */
+      readonly resources: TokenResources | null;
+      readonly createdAt: Date;
       readonly expiresAt: Date | null;
     };
 
@@ -100,9 +121,11 @@ export interface Named {
 export interface Plan {
   /** What `apply` does, in the order it does it. */
   readonly steps: ReadonlyArray<Step>;
-  /** How much was moved before and is left as it is. */
+  /** How much v2 has already and is left as it is. */
   readonly moved: number;
   readonly skipped: ReadonlyArray<Named>;
+  /** What is moved, and is not in v2 quite what it was in v1. */
+  readonly notes: ReadonlyArray<Named>;
   /** What cannot be moved as things are. With any of these, nothing is moved. */
   readonly conflicts: ReadonlyArray<Named>;
 }
@@ -113,6 +136,7 @@ const SCOPES_ORDER: ReadonlyArray<Scope> = [
   "sessions:write",
   "snapshots:read",
   "snapshots:write",
+  "workspaces:read",
   "workspaces:write",
   "tokens:write",
   "events:read",
@@ -163,33 +187,59 @@ export const scopesOf = (scopes: ReadonlyArray<string>) => {
   return { scopes: SCOPES_ORDER.filter((scope) => known.has(scope)), unknown };
 };
 
-/** A v1 id as v2's nodes write ids: the same UUID without its dashes. */
+/**
+ * A v1 id as v2's nodes write ids, which is how a snapshot and a session are known
+ * everywhere in v2: the same UUID without its dashes.
+ */
 export const nodeId = (v1Id: string) => v1Id.replaceAll("-", "");
 
-/** What a token's resources are once its snapshots have ids in v2. */
-export const resourcesOf = (snapshots: ReadonlyArray<string>): TokenResources => ({
-  workspaces: [],
-  sessions: [],
-  snapshots,
-});
+/**
+ * What tells one v1 from another, as an id v2 takes. v1 wrote 32 random hex digits, which
+ * are no UUID of any version: they are made one of version 8, which is for what is made of
+ * something else, by the two places that say so.
+ */
+export const installId = (bare: string) => {
+  const hex = bare.toLowerCase();
+  const variant = ((Number.parseInt(hex.slice(16, 17), 16) & 0x3) | 0x8).toString(16);
+  const made = `${hex.slice(0, 12)}8${hex.slice(13, 16)}${variant}${hex.slice(17)}`;
+  return [
+    made.slice(0, 8),
+    made.slice(8, 12),
+    made.slice(12, 16),
+    made.slice(16, 20),
+    made.slice(20),
+  ].join("-");
+};
 
 /**
  * What moving v1 into v2 comes to: what is made, what is left where it is and why, and
- * what stands in the way.
+ * what stands in the way. Everything keeps the id it had in v1, so what v2 has under an
+ * id of v1's is what was moved before, unless it was made at another moment: then it is
+ * something else, and in the way.
  */
 export const plan = (v1: V1Data, known: Known, choices: Choices, now: Date): Plan => {
   const steps: Step[] = [];
   const skipped: Named[] = [];
+  const notes: Named[] = [];
   const conflicts: Named[] = [];
   let moved = 0;
 
-  /** Takes a step unless what it makes was made before. */
-  const take = (step: Step) => {
-    if (known.moved.has(key(step.kind, step.v1Id))) {
+  /** Whether v2 has yet to be given what a step makes. */
+  const pending = (made: Made, id: string, createdAt: Date, label: string) => {
+    const there = known.made.get(key(made, id));
+    if (there === undefined) {
+      return true;
+    }
+    if (there.getTime() === createdAt.getTime()) {
       moved += 1;
     } else {
-      steps.push(step);
+      conflicts.push({
+        what: made,
+        label,
+        reason: `v2 has another ${made} under its id ${id}, made at another moment`,
+      });
     }
+    return false;
   };
 
   const users = new Map(v1.users.map((user) => [user.id, user]));
@@ -238,19 +288,14 @@ export const plan = (v1: V1Data, known: Known, choices: Choices, now: Date): Pla
     }
   }
   const reissued = choices.tokens === "reissue" ? tokens : [];
-  if (!known.secretsFile && reissued.some((token) => !known.moved.has(key("token", token.id)))) {
-    conflicts.push({
-      what: "tokens",
-      label: "--tokens reissue",
-      reason: "the secrets of the new tokens have nowhere to go: say --secrets-file",
-    });
-  }
   if (choices.tokens === "drop") {
     for (const token of tokens) {
       skipped.push({ what: "token", label: token.name, reason: "--tokens drop" });
     }
   }
 
+  /** The account a user of v1 is in v2: their own, or the one v2 has for their address. */
+  const accounts = new Map<string, string>();
   for (const user of v1.users) {
     if (user.email === null) {
       const owns = tenants.some((tenant) => tenant.ownerUserId === user.id);
@@ -263,97 +308,145 @@ export const plan = (v1: V1Data, known: Known, choices: Choices, now: Date): Pla
       });
       continue;
     }
-    take({
-      kind: "user",
-      v1Id: user.id,
-      name: user.displayName,
-      email: user.email,
-      admin: user.isSystemAdmin,
-      disabledAt: user.disabledAt,
-      joins: known.people.get(user.email.toLowerCase()) ?? null,
-    });
-  }
-
-  // A shared tenant's snapshots and tokens were nobody's in particular: an account of the
-  // workspace's own has them.
-  const serviced = new Set([
-    ...snapshots.map((snapshot) => snapshot.tenantId),
-    ...reissued.flatMap((token) => (token.tenantId === null ? [] : [token.tenantId])),
-  ]);
-  for (const tenant of shared) {
-    take({
-      kind: "tenant",
-      v1Id: tenant.id,
-      name: tenant.displayName,
-      createdAt: tenant.createdAt,
-    });
-    if (serviced.has(tenant.id)) {
-      take({
-        kind: "tenant-service",
-        v1Id: tenant.id,
-        name: `${tenant.displayName} (from v1)`,
-        admin: false,
+    const joins = known.people.get(user.email.toLowerCase());
+    if (joins !== undefined && joins !== user.id) {
+      accounts.set(user.id, joins);
+      notes.push({
+        what: "user",
+        label: user.displayName,
+        reason: `v2 has an account for ${user.email} already, which stays as it is and is theirs`,
       });
-      take({
-        kind: "member",
-        v1Id: `${tenant.id}:service`,
-        tenant: tenant.id,
-        account: key("tenant-service", tenant.id),
-        label: `${tenant.displayName} (from v1) in ${tenant.displayName}`,
-        role: "admin",
+      continue;
+    }
+    accounts.set(user.id, user.id);
+    if (pending("account", user.id, user.createdAt, user.displayName)) {
+      steps.push({
+        kind: "person",
+        id: user.id,
+        name: user.displayName,
+        email: user.email,
+        admin: user.isSystemAdmin,
+        disabledAt: user.disabledAt,
+        createdAt: user.createdAt,
       });
     }
   }
+
+  for (const tenant of shared) {
+    if (pending("workspace", tenant.id, tenant.createdAt, tenant.displayName)) {
+      steps.push({
+        kind: "workspace",
+        id: tenant.id,
+        name: tenant.displayName,
+        createdAt: tenant.createdAt,
+      });
+    }
+  }
+
+  /** Lets an account into a workspace, unless it is in it. */
+  const admit = (workspaceId: string, accountId: string, label: string, admin: boolean) => {
+    if (known.members.has(`${workspaceId}:${accountId}`)) {
+      moved += 1;
+    } else {
+      steps.push({
+        kind: "member",
+        workspaceId,
+        accountId,
+        label,
+        role: admin ? "admin" : "member",
+      });
+    }
+  };
+
+  // A token of v2 is some account's, and a shared tenant's were nobody's: a service account
+  // of the workspace bears them, where there are any. It has the tenant's id, an account's
+  // as it was a tenant's, since it stands for the tenant where a token is asked whose it is.
+  for (const tenant of shared) {
+    const borne = reissued.filter((token) => token.tenantId === tenant.id);
+    if (borne.length === 0) {
+      continue;
+    }
+    const name = `${tenant.displayName} tokens (from v1)`;
+    if (pending("account", tenant.id, tenant.createdAt, name)) {
+      steps.push({
+        kind: "bearer",
+        id: tenant.id,
+        name,
+        admin: false,
+        createdAt: tenant.createdAt,
+      });
+    }
+    admit(
+      tenant.id,
+      tenant.id,
+      `${name} in ${tenant.displayName}`,
+      // Who is in a workspace is for an admin of it to say.
+      borne.some((token) => token.scopes.includes("tenant:write")),
+    );
+  }
+  const install = installId(v1.install.installId);
   if (reissued.some((token) => token.tenantId === null)) {
-    take({
-      kind: "admin-service",
-      v1Id: ADMIN_SERVICE,
-      name: "Admin tokens (from v1)",
-      admin: true,
-    });
+    const name = "Admin tokens (from v1)";
+    if (pending("account", install, v1.install.createdAt, name)) {
+      steps.push({
+        kind: "bearer",
+        id: install,
+        name,
+        admin: true,
+        createdAt: v1.install.createdAt,
+      });
+    }
   }
 
   for (const membership of v1.memberships) {
     const tenant = live.get(membership.tenantId);
     const user = users.get(membership.userId);
+    const account = accounts.get(membership.userId);
     // A personal tenant is its owner's own account in v2, which nobody is a member of.
-    if (tenant === undefined || tenant.ownerUserId !== null || user === undefined) {
+    if (
+      tenant === undefined ||
+      tenant.ownerUserId !== null ||
+      user === undefined ||
+      account === undefined
+    ) {
       continue;
     }
-    if (user.email === null) {
-      continue;
-    }
-    take({
-      kind: "member",
-      v1Id: `${tenant.id}:${user.id}`,
-      tenant: tenant.id,
-      account: key("user", user.id),
-      label: `${user.displayName} in ${tenant.displayName}`,
-      role: membership.scopes.includes("tenant:write") ? "admin" : "member",
-    });
+    admit(
+      tenant.id,
+      account,
+      `${user.displayName} in ${tenant.displayName}`,
+      membership.scopes.includes("tenant:write"),
+    );
   }
 
-  /** Whose what a tenant had is, and the workspace it is of. */
+  /**
+   * Whose what a tenant had is: the workspace's, and nobody's in particular, for a shared
+   * tenant, and its owner's own for a personal one.
+   */
   const owner = (tenantId: string) => {
     const tenant = live.get(tenantId);
     return tenant === undefined || tenant.ownerUserId === null
-      ? { account: key("tenant-service", tenantId), tenant: tenantId }
-      : { account: key("user", tenant.ownerUserId), tenant: null };
+      ? { accountId: null, workspaceId: tenantId }
+      : { accountId: accounts.get(tenant.ownerUserId) ?? null, workspaceId: null };
+  };
+  /** Whether what a tenant had has someone to be of: a personal one's owner may not be moved. */
+  const owned = (tenantId: string) => {
+    const { accountId, workspaceId } = owner(tenantId);
+    return accountId !== null || workspaceId !== null;
   };
 
-  const pending = snapshots.filter((snapshot) => !known.moved.has(key("snapshot", snapshot.id)));
-  if (pending.length > 0 && known.node?.known !== true) {
-    conflicts.push({
-      what: "node",
-      label: known.node?.name ?? "none",
-      reason:
-        known.node === undefined
-          ? "there are snapshots to move and no node to take them: say --node and --node-store"
-          : "the control plane knows no node of that name: start its executor first, so that it registers",
-    });
-  }
+  let onNode = false;
+  const kept = new Set<string>();
   for (const snapshot of snapshots) {
-    if (snapshot.profile === null && !known.moved.has(key("snapshot", snapshot.id))) {
+    if (!owned(snapshot.tenantId)) {
+      // Its owner is in the way already, and said to be.
+      continue;
+    }
+    kept.add(snapshot.id);
+    if (!pending("snapshot", nodeId(snapshot.id), snapshot.createdAt, snapshot.name)) {
+      continue;
+    }
+    if (snapshot.profile === null) {
       conflicts.push({
         what: "snapshot",
         label: snapshot.name,
@@ -361,22 +454,111 @@ export const plan = (v1: V1Data, known: Known, choices: Choices, now: Date): Pla
       });
       continue;
     }
-    take({
+    onNode = true;
+    steps.push({
       kind: "snapshot",
-      v1Id: snapshot.id,
+      id: nodeId(snapshot.id),
       name: snapshot.name,
       description: snapshot.description,
       tags: Object.fromEntries(
         v1.snapshotTags.filter((tag) => tag.of === snapshot.id).map((tag) => [tag.key, tag.value]),
       ),
       ...owner(snapshot.tenantId),
-      sessionId: snapshot.promotedFromSessionId,
+      sessionId:
+        snapshot.promotedFromSessionId === null ? null : nodeId(snapshot.promotedFromSessionId),
       createdAt: snapshot.createdAt,
-      profile: snapshot.profile ?? "",
+      profile: snapshot.profile,
     });
   }
 
-  const kept = new Set(snapshots.map((snapshot) => snapshot.id));
+  const profiles = new Map(v1.snapshots.map((snapshot) => [snapshot.id, snapshot.profile]));
+  const keptSessions = new Set<string>();
+  for (const session of v1.sessions) {
+    const label = session.label ?? session.id;
+    // What v1 removed is gone, and it tells of that itself.
+    if (session.expiredAt !== null || session.status === "expired") {
+      continue;
+    }
+    const left =
+      session.status === "deleted"
+        ? "it was deleted in v1"
+        : session.status === "creating"
+          ? "v1 never finished making it"
+          : !live.has(session.tenantId)
+            ? "its tenant was deleted"
+            : choices.sessions === "drop"
+              ? "--sessions drop"
+              : session.status === "failed" && session.upper === null
+                ? "it failed in v1 and left no profile"
+                : undefined;
+    if (left !== undefined) {
+      skipped.push({ what: "session", label, reason: left });
+      continue;
+    }
+    if (!owned(session.tenantId)) {
+      continue;
+    }
+    keptSessions.add(session.id);
+    if (!pending("session", nodeId(session.id), session.createdAt, label)) {
+      continue;
+    }
+    const base = session.baseSnapshotId;
+    const upper = session.upper;
+    const routed = routingOf(session.proxyConfig);
+    const inTheWay =
+      upper === null
+        ? "its profile is not below v1's store root: is --v1-store-root the right directory?"
+        : session.mounted
+          ? "its profile is still mounted, so its browser may be writing it: stop v1's sessions, or the machine, first"
+          : base !== null && !kept.has(base) && (profiles.get(base) ?? null) === null
+            ? "the snapshot its profile stands on is not below v1's cold root"
+            : routed === undefined
+              ? "its routing is not what v1 writes, and is not read"
+              : undefined;
+    if (inTheWay !== undefined || upper === null || routed === undefined) {
+      conflicts.push({ what: "session", label, reason: inTheWay ?? "it is not read" });
+      continue;
+    }
+    for (const match of routed.left) {
+      skipped.push({
+        what: "rule",
+        label: `${match} of session ${label}`,
+        reason: "v2's rules name no IPv6 address: the session is moved without it",
+      });
+    }
+    onNode = true;
+    steps.push({
+      kind: "session",
+      id: nodeId(session.id),
+      label: session.label,
+      tags: Object.fromEntries(
+        v1.sessionTags.filter((tag) => tag.of === session.id).map((tag) => [tag.key, tag.value]),
+      ),
+      ...owner(session.tenantId),
+      snapshotId: base !== null && kept.has(base) ? nodeId(base) : null,
+      layer:
+        base === null
+          ? null
+          : { id: nodeId(base), profile: kept.has(base) ? null : (profiles.get(base) ?? null) },
+      proxy: routed.proxy,
+      createdAt: session.createdAt,
+      upper,
+      files: session.files,
+      wasRunning: session.status === "running",
+    });
+  }
+  if (onNode && known.node?.known !== true) {
+    conflicts.push({
+      what: "node",
+      label: known.node?.name ?? "none",
+      reason:
+        known.node === undefined
+          ? "there are snapshots or sessions to move and no node to take them: say --node and --node-store"
+          : "the control plane knows no node of that name: start its executor first, so that it registers",
+    });
+  }
+
+  let secrets = false;
   for (const token of reissued) {
     const { scopes, unknown } = scopesOf(token.scopes);
     if (unknown.length > 0) {
@@ -387,47 +569,79 @@ export const plan = (v1: V1Data, known: Known, choices: Choices, now: Date): Pla
       });
       continue;
     }
+    const tenant = token.tenantId === null ? undefined : live.get(token.tenantId);
+    // A shared tenant's bearer has the tenant's id, and a personal tenant's tokens are its
+    // owner's own.
+    const accountId =
+      tenant === undefined
+        ? install
+        : tenant.ownerUserId === null
+          ? tenant.id
+          : accounts.get(tenant.ownerUserId);
     const grants = v1.grants.filter((grant) => grant.tokenId === token.id);
-    const left = grants.filter(
-      (grant) => grant.resourceType === "session" || !kept.has(grant.resourceId),
-    );
-    if (left.length > 0) {
+    const reached = (type: "session" | "snapshot", among: ReadonlySet<string>) =>
+      grants
+        .filter((grant) => grant.resourceType === type && among.has(grant.resourceId))
+        .map((grant) => nodeId(grant.resourceId));
+    const resources =
+      token.resourceMode === "all"
+        ? null
+        : {
+            workspaces: [],
+            sessions: reached("session", keptSessions),
+            snapshots: reached("snapshot", kept),
+          };
+    const left =
+      resources === null
+        ? 0
+        : grants.length - resources.sessions.length - resources.snapshots.length;
+    if (left > 0) {
       skipped.push({
         what: "token",
         label: token.name,
-        reason: `${left.length} of the sessions and snapshots it was held to are not moved, and it reaches the rest alone`,
+        reason: `${left} of the sessions and snapshots it was held to are not moved, and it reaches the rest alone`,
       });
     }
-    take({
+    // Without an account, its owner is in the way already, and said to be.
+    if (accountId === undefined) {
+      continue;
+    }
+    const owner = tenant?.ownerUserId ?? null;
+    if (
+      owner !== null &&
+      resources === null &&
+      v1.memberships.some(
+        (membership) =>
+          membership.userId === owner && live.get(membership.tenantId)?.ownerUserId === null,
+      )
+    ) {
+      notes.push({
+        what: "token",
+        label: token.name,
+        reason:
+          "it reached its owner's personal tenant alone, and as their own in v2 it reaches the workspaces they are in as well: v2 holds no token to what is its account's own",
+      });
+    }
+    if (!pending("token", token.id, token.createdAt, token.name)) {
+      continue;
+    }
+    secrets = true;
+    steps.push({
       kind: "token",
-      v1Id: token.id,
+      id: token.id,
       name: token.name,
-      account:
-        token.tenantId === null
-          ? key("admin-service", ADMIN_SERVICE)
-          : owner(token.tenantId).account,
+      accountId,
       scopes,
-      snapshots:
-        token.resourceMode === "all"
-          ? null
-          : grants
-              .filter((grant) => grant.resourceType === "snapshot" && kept.has(grant.resourceId))
-              .map((grant) => grant.resourceId),
+      resources,
+      createdAt: token.createdAt,
       expiresAt: token.expiresAt,
     });
   }
-
-  const keptSessions = v1.sessions.filter(
-    (session) => session.expiredAt === null && session.status !== "expired",
-  );
-  for (const session of keptSessions) {
-    (choices.sessions === "drop" ? skipped : conflicts).push({
-      what: "session",
-      label: session.label ?? session.id,
-      reason:
-        choices.sessions === "drop"
-          ? "--sessions drop"
-          : "this program moves no sessions, with their files and recordings: promote it to a snapshot in v1 first, or say --sessions drop",
+  if (secrets && !known.secretsFile) {
+    conflicts.push({
+      what: "tokens",
+      label: "--tokens reissue",
+      reason: "the secrets of the new tokens have nowhere to go: say --secrets-file",
     });
   }
 
@@ -438,5 +652,5 @@ export const plan = (v1: V1Data, known: Known, choices: Choices, now: Date): Pla
     }
   }
 
-  return { steps, moved, skipped, conflicts };
+  return { steps, moved, skipped, notes, conflicts };
 };

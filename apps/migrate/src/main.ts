@@ -17,12 +17,20 @@ const flags = {
   ),
   v1ColdRoot: Flag.String("v1-cold-root").pipe(
     Flag.withDescription(
-      "v1's cold_root, where its snapshots are; the database's directory without",
+      "v1's cold_root, where its snapshots and its sessions' files are; the database's directory without",
+    ),
+    Flag.optional,
+  ),
+  v1StoreRoot: Flag.String("v1-store-root").pipe(
+    Flag.withDescription(
+      "v1's store_root, where its sessions' profiles are; its cold root without",
     ),
     Flag.optional,
   ),
   node: Flag.String("node").pipe(
-    Flag.withDescription("The node that takes v1's snapshots, by the name it registered with"),
+    Flag.withDescription(
+      "The node that takes v1's snapshots and sessions, by the name it registered with",
+    ),
     Flag.optional,
   ),
   nodeStore: Flag.String("node-store").pipe(

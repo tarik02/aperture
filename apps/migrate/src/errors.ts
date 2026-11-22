@@ -30,13 +30,13 @@ export class NodeStoreUnusable extends Schema.TaggedError<NodeStoreUnusable>()(
   }
 }
 
-/** A snapshot's profile did not get into the node's store. */
+/** The profile of a snapshot or of a session did not get into the node's store. */
 export class ProfileNotCopied extends Schema.TaggedError<ProfileNotCopied>()("ProfileNotCopied", {
-  snapshot: Schema.String,
+  of: Schema.String,
   reason: Schema.String,
 }) {
   override get message() {
-    return `the profile of snapshot ${this.snapshot} was not copied: ${this.reason}`;
+    return `the profile of ${this.of} was not copied: ${this.reason}`;
   }
 }
 

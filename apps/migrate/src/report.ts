@@ -2,21 +2,20 @@ import type { Named, Plan, Step } from "./plan.ts";
 
 const said = (step: Step) => {
   switch (step.kind) {
-    case "user":
-      return step.joins === null
-        ? `person ${step.name} <${step.email}>${step.admin ? ", an admin" : ""}${step.disabledAt === null ? "" : ", disabled"}: sets a password with a setup link`
-        : `person ${step.name} <${step.email}>: is the account v2 has for that address, which stays as it is`;
-    case "tenant-service":
-    case "admin-service":
-      return `service account ${step.name}${step.admin ? ", an admin" : ""}`;
-    case "tenant":
+    case "person":
+      return `person ${step.name} <${step.email}>${step.admin ? ", an admin" : ""}${step.disabledAt === null ? "" : ", disabled"}: sets a password with a setup link`;
+    case "bearer":
+      return `service account ${step.name}${step.admin ? ", an admin" : ""}: the bearer of the tokens made anew`;
+    case "workspace":
       return `workspace ${step.name}`;
     case "member":
       return `${step.label}, as ${step.role}`;
     case "snapshot":
-      return `snapshot ${step.name}${step.tenant === null ? ", its owner's own" : ""}`;
+      return `snapshot ${step.name}, ${step.workspaceId === null ? "its owner's own" : "its workspace's"}`;
+    case "session":
+      return `session ${step.label ?? step.id}, ${step.workspaceId === null ? "its owner's own" : "its workspace's"}, suspended${step.wasRunning ? ": it ran when v1 stopped, and is as its browser left it" : ""}`;
     case "token":
-      return `token ${step.name}, anew: ${step.scopes.join(" ")}${step.snapshots === null ? "" : `, held to ${step.snapshots.length} snapshots`}`;
+      return `token ${step.name}, anew: ${step.scopes.join(" ")}${step.resources === null ? "" : `, held to ${step.resources.sessions.length} sessions and ${step.resources.snapshots.length} snapshots`}`;
   }
 };
 
@@ -28,9 +27,11 @@ export const render = (plan: Plan): string =>
   [
     `to move: ${plan.steps.length}`,
     ...plan.steps.map((step) => `  ${said(step)}`),
-    `moved before: ${plan.moved}`,
+    `in v2 already: ${plan.moved}`,
     `left in v1: ${plan.skipped.length}`,
     ...named(plan.skipped),
+    `moved, and not quite what it was: ${plan.notes.length}`,
+    ...named(plan.notes),
     `in the way: ${plan.conflicts.length}`,
     ...named(plan.conflicts),
   ].join("\n");

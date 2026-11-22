@@ -8,7 +8,6 @@ import { type Reissued, TokenSecrets } from "./service.ts";
 /** A line of the secrets file. */
 export const Line = Schema.fromJsonString(
   Schema.Struct({
-    v1Id: Schema.String,
     id: Schema.String,
     account: Schema.String,
     name: Schema.String,
