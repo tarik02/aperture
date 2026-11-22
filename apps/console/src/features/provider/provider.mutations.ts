@@ -5,10 +5,24 @@ import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { queryKeys } from "#/lib/query-keys.ts";
 import { PROVIDERS_KEY } from "#/features/provider/provider.queries.ts";
 
-/** What is said of a provider, as the form has it. */
-export interface ProviderSaid {
+/** Where a provider that speaks OAuth 2.0 alone is asked. */
+export interface EndpointsSaid {
+  readonly authorization: string;
+  readonly token: string;
+  readonly userInfo: string;
+  /** Empty for none. */
+  readonly emails: string;
+}
+
+/** What is asked how it is reached: an issuer, or where a provider without one is asked. */
+export type Asked = { readonly issuer: string } | { readonly endpoints: EndpointsSaid };
+
+/** What is said of a provider, as the form has it: its issuer, or where it is asked. */
+export type ProviderSaid = (
+  | { readonly kind: "oidc"; readonly issuer: string }
+  | { readonly kind: "oauth2"; readonly endpoints: EndpointsSaid }
+) & {
   readonly name: string;
-  readonly issuer: string;
   readonly clientId: string;
   /** Empty for the secret it has. */
   readonly clientSecret: string;
@@ -16,7 +30,7 @@ export interface ProviderSaid {
   readonly provision: boolean;
   readonly domains: ReadonlyArray<string>;
   readonly enabled: boolean;
-}
+};
 
 /** Why a provider was refused, each reason a sentence, where the control plane gave any. */
 export const problemsOf = (error: unknown): ReadonlyArray<string> =>
@@ -51,7 +65,8 @@ export function useCreateProviderMutation() {
 export function useChangeProviderMutation() {
   const stale = useStale();
   return useMutation({
-    mutationFn: ({ id, ...said }: ProviderSaid & { readonly id: string }) =>
+    // What a provider speaks stays what it was first said to be.
+    mutationFn: ({ id, kind: _, ...said }: ProviderSaid & { readonly id: string }) =>
       call((api) => api.providers.change({ params: { id }, payload: said })),
     onSettled: stale,
   });
@@ -86,6 +101,6 @@ export function useRemoveProviderMutation() {
 /** Asks a provider how it is reached. What comes of it is the form's to show. */
 export function useCheckProviderMutation() {
   return useMutation({
-    mutationFn: (issuer: string) => call((api) => api.providers.check({ payload: { issuer } })),
+    mutationFn: (asked: Asked) => call((api) => api.providers.check({ payload: asked })),
   });
 }

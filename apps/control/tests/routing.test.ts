@@ -17,6 +17,7 @@ import * as Schema from "effect/Schema";
 import * as Control from "./src/control.ts";
 import * as Dex from "./src/dex.ts";
 import { signedIn } from "./src/person.ts";
+import { signInThrough } from "./src/sso.ts";
 import * as Proxy from "./src/proxy.ts";
 import { totp } from "./src/totp.ts";
 
@@ -2479,9 +2480,17 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
             yield* rested(page);
             yield* page.click(`${form} input[name="${name}"]`);
             yield* page.until(`document.activeElement === ${field}`);
+            // In place of what a preset put there.
+            yield* page.evaluate(`void ${field}.select()`);
             yield* page.type(text);
             yield* page.until(`${field}.value === ${JSON.stringify(text)}`);
           });
+        const typed = (name: string) =>
+          page.evaluate(`document.querySelector('${form} input[name="${name}"]').value`);
+        /** The scopes that are chosen, as the form shows them. */
+        const scopes = page.evaluate(
+          `[...document.querySelectorAll('${form} [data-scope]')].map((one) => one.dataset.scope).join(" ")`,
+        );
         const opened = Effect.gen(function* () {
           yield* page.click("[data-console-provider-new]");
           yield* page.until(`!!document.querySelector('${form} input[name="name"]')`);
@@ -2489,31 +2498,98 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
           return yield* placed(page);
         });
 
-        // What is no provider is said to be none, on the lines kept for it: nothing moves.
+        // What is no provider is said to be none in the field itself, and why opens beside
+        // it: nothing moves.
         const states = [yield* opened];
         yield* fill("issuer", `${control.url}/nowhere`);
         yield* page.click("[data-console-provider-check]");
         yield* reached("refused");
-        expect(yield* page.text("[data-console-provider-reached]")).toContain("/nowhere");
+        yield* page.until(`!!document.querySelector("[data-console-provider-problems]")`);
+        expect(yield* page.text("[data-console-provider-problems]")).toContain("/nowhere");
         states.push(yield* placed(page));
         yield* shot(page, fs, "console-provider-check-refused");
+        // Escape closes what is open above the form first, and then the form.
+        yield* page.key("Escape", "Escape", ESCAPE);
+        yield* page.until(`!document.querySelector("[data-console-provider-problems]")`);
+        expect(yield* page.text("[data-console-provider-reached]")).toContain("Not reached");
         yield* closed(page);
 
-        // Begun anew, the form is empty; the address to register follows the id as typed.
+        // Begun anew, the form is empty. A provider that is known fills in what is known
+        // of it: what it is called and known by, and what is asked of it.
         states.push(yield* opened);
-        expect(
-          yield* page.evaluate(`document.querySelector('${form} input[name="issuer"]').value`),
-        ).toBe("");
+        expect(yield* typed("issuer")).toBe("");
+        yield* pick(page, "[data-console-provider-preset]", "Keycloak");
+        yield* page.until(`!!document.querySelector('${form} input[name="parts.realm"]')`);
+        expect([yield* typed("name"), yield* typed("id")]).toEqual(["Keycloak", "keycloak"]);
+        // Its issuer is made of what is its own there, and is not typed.
+        yield* fill("parts.base", "https://sso.example.test/");
+        yield* fill("parts.realm", "people");
+        expect(yield* typed("issuer")).toBe("https://sso.example.test/realms/people");
+        // One that speaks OAuth 2.0 alone has no issuer: where it is asked is its own, and
+        // so is what is asked of it.
+        yield* pick(page, "[data-console-provider-preset]", "GitHub");
+        yield* page.until(`!!document.querySelector('${form} input[name="authorization"]')`);
+        expect([yield* typed("name"), yield* typed("id"), yield* typed("authorization")]).toEqual([
+          "GitHub",
+          "github",
+          "https://github.com/login/oauth/authorize",
+        ]);
+        expect(yield* scopes).toBe("read:user user:email");
+        yield* pick(page, "[data-console-provider-preset]", "Dex");
+        yield* page.until(`!!document.querySelector('${form} input[name="issuer"]')`);
+        expect([yield* typed("name"), yield* typed("id"), yield* typed("issuer")]).toEqual([
+          "Dex",
+          "dex",
+          "",
+        ]);
+        expect(yield* scopes).toBe("openid email profile");
+        // The address to register follows the id as typed.
         yield* fill("name", "Company");
         yield* fill("id", added);
         expect(
-          yield* page.evaluate(
-            `document.querySelector("[data-console-provider-callback]").textContent`,
-          ),
+          yield* page.evaluate(`document.querySelector("[data-console-provider-callback]").value`),
         ).toBe(`${proxy.url}/api/auth/callback/${added}`);
         yield* fill("issuer", dex.issuer);
         yield* page.click("[data-console-provider-check]");
         yield* reached("reached");
+        // Reached, it offers the scopes it says it gives; one it does not say is typed.
+        const picker = `${form} [data-slot="combobox-chip-input"]`;
+        yield* page.evaluate(
+          `void document.querySelector('${picker}').scrollIntoView({ block: "center" })`,
+        );
+        yield* rested(page);
+        yield* pressUntil(page, picker, `document.querySelector('[data-scope-option="groups"]')`);
+        expect(
+          yield* page.evaluate(
+            `!!document.querySelector('[data-scope-option="openid"][data-disabled]')`,
+          ),
+        ).toBe(true);
+        yield* rested(page);
+        yield* pressUntil(
+          page,
+          `[data-scope-option="groups"]`,
+          `document.querySelector('${form} [data-scope="groups"]')`,
+        );
+        yield* page.type("federated:id");
+        yield* page.until(
+          `!!document.querySelector('[data-scope-option="federated:id"][data-scope-typed]')`,
+        );
+        yield* rested(page);
+        yield* shot(page, fs, "console-provider-scopes");
+        yield* page.key("Enter", "Enter", ENTER);
+        yield* page.until(`!!document.querySelector('${form} [data-scope="federated:id"]')`);
+        // Escape closes the list where it is still open, and nothing else: the form stays,
+        // with what was chosen.
+        const listed = `!!document.querySelector('[data-slot="combobox-content"][data-open]')`;
+        if (yield* page.evaluate(listed, Schema.Boolean)) {
+          yield* page.key("Escape", "Escape", ESCAPE);
+          yield* page.until(`!(${listed})`);
+        }
+        expect(yield* scopes).toBe("openid email profile groups federated:id");
+        yield* page.evaluate(
+          `void document.querySelector('${form} input[name="name"]').scrollIntoView({ block: "center" })`,
+        );
+        yield* rested(page);
         states.push(yield* placed(page));
         yield* shot(page, fs, "console-provider-new");
         yield* shotDark(page, fs, "console-provider-new-dark");
@@ -2530,6 +2606,12 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
           `!document.querySelector('${DIALOG}') && !!document.querySelector('${row}')`,
         );
         expect(yield* offered).toContain(`"id":"${added}"`);
+        // Someone an admin made a person signs in through it, with the scopes it was given.
+        const [, , carol] = Dex.VERIFIED;
+        const bootstrap = yield* control.as(control.bootstrapToken);
+        yield* bootstrap.accounts.create({ payload: { name: "Carol", email: carol.email } });
+        const landed = yield* signInThrough(proxy.url, "local", carol.email, undefined, added);
+        expect(landed.at).toBe("/-/sessions");
         // The secret is nowhere on the page once it was given.
         expect(
           yield* page.evaluate(
@@ -2572,6 +2654,8 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
             `(() => { const form = document.querySelector('${form}'); return [form.querySelector('input[name="id"]').disabled, form.querySelector('input[name="id"]').value, form.querySelector('input[name="clientSecret"]').value, form.querySelector('input[name="clientSecret"]').placeholder].join("|"); })()`,
           ),
         ).toBe(`true|${added}||Unchanged`);
+        // What was asked of it is what it is asked for still.
+        expect(yield* scopes).toBe("openid email profile groups federated:id");
         alike([states[0], yield* placed(page)]);
         yield* shot(page, fs, "console-provider-edit");
         yield* shotDark(page, fs, "console-provider-edit-dark");

@@ -129,7 +129,9 @@ export function ProvidersPage() {
                       {provider.id}
                     </TableCell>
                     <TableCell label="Issuer" className="aperture:text-muted-foreground">
-                      <LongName className="aperture:max-sm:inline">{provider.issuer}</LongName>
+                      <LongName className="aperture:max-sm:inline">
+                        {provider.endpoints?.authorization ?? provider.issuer}
+                      </LongName>
                     </TableCell>
                     <TableCell label="Creates people" className="aperture:text-muted-foreground">
                       {!provider.provision

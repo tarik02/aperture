@@ -14,6 +14,11 @@ type TextFieldProps = Omit<ComponentProps<typeof Input>, "value" | "onChange" | 
    * the line that is kept for it, so that nothing moves when it is said.
    */
   refused?: string | undefined;
+  /**
+   * What whoever types is to know of what they typed that is no fault of it, said on the
+   * same line while the rules say nothing.
+   */
+  noted?: string | undefined;
 };
 
 /** A form's field of text: its label, what is typed, and what its rules say of that. */
@@ -22,6 +27,7 @@ export function TextField({
   label,
   labelHidden = false,
   refused,
+  noted,
   ...input
 }: TextFieldProps) {
   const id = useId();
@@ -47,9 +53,19 @@ export function TextField({
         onBlur={field.handleBlur}
         {...input}
       />
-      <FieldError ref={reveal} reserved>
-        {said}
-      </FieldError>
+      {said === undefined && noted !== undefined ? (
+        <FieldError
+          reserved
+          role="note"
+          className="aperture:text-amber-700 aperture:dark:text-amber-400"
+        >
+          {noted}
+        </FieldError>
+      ) : (
+        <FieldError ref={reveal} reserved>
+          {said}
+        </FieldError>
+      )}
     </Field>
   );
 }
