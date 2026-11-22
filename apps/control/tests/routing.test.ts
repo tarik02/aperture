@@ -1921,8 +1921,17 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.until(
         `document.querySelector('[data-console-scope="sessions:write"]').hasAttribute("data-checked")`,
       );
-      yield* page.click("[data-console-token-create] input");
+      // The dialog may still be coming to rest, and a press beside the field names nothing:
+      // it is pressed until it has the caret, and what is typed is seen in it before it is sent.
+      const naming = `document.querySelector('[data-console-token-create] input[name="name"]')`;
+      yield* page
+        .click(`[data-console-token-create] input[name="name"]`)
+        .pipe(
+          Effect.andThen(page.until(`document.activeElement === ${naming}`, "2 seconds")),
+          Effect.retry({ times: 5 }),
+        );
       yield* page.type("deploys");
+      yield* page.until(`${naming}.value === "deploys"`);
       yield* shot(page, fs, "console-service-token");
       yield* page.key("Enter", "Enter", ENTER);
       yield* page.until(`!!document.querySelector("[data-console-secret]")`);
