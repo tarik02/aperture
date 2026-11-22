@@ -235,6 +235,8 @@ export const Provider = Schema.Struct({
   /** What it is known by in addresses. */
   id: Schema.String,
   name: Schema.String,
+  /** Which provider's mark it is shown with, as whoever added it said; none said, without. */
+  icon: Schema.NullOr(Schema.String),
 });
 
 /** What a provider is known by: a part of the address it sends people back to. */
@@ -242,6 +244,13 @@ export const ProviderId = Schema.String.check(
   // `credential` is what a password is kept as, among what people sign in with.
   Schema.isPattern(/^(?!credential$)[a-z0-9][a-z0-9-]{0,39}$/u),
 );
+
+/**
+ * Which provider's mark one is shown with, by what that provider is known as among those
+ * the console draws: `github`, `google`. One it does not draw is shown with no mark of
+ * any provider's; it is for whoever shows providers, and nothing is done by it.
+ */
+const ProviderIcon = Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,39}$/u));
 
 /** What is asked of a provider for the people it signs in, each a word of its own. */
 const ProviderScopes = Schema.Array(
@@ -289,6 +298,8 @@ const GivenProviderEndpoints = Schema.Struct({
 export const SignInProvider = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
+  /** Which provider's mark it is shown with; none said, for one the settings name. */
+  icon: Schema.NullOr(Schema.String),
   kind: ProviderKind,
   /**
    * Its issuer, or its discovery document where that was given in place of it; nothing
@@ -321,6 +332,7 @@ export const SignInProviders = Schema.Struct({
 const NewSignInProvider = Schema.Struct({
   id: ProviderId,
   name: Schema.NonEmptyString,
+  icon: Schema.optional(Schema.NullOr(ProviderIcon)),
   /** OpenID Connect, without. It stays what it is said to be here. */
   kind: Schema.optional(ProviderKind),
   /** Of one that speaks OpenID Connect, which has to have one. */
@@ -341,6 +353,8 @@ const NewSignInProvider = Schema.Struct({
 /** What is said anew of a provider; what is left out stays as it was. */
 const ChangedSignInProvider = Schema.Struct({
   name: Schema.optional(Schema.NonEmptyString),
+  /** Given as none, it is shown with no provider's mark from then on. */
+  icon: Schema.optional(Schema.NullOr(ProviderIcon)),
   issuer: Schema.optional(Schema.NonEmptyString),
   endpoints: Schema.optional(GivenProviderEndpoints),
   clientId: Schema.optional(Schema.NonEmptyString),

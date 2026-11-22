@@ -239,6 +239,10 @@ const providersOauth2 = statements([
   `ALTER TABLE providers ADD COLUMN endpoints jsonb`,
 ]);
 
+// Which provider's mark one is shown with is said by whoever adds it, and kept as said:
+// nothing tells it from where a provider is reached. Those that were there said none.
+const providersIcon = statements([`ALTER TABLE providers ADD COLUMN icon text`]);
+
 /** Brings the database to what this program expects; what was applied before is left alone. */
 export const migrate = Migrator.make({})({
   loader: Migrator.fromRecord({
@@ -250,6 +254,7 @@ export const migrate = Migrator.make({})({
     "0006_registration_tokens_revoked": registrationTokensRevoked,
     "0007_providers": providers,
     "0008_providers_oauth2": providersOauth2,
+    "0009_providers_icon": providersIcon,
   }),
   table: "control_migrations",
 });

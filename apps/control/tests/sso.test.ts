@@ -56,7 +56,7 @@ for (const stores of Control.STORES) {
           const answer = yield* request(control.url, "", "GET", "/api/control/sign-in/providers");
           expect(answer).toEqual({
             status: 200,
-            body: [{ id: Dex.PROVIDER, name: Dex.PROVIDER_NAME }],
+            body: [{ id: Dex.PROVIDER, name: Dex.PROVIDER_NAME, icon: null }],
           });
         }),
       );

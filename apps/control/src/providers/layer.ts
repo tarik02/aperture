@@ -317,6 +317,7 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
   const toldStored = (provider: StoredProvider): ToldProvider => ({
     id: provider.id,
     name: provider.name,
+    icon: provider.icon,
     kind: provider.kind,
     issuer: provider.issuer,
     endpoints: provider.endpoints,
@@ -336,6 +337,7 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
   const toldConfigured = (provider: Provider): ToldProvider => ({
     id: provider.id,
     name: provider.name,
+    icon: null,
     kind: "oidc",
     issuer: provider.discoveryUrl.endsWith(WELL_KNOWN)
       ? provider.discoveryUrl.slice(0, -WELL_KNOWN.length)
@@ -450,6 +452,7 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
     const made = yield* store.insert({
       ...kept,
       id: given.id,
+      icon: given.icon ?? null,
       kind,
       clientSecretSealed: yield* vault.seal(given.clientSecret, sealedAs(given.id)),
       provision: given.provision ?? false,
@@ -510,6 +513,7 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
         : Option.some(changed.clientSecret);
     const updated = yield* store.update(id, {
       ...kept,
+      icon: changed.icon === undefined ? was.icon : changed.icon,
       clientSecretSealed: Option.isNone(secret)
         ? was.clientSecretSealed
         : yield* vault.seal(secret.value, sealedAs(id)),
@@ -524,6 +528,7 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
     // What was changed is told by its name, and a secret by nothing else.
     const fields = [
       ...(is.name === was.name ? [] : ["name"]),
+      ...(is.icon === was.icon ? [] : ["icon"]),
       ...(is.issuer === was.issuer ? [] : ["issuer"]),
       ...(JSON.stringify(is.endpoints) === JSON.stringify(was.endpoints) ? [] : ["endpoints"]),
       ...(is.clientId === was.clientId ? [] : ["clientId"]),

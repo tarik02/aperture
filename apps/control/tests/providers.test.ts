@@ -97,11 +97,12 @@ for (const stores of Control.STORES) {
           const made = yield* asAdmin(
             "POST",
             PROVIDERS,
-            yield* given(ADDED, { provision: true, domains: ["example.test"] }),
+            yield* given(ADDED, { provision: true, domains: ["example.test"], icon: "dex" }),
           );
           expect(made.status).toBe(201);
           expect(made.body).toMatchObject({
             id: ADDED,
+            icon: "dex",
             issuer: at.issuer,
             secretSet: true,
             scopes: ["openid", "email", "profile"],
@@ -116,7 +117,8 @@ for (const stores of Control.STORES) {
           );
           expect(listed.callbackBase).toBe(`${control.url}/api/auth/callback/`);
           expect(listed.providers.map((one) => one.id)).toEqual([ADDED]);
-          expect(yield* offered()).toEqual([{ id: ADDED, name: "Added" }]);
+          // Which provider's mark it is shown with is told to whoever signs in as well.
+          expect(yield* offered()).toEqual([{ id: ADDED, name: "Added", icon: "dex" }]);
 
           // Nobody made Bob a person: the provider does, as it was told to.
           const [, bob, carol] = Dex.VERIFIED;
@@ -150,7 +152,19 @@ for (const stores of Control.STORES) {
             body: { name: "Renamed", secretSet: true },
           });
           expect(JSON.stringify(renamed.body)).not.toContain(at.clientSecret);
-          expect(yield* offered()).toEqual([{ id: ADDED, name: "Renamed" }]);
+          // Its mark stays as it was said, until another is said, or none.
+          expect(yield* offered()).toEqual([{ id: ADDED, name: "Renamed", icon: "dex" }]);
+          expect(
+            (yield* asAdmin("PATCH", `${PROVIDERS}/${ADDED}`, { icon: "keycloak" })).body,
+          ).toMatchObject({ icon: "keycloak" });
+          expect(
+            (yield* asAdmin("PATCH", `${PROVIDERS}/${ADDED}`, { icon: "Not a mark" })).status,
+          ).toBe(400);
+          expect(yield* asAdmin("PATCH", `${PROVIDERS}/${ADDED}`, { icon: null })).toMatchObject({
+            status: 200,
+            body: { icon: null, name: "Renamed" },
+          });
+          expect(yield* offered()).toEqual([{ id: ADDED, name: "Renamed", icon: null }]);
           const landed = yield* signInThrough(control.url, "local", bob.email, undefined, ADDED);
           expect(landed.at).toBe("/-/sessions");
           // Whoever was signed in before the change still is.
@@ -182,7 +196,7 @@ for (const stores of Control.STORES) {
             expect(yield* through(bob.email)).toEqual(["Renamed (disabled)"]);
 
             yield* asAdmin("PATCH", `${PROVIDERS}/${ADDED}`, { enabled: true });
-            expect(yield* offered()).toEqual([{ id: ADDED, name: "Renamed" }]);
+            expect(yield* offered()).toEqual([{ id: ADDED, name: "Renamed", icon: null }]);
             const landed = yield* signInThrough(control.url, "local", bob.email, undefined, ADDED);
             expect(landed.at).toBe("/-/sessions");
           }),
@@ -236,7 +250,7 @@ for (const stores of Control.STORES) {
           expect(kept).toMatchObject({ status: 201, body: { id: ANOTHER, enabled: false } });
           const enabled = yield* asAdmin("PATCH", `${PROVIDERS}/${ANOTHER}`, { enabled: true });
           expect(enabled).toMatchObject({ status: 400, body: { _tag: "ProviderInvalid" } });
-          expect(yield* offered()).toEqual([{ id: ADDED, name: "Renamed" }]);
+          expect(yield* offered()).toEqual([{ id: ADDED, name: "Renamed", icon: null }]);
           expect((yield* asAdmin("DELETE", `${PROVIDERS}/${ANOTHER}`)).status).toBe(204);
         }),
       );
@@ -381,7 +395,7 @@ for (const stores of Control.STORES) {
             source: "stored",
           });
           expect(JSON.stringify(made.body)).not.toContain(at.clientSecret);
-          expect(yield* offered()).toEqual([{ id: HUB, name: "Hub" }]);
+          expect(yield* offered()).toEqual([{ id: HUB, name: "Hub", icon: null }]);
 
           // Ada is a person here by the address the hub has first for her, and verified.
           yield* person("Ada", "ada@example.test");
@@ -556,7 +570,9 @@ for (const stores of Control.STORES) {
           expect(removed).toMatchObject({ status: 409, body: { _tag: "ProviderConfigured" } });
           const taken = yield* asAdmin("POST", PROVIDERS, yield* given(Dex.PROVIDER));
           expect(taken).toMatchObject({ status: 409, body: { _tag: "ProviderTaken" } });
-          expect(yield* offered()).toEqual([{ id: Dex.PROVIDER, name: Dex.PROVIDER_NAME }]);
+          expect(yield* offered()).toEqual([
+            { id: Dex.PROVIDER, name: Dex.PROVIDER_NAME, icon: null },
+          ]);
         }),
       );
 
@@ -566,8 +582,8 @@ for (const stores of Control.STORES) {
           const [, bob] = Dex.VERIFIED;
           expect((yield* asAdmin("POST", PROVIDERS, yield* given(ADDED))).status).toBe(201);
           expect(yield* offered()).toEqual([
-            { id: Dex.PROVIDER, name: Dex.PROVIDER_NAME },
-            { id: ADDED, name: "Added" },
+            { id: Dex.PROVIDER, name: Dex.PROVIDER_NAME, icon: null },
+            { id: ADDED, name: "Added", icon: null },
           ]);
           const refused = yield* signInThrough(control.url, "local", bob.email, undefined, ADDED);
           expect(refused.at).toBe("/sign-in-refused?error=signup_disabled");

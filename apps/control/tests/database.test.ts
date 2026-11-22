@@ -32,6 +32,7 @@ suite(database)("the database", (it) => {
         "registration_tokens_revoked",
         "providers",
         "providers_oauth2",
+        "providers_icon",
       ]);
 
       const tables = yield* sql`

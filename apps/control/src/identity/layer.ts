@@ -422,10 +422,9 @@ const make = Effect.fn("Identity.make")(function* (
   const offered = Effect.fn("Identity.providers")(function* () {
     // Those of the settings come first, and one of them stands for any other by its id.
     const enabled = (yield* providers.list()).filter((provider) => provider.enabled);
-    return Arr.dedupeWith(enabled, (one, other) => one.id === other.id).map(({ id, name }) => ({
-      id,
-      name,
-    }));
+    return Arr.dedupeWith(enabled, (one, other) => one.id === other.id).map(
+      ({ id, name, icon }) => ({ id, name, icon }),
+    );
   });
 
   const personOf = Effect.fn("Identity.personOf")(function* (headers: Headers) {

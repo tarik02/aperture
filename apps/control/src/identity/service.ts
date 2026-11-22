@@ -32,7 +32,7 @@ export interface IdentityShape {
   readonly path: `/${string}`;
   /** The providers people sign in through, by what each is known as. */
   readonly providers: () => Effect.Effect<
-    ReadonlyArray<{ readonly id: string; readonly name: string }>
+    ReadonlyArray<{ readonly id: string; readonly name: string; readonly icon: string | null }>
   >;
   /**
    * Answers a request to its own routes. `from` is where the request came from, by which

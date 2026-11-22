@@ -29,6 +29,8 @@ export const StoredProvider = Schema.Struct({
   /** What it is known by in addresses, and in what people who came through it keep. */
   id: Schema.String,
   name: Schema.String,
+  /** Which provider's mark it is shown with, as whoever added it said; none said, without. */
+  icon: Schema.NullOr(Schema.String),
   kind: Kind,
   /**
    * Its issuer, or its discovery document where that was given in place of it; nothing

@@ -15,6 +15,8 @@ import type { Endpoints, Kind } from "./schemas.ts";
 export interface ToldProvider {
   readonly id: string;
   readonly name: string;
+  /** Which provider's mark it is shown with; none said, for one the settings name. */
+  readonly icon: string | null;
   readonly kind: Kind;
   /** Nothing, for one that speaks OAuth 2.0 alone: it has `endpoints` in its place. */
   readonly issuer: string;
@@ -66,6 +68,8 @@ export interface GivenEndpoints {
 export interface GivenProvider {
   readonly id: string;
   readonly name: string;
+  /** Which provider's mark it is shown with; none, where it is not said or said to be none. */
+  readonly icon?: string | null | undefined;
   /** OpenID Connect, where it is not said. It stays what it was first said to be. */
   readonly kind?: Kind | undefined;
   /** Of one that speaks OpenID Connect. */

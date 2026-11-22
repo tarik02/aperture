@@ -6,6 +6,7 @@ import type { Endpoints, Kind, StoredProvider } from "./schemas.ts";
 export interface NewProvider {
   readonly id: string;
   readonly name: string;
+  readonly icon: string | null;
   readonly kind: Kind;
   readonly issuer: string;
   readonly endpoints: Endpoints | null;
