@@ -1666,6 +1666,16 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* scheme("dark");
       yield* shot(page, fs, "console-sign-in-passkey-dark");
       yield* scheme("");
+      // What is wrong with what was typed is said on a line that was kept for it: nothing
+      // below a field moves from under the pointer.
+      const signs = `[data-console-sign-in] button[type="submit"]`;
+      const rested = yield* page.box(signs);
+      yield* page.key("Enter", "Enter", ENTER);
+      yield* page.until(
+        `document.querySelectorAll('[data-console-sign-in] [data-slot="field-error"]').length === 2`,
+      );
+      expect(yield* page.box(signs)).toEqual(rested);
+      yield* shot(page, fs, "console-sign-in-invalid");
       yield* page.click(`[data-console-sign-in] input[name="email"]`);
       yield* page.type(email);
       yield* page.click(`[data-console-sign-in] input[name="password"]`);

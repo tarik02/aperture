@@ -293,7 +293,9 @@ function AccountPicker({ accounts, asking, value, error, onChange }: AccountPick
           </ComboboxList>
         </ComboboxContent>
       </Combobox>
-      <FieldError ref={reveal}>{error}</FieldError>
+      <FieldError ref={reveal} reserved>
+        {error}
+      </FieldError>
     </Field>
   );
 }

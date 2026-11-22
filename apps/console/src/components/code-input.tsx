@@ -36,7 +36,7 @@ export function CodeInput({ value, onChange, onComplete, error }: CodeInputProps
           ))}
         </InputOTPGroup>
       </InputOTP>
-      <FieldError>{error}</FieldError>
+      <FieldError reserved>{error}</FieldError>
     </>
   );
 }

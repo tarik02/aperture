@@ -31,7 +31,9 @@ export function TextField({ field, label, labelHidden = false, ...input }: TextF
         onBlur={field.handleBlur}
         {...input}
       />
-      <FieldError ref={reveal}>{said}</FieldError>
+      <FieldError ref={reveal} reserved>
+        {said}
+      </FieldError>
     </Field>
   );
 }

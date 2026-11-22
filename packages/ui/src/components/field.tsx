@@ -173,13 +173,25 @@ function FieldSeparator({
   );
 }
 
+/**
+ * As tall as one line of what a field's rules say and close to the field, with part of the
+ * room below it taken from what follows: a field is not far from the next for keeping it.
+ */
+const fieldErrorLine = "aperture:-mt-1 aperture:-mb-2 aperture:min-h-5 aperture:text-sm";
+
 function FieldError({
   className,
   children,
   errors,
+  reserved = false,
   ...props
 }: React.ComponentProps<"div"> & {
   errors?: Array<{ message?: string } | undefined>;
+  /**
+   * Keeps the line it says something on while it says nothing, so that what stands below
+   * the field does not move from under a pointer when it starts to.
+   */
+  reserved?: boolean;
 }) {
   const content = useMemo(() => {
     if (children) {
@@ -204,14 +216,20 @@ function FieldError({
   }, [children, errors]);
 
   if (!content) {
-    return null;
+    return reserved ? (
+      <div aria-hidden data-slot="field-error-line" className={fieldErrorLine} />
+    ) : null;
   }
 
   return (
     <div
       role="alert"
       data-slot="field-error"
-      className={cn("aperture:text-sm aperture:font-normal aperture:text-destructive", className)}
+      className={cn(
+        "aperture:text-sm aperture:font-normal aperture:text-destructive",
+        reserved && fieldErrorLine,
+        className,
+      )}
       {...props}
     >
       {content}
