@@ -104,7 +104,8 @@ function DialogContent({
           "aperture:group/dialog aperture:fixed aperture:inset-x-0 aperture:bottom-(--keyboard-inset,0px) aperture:z-50 aperture:grid aperture:max-h-[calc(100dvh-0.75rem-env(safe-area-inset-top)-var(--keyboard-inset,0px))] aperture:w-full aperture:max-w-none aperture:gap-4 aperture:overflow-y-auto aperture:rounded-t-xl aperture:bg-popover aperture:p-4 aperture:pb-(--dialog-pad-bottom) aperture:text-sm aperture:[--dialog-pad-bottom:max(1rem,env(safe-area-inset-bottom))] aperture:sm:[--dialog-pad-bottom:1rem] aperture:text-popover-foreground aperture:ring-1 aperture:ring-foreground/10 aperture:duration-100 aperture:outline-none aperture:data-closed:animate-out aperture:data-closed:fade-out-0 aperture:data-closed:slide-out-to-bottom-2 aperture:data-open:animate-in aperture:data-open:fade-in-0 aperture:data-open:slide-in-from-bottom-2 aperture:sm:top-1/2 aperture:sm:left-1/2 aperture:sm:bottom-auto aperture:sm:max-h-[calc(100svh-2rem)] aperture:sm:max-w-md aperture:sm:-translate-x-1/2 aperture:sm:-translate-y-1/2 aperture:sm:rounded-xl aperture:sm:data-closed:zoom-out-95 aperture:sm:data-open:zoom-in-95",
           height === undefined
             ? undefined
-            : "aperture:flex aperture:h-(--dialog-height) aperture:flex-col aperture:overflow-hidden",
+            : // A phone's controls are taller than the ones the height was chosen for.
+              "aperture:flex aperture:h-[calc(var(--dialog-height)+3rem)] aperture:flex-col aperture:overflow-hidden aperture:sm:h-(--dialog-height)",
           className,
         )}
         style={
@@ -182,7 +183,7 @@ function DialogFooter({
       className={cn(
         // On a phone it stays at the sheet's foot while what is above it scrolls, clear of
         // the home indicator.
-        "aperture:-mx-4 aperture:-mb-(--dialog-pad-bottom) aperture:flex aperture:shrink-0 aperture:flex-col-reverse aperture:gap-2 aperture:border-t aperture:bg-[color-mix(in_oklch,var(--popover),var(--muted)_50%)] aperture:p-4 aperture:pb-(--dialog-pad-bottom) aperture:max-sm:sticky aperture:max-sm:-bottom-(--dialog-pad-bottom) aperture:sm:flex-row aperture:sm:justify-end aperture:sm:rounded-b-xl",
+        "aperture:-mx-4 aperture:-mb-(--dialog-pad-bottom) aperture:flex aperture:shrink-0 aperture:gap-2 aperture:max-sm:*:min-w-0 aperture:max-sm:*:flex-1 aperture:border-t aperture:bg-[color-mix(in_oklch,var(--popover),var(--muted)_50%)] aperture:p-4 aperture:pb-(--dialog-pad-bottom) aperture:max-sm:sticky aperture:max-sm:-bottom-(--dialog-pad-bottom) aperture:sm:justify-end aperture:sm:rounded-b-xl",
         className,
       )}
       {...props}
