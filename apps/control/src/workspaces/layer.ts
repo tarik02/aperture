@@ -71,6 +71,13 @@ export const makeWorkspaces = Effect.fn("Workspaces.make")(function* () {
     return yield* store.of(accountId);
   });
 
+  const ofAccount = Effect.fn("Workspaces.ofAccount")(function* (accountId: string) {
+    if (Option.isNone(yield* accounts.find(accountId))) {
+      return yield* new AccountNotFound({ id: accountId });
+    }
+    return yield* store.of(accountId);
+  });
+
   const rename = Effect.fn("Workspaces.rename")(function* (
     caller: Caller,
     id: string,
@@ -138,7 +145,17 @@ export const makeWorkspaces = Effect.fn("Workspaces.make")(function* () {
     });
   });
 
-  return Workspaces.of({ create, list, of, rename, delete: delete_, members, admit, dismiss });
+  return Workspaces.of({
+    create,
+    list,
+    of,
+    ofAccount,
+    rename,
+    delete: delete_,
+    members,
+    admit,
+    dismiss,
+  });
 });
 
 export const layer = Layer.effect(Workspaces, makeWorkspaces());

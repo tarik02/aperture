@@ -18,6 +18,10 @@ export interface WorkspacesShape {
   readonly list: (caller: Caller) => Effect.Effect<ReadonlyArray<Joined>>;
   /** The workspaces an account is in, for telling what is the account's to reach. */
   readonly of: (accountId: string) => Effect.Effect<ReadonlyArray<Membership>>;
+  /** The workspaces an account that is there is in, for an admin who looks at the account. */
+  readonly ofAccount: (
+    accountId: string,
+  ) => Effect.Effect<ReadonlyArray<Membership>, AccountNotFound>;
   readonly rename: (
     caller: Caller,
     id: string,

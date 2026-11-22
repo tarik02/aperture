@@ -764,6 +764,110 @@ for (const stores of Control.STORES) {
         }),
     );
 
+    it.effect(
+      "an admin is told which workspaces an account is in, and puts it in and out by its id",
+      () =>
+        Effect.gen(function* () {
+          const control = yield* Control.Control;
+          const bootstrap = yield* control.as(control.bootstrapToken);
+          const root = yield* Control.account(`Root-places-${stores}`, true);
+          const owner = yield* Control.account(`Owner-places-${stores}`);
+          // A service account has no address to be found by: it is named by its id.
+          const robot = yield* bootstrap.accounts.create({
+            payload: { name: `Robot-${stores}`, kind: "service" },
+          });
+          const person = yield* bootstrap.accounts.create({
+            payload: { name: "Noa", email: `noa-${stores}@example.test` },
+          });
+          const first = yield* owner.api.workspaces.create({ payload: { name: "First places" } });
+          const second = yield* owner.api.workspaces.create({ payload: { name: "Second places" } });
+          const places = (accountId: string) =>
+            Effect.map(root.api.workspaces.ofAccount({ params: { accountId } }), (all) =>
+              all.map((one) => [one.name, one.role]),
+            );
+
+          expect(yield* places(robot.id)).toEqual([]);
+          // An admin who is in neither workspace says who is in them.
+          yield* root.api.workspaces.admit({
+            params: { id: first.id, accountId: robot.id },
+            payload: { role: "member" },
+          });
+          yield* root.api.workspaces.admit({
+            params: { id: second.id, accountId: robot.id },
+            payload: { role: "admin" },
+          });
+          yield* root.api.workspaces.admit({
+            params: { id: second.id, accountId: person.id },
+            payload: { role: "member" },
+          });
+          expect(yield* places(robot.id)).toEqual([
+            ["First places", "member"],
+            ["Second places", "admin"],
+          ]);
+          expect(yield* places(person.id)).toEqual([["Second places", "member"]]);
+          expect(yield* places(owner.account.id)).toEqual([
+            ["First places", "admin"],
+            ["Second places", "admin"],
+          ]);
+          // What it does there is changed by admitting it again, and it is put out.
+          yield* root.api.workspaces.admit({
+            params: { id: first.id, accountId: robot.id },
+            payload: { role: "admin" },
+          });
+          yield* root.api.workspaces.dismiss({ params: { id: second.id, accountId: robot.id } });
+          expect(yield* places(robot.id)).toEqual([["First places", "admin"]]);
+          // Each is written down as any change of who is in a workspace.
+          const written = (yield* bootstrap.events.list({ query: { workspaceId: first.id } }))
+            .events;
+          expect(
+            written
+              .filter((event) => event.kind === "workspace.member_admitted")
+              .map((event) => [event.actor.name, event.detail]),
+          ).toEqual([
+            [root.account.name, { accountId: robot.id, account: robot.name, role: "admin" }],
+            [root.account.name, { accountId: robot.id, account: robot.name, role: "member" }],
+          ]);
+
+          // Nobody but an admin is told: not the account itself, nor an admin of the workspace.
+          const asRobot = yield* control.as(
+            (yield* bootstrap.accounts.createToken({
+              params: { id: robot.id },
+              payload: { name: "checks", scopes: Control.ALL_SCOPES },
+            })).token,
+          );
+          for (const asked of [asRobot, owner.api]) {
+            expect(
+              (yield* Effect.flip(asked.workspaces.ofAccount({ params: { accountId: robot.id } })))
+                ._tag,
+            ).toBe("Forbidden");
+          }
+          // An admin's token that is not for an admin's doings is told nothing either.
+          const reader = yield* root.api.accounts.createOwnToken({
+            payload: { name: "reader", scopes: ["workspaces:write", "tokens:write"] },
+          });
+          expect(
+            (yield* Effect.flip(
+              (yield* control.as(reader.token)).workspaces.ofAccount({
+                params: { accountId: robot.id },
+              }),
+            ))._tag,
+          ).toBe("Forbidden");
+          expect(
+            (yield* Effect.flip(
+              root.api.workspaces.ofAccount({
+                params: { accountId: "00000000-0000-7000-8000-000000000000" },
+              }),
+            ))._tag,
+          ).toBe("AccountNotFound");
+          // What a workspace's admin may do is what it was: they name whom they let in.
+          yield* owner.api.workspaces.admit({
+            params: { id: second.id, accountId: robot.id },
+            payload: { role: "member" },
+          });
+          expect((yield* places(robot.id)).length).toBe(2);
+        }),
+    );
+
     it.effect("the last admin is neither disabled nor removed", () =>
       Effect.gen(function* () {
         const control = yield* Control.Control;
@@ -796,6 +900,7 @@ for (const stores of Control.STORES) {
           ["POST", "/api/control/accounts/nope/tokens"],
           ["DELETE", "/api/control/account/tokens/nope"],
           ["GET", "/api/control/workspaces/nope/members"],
+          ["GET", "/api/control/accounts/nope/workspaces"],
           ["DELETE", "/api/control/workspaces/nope"],
           ["DELETE", "/api/control/oauth/grants/nope"],
         ] as const;

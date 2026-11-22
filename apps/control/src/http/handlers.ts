@@ -507,6 +507,11 @@ const workspaces = HttpApiBuilder.group(
         Effect.flatMap(scoped("workspaces:write"), (caller) =>
           workspaces.dismiss(caller, params.id, params.accountId),
         ),
+      )
+      .handle("ofAccount", ({ params }) =>
+        Effect.andThen(admin, workspaces.ofAccount(params.accountId)).pipe(
+          Effect.map((all) => all.map(({ workspace, role }) => ({ ...workspace, role }))),
+        ),
       );
   }),
 );

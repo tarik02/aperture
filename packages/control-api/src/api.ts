@@ -106,6 +106,12 @@ export const Workspace = Schema.Struct({
   role: Schema.NullOr(WorkspaceRole),
 });
 
+/** A workspace an account is in, with what the account does there. */
+export const AccountWorkspace = Schema.Struct({
+  ...Workspace.fields,
+  role: WorkspaceRole,
+});
+
 export const WorkspaceMember = Schema.Struct({
   accountId: Schema.String,
   name: Schema.String,
@@ -732,12 +738,17 @@ export class WorkspacesGroup extends HttpApiGroup.make("workspaces")
       params: { ...workspace, accountId: Id },
       error: [WorkspaceNotFound, Forbidden],
     }),
+    HttpApiEndpoint.get("ofAccount", "/accounts/:accountId/workspaces", {
+      params: { accountId: Id },
+      success: Schema.Array(AccountWorkspace),
+      error: [Forbidden, AccountNotFound],
+    }),
   )
   .annotateMerge(
     OpenApi.annotations({
       title: "Workspaces",
       description:
-        "Where accounts keep sessions and snapshots together: what is a workspace's is all its members'.",
+        "Where accounts keep sessions and snapshots together: what is a workspace's is all its members'. An admin of a workspace says who is in it, naming an account by its id; an admin is told which workspaces any account is in.",
     }),
   ) {}
 
