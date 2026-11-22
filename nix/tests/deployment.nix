@@ -28,6 +28,9 @@
     machine.wait_for_open_port(7800)
     machine.wait_for_open_port(80)
 
+    with subtest("the control plane says that it serves, to anyone"):
+        machine.wait_until_succeeds("curl -sf http://localhost:7800/api/control/health | jq -e '.status == \"ok\"'", timeout=60)
+
     api = "http://localhost/api/control"
     bootstrap = machine.succeed("cat /var/lib/aperture-keys/bootstrap-token").strip()
 
