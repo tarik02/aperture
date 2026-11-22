@@ -75,7 +75,8 @@ export function AccountSecurityDialog({ person, open, onOpenChange }: AccountSec
       }}
       // Each step has the height it needs, and the dialog moves from one to the next: a
       // step is another thing to do, not the same form with more in it.
-      className="aperture:transition-[height] aperture:duration-200 aperture:ease-out"
+      // Not `duration-200`: that would also slow the dialog's leaving, past its backdrop's.
+      className="aperture:transition-[height] aperture:[transition-duration:200ms] aperture:ease-out"
       height={HEIGHTS[shown]}
     >
       <Security person={person} onStep={setStep} onDone={() => onOpenChange(false)} />
