@@ -35,7 +35,7 @@ export function SessionDetailsDialog({ session, open, onOpenChange }: SessionDet
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="aperture:sm:max-w-xl">
+      <DialogContent side="right">
         <DialogHeader>
           <DialogTitle>{session.label ?? "Session"}</DialogTitle>
         </DialogHeader>
@@ -44,8 +44,8 @@ export function SessionDetailsDialog({ session, open, onOpenChange }: SessionDet
             <TabsTrigger value="details">Details</TabsTrigger>
             <TabsTrigger value="connection">Connection</TabsTrigger>
           </TabsList>
-          {/* The taller of its tabs: how it is reached, which is in more lines on a phone. */}
-          <DialogBody height="22.25rem" phoneHeight="28.25rem">
+          {/* On a phone, the taller of its tabs: how it is reached. */}
+          <DialogBody height="28.25rem">
             <TabsContent value="details">
               <dl className="aperture:grid aperture:grid-cols-[auto_1fr] aperture:gap-x-4 aperture:gap-y-2 aperture:text-sm">
                 <Fact name="State">

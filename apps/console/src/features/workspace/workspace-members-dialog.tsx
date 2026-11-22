@@ -16,12 +16,21 @@ import {
   DialogTitle,
 } from "@aperture-browser/ui/components/dialog";
 import { Field, FieldError } from "@aperture-browser/ui/components/field";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemTitle,
+} from "@aperture-browser/ui/components/item";
 import { useForm, useStore } from "@tanstack/react-form";
-import { Trash2 } from "lucide-react";
+import { Trash2, Users } from "lucide-react";
 import { useRef, useState } from "react";
 import { Choice } from "#/components/choice.tsx";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
-import { LinesSkeleton } from "#/components/list-skeleton.tsx";
+import { ListEmpty } from "#/components/list-empty.tsx";
+import { ITEM_ROW, LinesSkeleton, WHOLE } from "#/components/list-skeleton.tsx";
 import { TextField } from "#/components/text-field.tsx";
 import { type Account, useAccountsQuery } from "#/features/account/account.queries.ts";
 import { useMay } from "#/features/auth/access.ts";
@@ -105,7 +114,7 @@ export function WorkspaceMembersDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="aperture:sm:max-w-lg">
+      <DialogContent side="right">
         <DialogHeader>
           <DialogTitle>{workspace.name}</DialogTitle>
         </DialogHeader>
@@ -170,24 +179,30 @@ export function WorkspaceMembersDialog({
             </Button>
           </form>
         ) : null}
-        {/* Five members: a name and an address each, or as tall as what is pressed. */}
-        <DialogBody height="calc(2.75rem + 5 * max(2.25rem, var(--control-height)))">
-          {members.isPending ? <LinesSkeleton /> : null}
-          <ul data-console-members className="aperture:grid aperture:gap-2">
+        {/* On a phone, five members: a name and an address each, or as tall as what is pressed. */}
+        <DialogBody height={`calc(2.75rem + 5 * ${ITEM_ROW})`}>
+          {members.isPending ? (
+            <LinesSkeleton />
+          ) : members.data?.length === 0 ? (
+            <ListEmpty icon={Users} title="No members yet" />
+          ) : null}
+          <ItemGroup data-console-members>
             {members.data?.map((member) => (
-              <li
+              <Item
                 key={member.accountId}
+                role="listitem"
+                variant="outline"
+                size="xs"
                 data-console-member={member.name}
-                className="aperture:flex aperture:items-center aperture:gap-2 aperture:text-sm"
               >
-                <span className="aperture:grid aperture:min-w-0 aperture:flex-1">
-                  <span className="aperture:font-medium aperture:wrap-anywhere">{member.name}</span>
-                  <span className="aperture:text-xs aperture:text-muted-foreground aperture:wrap-anywhere">
+                <ItemContent className="aperture:min-w-0">
+                  <ItemTitle className={WHOLE}>{member.name}</ItemTitle>
+                  <ItemDescription className={WHOLE}>
                     {member.email ?? "Service account"}
-                  </span>
-                </span>
+                  </ItemDescription>
+                </ItemContent>
                 {administers ? (
-                  <>
+                  <ItemActions>
                     <Choice
                       size="sm"
                       aria-label={`Role of ${member.name}`}
@@ -207,15 +222,17 @@ export function WorkspaceMembersDialog({
                     >
                       <Trash2 />
                     </Button>
-                  </>
+                  </ItemActions>
                 ) : (
-                  <Badge variant={member.role === "admin" ? "default" : "outline"}>
-                    {member.role}
-                  </Badge>
+                  <ItemActions>
+                    <Badge variant={member.role === "admin" ? "default" : "outline"}>
+                      {member.role}
+                    </Badge>
+                  </ItemActions>
                 )}
-              </li>
+              </Item>
             ))}
-          </ul>
+          </ItemGroup>
         </DialogBody>
         <ConfirmDialog
           open={removing !== undefined}

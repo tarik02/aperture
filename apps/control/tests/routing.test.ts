@@ -231,7 +231,7 @@ const BUTTONS = `${DIALOG} [data-slot="dialog-footer"]`;
 
 /**
  * Where the open dialog is, and its buttons or what else is to stay put in it, once it has
- * come to rest. A dialog keeps its height whatever it holds, so its states are placed alike.
+ * come to rest. A dialog keeps its size whatever it holds, so its states are placed alike.
  */
 const placed = (page: Viewer.Page, part = BUTTONS) =>
   Effect.gen(function* () {
@@ -240,7 +240,13 @@ const placed = (page: Viewer.Page, part = BUTTONS) =>
     );
     const dialog = yield* page.box(DIALOG);
     const kept = yield* page.box(part);
-    return { top: dialog.top, height: dialog.height, part: [kept.left, kept.top, kept.height] };
+    return {
+      left: dialog.left,
+      top: dialog.top,
+      width: dialog.width,
+      height: dialog.height,
+      part: [kept.left, kept.top, kept.height],
+    };
   });
 
 const alike = (states: ReadonlyArray<unknown>) =>
@@ -282,6 +288,21 @@ const onScreen = (page: Viewer.Page) =>
         typed: dialog.contains(typed) && typed.matches("input") && box(typed).top >= body.top - 1 && box(typed).bottom <= body.bottom + 1,
       };
     })()`,
+  );
+
+/**
+ * How the open dialog stands in a window wider than a phone's: at its right edge and as tall
+ * as it, for what shows or changes a thing among others; in its middle, for what is short.
+ */
+const stands = (page: Viewer.Page) =>
+  page.evaluate(
+    `(() => {
+      const at = document.querySelector('${DIALOG}').getBoundingClientRect();
+      const side = Math.abs(at.right - innerWidth) <= 1 && at.top === 0 && Math.abs(at.height - innerHeight) <= 1 && at.left > 0;
+      const middle = Math.abs((at.left + at.right) / 2 - innerWidth / 2) <= 1 && at.top > 0 && at.bottom < innerHeight;
+      return side ? "side" : middle ? "middle" : "neither";
+    })()`,
+    Schema.String,
   );
 
 const ALL_ON_SCREEN = { dialog: true, title: true, buttons: true, typed: true };
@@ -916,10 +937,12 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.key("Escape", "Escape", ESCAPE);
       yield* page.until(`!document.querySelector('[role="menuitemradio"]')`);
 
-      // What is known of the session is in tabs of one dialog, which is as tall for each.
+      // What is known of the session is in tabs of one dialog at the window's side, which
+      // is as tall and as wide for each.
       const tabs = `${DIALOG} [data-slot="tabs-list"]`;
       yield* fromMenu(page, card, "Details");
       const details = [yield* placed(page, tabs)];
+      expect(yield* stands(page)).toBe("side");
       yield* shot(page, fs, "console-details");
       yield* page.click(`${DIALOG} [role="tab"]:nth-of-type(2)`);
       yield* page.until(
@@ -1068,6 +1091,8 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.click("[data-console-workspace-new]");
       yield* page.until(`!!document.querySelector("[data-console-name-dialog] input")`);
       const naming = [yield* placed(page)];
+      // One field is asked for in the window's middle.
+      expect(yield* stands(page)).toBe("middle");
       yield* page.key("Enter", "Enter", ENTER);
       yield* page.until(
         `!!document.querySelector('[data-console-name-dialog] [data-slot="field-error"]')`,
@@ -1082,7 +1107,9 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* choose(page, `[data-console-workspace="Shop team"] button`, "Members");
       const adding = `[data-console-member-add] button[type="submit"]`;
       const members = (count: number) =>
-        page.until(`document.querySelectorAll("[data-console-members] li").length === ${count}`);
+        page.until(
+          `document.querySelectorAll('[data-console-members] [role="listitem"]').length === ${count}`,
+        );
       yield* page.until(`!!document.querySelector("[data-console-member-add] input")`);
       const admitting = [yield* placed(page, adding)];
       yield* members(1);
@@ -1177,7 +1204,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       // its buttons, and what it is told is wrong is brought into view.
       const short = yield* viewer.open(`${proxy.url}/-/tokens`, {
         width: 1280,
-        height: 560,
+        height: 420,
       });
       yield* short.until(`!!document.querySelector("[data-console-token-new]")`);
       yield* short.click("[data-console-token-new]");
@@ -1964,8 +1991,8 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.type(password);
       yield* page.key("Enter", "Enter", ENTER);
 
-      // The passkeys are beside the second factor, in a dialog that is as tall for either;
-      // naming one is a step of its own, as tall as the one field it asks for.
+      // The passkeys are beside the second factor, in a dialog at the window's side that
+      // is as large for either; naming one is a step of its own, in the same place.
       const dialog = (step: string) => `[data-console-security-dialog="${step}"]`;
       const passkey = (name: string) => `[data-console-passkey="${name}"]`;
       const open = Effect.gen(function* () {
@@ -1992,7 +2019,8 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
             `document.querySelector('${dialog("passkey-name")} input').value === ${JSON.stringify(name)}`,
           );
         });
-      const states = [yield* open];
+      const opened = yield* open;
+      const states = [opened];
       yield* present(true);
       yield* page.until(`!!document.querySelector('${dialog("passkeys")} [data-console-empty]')`);
       states.push(yield* placed(page));
@@ -2000,8 +2028,17 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       // One is not added without a name.
       yield* page.click("[data-console-passkey-add]");
       yield* page.until(`!!document.querySelector('${dialog("passkey-name")} input')`);
-      const naming = [yield* placed(page)];
-      expect(yield* snug(page)).toEqual({ scrolls: false, room: 0 });
+      const named = yield* placed(page);
+      const naming = [named];
+      // At the window's side a step stands where the one before it stood, and is as large.
+      const frame = (at: { left: number; top: number; width: number; height: number }) => [
+        at.left,
+        at.top,
+        at.width,
+        at.height,
+      ];
+      expect(yield* stands(page)).toBe("side");
+      expect(frame(named)).toEqual(frame(opened));
       yield* page.key("Enter", "Enter", ENTER);
       yield* page.until(
         `!!document.querySelector('${dialog("passkey-name")} [data-slot="field-error"]')`,

@@ -98,27 +98,48 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
   );
 }
 
+/** What a dialog is whichever way it stands: a column, a sheet at the foot on a phone. */
+const CONTENT =
+  // A column no taller than what is seen of the window: its header, its footer and
+  // what else stands in it take the room they need, whatever the size of what is
+  // pressed, and a `DialogBody` among them gives way and scrolls. With no body the
+  // whole of it scrolls. On a phone it is a sheet at the foot, above the keyboard.
+  "aperture:group/dialog aperture:fixed aperture:inset-x-0 aperture:bottom-(--keyboard-inset,0px) aperture:z-50 aperture:flex aperture:max-h-[calc(100dvh-0.75rem-env(safe-area-inset-top)-var(--keyboard-inset,0px)-var(--keyboard-top,0px))] aperture:w-full aperture:max-w-none aperture:flex-col aperture:gap-4 aperture:overflow-x-hidden aperture:overflow-y-auto aperture:rounded-t-xl aperture:bg-popover aperture:p-4 aperture:pb-(--dialog-pad-bottom) aperture:text-sm aperture:[--dialog-pad-bottom:max(1rem,env(safe-area-inset-bottom))] aperture:sm:[--dialog-pad-bottom:1rem] aperture:text-popover-foreground aperture:ring-1 aperture:ring-foreground/10 aperture:duration-100 aperture:outline-none aperture:data-closed:animate-out aperture:data-closed:fade-out-0 aperture:data-open:animate-in aperture:data-open:fade-in-0";
+
+/** In the middle of the window, where the window is wider than a phone's. */
+const MODAL =
+  "aperture:data-closed:slide-out-to-bottom-2 aperture:data-open:slide-in-from-bottom-2 aperture:sm:top-[calc(var(--keyboard-top,0px)+(100svh-var(--keyboard-top,0px)-var(--keyboard-inset,0px))/2)] aperture:sm:left-1/2 aperture:sm:bottom-auto aperture:sm:max-h-[calc(100svh-2rem-var(--keyboard-top,0px)-var(--keyboard-inset,0px))] aperture:sm:max-w-md aperture:sm:-translate-x-1/2 aperture:sm:-translate-y-1/2 aperture:sm:rounded-xl aperture:sm:data-closed:zoom-out-95 aperture:sm:data-open:zoom-in-95";
+
+/**
+ * At the window's right edge and as tall as what is seen of the window, where the window is
+ * wider than a phone's: its header and footer stay, and its body has what is left.
+ */
+const SIDE =
+  "aperture:max-sm:data-closed:slide-out-to-bottom-2 aperture:max-sm:data-open:slide-in-from-bottom-2 aperture:sm:top-[calc(var(--keyboard-top,0px)+env(safe-area-inset-top))] aperture:sm:right-[env(safe-area-inset-right)] aperture:sm:bottom-(--keyboard-inset,0px) aperture:sm:left-auto aperture:sm:max-h-none aperture:sm:max-w-lg aperture:sm:rounded-none aperture:sm:shadow-lg aperture:sm:duration-200 aperture:sm:data-closed:slide-out-to-right-8 aperture:sm:data-open:slide-in-from-right-8";
+
 function DialogContent({
   className,
   children,
   showCloseButton = true,
+  side,
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean;
+  /**
+   * Where it stands in a window wider than a phone's: at that edge, as tall as the window,
+   * for what shows or changes a thing among others, or has much in it. In the middle,
+   * without. On a phone it is a sheet at the foot either way.
+   */
+  side?: "right";
 }) {
   return (
     <DialogPortal>
-      <DialogOverlay />
+      {/* As long on its way as what it is behind. */}
+      <DialogOverlay className={side === undefined ? undefined : "aperture:sm:duration-200"} />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
-        className={cn(
-          // A column no taller than what is seen of the window: its header, its footer and
-          // what else stands in it take the room they need, whatever the size of what is
-          // pressed, and a `DialogBody` among them gives way and scrolls. With no body the
-          // whole of it scrolls. On a phone it is a sheet at the foot, above the keyboard.
-          "aperture:group/dialog aperture:fixed aperture:inset-x-0 aperture:bottom-(--keyboard-inset,0px) aperture:z-50 aperture:flex aperture:max-h-[calc(100dvh-0.75rem-env(safe-area-inset-top)-var(--keyboard-inset,0px)-var(--keyboard-top,0px))] aperture:w-full aperture:max-w-none aperture:flex-col aperture:gap-4 aperture:overflow-x-hidden aperture:overflow-y-auto aperture:rounded-t-xl aperture:bg-popover aperture:p-4 aperture:pb-(--dialog-pad-bottom) aperture:text-sm aperture:[--dialog-pad-bottom:max(1rem,env(safe-area-inset-bottom))] aperture:sm:[--dialog-pad-bottom:1rem] aperture:text-popover-foreground aperture:ring-1 aperture:ring-foreground/10 aperture:duration-100 aperture:outline-none aperture:data-closed:animate-out aperture:data-closed:fade-out-0 aperture:data-closed:slide-out-to-bottom-2 aperture:data-open:animate-in aperture:data-open:fade-in-0 aperture:data-open:slide-in-from-bottom-2 aperture:sm:top-[calc(var(--keyboard-top,0px)+(100svh-var(--keyboard-top,0px)-var(--keyboard-inset,0px))/2)] aperture:sm:left-1/2 aperture:sm:bottom-auto aperture:sm:max-h-[calc(100svh-2rem-var(--keyboard-top,0px)-var(--keyboard-inset,0px))] aperture:sm:max-w-md aperture:sm:-translate-x-1/2 aperture:sm:-translate-y-1/2 aperture:sm:rounded-xl aperture:sm:data-closed:zoom-out-95 aperture:sm:data-open:zoom-in-95",
-          className,
-        )}
+        data-side={side}
+        className={cn(CONTENT, side === undefined ? MODAL : SIDE, className)}
         {...props}
       >
         {children}
@@ -163,7 +184,6 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
 function DialogBody({
   className,
   height,
-  phoneHeight,
   style,
   ...props
 }: Omit<React.ComponentProps<typeof ScrollArea>, "style"> & {
@@ -172,11 +192,10 @@ function DialogBody({
    * dialog is open: tabs, a list that loads or grows. The room for the tallest of what it
    * shows, so that the dialog is as tall for each. Where what it holds is what is pressed,
    * the length counts those in `--control-height`, which is more where a finger presses.
-   * Left out, it is as tall as what it holds.
+   * Left out, it is as tall as what it holds. At a window's side the dialog is as tall as
+   * the window whatever it holds, and its body has what is left of that.
    */
   height?: string;
-  /** The same on a phone, where it is another: what it holds is in more lines there. */
-  phoneHeight?: string;
   style?: React.CSSProperties;
 }) {
   return (
@@ -190,16 +209,13 @@ function DialogBody({
         "aperture:-mx-4 aperture:-mt-1 aperture:-mb-2 aperture:flex aperture:min-h-0 aperture:flex-col",
         height === undefined
           ? "aperture:shrink aperture:grow-0 aperture:basis-auto"
-          : "aperture:shrink aperture:grow-0 aperture:basis-(--dialog-body-height) aperture:max-sm:basis-(--dialog-body-phone-height)",
+          : "aperture:shrink aperture:grow-0 aperture:basis-(--dialog-body-height)",
+        "aperture:sm:group-data-[side=right]/dialog:grow aperture:sm:group-data-[side=right]/dialog:basis-0",
       )}
       style={
         height === undefined
           ? style
-          : ({
-              "--dialog-body-height": height,
-              "--dialog-body-phone-height": phoneHeight ?? height,
-              ...style,
-            } as React.CSSProperties)
+          : ({ "--dialog-body-height": height, ...style } as React.CSSProperties)
       }
       viewportClassName={cn(
         "aperture:flex aperture:h-auto aperture:min-h-0 aperture:flex-1 aperture:flex-col aperture:gap-4 aperture:px-4 aperture:pt-1 aperture:pb-2",
@@ -224,7 +240,7 @@ function DialogFooter({
       className={cn(
         // On a phone it stays at the sheet's foot while what is above it scrolls, clear of
         // the home indicator.
-        "aperture:-mx-4 aperture:-mb-(--dialog-pad-bottom) aperture:flex aperture:shrink-0 aperture:gap-2 aperture:max-sm:*:min-w-0 aperture:max-sm:*:flex-1 aperture:border-t aperture:bg-[color-mix(in_oklch,var(--popover),var(--muted)_50%)] aperture:p-4 aperture:pb-(--dialog-pad-bottom) aperture:max-sm:sticky aperture:max-sm:-bottom-(--dialog-pad-bottom) aperture:sm:justify-end aperture:sm:rounded-b-xl",
+        "aperture:-mx-4 aperture:-mb-(--dialog-pad-bottom) aperture:flex aperture:shrink-0 aperture:gap-2 aperture:max-sm:*:min-w-0 aperture:max-sm:*:flex-1 aperture:border-t aperture:bg-[color-mix(in_oklch,var(--popover),var(--muted)_50%)] aperture:p-4 aperture:pb-(--dialog-pad-bottom) aperture:max-sm:sticky aperture:max-sm:-bottom-(--dialog-pad-bottom) aperture:sm:justify-end aperture:sm:rounded-b-xl aperture:sm:group-data-[side=right]/dialog:mt-auto aperture:sm:group-data-[side=right]/dialog:rounded-none",
         className,
       )}
       {...props}

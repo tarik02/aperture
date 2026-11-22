@@ -89,6 +89,15 @@ export function CardsSkeleton({ cards = 6 }: { cards?: number }) {
 }
 
 /**
+ * How tall a row of a list in a dialog is, as a CSS length: two lines of text or what is
+ * pressed beside them, whichever is taller, and the room around them.
+ */
+export const ITEM_ROW = "(max(2.375rem, var(--control-height)) + 1.125rem)";
+
+/** A line of a list's row that is told whole, in as many lines as it takes. */
+export const WHOLE = "aperture:line-clamp-none aperture:w-auto aperture:wrap-anywhere";
+
+/**
  * The lines of a list in a dialog before they are known, each with what it is called,
  * something below that and something at its end, as the lines that come have.
  */

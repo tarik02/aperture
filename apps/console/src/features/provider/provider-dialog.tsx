@@ -24,7 +24,7 @@ export function ProviderDialog({
   callbackBase,
 }: ProviderDialogProps) {
   return (
-    <FreshDialog open={open} onOpenChange={onOpenChange} className="aperture:sm:max-w-xl">
+    <FreshDialog open={open} onOpenChange={onOpenChange} side="right">
       <ProviderForm
         provider={provider}
         callbackBase={callbackBase}

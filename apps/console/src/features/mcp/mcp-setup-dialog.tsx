@@ -32,7 +32,12 @@ type McpSetupDialogProps = {
 /** How an MCP client is pointed at the account's sessions, all of them through one server. */
 export function McpSetupDialog({ open, onOpenChange }: McpSetupDialogProps) {
   return (
-    <FreshDialog open={open} onOpenChange={onOpenChange} className="aperture:sm:max-w-3xl">
+    <FreshDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      side="right"
+      className="aperture:sm:max-w-2xl"
+    >
       <DialogHeader>
         <DialogTitle>Connect an MCP client</DialogTitle>
       </DialogHeader>
@@ -138,7 +143,7 @@ function McpSetupSteps() {
           times as long, and scroll.
         */}
         <ScrollArea
-          className="aperture:flex aperture:min-h-0 aperture:shrink aperture:grow-0 aperture:basis-[23rem] aperture:flex-col"
+          className="aperture:flex aperture:min-h-0 aperture:shrink aperture:grow-0 aperture:basis-[23rem] aperture:flex-col aperture:sm:grow aperture:sm:basis-0"
           viewportClassName="aperture:h-auto aperture:min-h-0 aperture:flex-1 aperture:pr-3"
         >
           {mcpClients.map((client) => (

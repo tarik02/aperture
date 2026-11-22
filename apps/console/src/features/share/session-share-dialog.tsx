@@ -1,13 +1,22 @@
 import { Badge } from "@aperture-browser/ui/components/badge";
 import { Button } from "@aperture-browser/ui/components/button";
 import { DialogBody, DialogHeader, DialogTitle } from "@aperture-browser/ui/components/dialog";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemTitle,
+} from "@aperture-browser/ui/components/item";
 import { useForm, useStore } from "@tanstack/react-form";
-import { Trash2 } from "lucide-react";
+import { Link2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Choice } from "#/components/choice.tsx";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { FreshDialog } from "#/components/fresh-dialog.tsx";
-import { LinesSkeleton } from "#/components/list-skeleton.tsx";
+import { ListEmpty } from "#/components/list-empty.tsx";
+import { LinesSkeleton, WHOLE } from "#/components/list-skeleton.tsx";
 import { SecretDialog } from "#/components/secret-dialog.tsx";
 import { TextField } from "#/components/text-field.tsx";
 import type { Session } from "#/features/session/session.queries.ts";
@@ -65,7 +74,12 @@ type SessionShareDialogProps = {
  */
 export function SessionShareDialog({ session, open, onOpenChange }: SessionShareDialogProps) {
   return (
-    <FreshDialog open={open} onOpenChange={onOpenChange} className="aperture:sm:max-w-xl">
+    <FreshDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      side="right"
+      className="aperture:sm:max-w-xl"
+    >
       <Links session={session} open={open} />
     </FreshDialog>
   );
@@ -154,41 +168,43 @@ function Links({ session, open }: { session: Session; open: boolean }) {
           New link
         </Button>
       </form>
-      {/* Four links: a name and a line under it each, or as tall as what is pressed. */}
-      <DialogBody height="calc(3rem + 4 * max(2.25rem, var(--control-height)))">
-        {shares.data?.length === 0 ? (
-          <p className="aperture:text-sm aperture:text-muted-foreground">
-            Nobody is let in by a link.
-          </p>
-        ) : null}
-        {shares.isPending ? <LinesSkeleton /> : null}
-        <ul data-console-shares className="aperture:grid aperture:gap-3">
-          {shares.data?.map((share) => (
-            <li
-              key={share.id}
-              data-console-share={share.name}
-              className="aperture:flex aperture:items-center aperture:gap-2 aperture:text-sm"
-            >
-              <span className="aperture:grid aperture:min-w-0 aperture:flex-1">
-                <span className="aperture:font-medium aperture:wrap-anywhere">{share.name}</span>
-                <span className="aperture:truncate aperture:text-xs aperture:text-muted-foreground">
-                  {story(share)}
-                </span>
-              </span>
-              <Badge variant={share.role === "control" ? "default" : "outline"}>
-                {share.role === "control" ? "Control" : "Watch"}
-              </Badge>
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                aria-label={`Revoke ${share.name}`}
-                onClick={() => setRevoking(share)}
+      {/* On a phone, three links: a name and the two lines its story takes there each. */}
+      <DialogBody height="15.5rem">
+        {shares.isPending ? (
+          <LinesSkeleton />
+        ) : shares.data?.length === 0 ? (
+          <ListEmpty icon={Link2} title="No share links yet" />
+        ) : (
+          <ItemGroup data-console-shares>
+            {shares.data?.map((share) => (
+              <Item
+                key={share.id}
+                role="listitem"
+                variant="outline"
+                size="xs"
+                data-console-share={share.name}
               >
-                <Trash2 />
-              </Button>
-            </li>
-          ))}
-        </ul>
+                <ItemContent className="aperture:min-w-0">
+                  <ItemTitle className={WHOLE}>{share.name}</ItemTitle>
+                  <ItemDescription className={WHOLE}>{story(share)}</ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                  <Badge variant={share.role === "control" ? "default" : "outline"}>
+                    {share.role === "control" ? "Control" : "Watch"}
+                  </Badge>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={`Revoke ${share.name}`}
+                    onClick={() => setRevoking(share)}
+                  >
+                    <Trash2 />
+                  </Button>
+                </ItemActions>
+              </Item>
+            ))}
+          </ItemGroup>
+        )}
       </DialogBody>
       <SecretDialog title="Share link" secret={link} onClose={() => setLink(undefined)} />
       <ConfirmDialog

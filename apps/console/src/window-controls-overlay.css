@@ -183,3 +183,10 @@
   > [data-app-window-titlebar] {
   display: none;
 }
+
+/* A dialog at the window's side begins below the bar the window's buttons are in. */
+@media (min-width: 640px) {
+  .wco [data-slot="dialog-content"][data-side="right"] {
+    top: var(--app-titlebar-height);
+  }
+}

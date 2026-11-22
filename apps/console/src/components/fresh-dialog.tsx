@@ -5,6 +5,8 @@ type FreshDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   className?: string;
+  /** At the window's side, where it is wider than a phone's, in place of its middle. */
+  side?: "right";
   /** What has the focus once it has closed, where that is not what had it before. */
   finalFocus?: React.RefObject<HTMLElement | null> | undefined;
   /** Whether Escape and a press beside it close it; not while it shows what is shown once. */
@@ -14,12 +16,14 @@ type FreshDialogProps = {
 
 /**
  * A dialog whose content starts anew each time it opens, and stays as it was left until the
- * dialog has closed: what closes it does not empty it while it is still seen.
+ * dialog has closed: what closes it does not empty it while it is still seen. What it holds
+ * does not know where it stands: in the window's middle, at its side, or at a phone's foot.
  */
 export function FreshDialog({
   open,
   onOpenChange,
   className,
+  side,
   finalFocus,
   dismissible,
   children,
@@ -44,6 +48,7 @@ export function FreshDialog({
     >
       <DialogContent
         className={className}
+        side={side}
         finalFocus={finalFocus}
         showCloseButton={dismissible !== false}
       >

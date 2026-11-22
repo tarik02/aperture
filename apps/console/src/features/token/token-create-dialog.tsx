@@ -72,6 +72,7 @@ export function TokenCreateDialog({
       open={open}
       onOpenChange={onOpenChange}
       finalFocus={finalFocus}
+      side="right"
       className="aperture:sm:max-w-xl"
     >
       <CreateForm {...form} onDone={() => onOpenChange(false)} />

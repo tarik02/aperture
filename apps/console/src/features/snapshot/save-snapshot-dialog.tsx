@@ -35,7 +35,7 @@ type SaveSnapshotDialogProps = {
 export function SaveSnapshotDialog({ session, open, onOpenChange }: SaveSnapshotDialogProps) {
   const snapshots = useSnapshotsQuery();
   return (
-    <FreshDialog open={open} onOpenChange={onOpenChange} className="aperture:sm:max-w-lg">
+    <FreshDialog open={open} onOpenChange={onOpenChange} side="right">
       {/* What may be replaced decides how the form starts, so the form waits for it. */}
       {snapshots.isPending ? (
         <>

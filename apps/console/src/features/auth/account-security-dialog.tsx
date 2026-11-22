@@ -7,15 +7,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@aperture-browser/ui/components/dialog";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemTitle,
+} from "@aperture-browser/ui/components/item";
 import { QrCode } from "@aperture-browser/ui/components/qr-code";
 import { Tabs, TabsList, TabsTrigger } from "@aperture-browser/ui/components/tabs";
 import { useForm, useStore } from "@tanstack/react-form";
-import { Pencil, Trash2 } from "lucide-react";
+import { KeyRound, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { CodeInput } from "#/components/code-input.tsx";
 import { CopyField } from "#/components/copy-field.tsx";
-import { LinesSkeleton } from "#/components/list-skeleton.tsx";
+import { ListEmpty } from "#/components/list-empty.tsx";
+import { ITEM_ROW, LinesSkeleton, WHOLE } from "#/components/list-skeleton.tsx";
 import { FreshDialog } from "#/components/fresh-dialog.tsx";
 import { TextField } from "#/components/text-field.tsx";
 import {
@@ -70,6 +79,7 @@ export function AccountSecurityDialog({ person, open, onOpenChange }: AccountSec
     // more in it.
     <FreshDialog
       open={open}
+      side="right"
       onOpenChange={(next) => {
         if (!next) {
           setStep("none");
@@ -163,8 +173,8 @@ function Security({
 
 type Tab = "second-factor" | "passkeys";
 
-/** What either tab holds: the password and what it is for, or three passkeys. */
-const TAB_HEIGHT = "calc(4.5rem + 2 * var(--control-height))";
+/** On a phone, what either tab holds: three passkeys, which is more than the password takes. */
+const TAB_HEIGHT = `calc(1.75rem + 3 * ${ITEM_ROW})`;
 
 const added = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 
@@ -188,48 +198,50 @@ function Passkeys({
         ) : passkeys.isPending ? (
           <LinesSkeleton lines={2} />
         ) : passkeys.data?.length === 0 ? (
-          <p data-console-empty className="aperture:text-sm aperture:text-muted-foreground">
-            No passkeys yet.
-          </p>
+          <ListEmpty icon={KeyRound} title="No passkeys yet" />
         ) : (
-          <ul data-console-passkeys className="aperture:grid aperture:gap-2">
+          <ItemGroup data-console-passkeys>
             {passkeys.data?.map((passkey) => (
-              <li
+              <Item
                 key={passkey.id}
+                role="listitem"
+                variant="outline"
+                size="xs"
                 data-console-passkey={passkey.name}
-                className="aperture:flex aperture:items-center aperture:gap-2 aperture:text-sm"
               >
-                <span className="aperture:grid aperture:min-w-0 aperture:flex-1">
-                  <span className="aperture:truncate aperture:font-medium">{passkey.name}</span>
+                <ItemContent className="aperture:min-w-0">
+                  <ItemTitle className={WHOLE}>{passkey.name}</ItemTitle>
                   {passkey.createdAt === undefined ? null : (
-                    <span className="aperture:truncate aperture:text-xs aperture:text-muted-foreground">
+                    <ItemDescription className={WHOLE}>
                       Added {added.format(passkey.createdAt)}
-                    </span>
+                    </ItemDescription>
                   )}
-                </span>
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  data-console-passkey-rename
-                  aria-label={`Rename ${passkey.name}`}
-                  onClick={() => onEnrolling({ step: "passkey-name", passkey })}
-                >
-                  <Pencil />
-                </Button>
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  data-console-passkey-remove
-                  aria-label={`Remove ${passkey.name}`}
-                  onClick={() => onEnrolling({ step: "passkey-remove", passkey })}
-                >
-                  <Trash2 />
-                </Button>
-              </li>
+                </ItemContent>
+                <ItemActions className="aperture:gap-1">
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    data-console-passkey-rename
+                    aria-label={`Rename ${passkey.name}`}
+                    onClick={() => onEnrolling({ step: "passkey-name", passkey })}
+                  >
+                    <Pencil />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    data-console-passkey-remove
+                    aria-label={`Remove ${passkey.name}`}
+                    onClick={() => onEnrolling({ step: "passkey-remove", passkey })}
+                  >
+                    <Trash2 />
+                  </Button>
+                </ItemActions>
+              </Item>
             ))}
-          </ul>
+          </ItemGroup>
         )}
       </DialogBody>
       <DialogFooter>
