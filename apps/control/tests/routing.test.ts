@@ -309,6 +309,18 @@ const stands = (page: Viewer.Page) =>
 
 const ALL_ON_SCREEN = { dialog: true, title: true, buttons: true, typed: true };
 
+/** Goes to a tab of the account's page, from the sidebar. */
+const toAccount = (page: Viewer.Page, tab: "security" | "tokens" | "connections") =>
+  Effect.gen(function* () {
+    const link = `[data-console-account-tab="${tab}"]`;
+    yield* pressUntil(page, `a[href="/-/account"]`, `document.querySelector('${link}')`);
+    yield* pressUntil(
+      page,
+      link,
+      `document.querySelector('${link}')?.hasAttribute("data-active") && location.pathname === "/-/account/${tab}"`,
+    );
+  });
+
 /** Opens what a session's menu offers, by what it says. */
 const fromMenu = (page: Viewer.Page, card: string, says: string) =>
   Effect.gen(function* () {
@@ -523,7 +535,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
             ada.api.accounts.createOwnToken({ payload: { name, scopes: ["sessions:read"] } }),
           { concurrency: 8 },
         );
-        yield* page.click(`a[href="/-/tokens"]`);
+        yield* toAccount(page, "tokens");
         yield* page.until(`!!document.querySelector('[data-console-token="checks"]')`);
         yield* page.click("[data-console-token-new]");
         yield* page.until(`!!document.querySelector("[data-console-token-create] input")`);
@@ -612,9 +624,21 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         yield* shot(page, fs, "console-tokens-dark");
         yield* page.evaluate(AUTO);
 
-        // How an MCP client reaches every session is told from the sidebar: by signing in.
+        // How an MCP client reaches every session is told beside what is connected already,
+        // in a dialog in the window's middle: by signing in.
+        yield* toAccount(page, "connections");
+        expect(
+          yield* page.evaluate(`document.querySelectorAll("[data-console-mcp-open]").length`),
+        ).toBeGreaterThan(0);
+        expect(
+          yield* page.evaluate(
+            `!!document.querySelector('[data-slot="sidebar"] [data-console-mcp-open]')`,
+          ),
+        ).toBe(false);
         yield* page.click("[data-console-mcp-open]");
         yield* page.until(`!!document.querySelector('[data-console-mcp-auth="oauth"] code')`);
+        yield* placed(page, `${DIALOG} [data-console-mcp]`);
+        expect(yield* stands(page)).toBe("middle");
         const signingIn = (yield* page.text("[data-console-mcp]")) ?? "";
         expect(signingIn).toContain(`claude mcp add --transport http aperture '${proxy.url}/mcp'`);
         expect(signingIn).not.toContain("Bearer");
@@ -1220,7 +1244,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* Effect.forEach(admitted, (id) => bootstrap.accounts.remove({ params: { id } }));
 
       // A token is held to what is ticked and chosen in a dialog that is as tall for each.
-      yield* page.click(`a[href="/-/tokens"]`);
+      yield* toAccount(page, "tokens");
       yield* page.until(`!!document.querySelector("[data-console-token-new]")`);
       yield* page.click("[data-console-token-new]");
       yield* page.until(`!!document.querySelector("[data-console-token-create] input")`);
@@ -1819,11 +1843,17 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       expect(yield* asked("/reset-password", { token, newPassword: password })).toBe(200);
       yield* signIn;
 
+      // How one signs in is a tab of the account's page: the second factor is told there to
+      // be off, and is turned on in a dialog that asks the password first.
       yield* page.until(`!!document.querySelector("[data-console-security]")`);
       const dialog = (step: string) => `[data-console-security-dialog="${step}"]`;
+      yield* toAccount(page, "security");
+      yield* page.until(`!!document.querySelector('[data-console-second-factor="off"]')`);
+      yield* shot(page, fs, "console-account-security");
+      yield* shotDark(page, fs, "console-account-security-dark");
       yield* pressUntil(
         page,
-        "[data-console-security]",
+        "[data-console-second-factor-change]",
         `document.querySelector('${dialog("none")} input')`,
       );
       // Nothing within a step moves its buttons; the dialog goes from one step to the
@@ -1864,6 +1894,18 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       expect(yield* page.text("[data-console-backup-codes] code")).toMatch(/\w{5}-\w{5}/u);
       yield* still;
       yield* shot(page, fs, "console-backup-codes");
+      // The codes are shown once, and closed by their own button: the page says it is on.
+      yield* page.key("Escape", "Escape", ESCAPE);
+      expect(yield* page.evaluate(`!!document.querySelector('${dialog("backup-codes")}')`)).toBe(
+        true,
+      );
+      yield* choose(page, `${DIALOG} button`, "Done");
+      yield* page.until(
+        `!document.querySelector('${DIALOG}') && !!document.querySelector('[data-console-second-factor="on"]')`,
+      );
+      expect(
+        yield* page.evaluate(`!!document.querySelector("[data-console-renew-backup-codes]")`),
+      ).toBe(true);
 
       // The password alone leads to the code, and nowhere further.
       expect(yield* asked("/sign-out", {})).toBe(200);
@@ -2051,27 +2093,20 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.type(password);
       yield* page.key("Enter", "Enter", ENTER);
 
-      // The passkeys are beside the second factor, in a dialog at the window's side that
-      // is as large for either; naming one is a step of its own, in the same place.
+      // The passkeys are the list of the page that tells how one signs in, below the second
+      // factor, which is no list; one is named in a dialog in the window's middle.
       const dialog = (step: string) => `[data-console-security-dialog="${step}"]`;
       const passkey = (name: string) => `[data-console-passkey="${name}"]`;
       const open = Effect.gen(function* () {
         yield* page.until(`!!document.querySelector("[data-console-security]")`);
-        // The page may still be coming to rest when its menu is there to press.
-        yield* pressUntil(
-          page,
-          "[data-console-security]",
-          `document.querySelector('${dialog("none")} input')`,
-        );
-        const first = yield* placed(page);
-        yield* page.click(`[data-console-security-tab="passkeys"]`);
-        yield* page.until(`!!document.querySelector('${dialog("passkeys")}')`);
-        return first;
+        yield* toAccount(page, "security");
+        yield* page.until(`!!document.querySelector("[data-console-security-page]")`);
       });
       const add = (name: string) =>
         Effect.gen(function* () {
-          yield* page.click("[data-console-passkey-add]");
-          yield* page.until(
+          yield* pressUntil(
+            page,
+            "[data-console-passkey-add]",
             `document.activeElement === document.querySelector('${dialog("passkey-name")} input')`,
           );
           yield* page.type(name);
@@ -2079,26 +2114,23 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
             `document.querySelector('${dialog("passkey-name")} input').value === ${JSON.stringify(name)}`,
           );
         });
-      const opened = yield* open;
-      const states = [opened];
+      yield* open;
       yield* present(true);
-      yield* page.until(`!!document.querySelector('${dialog("passkeys")} [data-console-empty]')`);
-      states.push(yield* placed(page));
+      yield* page.until(
+        `!!document.querySelector("[data-console-passkeys-none] [data-console-empty]")`,
+      );
+      // One list on the page, and what else it tells is none.
+      expect(
+        yield* page.evaluate(
+          `document.querySelectorAll('[data-console-security-page] [data-slot="item-group"], [data-console-security-page] table').length`,
+        ),
+      ).toBe(0);
       yield* shot(page, fs, "console-passkeys-none");
       // One is not added without a name.
       yield* page.click("[data-console-passkey-add]");
       yield* page.until(`!!document.querySelector('${dialog("passkey-name")} input')`);
-      const named = yield* placed(page);
-      const naming = [named];
-      // At the window's side a step stands where the one before it stood, and is as large.
-      const frame = (at: { left: number; top: number; width: number; height: number }) => [
-        at.left,
-        at.top,
-        at.width,
-        at.height,
-      ];
-      expect(yield* stands(page)).toBe("side");
-      expect(frame(named)).toEqual(frame(opened));
+      const naming = [yield* placed(page)];
+      expect(yield* stands(page)).toBe("middle");
       yield* page.key("Enter", "Enter", ENTER);
       yield* page.until(
         `!!document.querySelector('${dialog("passkey-name")} [data-slot="field-error"]')`,
@@ -2111,7 +2143,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* shotDark(page, fs, "console-passkey-name-dark");
       yield* page.key("Enter", "Enter", ENTER);
       yield* page.until(`!!document.querySelector('${passkey("Laptop")}')`);
-      states.push(yield* placed(page));
+      yield* page.until(`!document.querySelector('${DIALOG}')`);
 
       // It is named anew.
       yield* page.click(`${passkey("Laptop")} [data-console-passkey-rename]`);
@@ -2121,10 +2153,14 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.type(" of Pia");
       yield* page.key("Enter", "Enter", ENTER);
       yield* page.until(`!!document.querySelector('${passkey("Laptop of Pia")}')`);
+      yield* page.until(`!document.querySelector('${DIALOG}')`);
+      expect(
+        yield* page.evaluate(
+          `document.querySelectorAll('[data-console-security-page] [data-slot="item-group"]').length`,
+        ),
+      ).toBe(1);
       yield* shot(page, fs, "console-passkeys");
       yield* shotDark(page, fs, "console-passkeys-dark");
-      states.push(yield* placed(page));
-      alike(states);
 
       // With a second factor on, the passkey still signs in by itself: no code is asked.
       const { totpURI } = yield* asked(
@@ -2147,10 +2183,14 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
 
       // It is removed, once that is said again.
       yield* page.click(`${passkey("Laptop of Pia")} [data-console-passkey-remove]`);
-      yield* page.until(`!!document.querySelector('${dialog("passkey-remove")}')`);
+      yield* page.until(`!!document.querySelector('${BUTTONS} button:last-child')`);
+      yield* placed(page);
       yield* shot(page, fs, "console-passkey-remove");
-      yield* page.click("[data-console-passkey-remove-confirm]");
-      yield* page.until(`!!document.querySelector('${dialog("passkeys")} [data-console-empty]')`);
+      yield* page.click(`${BUTTONS} button:last-child`);
+      yield* page.until(
+        `!!document.querySelector("[data-console-passkeys-none] [data-console-empty]")`,
+      );
+      yield* page.until(`!document.querySelector('${DIALOG}')`);
 
       // An admin removes a person's passkeys without them, and none of them signs in after.
       yield* page.cdp.call("WebAuthn.clearCredentials", { authenticatorId });
@@ -2203,6 +2243,8 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       const person = "[data-console-person-create]";
       yield* page.until(`!!document.querySelector('${person} input[name="name"]')`);
       const inviting = [yield* placed(page)];
+      // A person is made at the window's side, as what shows one is.
+      expect(yield* stands(page)).toBe("side");
       yield* page.click(`${person} input[name="name"]`);
       yield* page.type("Lin");
       yield* page.key("Enter", "Enter", ENTER);
@@ -2270,6 +2312,65 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         yield* page.click(`${BUTTONS} button:last-child`);
         yield* page.until(`!document.querySelector('${DIALOG}')`);
       });
+      // A person is opened at the window's side: what is known of them, and below it the
+      // workspaces they are in, where an admin lets them in and out and says as what.
+      const linId = (yield* root.api.accounts.list()).find((one) => one.name === "Lin")?.id ?? "";
+      const team = yield* root.api.workspaces.create({ payload: { name: "Team of Lin" } });
+      const place = `[data-console-account-workspace="Team of Lin"]`;
+      const roleOf = (accountId: string) =>
+        Effect.map(
+          root.api.workspaces.ofAccount({ params: { accountId } }),
+          (all) => all.find((one) => one.id === team.id)?.role ?? null,
+        );
+      /** Lets whoever the open sheet shows into the workspace, changes what they do there, and takes them out. */
+      const placedAndTaken = (accountId: string, name: string) =>
+        Effect.gen(function* () {
+          yield* page.until(`!!document.querySelector("[data-console-account-facts]")`);
+          // Once it has come to rest where it stands.
+          yield* placed(page, `${DIALOG} [data-console-account-place]`);
+          expect(yield* stands(page)).toBe("side");
+          expect(yield* page.text("[data-console-account-id]")).toBe(accountId);
+          yield* page.until(`!!document.querySelector('${DIALOG} [data-console-empty]')`);
+          const sheet = [yield* placed(page, `${DIALOG} [data-console-account-place]`)];
+          // One list in it, below what is known of the account.
+          expect(
+            yield* page.evaluate(
+              `document.querySelectorAll('${DIALOG} [data-slot="item-group"], ${DIALOG} table').length`,
+            ),
+          ).toBe(0);
+          yield* pick(page, "[data-console-account-place-workspace]", "Team of Lin");
+          yield* page.click(`[data-console-account-place] button[type="submit"]`);
+          yield* page.until(`!!document.querySelector('${place}')`);
+          expect(yield* roleOf(accountId)).toBe("member");
+          // What they do there is said in words, and changed where it is said.
+          expect(yield* page.text(`${place} [data-slot="select-value"]`)).toBe("Member");
+          sheet.push(yield* placed(page, `${DIALOG} [data-console-account-place]`));
+          yield* shot(page, fs, `console-account-sheet-${name}`);
+          yield* shotDark(page, fs, `console-account-sheet-${name}-dark`);
+          yield* pick(page, `${place} [data-slot="select-trigger"]`, "Admin");
+          yield* until(
+            "the role being changed",
+            Effect.map(roleOf(accountId), (role) => role === "admin"),
+          );
+          yield* page.click(`${place} [data-console-account-unplace]`);
+          yield* page.until(`document.querySelectorAll('${DIALOG}').length === 2`);
+          yield* choose(page, `${BUTTONS} button`, "Remove");
+          yield* page.until(`!document.querySelector('${place}')`);
+          yield* page.until(`document.querySelectorAll('${DIALOG}').length === 1`);
+          expect(yield* roleOf(accountId)).toBe(null);
+          sheet.push(yield* placed(page, `${DIALOG} [data-console-account-place]`));
+          alike(sheet);
+          yield* closed(page);
+        });
+      // A row tells two lines of a person, and is as tall as any row that does.
+      expect(
+        yield* page.evaluate(`document.querySelector('${lin} td').children[0].children.length`),
+      ).toBe(2);
+      expect(yield* page.text(lin)).not.toContain(linId);
+      expect(yield* page.text(lin)).toContain("Member");
+      yield* page.click(`${lin} td`);
+      yield* placedAndTaken(linId, "person");
+
       // Disabled, a person stays where they were, and is put in use again as they were.
       yield* does("Disable");
       yield* page.until(`!!document.querySelector('${BUTTONS} button:last-child')`);
@@ -2314,6 +2415,10 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.until(`!document.querySelector("[data-console-name-dialog]")`);
       expect(yield* page.evaluate(`!!document.querySelector("[data-console-person]")`)).toBe(false);
       yield* shot(page, fs, "console-service-accounts");
+      // It is let into a workspace from where it is opened: it has no address to be found by.
+      const botAccount = (yield* root.api.accounts.list()).find((one) => one.name === "Deploy bot");
+      yield* page.click(`${bot} td`);
+      yield* placedAndTaken(botAccount?.id ?? "", "service");
       // Its tokens have a page of their own, reached from its row: none yet.
       const botId =
         (yield* root.api.accounts.list()).find((one) => one.name === "Deploy bot")?.id ?? "";
@@ -2368,7 +2473,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       expect((yield* Effect.flip(asSpare.accounts.current()))._tag).toBe("Unauthorized");
       expect((yield* withIt.accounts.current()).name).toBe("Deploy bot");
       yield* pick(page, `[aria-label="Which tokens"]`, "Revoked or expired");
-      yield* page.until(`document.querySelector('${spared}')?.textContent.includes("revoked")`);
+      yield* page.until(`document.querySelector('${spared}')?.textContent.includes("Revoked")`);
       expect(yield* page.evaluate(`!!document.querySelector('${deploys}')`)).toBe(false);
       expect(yield* page.evaluate(`!!document.querySelector('${spared} button')`)).toBe(false);
       yield* pick(page, `[aria-label="Which tokens"]`, "Active");
@@ -2442,7 +2547,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* confirmed;
       yield* page.until(`!document.querySelector('${spare}')`);
       yield* pick(page, which, "Revoked");
-      yield* page.until(`document.querySelector('${spare}')?.textContent.includes("revoked")`);
+      yield* page.until(`document.querySelector('${spare}')?.textContent.includes("Revoked")`);
       expect(
         yield* page.evaluate(
           `!!document.querySelector('[data-console-registration-token="checks"]')`,
@@ -2855,7 +2960,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       expect(yield* has("[data-console-create]")).toBe(false);
       expect(yield* has(`${ownCard} input[type="checkbox"]`)).toBe(false);
       // It is an admin's, and not for what an admin does, nor for anything else there is.
-      for (const gone of ["snapshots", "tokens", "connected-apps", "people", "nodes", "audit"]) {
+      for (const gone of ["snapshots", "account", "people", "nodes", "audit"]) {
         expect([gone, yield* has(`a[href="/-/${gone}"]`)]).toEqual([gone, false]);
       }
       expect(yield* menuOf(ownCard)).toEqual(["Open", "Copy link", "Details"]);
@@ -2875,11 +2980,13 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       expect(yield* has(`${row} [data-console-row-action="members"]`)).toBe(true);
       expect(yield* has(`${row} [data-console-row-actions]`)).toBe(false);
       yield* shot(page, fs, "console-held-reader-workspaces");
-      // A page that is not the token's says so, where its address is come to.
+      // A page that is not the token's says so, where its address is come to: the one it
+      // had before it was a tab of the account's page leads there.
       yield* page.evaluate(
         `void (history.pushState({}, "", "/-/tokens"), dispatchEvent(new PopStateEvent("popstate")))`,
       );
       yield* page.until(`!!document.querySelector('[data-console-not-allowed="tokens:write"]')`);
+      expect(yield* page.evaluate(`location.pathname`)).toBe("/-/account/tokens");
       yield* shot(page, fs, "console-held-not-allowed");
       const phone = yield* viewer.open(`${proxy.url}/-/sessions`, {
         width: 390,
@@ -2914,7 +3021,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.until(`!document.querySelector('[data-slot="dropdown-menu-radio-item"]')`);
       yield* page.until(`!!document.querySelector("[data-console-create]")`);
       expect(yield* has(`a[href="/-/snapshots"]`)).toBe(true);
-      expect(yield* has(`a[href="/-/tokens"]`)).toBe(false);
+      expect(yield* has(`a[href="/-/account"]`)).toBe(false);
       const offered = yield* menuOf(sharedCard);
       expect(offered).toEqual(expect.arrayContaining(["Share", "Save to snapshot", "Delete"]));
       yield* shot(page, fs, "console-held-workspace");

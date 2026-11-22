@@ -7,90 +7,51 @@ import {
   SidebarMenuItem,
 } from "@aperture-browser/ui/components/sidebar";
 import { Link } from "@tanstack/react-router";
-import { Plug, ShieldCheck } from "lucide-react";
-import { useState } from "react";
-import { AccountSecurityDialog } from "#/features/auth/account-security-dialog.tsx";
 import { useAccess } from "#/features/auth/access.ts";
-import { usePersonQuery } from "#/features/auth/auth.queries.ts";
-import { McpSetupDialog } from "#/features/mcp/mcp-setup-dialog.tsx";
+import { useAccountTabs } from "#/features/auth/account-tabs.ts";
 import { useCloseDrawer } from "#/lib/drawer.ts";
 import { type NavItem, primaryNavItems } from "#/lib/navigation.ts";
-import { useToken } from "#/lib/token.ts";
 
-/** What is the account's own, whoever's workspace is shown: how it signs in and what acts for it. */
+/** What is the account's own, whoever's workspace is shown: one page of it, and what it did. */
 export function AccountSidebarGroup({ activeItem }: { activeItem: NavItem | undefined }) {
-  const person = usePersonQuery();
-  // Whoever signed in with no token is a person: known before they are asked for, so that
-  // nothing in the menu moves down when the answer comes.
-  const signsIn = useToken() === undefined;
   const access = useAccess();
-  const [dialog, setDialog] = useState<"security" | "mcp" | null>(null);
+  const tabs = useAccountTabs();
   const closeDrawer = useCloseDrawer();
-  const show = (which: "security" | "mcp") => {
-    closeDrawer();
-    setDialog(which);
-  };
+  const items = primaryNavItems.filter((item) =>
+    item.to === "/-/account"
+      ? tabs.length > 0
+      : (item.group === "account" || (item.otherwise === "account" && !access.may("admin"))) &&
+        access.offers(item),
+  );
+  if (items.length === 0) {
+    return null;
+  }
 
   return (
     <SidebarGroup>
       <SidebarGroupLabel>Account</SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
-          {/* A second factor is a person's: a token signs in with nothing else. */}
-          {signsIn && person.data !== null ? (
-            <SidebarMenuItem>
+          {items.map((item) => (
+            <SidebarMenuItem key={item.title}>
               <SidebarMenuButton
-                data-console-security
-                tooltip="Security"
-                onClick={() => (person.data ? show("security") : undefined)}
+                isActive={item === activeItem}
+                // How one signs in is there for a person alone.
+                data-console-security={
+                  item.to === "/-/account" && tabs.some((tab) => tab.id === "security")
+                    ? ""
+                    : undefined
+                }
+                render={<Link to={item.to} onClick={closeDrawer} />}
+                tooltip={item.title}
               >
-                <ShieldCheck />
-                <span data-sidebar-collapse-label>Security</span>
+                <item.icon />
+                <span data-sidebar-collapse-label>{item.title}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
-          ) : null}
-          {primaryNavItems
-            .filter(
-              (item) =>
-                (item.group === "account" ||
-                  (item.otherwise === "account" && !access.may("admin"))) &&
-                access.offers(item),
-            )
-            .map((item) => (
-              <SidebarMenuItem key={item.title}>
-                <SidebarMenuButton
-                  isActive={item === activeItem}
-                  render={<Link to={item.to} onClick={closeDrawer} />}
-                  tooltip={item.title}
-                >
-                  <item.icon />
-                  <span data-sidebar-collapse-label>{item.title}</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              data-console-mcp-open
-              tooltip="Connect an MCP client"
-              onClick={() => show("mcp")}
-            >
-              <Plug />
-              <span data-sidebar-collapse-label>Connect an MCP client</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+          ))}
         </SidebarMenu>
       </SidebarGroupContent>
-      {person.data ? (
-        <AccountSecurityDialog
-          person={person.data}
-          open={dialog === "security"}
-          onOpenChange={(open) => setDialog(open ? "security" : null)}
-        />
-      ) : null}
-      <McpSetupDialog
-        open={dialog === "mcp"}
-        onOpenChange={(open) => setDialog(open ? "mcp" : null)}
-      />
     </SidebarGroup>
   );
 }

@@ -1,4 +1,5 @@
 import { Badge } from "@aperture-browser/ui/components/badge";
+import { Button } from "@aperture-browser/ui/components/button";
 import {
   Table,
   TableBody,
@@ -7,12 +8,15 @@ import {
   TableHeader,
   TableRow,
 } from "@aperture-browser/ui/components/table";
-import { Blocks, Unplug } from "lucide-react";
+import { Blocks, Plug, Unplug } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { LongName } from "#/components/long-name.tsx";
+import { ScopeList } from "#/components/scope-list.tsx";
 import { type RowAction, RowActions, RowContextMenu } from "#/components/row-actions.tsx";
+import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { TablePage } from "#/components/table-page.tsx";
+import { McpSetupDialog } from "#/features/mcp/mcp-setup-dialog.tsx";
 import { useRevokeGrantMutation } from "#/features/oauth/oauth.mutations.ts";
 import { type Grant, useGrantsQuery } from "#/features/oauth/oauth.queries.ts";
 import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
@@ -54,21 +58,34 @@ function Reach({ resources }: { resources: Grant["resources"] }) {
   );
 }
 
-/** The apps the account that is signed in let act as it, each to be taken back. */
+/**
+ * The apps the account that is signed in let act as it, each to be taken back, and how
+ * another is connected: an MCP client, which is told how in a dialog.
+ */
 export function ConnectedAppsPage() {
   const grants = useGrantsQuery();
   const revoke = useRevokeGrantMutation();
   const [revoking, setRevoking] = useState<Grant>();
   const revoked = useLast(revoking);
+  const [connecting, setConnecting] = useState(false);
+  const connect = (
+    <Button size="sm" data-console-mcp-open onClick={() => setConnecting(true)}>
+      <Plug />
+      Connect an MCP client
+    </Button>
+  );
 
   return (
     <TablePage>
+      <PageHeaderActions>{connect}</PageHeaderActions>
       {grants.isError ? (
         <p role="alert" className="aperture:text-sm aperture:text-destructive">
           {told(grants.error)}
         </p>
       ) : grants.data?.length === 0 ? (
-        <ListEmpty icon={Blocks} title="No connected apps yet" />
+        <ListEmpty icon={Blocks} title="No connected apps yet">
+          {connect}
+        </ListEmpty>
       ) : (
         <Table stickyActionColumn>
           <TableHeader>
@@ -100,13 +117,7 @@ export function ConnectedAppsPage() {
                       <LongName>{grant.clientName}</LongName>
                     </TableCell>
                     <TableCell>
-                      <span className="aperture:flex aperture:max-w-64 aperture:flex-wrap aperture:gap-1">
-                        {grant.scopes.map((scope) => (
-                          <Badge key={scope} variant="secondary" data-console-grant-scope={scope}>
-                            {scope}
-                          </Badge>
-                        ))}
-                      </span>
+                      <ScopeList scopes={grant.scopes} mark="data-console-grant-scope" />
                     </TableCell>
                     <TableCell>
                       <Reach resources={grant.resources} />
@@ -124,6 +135,7 @@ export function ConnectedAppsPage() {
           </TableBody>
         </Table>
       )}
+      <McpSetupDialog open={connecting} onOpenChange={setConnecting} />
       <ConfirmDialog
         open={revoking !== undefined}
         title={`Disconnect ${revoked?.clientName ?? "this app"}?`}

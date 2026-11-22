@@ -44,12 +44,10 @@ import { call, isFailure, told } from "#/lib/api.ts";
 import { reveal } from "#/lib/reveal.ts";
 import { useLast } from "#/lib/use-last.ts";
 import { all, email, required } from "#/lib/validation.ts";
+import { WORKSPACE_ROLES, type WorkspaceRole, worded } from "#/lib/words.ts";
 
-const ROLES = [
-  { value: "member", label: "member" },
-  { value: "admin", label: "admin" },
-] as const;
-type Role = (typeof ROLES)[number]["value"];
+const ROLES = WORKSPACE_ROLES;
+type Role = WorkspaceRole;
 
 type WorkspaceMembersDialogProps = {
   workspace: Workspace;
@@ -226,7 +224,7 @@ export function WorkspaceMembersDialog({
                 ) : (
                   <ItemActions>
                     <Badge variant={member.role === "admin" ? "default" : "outline"}>
-                      {member.role}
+                      {worded(member.role)}
                     </Badge>
                   </ItemActions>
                 )}

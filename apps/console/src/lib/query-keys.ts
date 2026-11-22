@@ -11,6 +11,7 @@ export const queryKeys = {
   nodes: ["nodes"] as const,
   registrationTokens: ["registration-tokens"] as const,
   accounts: ["accounts"] as const,
+  accountWorkspaces: (id: string) => ["accounts", id, "workspaces"] as const,
   tokens: ["tokens"] as const,
   grants: ["grants"] as const,
   asking: (clientId: string, redirectUri: string) => ["asking", clientId, redirectUri] as const,

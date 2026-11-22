@@ -12,6 +12,7 @@ import { Ban, KeyRound, Plus } from "lucide-react";
 import { useState } from "react";
 import { filter, Filters } from "#/components/filter-menu.tsx";
 import { LongName } from "#/components/long-name.tsx";
+import { ScopeList } from "#/components/scope-list.tsx";
 import { type RowAction, RowActions, RowContextMenu } from "#/components/row-actions.tsx";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
@@ -25,6 +26,7 @@ import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
 import { useListSearch } from "#/lib/list-search.ts";
 import { useLast } from "#/lib/use-last.ts";
+import { worded } from "#/lib/words.ts";
 import { ListEmpty, ListNoMatch } from "#/components/list-empty.tsx";
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -179,19 +181,15 @@ export function TokensPage({ account, waiting = false }: TokensPageProps) {
                       <LongName>{token.name}</LongName>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={state === "active" ? "default" : "outline"}>{state}</Badge>
+                      <Badge variant={state === "active" ? "default" : "outline"}>
+                        {worded(state)}
+                      </Badge>
                     </TableCell>
                     <TableCell>
                       {token.scopes === null ? (
                         <span className="aperture:text-muted-foreground">Everything</span>
                       ) : (
-                        <span className="aperture:flex aperture:max-w-64 aperture:flex-wrap aperture:gap-1">
-                          {token.scopes.map((scope) => (
-                            <Badge key={scope} variant="secondary" data-console-token-scope={scope}>
-                              {scope}
-                            </Badge>
-                          ))}
-                        </span>
+                        <ScopeList scopes={token.scopes} mark="data-console-token-scope" />
                       )}
                     </TableCell>
                     <TableCell>

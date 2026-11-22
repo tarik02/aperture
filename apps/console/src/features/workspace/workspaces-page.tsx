@@ -28,6 +28,7 @@ import {
   type Workspace,
 } from "#/features/workspace/workspace.queries.ts";
 import { ListEmpty } from "#/components/list-empty.tsx";
+import { worded } from "#/lib/words.ts";
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
@@ -70,7 +71,7 @@ function WorkspaceRow({ workspace }: { workspace: Workspace }) {
         </TableCell>
         <TableCell>
           <Badge variant={workspace.role === "admin" ? "default" : "outline"}>
-            {workspace.role ?? "not a member"}
+            {workspace.role === null ? "Not a member" : worded(workspace.role)}
           </Badge>
         </TableCell>
         <TableCell label="Created" className="aperture:text-muted-foreground">

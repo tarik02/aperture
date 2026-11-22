@@ -18,6 +18,7 @@ import {
   KeyRound,
   Link2,
   type LucideIcon,
+  PanelRight,
   ShieldOff,
   Trash2,
   UserCheck,
@@ -28,7 +29,14 @@ import { usePhone } from "#/lib/use-phone.ts";
 import type { Account } from "#/features/account/account.queries.ts";
 
 /** What is done with a person. */
-export type PersonDoing = "setup-link" | "reset" | "passkeys" | "disable" | "enable" | "delete";
+export type PersonDoing =
+  | "details"
+  | "setup-link"
+  | "reset"
+  | "passkeys"
+  | "disable"
+  | "enable"
+  | "delete";
 
 /** One thing done with an account, as a menu of either kind offers it. */
 interface AccountAction<Doing extends string = string> {
@@ -49,6 +57,7 @@ export const personActions = (
   account: Account,
   own: boolean,
 ): ReadonlyArray<AccountAction<PersonDoing>> => [
+  { key: "details", label: "Details", icon: PanelRight },
   { key: "setup-link", label: "Setup link", icon: Link2 },
   {
     key: "reset",
@@ -70,13 +79,16 @@ export const personActions = (
 ];
 
 /** What is done with a service account: it has nothing to sign in with, so nothing of that. */
-export type ServiceDoing = Extract<PersonDoing, "disable" | "enable" | "delete"> | "tokens";
+export type ServiceDoing =
+  | Extract<PersonDoing, "details" | "disable" | "enable" | "delete">
+  | "tokens";
 
 /** What is done with one service account, for its menus. */
 export const serviceActions = (
   account: Account,
   own: boolean,
 ): ReadonlyArray<AccountAction<ServiceDoing>> => [
+  { key: "details", label: "Details", icon: PanelRight },
   { key: "tokens", label: "API tokens", icon: KeyRound },
   account.disabledAt === null
     ? { key: "disable", label: "Disable", icon: UserX, disabled: own, parted: true }
@@ -134,6 +146,14 @@ export function PersonActionsMenu<Doing extends string>({
   );
 }
 
+/**
+ * Whether a press of a row was on the row itself and not on what is pressed within it: a
+ * button, a link, a menu. The row opens what it shows then.
+ */
+export const onRowItself = (event: React.MouseEvent<HTMLElement>) =>
+  !(event.target instanceof Element) ||
+  event.target.closest("button, a, input, [role=menu], [role=menuitem], [role=dialog]") === null;
+
 /** The same actions where a right click was, on whatever it wraps. */
 export function PersonContextMenu<Doing extends string>({
   actions,
@@ -144,9 +164,9 @@ export function PersonContextMenu<Doing extends string>({
     <ContextMenu>
       <ContextMenuTrigger render={children} />
       <ContextMenuContent data-console-person-context className={MENU}>
-        {actions.map((action) => (
+        {actions.map((action, index) => (
           <Fragment key={action.key}>
-            {action.parted === true ? <ContextMenuSeparator /> : null}
+            {action.parted === true && index > 0 ? <ContextMenuSeparator /> : null}
             <ContextMenuItem
               disabled={action.disabled === true}
               variant={action.destructive === true ? "destructive" : "default"}

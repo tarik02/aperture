@@ -16,6 +16,7 @@ import { NameDialog } from "#/components/name-dialog.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { TablePage } from "#/components/table-page.tsx";
 import { AccountCell } from "#/features/account/account-cell.tsx";
+import { AccountSheet } from "#/features/account/account-sheet.tsx";
 import {
   useCreateAccountMutation,
   useDisableAccountMutation,
@@ -23,6 +24,7 @@ import {
 } from "#/features/account/account.mutations.ts";
 import { type Account, useAccountsQuery } from "#/features/account/account.queries.ts";
 import {
+  onRowItself,
   PersonActionsMenu,
   PersonContextMenu,
   type ServiceDoing,
@@ -69,11 +71,14 @@ export function ServiceAccountsPage() {
   const confirmed = useLast(confirming);
   const done = { onSettled: () => setConfirming(undefined) };
   const [creating, setCreating] = useState(false);
+  const [opened, setOpened] = useState<string>();
   const navigate = useNavigate();
   const services = accounts.data?.filter((account) => account.kind === "service");
 
   const select = (account: Account, doing: ServiceDoing) => {
-    if (doing === "tokens") {
+    if (doing === "details") {
+      setOpened(account.id);
+    } else if (doing === "tokens") {
       void navigate({
         to: "/-/service-accounts/$accountId/tokens",
         params: { accountId: account.id },
@@ -132,6 +137,8 @@ export function ServiceAccountsPage() {
                   <TableRow
                     data-console-service={account.name}
                     data-console-service-state={account.disabledAt === null ? "in-use" : "disabled"}
+                    className="aperture:cursor-pointer"
+                    onClick={(event) => (onRowItself(event) ? setOpened(account.id) : undefined)}
                   >
                     <TableCell>
                       <AccountCell account={account} />
@@ -139,10 +146,10 @@ export function ServiceAccountsPage() {
                     <TableCell>
                       <span className="aperture:flex aperture:gap-1">
                         <Badge variant={account.admin ? "default" : "outline"}>
-                          {account.admin ? "admin" : "service"}
+                          {account.admin ? "Admin" : "Service"}
                         </Badge>
                         {account.disabledAt === null ? null : (
-                          <Badge variant="destructive">disabled</Badge>
+                          <Badge variant="destructive">Disabled</Badge>
                         )}
                       </span>
                     </TableCell>
@@ -187,6 +194,11 @@ export function ServiceAccountsPage() {
         pending={disable.isPending || remove.isPending}
         onOpenChange={(open) => (open ? undefined : setConfirming(undefined))}
         onConfirm={() => (confirming === undefined ? undefined : confirm(confirming))}
+      />
+      <AccountSheet
+        account={services?.find((account) => account.id === opened)}
+        open={opened !== undefined && services?.some((account) => account.id === opened) === true}
+        onOpenChange={(open) => (open ? undefined : setOpened(undefined))}
       />
       <NameDialog
         title="New service account"

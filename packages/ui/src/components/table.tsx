@@ -365,7 +365,9 @@ function TableCell({
       data-slot="table-cell"
       data-label={label}
       className={cn(
-        "aperture:p-2 aperture:align-middle aperture:whitespace-nowrap aperture:transition-colors aperture:[&:has([role=checkbox])]:pr-0",
+        // As tall as a row whose last cell has a button, whether or not this row has one: the
+        // rows of a list are of one height, and those that tell two lines of another.
+        "aperture:p-2 aperture:align-middle aperture:whitespace-nowrap aperture:transition-colors aperture:sm:h-11 aperture:[&:has([role=checkbox])]:pr-0",
         stacks &&
           "aperture:max-sm:block aperture:max-sm:max-w-full aperture:max-sm:min-w-0 aperture:max-sm:p-0 aperture:max-sm:whitespace-normal aperture:max-sm:wrap-anywhere aperture:max-sm:first:basis-full aperture:max-sm:empty:hidden aperture:max-sm:data-label:before:mr-1 aperture:max-sm:data-label:before:text-muted-foreground aperture:max-sm:data-label:before:content-[attr(data-label)]",
         stickyFirstColumn &&

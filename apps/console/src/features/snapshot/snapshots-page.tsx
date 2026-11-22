@@ -13,7 +13,7 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { DescribeDialog } from "#/components/describe-dialog.tsx";
-import { LongName } from "#/components/long-name.tsx";
+import { LongName, TWO_LINES } from "#/components/long-name.tsx";
 import { type RowAction, RowActions, RowContextMenu } from "#/components/row-actions.tsx";
 import { TablePage } from "#/components/table-page.tsx";
 import { TagList } from "#/components/tag-list.tsx";
@@ -81,21 +81,27 @@ function SnapshotRow({ snapshot }: { snapshot: Snapshot }) {
     <RowContextMenu actions={actions}>
       <TableRow data-console-snapshot={snapshot.id}>
         <TableCell>
-          <div className="aperture:grid aperture:gap-0.5">
+          <div className={TWO_LINES}>
             <LongName className="aperture:font-medium">{snapshot.name ?? "Unnamed"}</LongName>
             {snapshot.description === null ? null : (
               <LongName className="aperture:max-w-96 aperture:text-sm aperture:text-muted-foreground">
                 {snapshot.description}
               </LongName>
             )}
-            <span className="aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
-              {snapshot.id}
-            </span>
-            <TagList tags={snapshot.tags} />
           </div>
         </TableCell>
+        <TableCell label="ID" className="aperture:font-mono aperture:text-xs">
+          {snapshot.id}
+        </TableCell>
+        <TableCell className="aperture:max-sm:basis-full">
+          <TagList
+            tags={snapshot.tags}
+            most={3}
+            className="aperture:max-w-72 aperture:flex-nowrap aperture:max-sm:max-w-full aperture:max-sm:flex-wrap"
+          />
+        </TableCell>
         <TableCell>
-          <Badge variant="outline">{snapshot.shared ? "shared" : "one node"}</Badge>
+          <Badge variant="outline">{snapshot.shared ? "Shared" : "One node"}</Badge>
         </TableCell>
         <TableCell label="Created" className="aperture:text-muted-foreground">
           {when.format(new Date(snapshot.createdAt.epochMilliseconds))}
@@ -162,13 +168,15 @@ export function SnapshotsPage() {
         <TableHeader>
           <TableRow>
             <TableHead>Snapshot</TableHead>
+            <TableHead>ID</TableHead>
+            <TableHead>Tags</TableHead>
             <TableHead>Kept</TableHead>
             <TableHead>Created</TableHead>
             <TableHead className="aperture:w-px" />
           </TableRow>
         </TableHeader>
         <TableBody>
-          {snapshots.isPending ? <TableRowsSkeleton columns={4} actions twoLines /> : null}
+          {snapshots.isPending ? <TableRowsSkeleton columns={6} actions twoLines /> : null}
           {shown?.map((snapshot) => (
             <SnapshotRow key={snapshot.id} snapshot={snapshot} />
           ))}

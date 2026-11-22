@@ -10,6 +10,8 @@ import { NotFound, Only, RouteError } from "#/components/route-state.tsx";
 import { PeoplePage } from "#/features/account/people-page.tsx";
 import { ServiceAccountTokensPage } from "#/features/account/service-account-tokens-page.tsx";
 import { ServiceAccountsPage } from "#/features/account/service-accounts-page.tsx";
+import { AccountHome, AccountPage } from "#/features/auth/account-page.tsx";
+import { SecurityPage } from "#/features/auth/security-page.tsx";
 import { SignInPage } from "#/features/auth/sign-in-page.tsx";
 import { AUDIT_SEARCH, AuditPage } from "#/features/audit/audit-page.tsx";
 import { ConnectedAppsPage } from "#/features/oauth/connected-apps-page.tsx";
@@ -115,9 +117,27 @@ const snapshots = createRoute({
   ),
 });
 
-const tokens = createRoute({
+const account = createRoute({
   getParentRoute: () => pages,
-  path: "/-/tokens",
+  path: "/-/account",
+  component: AccountPage,
+});
+
+const accountHome = createRoute({
+  getParentRoute: () => account,
+  path: "/",
+  component: AccountHome,
+});
+
+const accountSecurity = createRoute({
+  getParentRoute: () => account,
+  path: "security",
+  component: SecurityPage,
+});
+
+const accountTokens = createRoute({
+  getParentRoute: () => account,
+  path: "tokens",
   validateSearch: listSearch(TOKENS_SEARCH),
   component: () => (
     <Only needs="tokens:write">
@@ -126,14 +146,30 @@ const tokens = createRoute({
   ),
 });
 
-const connectedApps = createRoute({
-  getParentRoute: () => pages,
-  path: "/-/connected-apps",
+const accountConnections = createRoute({
+  getParentRoute: () => account,
+  path: "connections",
   component: () => (
     <Only needs="tokens:write">
       <ConnectedAppsPage />
     </Only>
   ),
+});
+
+// Where these were before they were tabs of one page: an address someone kept still leads there.
+const tokens = createRoute({
+  getParentRoute: () => pages,
+  path: "/-/tokens",
+  validateSearch: listSearch(TOKENS_SEARCH),
+  component: function Moved() {
+    return <Navigate to="/-/account/tokens" search={tokens.useSearch()} replace />;
+  },
+});
+
+const connectedApps = createRoute({
+  getParentRoute: () => pages,
+  path: "/-/connected-apps",
+  component: () => <Navigate to="/-/account/connections" replace />,
 });
 
 // Bare, as signing in is: whoever comes is sent by an app, and goes back to it.
@@ -263,6 +299,7 @@ export const router = createRouter({
       pages.addChildren([
         sessions,
         snapshots,
+        account.addChildren([accountHome, accountSecurity, accountTokens, accountConnections]),
         tokens,
         connectedApps,
         workspaces,

@@ -2,10 +2,9 @@ import type { Scope } from "@aperture-browser/control-api";
 import type { LucideIcon } from "lucide-react";
 import {
   AppWindow,
-  Blocks,
   Bot,
   Building2,
-  KeyRound,
+  CircleUser,
   Layers,
   LogIn,
   ScrollText,
@@ -20,8 +19,7 @@ export type NavItem = {
     | "/-/sessions"
     | "/-/snapshots"
     | "/-/workspaces"
-    | "/-/tokens"
-    | "/-/connected-apps"
+    | "/-/account"
     | "/-/nodes"
     | "/-/registration-tokens"
     | "/-/people"
@@ -52,14 +50,8 @@ export const primaryNavItems: NavItem[] = [
     needs: "snapshots:read",
   },
   { title: "Workspaces", to: "/-/workspaces", icon: Building2, group: "workspace" },
-  { title: "API tokens", to: "/-/tokens", icon: KeyRound, group: "account", needs: "tokens:write" },
-  {
-    title: "Connected apps",
-    to: "/-/connected-apps",
-    icon: Blocks,
-    group: "account",
-    needs: "tokens:write",
-  },
+  // What is the account's own, each kind of it a tab of one page.
+  { title: "Account", to: "/-/account", icon: CircleUser, group: "account" },
   { title: "Nodes", to: "/-/nodes", icon: Server, group: "admin", needs: "admin" },
   {
     title: "Registration tokens",

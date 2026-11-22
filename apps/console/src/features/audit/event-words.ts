@@ -156,16 +156,16 @@ export const KINDS: ReadonlyArray<{
 
 /** What a thing an event is about is, in a word. */
 export const ABOUT: Readonly<Record<NonNullable<Event["resource"]>["kind"], string>> = {
-  account: "account",
+  account: "Account",
   token: "API token",
-  grant: "app",
-  registration_token: "registration token",
-  workspace: "workspace",
-  session: "session",
-  snapshot: "snapshot",
-  share: "share link",
-  node: "node",
-  provider: "sign-in provider",
+  grant: "App",
+  registration_token: "Registration token",
+  workspace: "Workspace",
+  session: "Session",
+  snapshot: "Snapshot",
+  share: "Share link",
+  node: "Node",
+  provider: "Sign-in provider",
 };
 
 /** Who did it, where they have no name of their own. */

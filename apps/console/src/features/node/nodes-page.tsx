@@ -63,7 +63,7 @@ export function NodesPage() {
               </TableCell>
               <TableCell>
                 <Badge variant={node.alive ? "default" : "destructive"}>
-                  {node.alive ? "alive" : "silent"}
+                  {node.alive ? "Alive" : "Silent"}
                 </Badge>
               </TableCell>
               <TableCell className="aperture:font-mono aperture:text-xs">

@@ -110,7 +110,7 @@ function About({ event, shown }: { event: Event; shown: Shown | undefined }) {
   }
   const name = about.label ?? about.id;
   return (
-    <div className="aperture:grid aperture:gap-0.5 aperture:max-sm:inline-flex aperture:max-sm:flex-wrap aperture:max-sm:items-baseline aperture:max-sm:gap-x-2">
+    <div className="aperture:grid aperture:content-center aperture:gap-0.5 aperture:sm:min-h-[2.625rem] aperture:max-sm:inline-flex aperture:max-sm:flex-wrap aperture:max-sm:items-baseline aperture:max-sm:gap-x-2">
       {shown === undefined ? (
         <span className="aperture:max-w-72 aperture:truncate" title={name}>
           {name}
@@ -244,7 +244,7 @@ export function AuditPage() {
                   {when.format(new Date(event.at.epochMilliseconds))}
                 </TableCell>
                 <TableCell label="By" className="aperture:max-sm:basis-full">
-                  <div className="aperture:grid aperture:gap-0.5 aperture:max-sm:inline-flex aperture:max-sm:flex-wrap aperture:max-sm:items-baseline aperture:max-sm:gap-x-2">
+                  <div className="aperture:grid aperture:content-center aperture:gap-0.5 aperture:sm:min-h-[2.625rem] aperture:max-sm:inline-flex aperture:max-sm:flex-wrap aperture:max-sm:items-baseline aperture:max-sm:gap-x-2">
                     <span
                       className={
                         event.actor.name === null

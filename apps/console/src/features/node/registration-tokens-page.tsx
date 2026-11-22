@@ -128,7 +128,7 @@ export function RegistrationTokensPage() {
                     </TableCell>
                     <TableCell>
                       <Badge variant={token.revokedAt === null ? "default" : "outline"}>
-                        {token.revokedAt === null ? "active" : "revoked"}
+                        {token.revokedAt === null ? "Active" : "Revoked"}
                       </Badge>
                     </TableCell>
                     <TableCell label="Created" className="aperture:text-muted-foreground">

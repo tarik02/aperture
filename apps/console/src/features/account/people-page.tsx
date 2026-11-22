@@ -15,6 +15,8 @@ import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { SecretDialog } from "#/components/secret-dialog.tsx";
 import { TablePage } from "#/components/table-page.tsx";
 import { AccountCell } from "#/features/account/account-cell.tsx";
+import { AccountSheet } from "#/features/account/account-sheet.tsx";
+import { SignsInWith } from "#/features/account/signs-in-with.tsx";
 import {
   useDisableAccountMutation,
   useRemoveAccountMutation,
@@ -24,6 +26,7 @@ import {
 } from "#/features/account/account.mutations.ts";
 import { type Account, useAccountsQuery } from "#/features/account/account.queries.ts";
 import {
+  onRowItself,
   PersonActionsMenu,
   PersonContextMenu,
   type PersonDoing,
@@ -39,7 +42,7 @@ import { ListEmpty } from "#/components/list-empty.tsx";
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
 /** What is asked again before it is done to a person. */
-type Confirming = Exclude<PersonDoing, "setup-link" | "enable">;
+type Confirming = Exclude<PersonDoing, "details" | "setup-link" | "enable">;
 
 const CONFIRM: Record<
   Confirming,
@@ -71,39 +74,6 @@ const CONFIRM: Record<
   },
 };
 
-/** What a person signs in with, each way a word. */
-function SignsInWith({ account }: { account: Account }) {
-  const ways = account.signIn;
-  const said =
-    ways === null
-      ? []
-      : [
-          ...(ways.password ? [{ key: "password", says: "Password" }] : []),
-          ...(ways.secondFactor ? [{ key: "second-factor", says: "Two-factor" }] : []),
-          ...(ways.passkeys > 0
-            ? [
-                {
-                  key: "passkeys",
-                  says: `${ways.passkeys} passkey${ways.passkeys === 1 ? "" : "s"}`,
-                },
-              ]
-            : []),
-          ...ways.providers.map((provider) => ({ key: `provider:${provider}`, says: provider })),
-        ];
-  if (said.length === 0) {
-    return <span className="aperture:text-muted-foreground">Nothing yet</span>;
-  }
-  return (
-    <span className="aperture:flex aperture:max-w-64 aperture:flex-wrap aperture:gap-1">
-      {said.map((way) => (
-        <Badge key={way.key} variant="secondary" data-console-sign-in-method={way.key}>
-          {way.says}
-        </Badge>
-      ))}
-    </span>
-  );
-}
-
 /**
  * The people who sign in: what each signs in with, the way to a password and out of what
  * they lost, and the ways to keep them out and to remove them.
@@ -118,6 +88,7 @@ export function PeoplePage() {
   const remove = useRemoveAccountMutation();
   const [creating, setCreating] = useState(false);
   const [link, setLink] = useState<string>();
+  const [opened, setOpened] = useState<string>();
   const [confirming, setConfirming] = useState<{ doing: Confirming; account: Account }>();
   const confirmed = useLast(confirming);
   const people = accounts.data?.filter((account) => account.kind === "person");
@@ -129,7 +100,9 @@ export function PeoplePage() {
     remove.isPending;
 
   const select = (account: Account, doing: PersonDoing) => {
-    if (doing === "setup-link") {
+    if (doing === "details") {
+      setOpened(account.id);
+    } else if (doing === "setup-link") {
       setupLink.mutate(account, { onSuccess: setLink });
     } else if (doing === "enable") {
       disable.mutate({ id: account.id, disabled: false });
@@ -190,6 +163,8 @@ export function PeoplePage() {
                   <TableRow
                     data-console-person={account.name}
                     data-console-person-state={account.disabledAt === null ? "in-use" : "disabled"}
+                    className="aperture:cursor-pointer"
+                    onClick={(event) => (onRowItself(event) ? setOpened(account.id) : undefined)}
                   >
                     <TableCell>
                       <AccountCell account={account} />
@@ -197,10 +172,10 @@ export function PeoplePage() {
                     <TableCell>
                       <span className="aperture:flex aperture:gap-1">
                         <Badge variant={account.admin ? "default" : "outline"}>
-                          {account.admin ? "admin" : "member"}
+                          {account.admin ? "Admin" : "Member"}
                         </Badge>
                         {account.disabledAt === null ? null : (
-                          <Badge variant="destructive">disabled</Badge>
+                          <Badge variant="destructive">Disabled</Badge>
                         )}
                       </span>
                     </TableCell>
@@ -233,6 +208,11 @@ export function PeoplePage() {
         pending={pending}
         onOpenChange={(open) => (open ? undefined : setConfirming(undefined))}
         onConfirm={() => (confirming === undefined ? undefined : confirm(confirming))}
+      />
+      <AccountSheet
+        account={people?.find((account) => account.id === opened)}
+        open={opened !== undefined && people?.some((account) => account.id === opened) === true}
+        onOpenChange={(open) => (open ? undefined : setOpened(undefined))}
       />
       <PersonCreateDialog
         open={creating}
