@@ -2,11 +2,20 @@
 @import "./fonts.css";
 
 html,
-body,
-#root {
+body {
   height: 100%;
   margin: 0;
   overflow: hidden;
+}
+
+#root {
+  box-sizing: border-box;
+  /* Less what the on-screen keyboard covers, where the browser does not take that off. */
+  height: calc(100dvh - var(--keyboard-inset, 0px));
+  overflow: hidden;
+  /* Clear of what a phone's screen has at its edges: the page is laid out under them. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
 }
 
 body {

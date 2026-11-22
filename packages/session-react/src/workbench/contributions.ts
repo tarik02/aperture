@@ -11,6 +11,10 @@ import type { Target } from "@aperture-browser/session-client";
  * - `menu.tab`: the menu of a right click on a tab, which is given as `target`.
  * - `menu.page`: the menu of a right click in the session.
  * - `viewport`: laid over the picture.
+ *
+ * On a phone the workbench is the picture with a bar below it: the toolbar's slots are in
+ * the bar, the menus are reached from the bar's menu, and the title bar's slots are shown
+ * nowhere. What is contributed there for a phone as well has a place in `menu.browser`.
  */
 export type WorkbenchSlotName =
   | "titlebar.start"

@@ -4,6 +4,7 @@ import {
   PagePictureItems,
   PageTextItems,
 } from "../components/page-menu.tsx";
+import { PageModeItem } from "../components/page-mode.tsx";
 import { PictureItems, PointersItem, ViewportItems } from "../components/picture-menu.tsx";
 import {
   KeptItems,
@@ -93,6 +94,13 @@ export const workbenchContributions: readonly WorkbenchContribution[] = [
     group: "tab",
     order: 750,
     component: PictureSubmenuItem,
+  },
+  {
+    id: "browser.page-mode",
+    slot: "menu.browser",
+    group: "tab",
+    order: 760,
+    component: PageModeItem,
   },
   {
     id: "browser.copy-url",

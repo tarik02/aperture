@@ -27,6 +27,11 @@ export {
 } from "./components/recording-menu.tsx";
 export { SessionFilesButton } from "./components/session-files.tsx";
 export * from "./components/session-presence.tsx";
+export { PageModeItem } from "./components/page-mode.tsx";
+export { PhoneWorkbench } from "./components/phone-bar.tsx";
+export { TabSwitcher, type TabSwitcherProps } from "./components/tab-switcher.tsx";
+export { usePhone } from "./hooks/use-media.ts";
+export { useKeyboardInset } from "@aperture-browser/ui/keyboard-inset";
 export * from "./components/session-workbench.tsx";
 export * from "./features.ts";
 export * from "./notices.ts";

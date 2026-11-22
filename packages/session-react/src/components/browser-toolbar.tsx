@@ -53,7 +53,7 @@ export function WorkbenchTitlebar() {
   );
 }
 
-const CompactContext = createContext(false);
+export const CompactContext = createContext(false);
 
 /** Whether the toolbar is narrow: what has a place in the browser menu shows there alone. */
 export function useCompactToolbar(): boolean {

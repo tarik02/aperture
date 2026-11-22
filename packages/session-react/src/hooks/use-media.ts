@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { useSessionSnapshot } from "../session.tsx";
 
 /** Whether a media query holds, as the window and what points at it change. */
 export function useMedia(query: string): boolean {
@@ -12,6 +13,12 @@ export function useMedia(query: string): boolean {
     () => false,
   );
 }
+
+/**
+ * Whether the session is used from a phone, as the session is told it is: the workbench
+ * is then the picture with a bar below it, in place of a browser's rows above it.
+ */
+export const usePhone = () => useSessionSnapshot().phone;
 
 /** Whether a finger is what points: what is pressed is larger then, and takes more room. */
 export const useFinger = () => useMedia("(pointer: coarse)");

@@ -33,7 +33,7 @@ import { useAccess } from "#/features/auth/access.ts";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
 import { InvitePage } from "#/features/auth/invite-page.tsx";
 import { useDeployWatch } from "#/lib/deploy-watch.ts";
-import { useKeyboardInset } from "#/lib/keyboard-inset.ts";
+import { useKeyboardInset } from "@aperture-browser/ui/keyboard-inset";
 import { listSearch } from "#/lib/list-search.ts";
 import { primaryNavItems } from "#/lib/navigation.ts";
 import { useSignChanges } from "#/lib/sign.ts";

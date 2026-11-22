@@ -10,6 +10,8 @@ import { WorkbenchTitlebar, WorkbenchToolbar } from "./browser-toolbar.tsx";
 import { BrowserViewport } from "./browser-viewport.tsx";
 import { KeptGallery } from "./kept-gallery.tsx";
 import { PageMenu } from "./page-menu.tsx";
+import { PhoneWorkbench } from "./phone-bar.tsx";
+import { usePhone } from "../hooks/use-media.ts";
 
 export interface SessionWorkbenchProps extends Omit<
   WorkbenchProviderProps,
@@ -58,6 +60,10 @@ export function WorkbenchFrame({ children }: { readonly children?: ReactNode }) 
 
 function WorkbenchParts() {
   const { features } = useWorkbench();
+  const phone = usePhone();
+  if (phone) {
+    return <PhoneWorkbench />;
+  }
   return (
     <>
       <WorkbenchTitlebar />

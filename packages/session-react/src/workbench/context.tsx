@@ -85,6 +85,7 @@ export function WorkbenchProvider({
   useClipboardNotices();
   useFailureNotices();
   useRecordingNotices(recordings);
+  usePageModeNotices();
   useRememberedFit(fit);
 
   const [viewed, view] = useState<string | undefined>(undefined);
@@ -179,6 +180,7 @@ const NOT_DONE = {
   copyPicture: "The picture was not copied",
   chooseFiles: "The page did not get the files",
   follow: "That member is not followed",
+  setMode: "The tab is shown as it was",
 } as const;
 
 function useFailureNotices() {
@@ -196,6 +198,56 @@ function useFailureNotices() {
       }),
     [session],
   );
+}
+
+/**
+ * A tab that goes by its holder is shown another way once this member holds it from
+ * another kind of device, and the page it has stays as it loaded: a page that chose what
+ * it looks like by the browser that asked for it is the other kind's until it loads again,
+ * which a notice offers.
+ */
+function usePageModeNotices() {
+  const session = useSession();
+  const snapshot = useSessionSnapshot();
+  const watched = snapshot.targets.find((target) => target.tab === snapshot.selected);
+  const holds =
+    snapshot.presence?.held.some(
+      (held) => held.tab === watched?.tab && held.holder === snapshot.presence?.you,
+    ) ?? false;
+  const shown = watched === undefined ? undefined : `${watched.id} ${watched.mobile}`;
+  const before = useRef<{ id: string; mobile: boolean; url: string } | undefined>(undefined);
+
+  useEffect(() => {
+    const was = before.current;
+    before.current =
+      watched === undefined
+        ? undefined
+        : { id: watched.id, mobile: watched.mobile, url: watched.url };
+    if (
+      watched === undefined ||
+      was === undefined ||
+      was.id !== watched.id ||
+      was.mobile === watched.mobile ||
+      watched.mode !== "auto" ||
+      !holds ||
+      // Nothing of the web is there to load again.
+      !/^https?:/u.test(was.url)
+    ) {
+      return;
+    }
+    toast(
+      watched.mobile ? "This tab is shown as on a phone" : "This tab is shown as on a desktop",
+      {
+        id: "aperture-session-page-mode",
+        description: watched.mobile
+          ? "Reload if the page still looks like a desktop's."
+          : "Reload if the page still looks like a phone's.",
+        duration: 8000,
+        action: { label: "Reload", onClick: () => session.go({ along: "reload" }) },
+      },
+    );
+    // What the tab is shown as is all this goes by.
+  }, [shown]);
 }
 
 function copyByHand(session: Session, forms: Parameters<Session["copyHere"]>[0]) {

@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./components/*": "./src/components/*.tsx",
+    "./keyboard-inset": "./src/keyboard-inset.ts",
     "./portal": "./src/portal.tsx",
     "./styles.css": "./src/styles.css",
     "./theme.css": "./src/theme.css",

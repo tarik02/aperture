@@ -1460,6 +1460,109 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         }).pipe(Effect.retry({ times: 5 }));
         expect(yield* page.evaluate(title, Schema.String)).toBe("scrolled");
         yield* shot(page, fs, "console-phone-workbench");
+
+        // A phone's workbench is the picture with one bar below it, in place of a browser's
+        // rows above it: all of it is on the screen, and what is pressed in it is large
+        // enough for a finger.
+        const bar = "[data-workbench-phone-bar]";
+        expect(
+          yield* page.evaluate(
+            `(() => {
+              const box = (selector) => document.querySelector(selector)?.getBoundingClientRect();
+              const bar = box(${JSON.stringify(bar)});
+              // Without who else is in the session, which is there when someone is.
+              const pressed = [...document.querySelectorAll(${JSON.stringify(`${bar} button:not([data-session-presence])`)})];
+              return {
+                rows: document.querySelectorAll("[data-workbench-titlebar], [data-workbench-toolbar]").length,
+                below: box("[data-aperture-stage]").bottom <= bar.top,
+                within: bar.left >= 0 && bar.right <= innerWidth && bar.bottom <= innerHeight,
+                pressed: pressed.map((one) => one.getAttribute("aria-label").replace(/\\d+/u, "n")),
+                large: pressed.every((one) => {
+                  const size = one.getBoundingClientRect();
+                  return size.width >= 40 && size.height >= 40;
+                }),
+              };
+            })()`,
+          ),
+        ).toEqual({
+          rows: 0,
+          below: true,
+          within: true,
+          pressed: ["Back", "Forward", "Address", "Tabs: n", "Menu"],
+          large: true,
+        });
+        // The finger that scrolled holds the tab, from a phone: its pages are a phone's.
+        const watched = `apertureSession.getSnapshot().targets.find((target) => target.tab === apertureSession.getSnapshot().selected)`;
+        yield* page.until(`${watched}.mobile && ${watched}.width === innerWidth`, "20 seconds");
+
+        // The address is typed across the bar, and left with what it was.
+        yield* page.click("[data-workbench-address-button]");
+        yield* page.until(
+          `document.activeElement === document.querySelector("[data-workbench-address]")`,
+        );
+        expect(yield* page.evaluate(`document.activeElement.value === ${watched}.url`)).toBe(true);
+        yield* shot(page, fs, "console-phone-workbench-address");
+        yield* page.key("Escape", "Escape", 27);
+        yield* page.until(`!!document.querySelector("[data-workbench-address-button]")`);
+
+        // The tabs are cards with a picture each, and pressing one goes to its tab.
+        const switcher = "[data-workbench-tab-switcher]";
+        const tabs = `apertureSession.getSnapshot().targets`;
+        yield* page.click("[data-workbench-tabs]");
+        yield* page.until(
+          `document.querySelectorAll('${switcher} [data-tab-card]').length === ${tabs}.length && ${tabs}.length > 1`,
+        );
+        yield* page.until(
+          `document.querySelectorAll('${switcher} [data-tab-card-picture]').length === ${tabs}.length`,
+          "20 seconds",
+        );
+        yield* page.until(
+          `document.querySelector('${switcher}').getAnimations().every((one) => one.playState === "finished")`,
+        );
+        yield* shot(page, fs, "console-phone-workbench-tabs");
+        expect(
+          yield* page.evaluate(
+            `(() => {
+              const cards = [...document.querySelectorAll('${switcher} [data-tab-card]')];
+              return {
+                watched: cards.filter((card) => card.hasAttribute("data-active")).map((card) => Number(card.dataset.tabCard)),
+                closes: cards.every((card) => {
+                  const size = card.querySelector("[data-tab-card-close]").getBoundingClientRect();
+                  return size.width >= 40 && size.height >= 40;
+                }),
+                page: document.documentElement.scrollWidth <= innerWidth,
+              };
+            })()`,
+          ),
+        ).toEqual({
+          watched: [yield* page.evaluate(`apertureSession.getSnapshot().selected`, Schema.Number)],
+          closes: true,
+          page: true,
+        });
+        const other = yield* page.evaluate(
+          `${tabs}.find((target) => target.tab !== apertureSession.getSnapshot().selected).tab`,
+          Schema.Number,
+        );
+        yield* page.click(`${switcher} [data-tab-card="${other}"] button[aria-label^="Switch to"]`);
+        yield* page.until(
+          `apertureSession.getSnapshot().selected === ${other} && !document.querySelector('${switcher}')`,
+        );
+
+        // The menu has what the toolbar's buttons and the browser's menu do elsewhere, how
+        // the page is shown, what is done with the session, and the way to the sidebar.
+        yield* page.click("[data-workbench-menu]");
+        yield* page.until(`!!document.querySelector("[data-workbench-page-mode]")`);
+        yield* page.until(
+          `document.querySelector('[data-slot="dropdown-menu-content"]').getAnimations().every((one) => one.playState === "finished")`,
+        );
+        yield* shot(page, fs, "console-phone-workbench-menu");
+        expect(
+          yield* page.evaluate(
+            `["[data-workbench-keyboard]", "[data-session-files-button]", "[data-workbench-page-mode]", "[data-console-session-submenu]", "[data-console-sidebar-trigger]"].filter((item) => document.querySelector('[data-slot="dropdown-menu-content"] ' + item) === null)`,
+          ),
+        ).toEqual([]);
+        yield* page.click(`[data-slot="dropdown-menu-content"] [data-console-sidebar-trigger]`);
+        yield* page.until(`!!document.querySelector('${drawer}')`);
         expect(page.errors()).toEqual([]);
         yield* page.close;
       }),

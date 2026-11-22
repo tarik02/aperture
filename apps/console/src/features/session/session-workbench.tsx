@@ -2,11 +2,14 @@ import type { Session } from "@aperture-browser/session-client";
 import {
   ApertureSession,
   type ApertureTheme,
+  usePhone,
   type WorkbenchContribution,
 } from "@aperture-browser/session-react";
 import { Button } from "@aperture-browser/ui/components/button";
-import { SidebarTrigger } from "@aperture-browser/ui/components/sidebar";
+import { DropdownMenuItem } from "@aperture-browser/ui/components/dropdown-menu";
+import { SidebarTrigger, useSidebar } from "@aperture-browser/ui/components/sidebar";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { PanelLeft } from "lucide-react";
 import { useTheme } from "next-themes";
 import {
   createContext,
@@ -123,6 +126,25 @@ const CONTRIBUTIONS: ReadonlyArray<WorkbenchContribution> = [
         className="aperture:aspect-square aperture:h-full aperture:w-auto aperture:shrink-0 aperture:rounded-none"
       />
     ),
+  },
+  {
+    // A phone's workbench has no title bar: the way to the sidebar is in its menu.
+    id: "console.sidebar.phone",
+    slot: "menu.browser",
+    group: "console.session",
+    order: 40,
+    component: function SidebarItem() {
+      const { toggleSidebar } = useSidebar();
+      if (!usePhone()) {
+        return null;
+      }
+      return (
+        <DropdownMenuItem data-console-sidebar-trigger onClick={toggleSidebar}>
+          <PanelLeft />
+          Open the sidebar
+        </DropdownMenuItem>
+      );
+    },
   },
   {
     id: "console.session",

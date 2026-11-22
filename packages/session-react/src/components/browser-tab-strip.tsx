@@ -301,7 +301,7 @@ function NewTabButton({ disabled, onCreate }: { disabled: boolean; onCreate: () 
   );
 }
 
-function TabFavicon({ src }: { src: string | undefined }) {
+export function TabFavicon({ src }: { src: string | undefined }) {
   const [failedSrc, setFailedSrc] = useState<string | undefined>(undefined);
 
   if (src === undefined || failedSrc === src) {
@@ -320,7 +320,7 @@ function TabFavicon({ src }: { src: string | undefined }) {
   );
 }
 
-function tabLabel(target: Target): string {
+export function tabLabel(target: Target): string {
   return target.title.trim() === "" ? simplifyUrl(target.url) : target.title;
 }
 

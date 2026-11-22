@@ -31,34 +31,8 @@ import { formatBytes } from "./menu-parts.tsx";
  * opens by itself when a page asks and when a download is done.
  */
 export function SessionFilesButton() {
-  const snapshot = useSessionSnapshot();
   const { features } = useWorkbench();
-  const uploads = useUploads(features.uploads);
-  const [open, setOpen] = useState(false);
-  const request = snapshot.fileRequests.find((one) => one.tab === snapshot.selected);
-  const running = snapshot.downloads.filter((download) => download.state === "running").length;
-  const done = snapshot.downloads.filter((download) => download.state === "done").length;
-  const busy = running + uploads.inProgress.length;
-
-  const { refresh } = uploads;
-  const seen = useRef({ request: request?.id, done });
-  useEffect(() => {
-    const asked = request !== undefined && request.id !== seen.current.request;
-    const finished = done > seen.current.done;
-    seen.current = { request: request?.id, done };
-    if (asked || finished) {
-      setOpen(true);
-    }
-  }, [request, done]);
-
-  // Another member may have uploaded since the panel was last open.
-  useEffect(() => {
-    if (open) {
-      refresh();
-    }
-  }, [open, refresh]);
-
-  const label = request === undefined ? "Files" : "Files: a page asks for one";
+  const { open, setOpen, request, busy, label, panel } = useSessionFiles();
 
   if (!features.files) {
     return null;
@@ -100,16 +74,61 @@ export function SessionFilesButton() {
         className="aperture:w-88 aperture:max-w-[calc(100vw-1rem)] aperture:gap-0 aperture:p-0"
         data-session-files=""
       >
-        <SessionFiles
-          uploads={uploads}
-          request={request}
-          downloads={snapshot.downloads}
-          offers={features}
-          puts={features.access.uploads.write}
-        />
+        {panel}
       </PopoverContent>
     </Popover>
   );
+}
+
+/**
+ * The session's files as a panel that is opened from somewhere: whether it is open, which
+ * it is by itself when a page asks for a file and when a download is done, and what tells
+ * of it where it is opened from.
+ */
+export function useSessionFiles() {
+  const snapshot = useSessionSnapshot();
+  const { features } = useWorkbench();
+  const uploads = useUploads(features.uploads);
+  const [open, setOpen] = useState(false);
+  const request = snapshot.fileRequests.find((one) => one.tab === snapshot.selected);
+  const running = snapshot.downloads.filter((download) => download.state === "running").length;
+  const done = snapshot.downloads.filter((download) => download.state === "done").length;
+  const busy = running + uploads.inProgress.length;
+
+  const { refresh } = uploads;
+  const seen = useRef({ request: request?.id, done });
+  useEffect(() => {
+    const asked = request !== undefined && request.id !== seen.current.request;
+    const finished = done > seen.current.done;
+    seen.current = { request: request?.id, done };
+    if (asked || finished) {
+      setOpen(true);
+    }
+  }, [request, done]);
+
+  // Another member may have uploaded since the panel was last open.
+  useEffect(() => {
+    if (open) {
+      refresh();
+    }
+  }, [open, refresh]);
+
+  return {
+    open,
+    setOpen,
+    request,
+    busy,
+    label: request === undefined ? "Files" : "Files: a page asks for one",
+    panel: (
+      <SessionFiles
+        uploads={uploads}
+        request={request}
+        downloads={snapshot.downloads}
+        offers={features}
+        puts={features.access.uploads.write}
+      />
+    ),
+  };
 }
 
 function SessionFiles({

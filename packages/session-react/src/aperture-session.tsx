@@ -62,7 +62,14 @@ export function ApertureSession({
         </SessionProvider>
       )}
       {features?.toaster === false ? null : (
-        <Toaster theme={theme} richColors closeButton position="bottom-center" />
+        <Toaster
+          theme={theme}
+          richColors
+          closeButton
+          position="bottom-center"
+          // Above the bar a phone's workbench has at its foot.
+          mobileOffset={{ bottom: "5rem" }}
+        />
       )}
     </ApertureUIRoot>
   );

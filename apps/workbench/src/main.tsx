@@ -1,7 +1,11 @@
 import { useCallback, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { PictureWay, Session } from "@aperture-browser/session-client";
-import { ApertureSession, type ApertureTheme } from "@aperture-browser/session-react";
+import {
+  ApertureSession,
+  type ApertureTheme,
+  useKeyboardInset,
+} from "@aperture-browser/session-react";
 import "./styles.css";
 
 declare global {
@@ -46,6 +50,7 @@ function storedTheme(): ApertureTheme {
 
 function Workbench() {
   const [theme, setTheme] = useState(storedTheme);
+  useKeyboardInset();
 
   const changeTheme = useCallback((next: ApertureTheme) => {
     setTheme(next);
