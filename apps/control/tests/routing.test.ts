@@ -1561,7 +1561,11 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       // where the browser has nothing of the checks before.
       const base = proxy.url.replace("127.0.0.1", "localhost");
       const page = yield* viewer.open(`${base}/api/control/openapi.json`);
-      // An authenticator of the browser's own, which makes and shows passkeys unasked.
+      // An authenticator of the browser's own, which makes and shows passkeys once it is
+      // told that someone is there. It is told for what the person does themselves, and
+      // not before: the page that signs in asks for a passkey where the address is typed
+      // as soon as it is there, and an authenticator that answers that by itself signs
+      // the person in again before they are seen to be out.
       yield* page.cdp.call("WebAuthn.enable", {});
       const { authenticatorId } = yield* page.cdp.call(
         "WebAuthn.addVirtualAuthenticator",
@@ -1572,11 +1576,13 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
             hasResidentKey: true,
             hasUserVerification: true,
             isUserVerified: true,
-            automaticPresenceSimulation: true,
+            automaticPresenceSimulation: false,
           },
         },
         Schema.Struct({ authenticatorId: Schema.String }),
       );
+      const present = (enabled: boolean) =>
+        page.cdp.call("WebAuthn.setAutomaticPresenceSimulation", { authenticatorId, enabled });
       const asked = <A>(path: string, body: object, answer: Schema.Codec<A>) =>
         page.evaluate(
           `fetch(${JSON.stringify(`/api/auth${path}`)}, { method: "POST", headers: { "Content-Type": "application/json" }, body: ${JSON.stringify(JSON.stringify(body))} }).then(async (answer) => ({ ...(await answer.json().catch(() => ({}))), status: answer.status }))`,
@@ -1584,9 +1590,22 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         );
       const Status = Schema.Struct({ status: Schema.Number });
       const signOut = Effect.gen(function* () {
+        yield* present(false);
         expect((yield* asked("/sign-out", {}, Status)).status).toBe(200);
         yield* page.evaluate(`void (location.href = "/")`);
         yield* page.until(`!!document.querySelector('[data-console-sign-in="password"]')`);
+      });
+      /**
+       * Presses the button with someone there for what it asks. What the page asked for
+       * where the address is typed was asked of an authenticator with nobody there, and
+       * stays unanswered until the button calls it off.
+       */
+      const withPasskey = Effect.gen(function* () {
+        yield* page.until(
+          `performance.getEntriesByType("resource").some((one) => one.name.endsWith("/passkey/generate-authenticate-options"))`,
+        );
+        yield* present(true);
+        yield* page.click("[data-console-sign-in-passkey]");
       });
       expect(
         (yield* until(
@@ -1635,6 +1654,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
           );
         });
       const states = [yield* open];
+      yield* present(true);
       yield* page.until(`!!document.querySelector('${dialog("passkeys")} [data-console-empty]')`);
       states.push(yield* placed(page));
       yield* shot(page, fs, "console-passkeys-none");
@@ -1677,7 +1697,12 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         (yield* asked("/two-factor/verify-totp", { code: yield* totp(totpURI) }, Status)).status,
       ).toBe(200);
       yield* signOut;
-      yield* page.click("[data-console-sign-in-passkey]");
+      // Nobody is signed in by what the page asks for unasked.
+      yield* Effect.sleep("1 second");
+      expect(
+        yield* page.evaluate(`!!document.querySelector('[data-console-sign-in="password"]')`),
+      ).toBe(true);
+      yield* withPasskey;
       yield* open;
       yield* page.until(`!!document.querySelector('${passkey("Laptop of Pia")}')`);
 
@@ -1695,7 +1720,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.until(`!!document.querySelector('${passkey("Phone")}')`);
       yield* bootstrap.accounts.removePasskeys({ params: { id: pia.id } });
       yield* signOut;
-      yield* page.click("[data-console-sign-in-passkey]");
+      yield* withPasskey;
       yield* page.until(`!!document.querySelector('[data-console-sign-in] [role="alert"]')`);
       expect(yield* page.text(`[data-console-sign-in] [role="alert"]`)).toBe(
         "That passkey is none of an account here.",
