@@ -11,12 +11,7 @@ import {
 } from "lucide-react";
 import type { Download, FileRequest, Uploaded } from "@aperture-browser/session-client";
 import { Button } from "@aperture-browser/ui/components/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTitle,
-  PopoverTrigger,
-} from "@aperture-browser/ui/components/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@aperture-browser/ui/components/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture-browser/ui/components/tooltip";
 import { cn } from "@aperture-browser/ui/utils";
 import { useUploads, type UploadsControl } from "../hooks/use-uploads.ts";
@@ -72,6 +67,7 @@ export function SessionFilesButton() {
       <PopoverContent
         align="end"
         className="aperture:w-88 aperture:max-w-[calc(100vw-1rem)] aperture:gap-0 aperture:p-0"
+        aria-label="Files"
         data-session-files=""
       >
         {panel}
@@ -83,9 +79,10 @@ export function SessionFilesButton() {
 /**
  * The session's files as a panel that is opened from somewhere: whether it is open, which
  * it is by itself when a page asks for a file and when a download is done, and what tells
- * of it where it is opened from.
+ * of it where it is opened from. In a `sheet` the panel is as long as what it holds, and
+ * the sheet is what scrolls.
  */
-export function useSessionFiles() {
+export function useSessionFiles({ sheet = false }: { sheet?: boolean } = {}) {
   const snapshot = useSessionSnapshot();
   const { features } = useWorkbench();
   const uploads = useUploads(features.uploads);
@@ -126,6 +123,7 @@ export function useSessionFiles() {
         downloads={snapshot.downloads}
         offers={features}
         puts={features.access.uploads.write}
+        sheet={sheet}
       />
     ),
   };
@@ -137,6 +135,7 @@ function SessionFiles({
   downloads,
   offers,
   puts,
+  sheet,
 }: {
   uploads: UploadsControl;
   request: FileRequest | undefined;
@@ -145,6 +144,7 @@ function SessionFiles({
   offers: { readonly uploads: boolean; readonly downloads: boolean };
   /** This member may put files into the session, and answer pages with them. */
   puts: boolean;
+  sheet: boolean;
 }) {
   const session = useSession();
   const picker = useRef<HTMLInputElement>(null);
@@ -206,7 +206,10 @@ function SessionFiles({
 
   return (
     <div
-      className="aperture:relative aperture:flex aperture:max-h-[min(32rem,calc(100dvh-6rem))] aperture:flex-col"
+      className={cn(
+        "aperture:relative aperture:flex aperture:flex-col",
+        sheet ? "aperture:min-h-full" : "aperture:max-h-[min(32rem,calc(100dvh-6rem))]",
+      )}
       onDragOver={(event) => {
         if (offers.uploads && puts && event.dataTransfer.types.includes("Files")) {
           event.preventDefault();
@@ -276,13 +279,11 @@ function SessionFiles({
           </div>
         </div>
       )}
-      <div className="aperture:min-h-0 aperture:flex-1 aperture:overflow-y-auto">
+      <div className={cn("aperture:flex-1", !sheet && "aperture:min-h-0 aperture:overflow-y-auto")}>
         {offers.uploads ? (
           <section className="aperture:flex aperture:flex-col aperture:gap-1 aperture:p-2.5">
             <header className="aperture:flex aperture:h-6 aperture:items-center aperture:justify-between aperture:gap-2">
-              <PopoverTitle className="aperture:text-xs aperture:text-muted-foreground">
-                Uploads
-              </PopoverTitle>
+              <h3 className="aperture:text-xs aperture:text-muted-foreground">Uploads</h3>
               {request === undefined ? (
                 <Button
                   type="button"

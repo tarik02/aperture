@@ -8,20 +8,17 @@ import {
   DrawerContent,
   DrawerDescription,
   DrawerTitle,
+  type DrawerSide,
 } from "@aperture-browser/ui/components/drawer";
 import { cn } from "@aperture-browser/ui/utils";
 import { useInputState } from "../hooks/use-actions.ts";
-import { useShortWindow } from "../hooks/use-media.ts";
 import { useSession, useSessionSnapshot } from "../session.tsx";
 import { useWorkbench } from "../workbench/context.tsx";
 import { TabFavicon, tabLabel } from "./browser-tab-strip.tsx";
 import { automationName, MemberDot } from "./session-presence.tsx";
 
-/**
- * How much of the window's height the sheet takes: as it opens, and dragged up. A window
- * as short as a phone's on its side has the one height.
- */
-const HEIGHTS = [0.6, 1];
+/** How much of the window's height the sheet takes: as it opens, and dragged up. */
+const HEIGHTS = [0.5, 1];
 
 /** How often the picture of a tab that is in view is asked for again. */
 const PICTURE_EVERY_MS = 4000;
@@ -30,6 +27,8 @@ const PICTURE_EVERY_MS = 4000;
 const lastPictures = new Map<string, { readonly tag: string | null; readonly url: string }>();
 
 export interface TabSwitcherProps {
+  /** The edge of the window it comes in from: a side's where the phone is held on its side. */
+  readonly side?: DrawerSide;
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
 }
@@ -37,15 +36,16 @@ export interface TabSwitcherProps {
 /**
  * The session's tabs as cards, each with a small picture of its page: the way from one tab
  * to another where there is no room for a row of them. It is a sheet over the window's
- * foot, part of the way up, that is dragged up for more of them and down to be rid of it;
- * a tab that is chosen and a press beside it are rid of it as well.
+ * foot, half of the way up, that is dragged up for more of them and down to be rid of it;
+ * a tab that is chosen and a press beside it are rid of it as well. At a side of the
+ * window it is as tall as the window, with the cards two abreast, dragged to that side.
  */
-export function TabSwitcher({ open, onOpenChange }: TabSwitcherProps) {
+export function TabSwitcher({ side = "bottom", open, onOpenChange }: TabSwitcherProps) {
   const session = useSession();
   const snapshot = useSessionSnapshot();
   const { features, targetFaviconUrl } = useWorkbench();
   const { changes } = useInputState();
-  const short = useShortWindow();
+  const snaps = side === "bottom";
   const { targets, presence } = snapshot;
   const [height, setHeight] = useState<number | string | null>(HEIGHTS[0] ?? null);
   // Each time it opens it is part of the way up again.
@@ -57,14 +57,21 @@ export function TabSwitcher({ open, onOpenChange }: TabSwitcherProps) {
 
   return (
     <Drawer
+      side={side}
       open={open}
       onOpenChange={onOpenChange}
-      {...(short ? {} : { snapPoints: HEIGHTS, snapPoint: height, onSnapPointChange: setHeight })}
+      // Its height is this one's to say from the first, also while it has none to be at.
+      snapPoint={height}
+      onSnapPointChange={setHeight}
+      {...(snaps ? { snapPoints: HEIGHTS } : {})}
     >
       <DrawerContent
         data-workbench-tab-switcher=""
-        data-height={short ? "full" : height === HEIGHTS[0] ? "part" : "full"}
-        className="aperture:h-[calc(100dvh-env(safe-area-inset-top)-1.5rem)] aperture:pr-[env(safe-area-inset-right)] aperture:pl-[env(safe-area-inset-left)]"
+        data-height={!snaps || height === HEIGHTS[1] ? "full" : "part"}
+        className={cn(
+          snaps &&
+            "aperture:h-full aperture:pr-[env(safe-area-inset-right)] aperture:pl-[env(safe-area-inset-left)]",
+        )}
       >
         <div className="aperture:flex aperture:h-13 aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:pr-3 aperture:pl-4 aperture:select-none">
           <DrawerTitle className="aperture:min-w-0 aperture:flex-1 aperture:truncate">
@@ -89,7 +96,12 @@ export function TabSwitcher({ open, onOpenChange }: TabSwitcherProps) {
         </div>
         <DrawerBody
           role="list"
-          className="aperture:grid aperture:auto-rows-min aperture:grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] aperture:gap-3 aperture:px-3 aperture:pt-1 aperture:pb-[max(1rem,env(safe-area-inset-bottom))]"
+          className={cn(
+            "aperture:grid aperture:auto-rows-min aperture:gap-3 aperture:px-3 aperture:pt-1 aperture:pb-[max(1rem,env(safe-area-inset-bottom))]",
+            snaps
+              ? "aperture:grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))]"
+              : "aperture:grid-cols-2",
+          )}
         >
           {targets.map((target) => (
             <TabCard
@@ -98,6 +110,7 @@ export function TabSwitcher({ open, onOpenChange }: TabSwitcherProps) {
               active={target.tab === snapshot.selected}
               presence={features.presence ? presence : undefined}
               faviconSrc={targetFaviconUrl(target)}
+              wide={!snaps}
               closes={changes}
               onSelect={() => {
                 session.select(target.tab);
@@ -117,6 +130,7 @@ function TabCard({
   active,
   presence,
   faviconSrc,
+  wide,
   closes,
   onSelect,
   onClose,
@@ -125,6 +139,8 @@ function TabCard({
   active: boolean;
   presence: Presence | undefined;
   faviconSrc: string | undefined;
+  /** The picture is as a page on a phone held on its side: wider than tall. */
+  wide: boolean;
   closes: boolean;
   onSelect: () => void;
   onClose: () => void;
@@ -182,7 +198,7 @@ function TabCard({
           <X />
         </Button>
       </div>
-      <TabPicture target={target} asked={inView} />
+      <TabPicture target={target} asked={inView} wide={wide} />
       <div className="aperture:flex aperture:h-8 aperture:shrink-0 aperture:items-center aperture:gap-1.5 aperture:px-2.5 aperture:text-[0.6875rem] aperture:text-muted-foreground">
         {target.mobile ? (
           <Smartphone
@@ -222,11 +238,16 @@ export function hostOf(url: string): string {
   }
 }
 
-function TabPicture({ target, asked }: { target: Target; asked: boolean }) {
+function TabPicture({ target, asked, wide }: { target: Target; asked: boolean; wide: boolean }) {
   const session = useSession();
   const src = useTabPicture(session, target, asked);
   return (
-    <div className="aperture:aspect-[4/3] aperture:w-full aperture:overflow-hidden aperture:bg-muted">
+    <div
+      className={cn(
+        "aperture:w-full aperture:overflow-hidden aperture:bg-muted",
+        wide ? "aperture:aspect-[16/9]" : "aperture:aspect-[4/3]",
+      )}
+    >
       {src === undefined ? null : (
         <img
           src={src}

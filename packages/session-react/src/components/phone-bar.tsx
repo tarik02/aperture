@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, Pencil, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ArrowLeft, Pencil, Search, X } from "lucide-react";
 import type { Member, Presence } from "@aperture-browser/session-client";
 import { Button } from "@aperture-browser/ui/components/button";
 import {
@@ -8,18 +8,12 @@ import {
   DrawerContent,
   DrawerDescription,
   DrawerTitle,
+  type DrawerSide,
 } from "@aperture-browser/ui/components/drawer";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetTitle,
-} from "@aperture-browser/ui/components/sheet";
 import { cn } from "@aperture-browser/ui/utils";
 import { useInputState } from "../hooks/use-actions.ts";
 import { useAddress } from "../hooks/use-address.ts";
-import { useShortWindow } from "../hooks/use-media.ts";
-import { useStored } from "../hooks/use-stored.ts";
+import { usePhoneOnSide, useRailSide } from "../hooks/use-media.ts";
 import { useLease, useSession, useSessionSnapshot, useWatchedTarget } from "../session.tsx";
 import { useWorkbench } from "../workbench/context.tsx";
 import { WorkbenchSlot } from "../workbench/slot.tsx";
@@ -40,10 +34,6 @@ const ROLES = { view: "may watch", control: "may give input", admin: "admin" } a
 /** What is pressed in the bar: round, and as large as a finger needs. */
 const PRESSED = "aperture:size-10 aperture:shrink-0 aperture:rounded-full";
 
-/** In the slim bar what is pressed is as large, and shows nothing of that around its icon. */
-const PRESSED_SLIM =
-  "aperture:hover:bg-transparent aperture:active:bg-transparent aperture:aria-expanded:bg-transparent aperture:dark:hover:bg-transparent";
-
 /** What the bar and what stands for it while it is away are made of: the page shows through. */
 const GLASS =
   "aperture:bg-background/75 aperture:shadow-lg aperture:ring-1 aperture:ring-foreground/10 aperture:backdrop-blur-xl aperture:backdrop-saturate-150";
@@ -52,16 +42,24 @@ const GLASS =
 const MOVES =
   "aperture:transition-[translate,opacity,scale] aperture:duration-300 aperture:ease-[cubic-bezier(0.32,0.72,0,1)] aperture:motion-reduce:duration-0";
 
-const SLIM_KEY = "aperture.session.phone-bar.slim";
+/**
+ * Where the bar is laid: across the picture's `foot`, or as a rail along its `left` or
+ * `right`, where the phone is held on its side and height is what there is least of.
+ */
+type BarLay = "foot" | "left" | "right";
 
-const isBoolean = (value: unknown): value is boolean => typeof value === "boolean";
+/** How much room beside the picture the rail needs to stand there and not over it. */
+const RAIL_ROOM = 48;
+
+/** The picture as tall as it is with no keyboard over the window's foot. */
+const UNDER_KEYBOARD = "calc(100% + var(--keyboard-inset, 0px))";
 
 /** How far down the page a finger moves it before the bar goes, and how far up before it is back. */
 const HIDES_AFTER = 48;
 const SHOWS_AFTER = 24;
 /** How long a finger rests before what it moved the page by counts anew. */
 const DRAG_RESTS_MS = 400;
-/** How far a finger goes along the bar's short side before it is a swipe and no press. */
+/** How far a finger goes across the bar before it is a swipe and no press. */
 const SWIPED_PX = 20;
 const MARK_SWIPED_PX = 8;
 
@@ -135,10 +133,10 @@ function useBarPlace(stays: boolean) {
 }
 
 /**
- * Tells a swipe along the bar's short side from a press: up and down are what the bar
- * does with it, and the press that would follow a swipe is nobody's.
+ * Tells a swipe across the bar from a press: into the picture and out of it are what the
+ * bar does with it, and the press that would follow a swipe is nobody's.
  */
-function useSwipe(swiped: (up: boolean) => void, after = SWIPED_PX) {
+function useSwipe(lay: BarLay, swiped: (inward: boolean) => void, after = SWIPED_PX) {
   const from = useRef<{ x: number; y: number; done: boolean } | undefined>(undefined);
   return {
     onPointerDown: (event: React.PointerEvent) => {
@@ -153,9 +151,10 @@ function useSwipe(swiped: (up: boolean) => void, after = SWIPED_PX) {
         return;
       }
       const by = { x: event.clientX - began.x, y: event.clientY - began.y };
-      if (Math.abs(by.y) >= after && Math.abs(by.y) > Math.abs(by.x)) {
+      const [across, along] = lay === "foot" ? [by.y, by.x] : [by.x, by.y];
+      if (Math.abs(across) >= after && Math.abs(across) > Math.abs(along)) {
         began.done = true;
-        swiped(by.y < 0);
+        swiped(lay === "left" ? across > 0 : across < 0);
       }
     },
     onClickCapture: (event: React.MouseEvent) => {
@@ -169,26 +168,67 @@ function useSwipe(swiped: (up: boolean) => void, after = SWIPED_PX) {
 }
 
 /**
- * The workbench on a phone: the picture, and over its foot one bar with the way back, the
+ * How much room there is beside the workbench at a side of the window: what a screen's
+ * cutout and corners keep the picture out of, where whoever shows the workbench leaves
+ * that empty.
+ */
+function useRoomBeside(root: React.RefObject<HTMLElement | null>, lay: BarLay): number {
+  const [room, setRoom] = useState(0);
+  useLayoutEffect(() => {
+    const element = root.current;
+    if (element === null || lay === "foot") {
+      setRoom(0);
+      return undefined;
+    }
+    const measure = () => {
+      const box = element.getBoundingClientRect();
+      const beside = lay === "left" ? box.left : window.innerWidth - box.right;
+      setRoom(Math.max(0, Math.round(beside)));
+    };
+    measure();
+    const resized = new ResizeObserver(measure);
+    resized.observe(element);
+    window.addEventListener("resize", measure);
+    return () => {
+      resized.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [root, lay]);
+  return room;
+}
+
+/**
+ * The workbench on a phone: the picture, and over it one bar with the way back, the
  * address, the tabs and a menu with all the rest.
  *
  * The bar is laid over the picture and takes none of its room: the page keeps its size
  * whether the bar is there or away, so nothing of it is drawn anew as the bar comes and
- * goes. It goes as the page is moved down, and a small mark stands for it at the foot,
- * which is swiped away where a page has something of its own under it; it is back as the
- * page is moved up or the mark is pressed.
+ * goes. It goes as the page is moved down, and a small mark stands for it, which is
+ * swiped away where a page has something of its own under it; it is back as the page is
+ * moved up or the mark is pressed.
+ *
+ * A phone held upright has the bar across the picture's foot. One held on its side has a
+ * rail along a side of the picture in its place, since height is what there is least of:
+ * the address is typed across the picture's head then, and what opens from the rail
+ * comes in from its side. Where there is room beside the picture, as a screen's cutout
+ * and corners leave, the rail stands there, over nothing, and stays.
  */
 export function PhoneWorkbench() {
   const snapshot = useSessionSnapshot();
   const { features, drawing } = useWorkbench();
   const lease = useLease();
-  const files = useSessionFiles();
-  const short = useShortWindow();
-  const [chosenSlim, setSlim] = useStored(SLIM_KEY, false, isBoolean);
+  const files = useSessionFiles({ sheet: true });
+  const onSide = usePhoneOnSide();
+  const railSide = useRailSide();
+  const lay: BarLay = onSide ? railSide : "foot";
+  const sheetSide = lay === "foot" ? "bottom" : lay;
+  const root = useRef<HTMLDivElement>(null);
+  const room = useRoomBeside(root, lay);
+  const stands = room >= RAIL_ROOM;
   const stage = useRef<HTMLDivElement>(null);
   // The height the picture keeps while the address is typed: the keyboard that comes for
   // it covers the picture's foot, and is no reason to give the page another size.
-  const [kept, setKept] = useState<number>();
+  const [kept, setKept] = useState<number | string>();
   const leaving = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(leaving.current), []);
   const [editing, setEditing] = useState(false);
@@ -201,6 +241,7 @@ export function PhoneWorkbench() {
   // The bar stays while it is used, while there is no page to move, and while someone
   // asks this member for the tab or a page asks for a file, which the bar tells of.
   const stays =
+    stands ||
     editing ||
     switching ||
     people ||
@@ -212,8 +253,15 @@ export function PhoneWorkbench() {
     snapshot.connection.state !== "open" ||
     watched === undefined;
   const [place, setPlace] = useBarPlace(stays);
-  // A phone on its side has the slim bar whatever was chosen: it has the least height.
-  const slim = short || chosenSlim;
+
+  // A phone that is turned while the address is typed has another height to keep.
+  const turned = useRef(lay);
+  useEffect(() => {
+    if (turned.current !== lay) {
+      turned.current = lay;
+      setKept((before) => (before === undefined ? undefined : UNDER_KEYBOARD));
+    }
+  }, [lay]);
 
   const edit = (now: boolean) => {
     clearTimeout(leaving.current);
@@ -226,28 +274,31 @@ export function PhoneWorkbench() {
   };
 
   const shared = useMemo<PhoneMenuState>(
-    () => ({ typed, hideBar: () => setPlace("away"), files, slim: chosenSlim, setSlim }),
-    [files, chosenSlim, setSlim, setPlace],
+    () => ({ typed, hideBar: () => setPlace("away"), files, side: sheetSide }),
+    [files, sheetSide, setPlace],
   );
 
   return (
     <PhoneMenuContext.Provider value={shared}>
       <CompactContext.Provider value>
         <div
+          ref={root}
           data-workbench-phone=""
           data-bar={place}
+          data-lay={lay}
           className="aperture:relative aperture:min-h-0 aperture:min-w-0 aperture:flex-1 aperture:overflow-hidden"
         >
           <div
             ref={stage}
-            className="aperture:absolute aperture:inset-x-0 aperture:top-0 aperture:flex aperture:flex-col"
+            className="aperture:absolute aperture:inset-x-0 aperture:top-0 aperture:flex aperture:flex-col aperture:overflow-hidden"
             style={{ height: kept ?? "100%" }}
           >
             <BrowserViewport />
           </div>
           <PhoneBar
+            lay={lay}
+            beside={stands ? room : 0}
             away={place !== "shown"}
-            slim={slim && !editing}
             editing={editing}
             menu={menu}
             onEdit={edit}
@@ -257,6 +308,7 @@ export function PhoneWorkbench() {
             onMenu={setMenu}
           />
           <BarMark
+            lay={lay}
             there={place === "away"}
             onShow={() => setPlace("shown")}
             onGone={() => setPlace("gone")}
@@ -264,23 +316,16 @@ export function PhoneWorkbench() {
           {features.pageMenu ? <PageMenu /> : null}
           {features.recordings ? <KeptGallery /> : null}
         </div>
-        {features.tabs ? <TabSwitcher open={switching} onOpenChange={setSwitching} /> : null}
-        {features.presence ? <PeopleSheet open={people} onOpenChange={setPeople} /> : null}
+        {features.tabs ? (
+          <TabSwitcher side={sheetSide} open={switching} onOpenChange={setSwitching} />
+        ) : null}
+        {features.presence ? (
+          <PeopleSheet side={sheetSide} open={people} onOpenChange={setPeople} />
+        ) : null}
         {features.files ? (
-          <Sheet open={files.open} onOpenChange={files.setOpen}>
-            <SheetContent
-              side="bottom"
-              showCloseButton={false}
-              data-session-files=""
-              className="aperture:gap-0 aperture:rounded-t-2xl aperture:pr-[env(safe-area-inset-right)] aperture:pb-[env(safe-area-inset-bottom)] aperture:pl-[env(safe-area-inset-left)]"
-            >
-              <SheetTitle className="aperture:sr-only">Files</SheetTitle>
-              <SheetDescription className="aperture:sr-only">
-                What was put into the session, and what its browser downloaded.
-              </SheetDescription>
-              {files.panel}
-            </SheetContent>
-          </Sheet>
+          <FilesSheet side={sheetSide} open={files.open} onOpenChange={files.setOpen}>
+            {files.panel}
+          </FilesSheet>
         ) : null}
       </CompactContext.Provider>
     </PhoneMenuContext.Provider>
@@ -288,8 +333,9 @@ export function PhoneWorkbench() {
 }
 
 function PhoneBar({
+  lay,
+  beside,
   away,
-  slim,
   editing,
   menu,
   onEdit,
@@ -298,9 +344,10 @@ function PhoneBar({
   onPeople,
   onMenu,
 }: {
+  lay: BarLay;
+  /** The room beside the picture a rail stands in, where it does not stand over it. */
+  beside: number;
   away: boolean;
-  /** One slim line, as wide as what it holds, in place of the bar across the window. */
-  slim: boolean;
   editing: boolean;
   menu: boolean;
   onEdit: (editing: boolean) => void;
@@ -316,44 +363,59 @@ function PhoneBar({
   const watched = useWatchedTarget();
   const goes = input.changes && watched !== undefined;
   const open = snapshot.connection.state === "open";
-  // Up for the tabs, down to put the bar away; neither while the address is typed.
-  const swipe = useSwipe((up) => {
+  const rail = lay !== "foot" && !editing;
+  // Into the picture for the tabs, out of it to put the bar away; neither while the
+  // address is typed, nor the latter where the rail stays.
+  const swipe = useSwipe(lay, (inward) => {
     if (editing) {
       return;
     }
-    if (!up) {
-      onAway();
+    if (!inward) {
+      if (beside === 0) {
+        onAway();
+      }
     } else if (features.tabs) {
       onSwitching(true);
     }
   });
-  const pressed = cn(PRESSED, slim && PRESSED_SLIM);
 
   return (
     <div
       data-workbench-phone-bar=""
       data-editing={editing ? "" : undefined}
-      data-slim={slim ? "" : undefined}
+      data-rail={rail ? lay : undefined}
       data-away={away ? "" : undefined}
       inert={away}
       className={cn(
-        "aperture:pointer-events-none aperture:absolute aperture:inset-x-0 aperture:bottom-0 aperture:z-30 aperture:flex aperture:justify-center aperture:px-2",
-        slim ? "aperture:pb-0.5" : "aperture:pb-1.5",
+        "aperture:pointer-events-none aperture:z-30 aperture:flex aperture:justify-center",
+        // Beside the picture is outside of what the workbench is laid in, and may be
+        // outside of what shows it as well: there the rail is laid by the window.
+        rail && beside > 0 ? "aperture:fixed" : "aperture:absolute",
         MOVES,
-        away && "aperture:translate-y-[calc(100%+0.5rem)] aperture:opacity-0",
+        !rail &&
+          (lay === "foot"
+            ? "aperture:inset-x-0 aperture:bottom-0 aperture:px-2 aperture:pb-1.5"
+            : // The keyboard is over the window's foot, so the address is typed at its head.
+              "aperture:inset-x-0 aperture:top-0 aperture:px-2 aperture:pt-1.5"),
+        rail && "aperture:inset-y-0 aperture:items-center aperture:px-1",
+        rail && beside === 0 && (lay === "left" ? "aperture:left-0" : "aperture:right-0"),
+        away &&
+          (lay === "foot"
+            ? "aperture:translate-y-[calc(100%+0.5rem)] aperture:opacity-0"
+            : lay === "left"
+              ? "aperture:-translate-x-[calc(100%+0.5rem)] aperture:opacity-0"
+              : "aperture:translate-x-[calc(100%+0.5rem)] aperture:opacity-0"),
       )}
+      style={rail && beside > 0 ? { [lay]: 0, width: beside, paddingInline: 0 } : undefined}
     >
       <div
         data-workbench-phone-pill=""
         className={cn(
-          "aperture:pointer-events-auto aperture:relative aperture:flex aperture:min-w-0 aperture:touch-none aperture:items-center aperture:select-none",
-          slim
-            ? // As tall as a finger needs, and drawn slimmer than that.
-              "aperture:isolate aperture:h-10 aperture:max-w-full aperture:gap-1 aperture:px-0.5 aperture:before:absolute aperture:before:inset-x-0 aperture:before:inset-y-1 aperture:before:-z-10 aperture:before:rounded-full aperture:before:content-['']"
-            : "aperture:h-12 aperture:w-full aperture:gap-0.5 aperture:rounded-full aperture:px-1",
-          slim
-            ? "aperture:before:bg-background/75 aperture:before:shadow-lg aperture:before:ring-1 aperture:before:ring-foreground/10 aperture:before:backdrop-blur-xl aperture:before:backdrop-saturate-150"
-            : GLASS,
+          "aperture:pointer-events-auto aperture:relative aperture:flex aperture:min-w-0 aperture:touch-none aperture:items-center aperture:gap-0.5 aperture:rounded-full aperture:select-none",
+          rail
+            ? "aperture:max-h-full aperture:w-12 aperture:flex-col aperture:py-1"
+            : "aperture:h-12 aperture:w-full aperture:px-1",
+          GLASS,
         )}
         {...swipe}
       >
@@ -365,7 +427,7 @@ function PhoneBar({
             {features.navigation ? (
               <BarButton
                 label="Back"
-                className={pressed}
+                className={PRESSED}
                 disabled={!goes || watched?.goesBack !== true}
                 onClick={() => session.go({ along: "back" })}
               >
@@ -373,7 +435,7 @@ function PhoneBar({
               </BarButton>
             ) : null}
             {features.addressBar ? (
-              <AddressButton slim={slim} onEdit={() => onEdit(true)} />
+              <AddressButton rail={rail} onEdit={() => onEdit(true)} />
             ) : (
               <div className="aperture:min-w-0 aperture:flex-1" />
             )}
@@ -388,13 +450,15 @@ function PhoneBar({
                 <Pencil />
               </BarButton>
             ) : null}
-            {features.presence && open ? <PeopleButton onOpen={() => onPeople(true)} /> : null}
+            {features.presence && open ? (
+              <PeopleButton rail={rail} onOpen={() => onPeople(true)} />
+            ) : null}
             <WorkbenchSlot name="toolbar.end" />
             {features.tabs ? (
               <BarButton
                 label={`Tabs: ${snapshot.targets.length}`}
                 data-workbench-tabs=""
-                className={pressed}
+                className={PRESSED}
                 onClick={() => onSwitching(true)}
               >
                 <span className="aperture:flex aperture:size-5.5 aperture:items-center aperture:justify-center aperture:rounded-md aperture:border-[1.5px] aperture:border-current aperture:text-[0.6875rem] aperture:leading-none aperture:font-semibold aperture:tabular-nums">
@@ -403,7 +467,7 @@ function PhoneBar({
               </BarButton>
             ) : null}
             {features.menus ? (
-              <PhoneMenu open={menu} onOpenChange={onMenu} className={pressed} />
+              <PhoneMenu open={menu} onOpenChange={onMenu} className={PRESSED} />
             ) : null}
           </>
         )}
@@ -414,17 +478,21 @@ function PhoneBar({
 
 /**
  * What stands for the bar while it is away: where the page is from and who else is here,
- * small, at the middle of the picture's foot. Pressed or swiped up, the bar is back;
- * swiped down, it is gone as well, for a page that has something of its own right there.
+ * small, at the middle of the picture's foot; and for a rail a grip with who else is
+ * here, at the middle of its side. Pressed or swiped into the picture, the bar is back;
+ * swiped out of it, it is gone as well, for a page that has something of its own right
+ * there.
  *
  * It is pressed where it is drawn and no further around it, smaller than a finger likes:
  * what it stands over is the page's, and the bar is back by moving the page up as well.
  */
 function BarMark({
+  lay,
   there,
   onShow,
   onGone,
 }: {
+  lay: BarLay;
   there: boolean;
   onShow: () => void;
   onGone: () => void;
@@ -432,8 +500,8 @@ function BarMark({
   const { features } = useWorkbench();
   const { presence, connection } = useSessionSnapshot();
   const watched = useWatchedTarget();
-  // The window ends right below it: a finger has little way to go down.
-  const swipe = useSwipe((up) => (up ? onShow() : onGone()), MARK_SWIPED_PX);
+  // The window ends right beside it: a finger has little way to go out of it.
+  const swipe = useSwipe(lay, (inward) => (inward ? onShow() : onGone()), MARK_SWIPED_PX);
   const others =
     features.presence && connection.state === "open"
       ? (presence?.members.filter((member) => member.id !== presence.you) ?? [])
@@ -441,14 +509,25 @@ function BarMark({
   const holds = (member: Member) =>
     presence?.held.some((held) => held.holder === member.id) ?? false;
   const host = watched === undefined ? "" : hostOf(watched.url);
+  const foot = lay === "foot";
 
   return (
     <div
       inert={!there}
       className={cn(
-        "aperture:pointer-events-none aperture:absolute aperture:inset-x-0 aperture:bottom-0 aperture:z-30 aperture:flex aperture:justify-center aperture:pb-0.5",
+        "aperture:pointer-events-none aperture:absolute aperture:z-30 aperture:flex aperture:justify-center",
+        foot
+          ? "aperture:inset-x-0 aperture:bottom-0 aperture:pb-0.5"
+          : "aperture:inset-y-0 aperture:items-center aperture:px-0.5",
+        lay === "left" && "aperture:left-0",
+        lay === "right" && "aperture:right-0",
         MOVES,
-        !there && "aperture:translate-y-3 aperture:opacity-0",
+        !there &&
+          (foot
+            ? "aperture:translate-y-3 aperture:opacity-0"
+            : lay === "left"
+              ? "aperture:-translate-x-3 aperture:opacity-0"
+              : "aperture:translate-x-3 aperture:opacity-0"),
       )}
     >
       <button
@@ -456,13 +535,23 @@ function BarMark({
         data-workbench-phone-mark=""
         aria-label="Show the bar"
         className={cn(
-          "aperture:pointer-events-auto aperture:flex aperture:h-6 aperture:max-w-[60%] aperture:min-w-16 aperture:touch-none aperture:items-center aperture:justify-center aperture:gap-1 aperture:rounded-full aperture:px-2.5 aperture:text-[0.6875rem] aperture:leading-none aperture:font-medium aperture:outline-none aperture:select-none aperture:focus-visible:ring-3 aperture:focus-visible:ring-ring/50",
+          "aperture:pointer-events-auto aperture:flex aperture:touch-none aperture:items-center aperture:justify-center aperture:gap-1 aperture:rounded-full aperture:text-[0.6875rem] aperture:leading-none aperture:font-medium aperture:outline-none aperture:select-none aperture:focus-visible:ring-3 aperture:focus-visible:ring-ring/50",
+          foot
+            ? "aperture:h-6 aperture:max-w-[60%] aperture:min-w-16 aperture:px-2.5"
+            : "aperture:min-h-16 aperture:w-5 aperture:flex-col aperture:py-2.5",
           GLASS,
         )}
         onClick={onShow}
         {...swipe}
       >
-        <span className="aperture:truncate">{host}</span>
+        {foot ? (
+          <span className="aperture:truncate">{host}</span>
+        ) : (
+          <span
+            aria-hidden
+            className="aperture:h-6 aperture:w-1 aperture:rounded-full aperture:bg-foreground/40"
+          />
+        )}
         {others.slice(0, 3).map((member) => (
           <MemberDot key={member.id} member={member} holds={holds(member)} />
         ))}
@@ -486,8 +575,11 @@ function BarButton({
   );
 }
 
-/** Where the watched tab's page is from, which is pressed to say where it is to go. */
-function AddressButton({ slim, onEdit }: { slim: boolean; onEdit: () => void }) {
+/**
+ * Where the watched tab's page is from, which is pressed to say where it is to go. A rail
+ * has no room to say where the page is from: there it is the way to the address alone.
+ */
+function AddressButton({ rail, onEdit }: { rail: boolean; onEdit: () => void }) {
   const address = useAddress();
   const watched = useWatchedTarget();
   const connecting = useSessionSnapshot().connection.state === "connecting";
@@ -497,19 +589,24 @@ function AddressButton({ slim, onEdit }: { slim: boolean; onEdit: () => void }) 
     <button
       type="button"
       aria-label="Address"
+      title={rail ? shown : undefined}
       data-workbench-address-button=""
       disabled={!address.navigates}
       className={cn(
-        "aperture:relative aperture:flex aperture:h-10 aperture:min-w-0 aperture:items-center aperture:justify-center aperture:rounded-full aperture:outline-none aperture:focus-visible:ring-3 aperture:focus-visible:ring-ring/50",
-        slim
-          ? "aperture:max-w-48 aperture:px-1.5 aperture:text-[0.8125rem] aperture:font-medium"
+        "aperture:relative aperture:flex aperture:h-10 aperture:min-w-0 aperture:items-center aperture:justify-center aperture:rounded-full aperture:outline-none aperture:focus-visible:ring-3 aperture:focus-visible:ring-ring/50 aperture:disabled:opacity-50",
+        rail
+          ? "aperture:w-10 aperture:shrink-0 aperture:active:bg-accent aperture:[&_svg]:size-4"
           : "aperture:flex-1 aperture:bg-foreground/6 aperture:px-3 aperture:text-sm",
       )}
       onClick={onEdit}
     >
-      <span className="aperture:truncate">
-        {connecting ? "Connecting…" : shown === "" ? "Search or type an address" : shown}
-      </span>
+      {rail ? (
+        <Search />
+      ) : (
+        <span className="aperture:truncate">
+          {connecting ? "Connecting…" : shown === "" ? "Search or type an address" : shown}
+        </span>
+      )}
     </button>
   );
 }
@@ -574,7 +671,7 @@ function AddressField({ onDone }: { onDone: () => void }) {
 }
 
 /** The others in the session, as far as there is room; pressed, everyone. */
-function PeopleButton({ onOpen }: { onOpen: () => void }) {
+function PeopleButton({ rail, onOpen }: { rail: boolean; onOpen: () => void }) {
   const { presence } = useSessionSnapshot();
   const others = presence?.members.filter((member) => member.id !== presence.you) ?? [];
   if (presence === undefined || others.length === 0) {
@@ -590,7 +687,12 @@ function PeopleButton({ onOpen }: { onOpen: () => void }) {
       type="button"
       data-session-presence=""
       aria-label={`${others.length + 1} people in the session`}
-      className="aperture:relative aperture:flex aperture:h-10 aperture:min-w-10 aperture:shrink-0 aperture:items-center aperture:justify-center aperture:gap-0.5 aperture:rounded-full aperture:px-1 aperture:outline-none aperture:focus-visible:ring-3 aperture:focus-visible:ring-ring/50"
+      className={cn(
+        "aperture:relative aperture:flex aperture:shrink-0 aperture:items-center aperture:justify-center aperture:gap-0.5 aperture:rounded-full aperture:outline-none aperture:focus-visible:ring-3 aperture:focus-visible:ring-ring/50",
+        rail
+          ? "aperture:min-h-10 aperture:w-10 aperture:flex-col aperture:py-1"
+          : "aperture:h-10 aperture:min-w-10 aperture:px-1",
+      )}
       onClick={onOpen}
     >
       {shown === undefined ? null : <MemberAvatar member={shown} holds={holds(shown)} />}
@@ -605,9 +707,11 @@ function PeopleButton({ onOpen }: { onOpen: () => void }) {
 
 /** Everyone in the session: what each may do, watches and holds, and following them. */
 function PeopleSheet({
+  side,
   open,
   onOpenChange,
 }: {
+  side: DrawerSide;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -625,10 +729,14 @@ function PeopleSheet({
   );
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer side={side} open={open} onOpenChange={onOpenChange}>
       <DrawerContent
         data-workbench-people=""
-        className="aperture:pr-[env(safe-area-inset-right)] aperture:pb-[max(0.5rem,env(safe-area-inset-bottom))] aperture:pl-[env(safe-area-inset-left)]"
+        className={cn(
+          "aperture:pb-[max(0.5rem,env(safe-area-inset-bottom))]",
+          side === "bottom" &&
+            "aperture:max-h-[60%] aperture:pr-[env(safe-area-inset-right)] aperture:pl-[env(safe-area-inset-left)]",
+        )}
       >
         <div className="aperture:flex aperture:h-13 aperture:shrink-0 aperture:items-center aperture:px-4 aperture:select-none">
           <DrawerTitle>In the session</DrawerTitle>
@@ -680,6 +788,59 @@ function PeopleSheet({
             );
           })}
         </DrawerBody>
+      </DrawerContent>
+    </Drawer>
+  );
+}
+
+/** How much of the window's height the files take: as they open, and dragged up. */
+const FILES_HEIGHTS = [0.5, 1];
+
+/** The session's files, as a sheet that is dragged like the others. */
+function FilesSheet({
+  side,
+  open,
+  onOpenChange,
+  children,
+}: {
+  side: DrawerSide;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: ReactNode;
+}) {
+  const [height, setHeight] = useState<number | string | null>(FILES_HEIGHTS[0] ?? null);
+  // Each time it opens it is part of the way up again.
+  useEffect(() => {
+    if (open) {
+      setHeight(FILES_HEIGHTS[0] ?? null);
+    }
+  }, [open]);
+  const snaps = side === "bottom";
+
+  return (
+    <Drawer
+      side={side}
+      open={open}
+      onOpenChange={onOpenChange}
+      // Its height is this one's to say from the first, also while it has none to be at.
+      snapPoint={height}
+      onSnapPointChange={setHeight}
+      {...(snaps ? { snapPoints: FILES_HEIGHTS } : {})}
+    >
+      <DrawerContent
+        data-session-files=""
+        data-height={!snaps || height === FILES_HEIGHTS[1] ? "full" : "part"}
+        className={cn(
+          side === "bottom"
+            ? "aperture:h-full aperture:pr-[env(safe-area-inset-right)] aperture:pl-[env(safe-area-inset-left)]"
+            : "aperture:pt-2",
+        )}
+      >
+        <DrawerTitle className="aperture:sr-only">Files</DrawerTitle>
+        <DrawerDescription className="aperture:sr-only">
+          What was put into the session, and what its browser downloaded.
+        </DrawerDescription>
+        <DrawerBody className="aperture:pb-[env(safe-area-inset-bottom)]">{children}</DrawerBody>
       </DrawerContent>
     </Drawer>
   );

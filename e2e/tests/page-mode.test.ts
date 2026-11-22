@@ -412,6 +412,131 @@ suite(session)("how a tab's pages are shown, with a desktop, a phone and the aut
     }),
   );
 
+  it.effect(
+    "a phone held on its side has a rail beside the picture, and sheets from that side",
+    () =>
+      Effect.gen(function* () {
+        const runner = yield* Runner.Runner;
+        const viewer = yield* Viewer;
+        const eve = yield* viewer.open(runner.page({ name: "Eve" }), {
+          width: 844,
+          height: 390,
+          mobile: true,
+        });
+        const phone = `document.querySelector("[data-workbench-phone]")`;
+        const menu = `document.querySelector("[data-menu-sheet]")`;
+        /** A sheet that has come in: it does a moment after what it shows is there. */
+        const landed = (sheet: string) =>
+          eve.until(
+            `${sheet} !== null && ${sheet}.hasAttribute("data-open") && !${sheet}.hasAttribute("data-starting-style") && ${sheet}.getAnimations({ subtree: true }).every((one) => one.playState === "finished")`,
+          );
+        const touch = (type: string, x?: number, y?: number) =>
+          eve.cdp.call("Input.dispatchTouchEvent", {
+            type,
+            touchPoints: x === undefined ? [] : [{ x, y }],
+          });
+        const turn = (width: number, height: number) =>
+          eve.cdp.call("Emulation.setDeviceMetricsOverride", {
+            width,
+            height,
+            deviceScaleFactor: 1,
+            mobile: true,
+            screenOrientation: ViewerLive.held(width, height),
+          });
+        yield* eve.until(`${phone}?.dataset.lay === "right"`, "30 seconds");
+        // The rail is over the picture, which has the whole of the window, and all that
+        // is pressed in it is as large as a finger needs.
+        const laid = `(() => {
+        const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+        const pill = box("[data-workbench-phone-pill]");
+        const stage = box("[data-aperture-stage]");
+        const pressed = [...document.querySelectorAll("[data-workbench-phone-bar] button")];
+        return {
+          rows: document.querySelectorAll("[data-workbench-titlebar], [data-workbench-toolbar]").length,
+          fills: stage.width === innerWidth && stage.height === innerHeight,
+          upright: pill.height > pill.width,
+          wide: pill.width > innerWidth * 0.9,
+          within: pill.left >= 0 && pill.right <= innerWidth && pill.top >= 0 && pill.bottom <= innerHeight,
+          large: pressed.length >= 3 && pressed.every((one) => {
+            const size = one.getBoundingClientRect();
+            return size.width >= 40 && size.height >= 40;
+          }),
+        };
+      })()`;
+        expect(yield* eve.evaluate(laid)).toEqual({
+          rows: 0,
+          fills: true,
+          upright: true,
+          wide: false,
+          within: true,
+          large: true,
+        });
+
+        // The menu comes in from the rail's side, as tall as the window, and stays the
+        // one menu as the phone is turned: a sheet at the foot upright, half of the way up.
+        yield* eve.click("[data-workbench-menu]");
+        yield* landed(menu);
+        const side = `(() => {
+        const sheet = ${menu}.getBoundingClientRect();
+        return [${menu}.dataset.side, sheet.top === 0, sheet.height === innerHeight, Math.round(sheet.right) === innerWidth, sheet.width < innerWidth * 0.6].join();
+      })()`;
+        expect(yield* eve.evaluate(side)).toBe("right,true,true,true,true");
+        yield* turn(390, 844);
+        yield* eve.until(`${phone}.dataset.lay === "foot" && ${menu}?.dataset.side === "bottom"`);
+        yield* landed(menu);
+        expect(
+          yield* eve.evaluate(
+            `(() => {
+            const sheet = ${menu}.getBoundingClientRect();
+            return [document.querySelectorAll("[data-menu-sheet]").length, ${menu}.dataset.height, sheet.width === innerWidth, sheet.top > innerHeight * 0.45 && sheet.top < innerHeight * 0.55].join();
+          })()`,
+          ),
+        ).toBe("1,part,true,true");
+        // It follows a finger: up to be whole, and down from there to be gone.
+        const drawn = (x: number, from: number, to: number) =>
+          Effect.gen(function* () {
+            yield* touch("touchStart", x, from);
+            for (let step = 1; step <= 10; step += 1) {
+              yield* touch("touchMove", x, from + ((to - from) * step) / 10);
+              yield* Effect.sleep("16 millis");
+            }
+            yield* Effect.sleep("150 millis");
+            yield* touch("touchEnd");
+          });
+        const top = `${menu}.getBoundingClientRect().top`;
+        yield* drawn(195, (yield* eve.evaluate(top, Schema.Number)) + 10, 150);
+        yield* eve.until(`${menu}.dataset.height === "full"`);
+        yield* landed(menu);
+        yield* drawn(195, (yield* eve.evaluate(top, Schema.Number)) + 10, 830);
+        yield* eve.until(`${menu} === null`);
+        expect(yield* eve.evaluate(laid)).toMatchObject({
+          upright: false,
+          wide: true,
+          within: true,
+        });
+
+        // On its side again, the menu is dragged to its side to be rid of it, and nothing
+        // of it is left over the picture.
+        yield* turn(844, 390);
+        yield* eve.until(`${phone}.dataset.lay === "right"`);
+        yield* eve.click("[data-workbench-menu]");
+        yield* landed(menu);
+        const left = yield* eve.evaluate(`${menu}.getBoundingClientRect().left`, Schema.Number);
+        yield* touch("touchStart", left + 40, 12);
+        for (let step = 1; step <= 10; step += 1) {
+          yield* touch("touchMove", left + 40 + step * 29, 12);
+          yield* Effect.sleep("16 millis");
+        }
+        yield* Effect.sleep("150 millis");
+        yield* touch("touchEnd");
+        yield* eve.until(
+          `${menu} === null && document.querySelectorAll("[data-slot=drawer-overlay]").length === 0`,
+        );
+        expect(eve.errors()).toEqual([]);
+        yield* eve.close;
+      }),
+  );
+
   it.effect("the pages threw nothing", () =>
     Effect.sync(() => {
       expect(bob.errors()).toEqual([]);

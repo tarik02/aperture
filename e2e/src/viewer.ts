@@ -19,6 +19,12 @@ export interface OpenOptions {
   readonly scheme?: "light" | "dark";
 }
 
+/** How a phone with a screen of this shape is held, as the browser is told it is. */
+export const held = (width: number, height: number) =>
+  width > height
+    ? { type: "landscapePrimary" as const, angle: 90 }
+    : { type: "portraitPrimary" as const, angle: 0 };
+
 /** Where an element is; `x` and `y` are its middle. */
 export const Box = Schema.Struct({
   x: Schema.Number,
@@ -160,6 +166,8 @@ export const start = Effect.gen(function* () {
         height,
         deviceScaleFactor: 1,
         mobile,
+        // A phone tells how it is held, which a window of its shape alone does not.
+        ...(mobile ? { screenOrientation: held(width, height) } : {}),
       });
       if (mobile) {
         yield* page.call("Emulation.setTouchEmulationEnabled", {

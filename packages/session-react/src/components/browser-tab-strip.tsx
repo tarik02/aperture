@@ -314,7 +314,8 @@ export function TabFavicon({ src }: { src: string | undefined }) {
     <img
       src={src}
       alt=""
-      className="aperture:size-4 aperture:shrink-0"
+      // A page draws its icon for a light tab or for a dark one, and is shown on either.
+      className="aperture:size-4 aperture:shrink-0 aperture:rounded-[3px] aperture:dark:bg-white/85 aperture:dark:ring-1 aperture:dark:ring-white/85"
       onError={() => setFailedSrc(src)}
     />
   );

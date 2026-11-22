@@ -3,7 +3,6 @@ import {
   ArrowRight,
   Circle,
   ClipboardList,
-  ChevronsDownUp,
   Eye,
   FolderOpen,
   Keyboard,
@@ -17,7 +16,6 @@ import {
 import { Button } from "@aperture-browser/ui/components/button";
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -26,6 +24,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@aperture-browser/ui/components/dropdown-menu";
+import type { DrawerSide } from "@aperture-browser/ui/components/drawer";
 import { cn } from "@aperture-browser/ui/utils";
 import { useInputState } from "../hooks/use-actions.ts";
 import { recordingRuns } from "../hooks/use-recordings.ts";
@@ -33,7 +32,6 @@ import { copyTextHere } from "../notices.ts";
 import { useSession, useSessionSnapshot, useWatchedTarget } from "../session.tsx";
 import { useWorkbench } from "../workbench/context.tsx";
 import { WorkbenchMenuSlot } from "../workbench/slot.tsx";
-import { Described } from "./menu-parts.tsx";
 import type { useSessionFiles } from "./session-files.tsx";
 import {
   AppearanceItem,
@@ -50,9 +48,8 @@ export interface PhoneMenuState {
   /** Puts the bar away, as scrolling down the page does. */
   readonly hideBar: () => void;
   readonly files: ReturnType<typeof useSessionFiles>;
-  /** Whether the bar is the slim one where the phone is held upright. */
-  readonly slim: boolean;
-  readonly setSlim: (slim: boolean) => void;
+  /** The edge of the window the bar's sheets come in from. */
+  readonly side: DrawerSide;
 }
 
 export const PhoneMenuContext = createContext<PhoneMenuState | null>(null);
@@ -65,13 +62,15 @@ function usePhoneMenu(): PhoneMenuState {
   return value;
 }
 
-/** One of the row of things done most, above the menu's rows: its icon over its name. */
+/** One of the row of things done most, below the menu's rows: its icon over its name. */
 const QUICK =
-  "aperture:min-h-16 aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:justify-center aperture:gap-1.5 aperture:rounded-xl aperture:bg-muted/60 aperture:px-1 aperture:text-xs";
+  "aperture:min-h-14 aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:justify-center aperture:gap-1 aperture:rounded-xl aperture:bg-muted/60 aperture:px-1 aperture:text-xs";
 
 /**
- * The phone's menu: a sheet at the window's foot with what is done most as a row of
- * buttons, then what is contributed to `menu.phone`, whose submenus are pages of the sheet.
+ * The phone's menu: a sheet with what is contributed to `menu.phone`, whose submenus are
+ * pages of it, and below that, nearest the thumb, what is done most as a row of buttons.
+ * It opens low at the window's foot and is dragged up for the rest; where the phone is
+ * held on its side it comes in from the bar's side, as tall as the window.
  */
 export function PhoneMenu({
   open,
@@ -86,12 +85,13 @@ export function PhoneMenu({
   const { features, recordings } = useWorkbench();
   const { changes } = useInputState();
   const watched = useWatchedTarget();
-  const { typed, files } = usePhoneMenu();
+  const { typed, files, side } = usePhoneMenu();
   const goes = changes && watched !== undefined;
   const recording = recordings.recordings.some(recordingRuns);
 
   return (
     <DropdownMenu
+      sheet={side}
       open={open}
       onOpenChange={(next) => {
         if (next) {
@@ -124,59 +124,65 @@ export function PhoneMenu({
         ) : null}
       </DropdownMenuTrigger>
       <DropdownMenuContent
-        sheet
-        onSheetDismiss={() => onOpenChange(false)}
         finalFocus={() => typed.current ?? true}
         data-workbench-phone-menu=""
-      >
-        <DropdownMenuGroup className="aperture:flex aperture:shrink-0 aperture:gap-2 aperture:pb-2">
-          {features.navigation ? (
-            <>
-              <DropdownMenuItem
-                className={QUICK}
-                data-phone-menu-forward=""
-                disabled={!goes || watched?.goesForward !== true}
-                onClick={() => session.go({ along: "forward" })}
-              >
-                <ArrowRight />
-                Forward
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className={QUICK}
-                data-phone-menu-reload=""
-                disabled={!goes}
-                onClick={() => session.go({ along: "reload" })}
-              >
-                <RefreshCw />
-                Reload
-              </DropdownMenuItem>
-            </>
-          ) : null}
-          <DropdownMenuItem
-            className={QUICK}
-            data-phone-menu-copy-url=""
-            disabled={watched === undefined}
-            onClick={() => {
-              if (watched !== undefined) {
-                copyTextHere(session, watched.url, "URL copied");
-              }
-            }}
+        footer={
+          <DropdownMenuGroup
+            className={cn(
+              "aperture:flex aperture:shrink-0 aperture:gap-2 aperture:border-t aperture:border-foreground/8 aperture:px-[max(0.5rem,env(safe-area-inset-left))] aperture:pt-2 aperture:pb-[max(0.5rem,env(safe-area-inset-bottom))]",
+              side === "left" && "aperture:pl-2",
+              side === "right" && "aperture:pr-2",
+            )}
           >
-            <Link2 />
-            Copy URL
-          </DropdownMenuItem>
-          {features.tabs ? (
+            {features.navigation ? (
+              <>
+                <DropdownMenuItem
+                  className={QUICK}
+                  data-phone-menu-forward=""
+                  disabled={!goes || watched?.goesForward !== true}
+                  onClick={() => session.go({ along: "forward" })}
+                >
+                  <ArrowRight />
+                  Forward
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className={QUICK}
+                  data-phone-menu-reload=""
+                  disabled={!goes}
+                  onClick={() => session.go({ along: "reload" })}
+                >
+                  <RefreshCw />
+                  Reload
+                </DropdownMenuItem>
+              </>
+            ) : null}
             <DropdownMenuItem
               className={QUICK}
-              data-phone-menu-new-tab=""
-              disabled={!changes}
-              onClick={() => session.newTab()}
+              data-phone-menu-copy-url=""
+              disabled={watched === undefined}
+              onClick={() => {
+                if (watched !== undefined) {
+                  copyTextHere(session, watched.url, "URL copied");
+                }
+              }}
             >
-              <Plus />
-              New tab
+              <Link2 />
+              Copy URL
             </DropdownMenuItem>
-          ) : null}
-        </DropdownMenuGroup>
+            {features.tabs ? (
+              <DropdownMenuItem
+                className={QUICK}
+                data-phone-menu-new-tab=""
+                disabled={!changes}
+                onClick={() => session.newTab()}
+              >
+                <Plus />
+                New tab
+              </DropdownMenuItem>
+            ) : null}
+          </DropdownMenuGroup>
+        }
+      >
         <WorkbenchMenuSlot name="menu.phone" />
       </DropdownMenuContent>
     </DropdownMenu>
@@ -278,9 +284,8 @@ export function PhoneRecordingItem() {
   );
 }
 
-/** How the session is shown here: the bar, the picture, the sound and the theme. */
+/** How the session is shown here: the picture, the sound and the theme. */
 export function PhoneViewItem() {
-  const { slim, setSlim } = usePhoneMenu();
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger data-phone-menu-page="view">
@@ -288,15 +293,6 @@ export function PhoneViewItem() {
         View
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent>
-        <DropdownMenuCheckboxItem
-          data-phone-menu-slim=""
-          checked={slim}
-          closeOnClick={false}
-          onCheckedChange={setSlim}
-        >
-          <ChevronsDownUp />
-          <Described title="Compact bar">A slim bar that covers less of the page.</Described>
-        </DropdownMenuCheckboxItem>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger data-phone-menu-page="picture">
             <Monitor />

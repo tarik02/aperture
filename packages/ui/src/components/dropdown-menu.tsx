@@ -1,17 +1,40 @@
 "use client";
 
 import * as React from "react";
+import { Drawer as DrawerPrimitive } from "@base-ui/react/drawer";
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 
 import { cn } from "../utils.ts";
 import { ChevronLeftIcon, ChevronRightIcon, CheckIcon } from "lucide-react";
 import { usePortalContainer } from "../portal.tsx";
+import {
+  Drawer,
+  DrawerFrame,
+  DrawerHandle,
+  drawerPopupClassName,
+  type DrawerSide,
+} from "./drawer.tsx";
 
 /**
- * Whether the menu is a sheet at the window's foot, as a phone has it: its submenus are
- * then pages that slide in over it, each with the way back, in place of menus beside it.
+ * Whether the menu is a sheet, as a phone has it: its submenus are then pages that slide
+ * in over it, each with the way back, in place of menus beside it.
  */
 const SheetContext = React.createContext(false);
+
+/** A menu that is a sheet, for what it is made of. */
+const SheetMenuContext = React.createContext<
+  | {
+      readonly side: DrawerSide;
+      readonly open: boolean;
+      readonly close: () => void;
+      /** The sheet has gone from the window: the menu is then closed for itself as well. */
+      readonly gone: () => void;
+    }
+  | undefined
+>(undefined);
+
+/** Where the pages of a sheet are laid, over what the sheet shows first. */
+const SheetPagesContext = React.createContext<HTMLElement | null>(null);
 
 /** The submenu a part is of, where the menu is a sheet. */
 const SheetSubContext = React.createContext<
@@ -24,15 +47,29 @@ const SheetSubContext = React.createContext<
 >(undefined);
 
 /**
- * Where a sheet stands, whatever the menu's anchor says: at the window's foot, across it,
- * and as tall for every page of it, so that it keeps its height from one page to the next.
+ * How much of the window's height a sheet at its foot takes: as it opens, low, where a
+ * thumb reaches all of it, and dragged up. The sheet is as tall for every page of it.
  */
-const SHEET_PLACE =
-  "aperture:fixed! aperture:inset-x-0! aperture:top-auto! aperture:bottom-0! aperture:isolate aperture:z-50 aperture:h-[min(40rem,calc(100dvh-env(safe-area-inset-top)-3rem))] aperture:transform-none! aperture:overflow-hidden aperture:rounded-t-2xl aperture:outline-none";
+const SHEET_HEIGHTS = [0.5, 1];
+
+/** A menu laid in a sheet in place of beside what opened it, whatever its anchor says. */
+const SHEET_PLACED =
+  "aperture:static! aperture:size-full aperture:min-h-0 aperture:transform-none! aperture:outline-none";
 
 /** A sheet's page, which scrolls within itself. */
 const SHEET_PAGE =
-  "aperture:flex aperture:size-full aperture:flex-col aperture:overflow-x-hidden aperture:overflow-y-auto aperture:overscroll-contain aperture:rounded-t-2xl aperture:bg-popover aperture:pr-[max(0.5rem,env(safe-area-inset-right))] aperture:pb-[max(0.5rem,env(safe-area-inset-bottom))] aperture:pl-[max(0.5rem,env(safe-area-inset-left))] aperture:text-popover-foreground aperture:outline-none";
+  "aperture:flex aperture:size-full aperture:min-h-0 aperture:flex-col aperture:overflow-hidden aperture:rounded-[inherit] aperture:bg-popover aperture:text-popover-foreground aperture:outline-none";
+
+/** What scrolls in a sheet's page. */
+const SHEET_SCROLLS =
+  "aperture:min-h-0 aperture:flex-1 aperture:touch-auto aperture:overflow-x-hidden aperture:overflow-y-auto aperture:overscroll-contain aperture:pr-[max(0.5rem,env(safe-area-inset-right))] aperture:pb-[max(0.5rem,env(safe-area-inset-bottom))] aperture:pl-[max(0.5rem,env(safe-area-inset-left))]";
+
+/** A sheet at a side of the window has that side's inset already. */
+const SHEET_SCROLLS_SIDE = {
+  bottom: "",
+  left: "aperture:pl-2",
+  right: "aperture:pr-2",
+} as const;
 
 /** A sheet's row: as tall as a finger needs, and written larger than a menu's. */
 const SHEET_ROW =
@@ -41,59 +78,145 @@ const SHEET_ROW =
 /** A sheet's row that is checked or chosen, with the mark of that at its end. */
 const SHEET_MARKED_ROW = cn(SHEET_ROW, "aperture:pr-10");
 
-/** How far a sheet is dragged down before letting go of it is rid of it. */
-const SHEET_DISMISSED_PX = 72;
+type DropdownMenuProps = Omit<MenuPrimitive.Root.Props, "onOpenChange"> & {
+  sheet?: DrawerSide | false;
+  /** Told without what changed it where a sheet was dragged away. */
+  onOpenChange?: (open: boolean, details?: MenuPrimitive.Root.ChangeEventDetails) => void;
+};
 
 /**
- * The top of a sheet's first page, which it is dragged down by: the sheet goes with the
- * finger, and is gone once it was dragged far enough.
+ * A menu. One that is a `sheet` is shown as a sheet that follows the finger, for a phone,
+ * at the window's foot or at the side named: it is then opened and closed by whoever
+ * shows it, and stays until the sheet has gone from the window.
  */
-function SheetGrip({ onDismiss }: { onDismiss: (() => void) | undefined }) {
-  const from = React.useRef<number | undefined>(undefined);
-  const moved = (event: React.PointerEvent<HTMLDivElement>, by: number, settles: boolean) => {
-    const sheet = event.currentTarget.closest<HTMLElement>("[data-menu-sheet]");
-    if (sheet !== null) {
-      sheet.style.transition = settles ? "transform 200ms ease-out" : "none";
-      sheet.style.transform = by > 0 ? `translateY(${by}px)` : "";
-    }
-  };
+function DropdownMenu({ sheet = false, ...props }: DropdownMenuProps) {
+  if (sheet === false) {
+    return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />;
+  }
+  return <SheetMenu side={sheet} {...props} />;
+}
+
+function SheetMenu({
+  side,
+  open = false,
+  onOpenChange,
+  ...props
+}: Omit<DropdownMenuProps, "sheet"> & { side: DrawerSide }) {
+  const [lingers, setLingers] = React.useState(open);
+  if (open && !lingers) {
+    setLingers(true);
+  }
+  const change = React.useRef(onOpenChange);
+  change.current = onOpenChange;
+  const menu = React.useMemo(
+    () => ({
+      side,
+      open,
+      close: () => change.current?.(false),
+      gone: () => setLingers(false),
+    }),
+    [side, open],
+  );
   return (
-    <div
-      data-slot="dropdown-menu-sheet-grip"
-      className="aperture:flex aperture:h-6 aperture:shrink-0 aperture:touch-none aperture:items-center aperture:justify-center"
-      onPointerDown={(event) => {
-        from.current = event.clientY;
-        event.currentTarget.setPointerCapture(event.pointerId);
-      }}
-      onPointerMove={(event) => {
-        if (from.current !== undefined) {
-          moved(event, event.clientY - from.current, false);
-        }
-      }}
-      onPointerUp={(event) => {
-        const by = from.current === undefined ? 0 : event.clientY - from.current;
-        from.current = undefined;
-        if (by > SHEET_DISMISSED_PX && onDismiss !== undefined) {
-          onDismiss();
-        } else {
-          moved(event, 0, true);
-        }
-      }}
-      onPointerCancel={(event) => {
-        from.current = undefined;
-        moved(event, 0, true);
-      }}
-    >
-      <span
-        aria-hidden
-        className="aperture:h-1 aperture:w-9 aperture:rounded-full aperture:bg-foreground/20"
+    <SheetMenuContext.Provider value={menu}>
+      <MenuPrimitive.Root
+        data-slot="dropdown-menu"
+        // The sheet is what keeps the page behind it from being used.
+        modal={false}
+        open={open || lingers}
+        onOpenChange={onOpenChange}
+        {...props}
       />
-    </div>
+    </SheetMenuContext.Provider>
   );
 }
 
-function DropdownMenu({ ...props }: MenuPrimitive.Root.Props) {
-  return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />;
+/** The menu as a sheet: what it holds scrolls, with its `footer` kept below that. */
+function SheetMenuContent({
+  footer,
+  className,
+  children,
+  finalFocus,
+  ...props
+}: MenuPrimitive.Popup.Props & { footer?: React.ReactNode }) {
+  const menu = React.useContext(SheetMenuContext);
+  const container = usePortalContainer();
+  const [pages, setPages] = React.useState<HTMLElement | null>(null);
+  const [height, setHeight] = React.useState<number | string | null>(SHEET_HEIGHTS[0] ?? null);
+  // It comes in from the window's edge, which it is not at before it is there.
+  const [entered, setEntered] = React.useState(false);
+  React.useEffect(() => setEntered(true), []);
+  if (menu === undefined) {
+    throw new Error("A menu's sheet is shown outside a menu that is a sheet");
+  }
+  const { side } = menu;
+  const snaps = side === "bottom";
+
+  return (
+    <MenuPrimitive.Portal container={container}>
+      <Drawer
+        side={side}
+        open={menu.open && entered}
+        onOpenChange={(next) => {
+          if (!next) {
+            menu.close();
+          }
+        }}
+        onOpenChangeComplete={(next) => {
+          if (!next && !menu.open) {
+            menu.gone();
+          }
+        }}
+        // Its height is this one's to say from the first, also while it has none to be at.
+        snapPoint={height}
+        onSnapPointChange={setHeight}
+        {...(snaps ? { snapPoints: SHEET_HEIGHTS } : {})}
+      >
+        <DrawerFrame>
+          <DrawerPrimitive.Popup
+            data-menu-sheet=""
+            data-side={side}
+            data-height={!snaps || height === SHEET_HEIGHTS[1] ? "full" : "part"}
+            finalFocus={finalFocus}
+            className={drawerPopupClassName(
+              side,
+              side === "bottom" ? "aperture:h-[min(40rem,100%)]" : undefined,
+            )}
+          >
+            <MenuPrimitive.Positioner positionMethod="fixed" className={SHEET_PLACED}>
+              <MenuPrimitive.Popup
+                data-slot="dropdown-menu-content"
+                finalFocus={finalFocus}
+                className={cn(SHEET_PAGE, "aperture:relative", className)}
+                {...props}
+              >
+                <SheetContext.Provider value>
+                  <SheetPagesContext.Provider value={pages}>
+                    <div
+                      data-slot="dropdown-menu-sheet-grip"
+                      className="aperture:flex aperture:h-6 aperture:shrink-0 aperture:items-start aperture:justify-center"
+                    >
+                      <DrawerHandle side={side} />
+                    </div>
+                    <DrawerPrimitive.Content
+                      className={cn(SHEET_SCROLLS, SHEET_SCROLLS_SIDE[side])}
+                    >
+                      {children}
+                    </DrawerPrimitive.Content>
+                    {footer}
+                  </SheetPagesContext.Provider>
+                </SheetContext.Provider>
+                <div
+                  ref={setPages}
+                  className="aperture:pointer-events-none aperture:absolute aperture:inset-0 aperture:overflow-hidden aperture:rounded-[inherit]"
+                />
+              </MenuPrimitive.Popup>
+            </MenuPrimitive.Positioner>
+          </DrawerPrimitive.Popup>
+        </DrawerFrame>
+      </Drawer>
+    </MenuPrimitive.Portal>
+  );
 }
 
 function DropdownMenuPortal({ ...props }: MenuPrimitive.Portal.Props) {
@@ -113,8 +236,7 @@ function DropdownMenuContent({
   anchor,
   collisionPadding,
   collisionAvoidance,
-  sheet = false,
-  onSheetDismiss,
+  footer,
   className,
   children,
   ...props
@@ -129,46 +251,15 @@ function DropdownMenuContent({
     | "collisionPadding"
     | "collisionAvoidance"
   > & {
-    /**
-     * Shows the menu as a sheet at the window's foot, for a phone: its submenus are pages
-     * of it, and it stands where it does whatever it was opened from.
-     */
-    sheet?: boolean;
-    /** The sheet was dragged down to be rid of it: whoever opened it closes it. */
-    onSheetDismiss?: () => void;
+    /** What a menu that is a sheet keeps below what scrolls in it. */
+    footer?: React.ReactNode;
   }) {
   const container = usePortalContainer();
-  if (sheet) {
+  if (React.useContext(SheetMenuContext) !== undefined) {
     return (
-      <MenuPrimitive.Portal container={container}>
-        <MenuPrimitive.Backdrop
-          data-slot="dropdown-menu-sheet-overlay"
-          className="aperture:fixed aperture:inset-0 aperture:z-50 aperture:bg-black/30 aperture:transition-opacity aperture:duration-200 aperture:data-ending-style:opacity-0 aperture:data-starting-style:opacity-0"
-        />
-        <MenuPrimitive.Positioner
-          data-menu-sheet=""
-          positionMethod="fixed"
-          className={cn(
-            SHEET_PLACE,
-            "aperture:shadow-lg aperture:ring-1 aperture:ring-foreground/10",
-          )}
-        >
-          <MenuPrimitive.Popup
-            data-slot="dropdown-menu-content"
-            className={cn(
-              SHEET_PAGE,
-              "aperture:transition-transform aperture:duration-300 aperture:ease-[cubic-bezier(0.32,0.72,0,1)] aperture:data-ending-style:translate-y-full aperture:data-starting-style:translate-y-full aperture:motion-reduce:duration-0",
-              className,
-            )}
-            {...props}
-          >
-            <SheetContext.Provider value>
-              <SheetGrip onDismiss={onSheetDismiss} />
-              {children}
-            </SheetContext.Provider>
-          </MenuPrimitive.Popup>
-        </MenuPrimitive.Positioner>
-      </MenuPrimitive.Portal>
+      <SheetMenuContent footer={footer} className={className} {...props}>
+        {children}
+      </SheetMenuContent>
     );
   }
   return (
@@ -309,7 +400,8 @@ function DropdownMenuSubContent({
 }: React.ComponentProps<typeof DropdownMenuContent>) {
   const sheet = React.useContext(SheetContext);
   const sub = React.useContext(SheetSubContext);
-  const container = usePortalContainer();
+  const pages = React.useContext(SheetPagesContext);
+  const edge = React.useContext(SheetMenuContext)?.side ?? "bottom";
   // What its page is called: what opens it says, by the part of it that names it where
   // it says more than that.
   const [title, setTitle] = React.useState("");
@@ -328,15 +420,14 @@ function DropdownMenuSubContent({
       anchor: _anchor,
       collisionPadding: _padding,
       collisionAvoidance: _avoidance,
-      sheet: _sheet,
-      onSheetDismiss: _dismiss,
+      footer: _footer,
       ...page
     } = props;
     return (
-      <MenuPrimitive.Portal container={container}>
+      <MenuPrimitive.Portal container={pages}>
         <MenuPrimitive.Positioner
           positionMethod="fixed"
-          className={cn(SHEET_PLACE, "aperture:pointer-events-none")}
+          className="aperture:absolute! aperture:inset-0! aperture:transform-none! aperture:outline-none"
         >
           <MenuPrimitive.Popup
             ref={named}
@@ -348,7 +439,7 @@ function DropdownMenuSubContent({
             )}
             {...page}
           >
-            <div className="aperture:sticky aperture:top-0 aperture:z-10 aperture:flex aperture:h-13 aperture:shrink-0 aperture:items-center aperture:bg-popover">
+            <div className="aperture:flex aperture:h-13 aperture:shrink-0 aperture:items-center aperture:px-[max(0.5rem,env(safe-area-inset-left))]">
               <button
                 type="button"
                 data-menu-sheet-back=""
@@ -362,7 +453,9 @@ function DropdownMenuSubContent({
                 {title}
               </span>
             </div>
-            {children}
+            <DrawerPrimitive.Content className={cn(SHEET_SCROLLS, SHEET_SCROLLS_SIDE[edge])}>
+              {children}
+            </DrawerPrimitive.Content>
           </MenuPrimitive.Popup>
         </MenuPrimitive.Positioner>
       </MenuPrimitive.Portal>
