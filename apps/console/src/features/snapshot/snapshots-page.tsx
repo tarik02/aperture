@@ -15,6 +15,7 @@ import { LongName } from "#/components/long-name.tsx";
 import { type RowAction, RowActions, RowContextMenu } from "#/components/row-actions.tsx";
 import { TablePage } from "#/components/table-page.tsx";
 import { TagList } from "#/components/tag-list.tsx";
+import { useAccess } from "#/features/auth/access.ts";
 import { useOpenNewSession } from "#/features/session/session.mutations.ts";
 import {
   useDeleteSnapshotMutation,
@@ -28,6 +29,7 @@ const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle
 
 function SnapshotRow({ snapshot }: { snapshot: Snapshot }) {
   const openNew = useOpenNewSession();
+  const access = useAccess();
   const remove = useDeleteSnapshotMutation();
   const describe = useDescribeSnapshotMutation();
   const [confirming, setConfirming] = useState(false);
@@ -40,19 +42,31 @@ function SnapshotRow({ snapshot }: { snapshot: Snapshot }) {
     });
 
   const actions: ReadonlyArray<RowAction> = [
+    ...(access.makesSessionsIn(snapshot.workspaceId)
+      ? ([
+          {
+            key: "start",
+            label: "New session",
+            icon: Play,
+            shown: "button",
+            onSelect: () => void start(),
+          },
+        ] satisfies ReadonlyArray<RowAction>)
+      : []),
     {
-      key: "start",
-      label: "New session",
-      icon: Play,
-      shown: "button",
-      onSelect: () => void start(),
+      key: "edit",
+      label: "Edit",
+      icon: Pencil,
+      shown: "icon",
+      needs: "snapshots:write",
+      onSelect: () => setEditing(true),
     },
-    { key: "edit", label: "Edit", icon: Pencil, shown: "icon", onSelect: () => setEditing(true) },
     {
       key: "delete",
       label: "Delete",
       icon: Trash2,
       shown: "icon",
+      needs: "snapshots:write",
       destructive: true,
       parted: true,
       onSelect: () => setConfirming(true),

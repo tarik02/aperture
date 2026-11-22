@@ -19,7 +19,8 @@ const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle
 type SessionCardProps = {
   session: Session;
   selected: boolean;
-  onSelect: (selected: boolean, range: boolean) => void;
+  /** Selects it among the others; without, it is not selected. */
+  onSelect: ((selected: boolean, range: boolean) => void) | undefined;
 };
 
 export function SessionCard({ session, selected, onSelect }: SessionCardProps) {
@@ -60,22 +61,24 @@ export function SessionCard({ session, selected, onSelect }: SessionCardProps) {
           <span className="aperture:pointer-events-none aperture:absolute aperture:top-2 aperture:left-2">
             <SessionStatusBadge session={session} />
           </span>
-          <label
-            className={cn(
-              // A finger has no hover: there it is always shown, and large enough to press.
-              "aperture:absolute aperture:top-2 aperture:right-2 aperture:flex aperture:size-6 aperture:items-center aperture:justify-center aperture:rounded-md aperture:bg-background/90 aperture:opacity-0 aperture:transition-opacity aperture:group-hover/card:opacity-100 aperture:focus-within:opacity-100 aperture:pointer-coarse:top-1 aperture:pointer-coarse:right-1 aperture:pointer-coarse:size-10 aperture:pointer-coarse:opacity-100 aperture:pointer-coarse:[&>input]:size-5",
-              selected && "aperture:opacity-100",
-            )}
-          >
-            <input
-              type="checkbox"
-              aria-label="Select session"
-              checked={selected}
-              // The click knows whether Shift was held, which a change does not tell.
-              onClick={(event) => onSelect(!selected, event.shiftKey)}
-              onChange={() => undefined}
-            />
-          </label>
+          {onSelect === undefined ? null : (
+            <label
+              className={cn(
+                // A finger has no hover: there it is always shown, and large enough to press.
+                "aperture:absolute aperture:top-2 aperture:right-2 aperture:flex aperture:size-6 aperture:items-center aperture:justify-center aperture:rounded-md aperture:bg-background/90 aperture:opacity-0 aperture:transition-opacity aperture:group-hover/card:opacity-100 aperture:focus-within:opacity-100 aperture:pointer-coarse:top-1 aperture:pointer-coarse:right-1 aperture:pointer-coarse:size-10 aperture:pointer-coarse:opacity-100 aperture:pointer-coarse:[&>input]:size-5",
+                selected && "aperture:opacity-100",
+              )}
+            >
+              <input
+                type="checkbox"
+                aria-label="Select session"
+                checked={selected}
+                // The click knows whether Shift was held, which a change does not tell.
+                onClick={(event) => onSelect(!selected, event.shiftKey)}
+                onChange={() => undefined}
+              />
+            </label>
+          )}
           <div
             data-console-session-footer
             // Lets a click through to the picture below it: only the menu is its own.

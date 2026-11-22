@@ -21,7 +21,7 @@ import { useId } from "react";
 import { Choice } from "#/components/choice.tsx";
 import { FreshDialog } from "#/components/fresh-dialog.tsx";
 import { TextField } from "#/components/text-field.tsx";
-import { useAccountQuery } from "#/features/auth/auth.queries.ts";
+import { useAccess } from "#/features/auth/access.ts";
 import { SCOPES } from "#/features/token/scopes.ts";
 import {
   type ChosenResource,
@@ -87,17 +87,20 @@ function CreateForm({
   onCreated,
   onDone,
 }: Pick<TokenCreateDialogProps, "account" | "initial" | "onCreated"> & { onDone: () => void }) {
-  const signedIn = useAccountQuery();
+  const access = useAccess();
   const create = useCreateTokenMutation(account?.id);
   const expiryId = useId();
   const reachId = useId();
   const resourcesId = useId();
-  // A scope that its account has nothing of holds a token to nothing more.
-  const admin = account === undefined ? signedIn.data?.admin === true : account.admin;
+  // A scope that its account has nothing of holds a token to nothing more, and a token
+  // makes none of its own account that does more than itself.
+  const offered = SCOPES.filter((one) =>
+    account === undefined ? access.may(one.scope) : account.admin || one.scope !== "admin",
+  );
   const form = useForm({
     defaultValues: {
       name: "",
-      scopes: [...(initial?.scopes ?? [])],
+      scopes: (initial?.scopes ?? []).filter((scope) => offered.some((one) => one.scope === scope)),
       // None for a token that reaches all its account does.
       resources: (initial === undefined || initial.resources.length === 0
         ? null
@@ -172,7 +175,7 @@ function CreateForm({
                   data-slot="checkbox-group"
                   className="aperture:grid aperture:gap-x-4 aperture:gap-y-2 aperture:sm:grid-cols-2"
                 >
-                  {SCOPES.filter((one) => admin || one.scope !== "admin").map((one) => (
+                  {offered.map((one) => (
                     <label
                       key={one.scope}
                       className="aperture:flex aperture:items-start aperture:gap-2.5 aperture:text-sm"

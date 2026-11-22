@@ -10,6 +10,7 @@ import { Link } from "@tanstack/react-router";
 import { Plug, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { AccountSecurityDialog } from "#/features/auth/account-security-dialog.tsx";
+import { useAccess } from "#/features/auth/access.ts";
 import { usePersonQuery } from "#/features/auth/auth.queries.ts";
 import { McpSetupDialog } from "#/features/mcp/mcp-setup-dialog.tsx";
 import { useCloseDrawer } from "#/lib/drawer.ts";
@@ -18,6 +19,7 @@ import { type NavItem, primaryNavItems } from "#/lib/navigation.ts";
 /** What is the account's own, whoever's workspace is shown: how it signs in and what acts for it. */
 export function AccountSidebarGroup({ activeItem }: { activeItem: NavItem | undefined }) {
   const person = usePersonQuery();
+  const access = useAccess();
   const [dialog, setDialog] = useState<"security" | "mcp" | null>(null);
   const closeDrawer = useCloseDrawer();
   const show = (which: "security" | "mcp") => {
@@ -44,7 +46,7 @@ export function AccountSidebarGroup({ activeItem }: { activeItem: NavItem | unde
             </SidebarMenuItem>
           ) : null}
           {primaryNavItems
-            .filter((item) => item.group === "account")
+            .filter((item) => item.group === "account" && access.offers(item))
             .map((item) => (
               <SidebarMenuItem key={item.title}>
                 <SidebarMenuButton

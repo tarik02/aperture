@@ -16,7 +16,7 @@ import { NameDialog } from "#/components/name-dialog.tsx";
 import { type RowAction, RowActions, RowContextMenu } from "#/components/row-actions.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { TablePage } from "#/components/table-page.tsx";
-import { useAccountQuery } from "#/features/auth/auth.queries.ts";
+import { useAccess, useMay } from "#/features/auth/access.ts";
 import { WorkspaceMembersDialog } from "#/features/workspace/workspace-members-dialog.tsx";
 import {
   useCreateWorkspaceMutation,
@@ -29,11 +29,13 @@ import {
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
 function WorkspaceRow({ workspace }: { workspace: Workspace }) {
-  const account = useAccountQuery();
+  const access = useAccess();
   const remove = useDeleteWorkspaceMutation();
   const rename = useRenameWorkspaceMutation();
   const [dialog, setDialog] = useState<"members" | "rename" | "delete" | null>(null);
-  const administers = workspace.role === "admin" || account.data?.admin === true;
+  // Who is in it is told to all its members, and changed by its admins alone.
+  const administers =
+    access.may("workspaces:write") && (workspace.role === "admin" || access.may("admin"));
   const actions: ReadonlyArray<RowAction> = [
     {
       key: "members",
@@ -108,14 +110,17 @@ export function WorkspacesPage() {
   const workspaces = useWorkspacesQuery();
   const create = useCreateWorkspaceMutation();
   const [creating, setCreating] = useState(false);
+  const makes = useMay("workspaces:write");
 
   return (
     <TablePage>
       <PageHeaderActions>
-        <Button data-console-workspace-new size="sm" onClick={() => setCreating(true)}>
-          <Plus />
-          New workspace
-        </Button>
+        {makes ? (
+          <Button data-console-workspace-new size="sm" onClick={() => setCreating(true)}>
+            <Plus />
+            New workspace
+          </Button>
+        ) : null}
       </PageHeaderActions>
       <NameDialog
         title="New workspace"

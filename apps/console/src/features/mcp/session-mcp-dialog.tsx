@@ -16,6 +16,7 @@ import {
   rememberClient,
   rememberedClient,
 } from "#/features/mcp/mcp-steps.tsx";
+import { useAccess } from "#/features/auth/access.ts";
 import { TokenCreateDialog } from "#/features/token/token-create-dialog.tsx";
 
 /** A session's own server takes a token and nothing else, so a client that only signs in is left out. */
@@ -50,6 +51,7 @@ export function SessionMcpDialog({ session, open, onOpenChange }: SessionMcpDial
 
 function SessionMcpSteps({ session }: Pick<SessionMcpDialogProps, "session">) {
   const [clientId, setClientId] = useState(() => rememberedClient(clients, DEFAULT_MCP_CLIENT));
+  const { makesTokens } = useAccess();
   const [makingToken, setMakingToken] = useState(false);
   const makeToken = useRef<HTMLButtonElement>(null);
   const [token, setToken] = useState<string>();
@@ -74,16 +76,18 @@ function SessionMcpSteps({ session }: Pick<SessionMcpDialogProps, "session">) {
               rememberClient(id);
             }}
           />
-          <Button
-            ref={makeToken}
-            type="button"
-            variant="outline"
-            data-console-mcp-token
-            onClick={() => setMakingToken(true)}
-          >
-            <KeyRound />
-            Create token
-          </Button>
+          {makesTokens ? (
+            <Button
+              ref={makeToken}
+              type="button"
+              variant="outline"
+              data-console-mcp-token
+              onClick={() => setMakingToken(true)}
+            >
+              <KeyRound />
+              Create token
+            </Button>
+          ) : null}
         </div>
       </div>
       <DialogBody>

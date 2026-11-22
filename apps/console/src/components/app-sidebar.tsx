@@ -21,7 +21,7 @@ import { ApertureMark } from "#/components/aperture-mark.tsx";
 import { AuthMenu } from "#/components/auth-menu.tsx";
 import { ThemeToggle } from "#/components/theme-toggle.tsx";
 import { AccountSidebarGroup } from "#/features/auth/account-sidebar-group.tsx";
-import { useAccountQuery } from "#/features/auth/auth.queries.ts";
+import { useAccess } from "#/features/auth/access.ts";
 import { RecentSessionsSidebarGroup } from "#/features/session/recent-sessions-sidebar-group.tsx";
 import { WorkspaceSwitcher } from "#/features/workspace/workspace-switcher.tsx";
 import { type NavItem, primaryNavItems, resolveNavItem } from "#/lib/navigation.ts";
@@ -32,7 +32,7 @@ import { type NavItem, primaryNavItems, resolveNavItem } from "#/lib/navigation.
  */
 export function AppSidebar({ collapsible }: { collapsible: "icon" | "offcanvas" }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const account = useAccountQuery();
+  const access = useAccess();
   const activeItem = resolveNavItem(pathname);
   const { isMobile } = useSidebar();
   const closeDrawer = useCloseDrawer();
@@ -78,14 +78,16 @@ export function AppSidebar({ collapsible }: { collapsible: "icon" | "offcanvas" 
       <SidebarContent>
         <NavGroup
           label="Workspace"
-          items={primaryNavItems.filter((item) => item.group === "workspace")}
+          items={primaryNavItems.filter(
+            (item) => item.group === "workspace" && access.offers(item),
+          )}
           activeItem={activeItem}
         />
         <AccountSidebarGroup activeItem={activeItem} />
-        {account.data?.admin === true ? (
+        {access.may("admin") ? (
           <NavGroup
             label="Administration"
-            items={primaryNavItems.filter((item) => item.group === "admin")}
+            items={primaryNavItems.filter((item) => item.group === "admin" && access.offers(item))}
             activeItem={activeItem}
           />
         ) : null}

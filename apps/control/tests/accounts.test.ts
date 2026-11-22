@@ -333,6 +333,54 @@ for (const stores of Control.STORES) {
       }),
     );
 
+    it.effect(
+      "a caller is told what it is held to, and one that signed in is held to nothing",
+      () =>
+        Effect.gen(function* () {
+          const control = yield* Control.Control;
+          const http = yield* HttpClient.HttpClient;
+          const root = yield* Control.account(`Held-${stores}`, true);
+          expect(yield* root.api.accounts.current()).toMatchObject({
+            admin: true,
+            scopes: Control.ALL_SCOPES,
+            resources: null,
+          });
+
+          const free = yield* root.api.accounts.createToken({
+            params: { id: root.account.id },
+            payload: { name: "reader", scopes: ["sessions:read"] },
+          });
+          // Still an admin's account, and the token says what it is for itself.
+          expect(yield* (yield* control.as(free.token)).accounts.current()).toMatchObject({
+            id: root.account.id,
+            admin: true,
+            scopes: ["sessions:read"],
+            resources: null,
+          });
+
+          const held = { workspaces: [], sessions: ["one-session"], snapshots: [] };
+          const narrow = yield* root.api.accounts.createOwnToken({
+            payload: { name: "narrow", scopes: ["sessions:write"], resources: held },
+          });
+          expect(yield* (yield* control.as(narrow.token)).accounts.current()).toMatchObject({
+            scopes: ["sessions:write"],
+            resources: held,
+          });
+
+          const person = yield* signedIn("Held", `held-${stores}@example.test`);
+          const current = yield* http.execute(
+            HttpClientRequest.get(`${control.url}/api/control/account`).pipe(
+              HttpClientRequest.setHeader("cookie", person.cookie),
+            ),
+          );
+          expect(yield* current.json).toMatchObject({
+            id: person.account.id,
+            scopes: null,
+            resources: null,
+          });
+        }),
+    );
+
     it.effect("an account that is no admin makes neither accounts nor tokens", () =>
       Effect.gen(function* () {
         const ada = yield* Control.account("Ada");

@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { filter, Filters } from "#/components/filter-menu.tsx";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
+import { useAccess } from "#/features/auth/access.ts";
 import { SessionCreateDialog } from "#/features/session/session-create-dialog.tsx";
 import { SessionCard } from "#/features/session/session-card.tsx";
 import {
@@ -59,6 +60,8 @@ export function SessionsPage() {
   const resume = useBulkSessionActionMutation("resume");
   const remove = useBulkSessionActionMutation("delete");
   const workspace = useSelectedWorkspace();
+  const access = useAccess();
+  const writes = access.may("sessions:write");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<Status>("all");
   const [order, setOrder] = useState<Order>("created");
@@ -153,27 +156,29 @@ export function SessionsPage() {
             filter({ label: "Sort", value: order, options: ORDERS, onChange: setOrder }),
           ]}
         />
-        <div className="aperture:flex">
-          <Button
-            data-console-create
-            size="sm"
-            aria-label="New session"
-            className="aperture:rounded-r-none"
-            onClick={() => void openNew(workspace === null ? {} : { workspaceId: workspace.id })}
-          >
-            <Plus />
-            <span className="aperture:max-sm:hidden">New session</span>
-          </Button>
-          <Button
-            data-console-create-custom
-            size="icon-sm"
-            aria-label="New session with options"
-            className="aperture:rounded-l-none aperture:border-l-primary-foreground/20"
-            onClick={() => setCreating(true)}
-          >
-            <ChevronDown />
-          </Button>
-        </div>
+        {access.makesSessionsIn(workspace?.id ?? null) ? (
+          <div className="aperture:flex">
+            <Button
+              data-console-create
+              size="sm"
+              aria-label="New session"
+              className="aperture:rounded-r-none"
+              onClick={() => void openNew(workspace === null ? {} : { workspaceId: workspace.id })}
+            >
+              <Plus />
+              <span className="aperture:max-sm:hidden">New session</span>
+            </Button>
+            <Button
+              data-console-create-custom
+              size="icon-sm"
+              aria-label="New session with options"
+              className="aperture:rounded-l-none aperture:border-l-primary-foreground/20"
+              onClick={() => setCreating(true)}
+            >
+              <ChevronDown />
+            </Button>
+          </div>
+        ) : null}
       </PageHeaderActions>
       {searching ? (
         <div className="aperture:flex aperture:shrink-0 aperture:gap-1 aperture:border-b aperture:p-2 aperture:sm:hidden">
@@ -219,7 +224,8 @@ export function SessionsPage() {
                   key={session.id}
                   session={session}
                   selected={selected.has(session.id)}
-                  onSelect={(on, range) => select(session.id, on, range)}
+                  // What is done with the selected is all a change to them.
+                  onSelect={writes ? (on, range) => select(session.id, on, range) : undefined}
                 />
               ))}
             </div>

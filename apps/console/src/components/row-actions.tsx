@@ -15,10 +15,11 @@ import {
 } from "@aperture-browser/ui/components/dropdown-menu";
 import { EllipsisVertical, type LucideIcon } from "lucide-react";
 import { Fragment } from "react";
+import { type Guarded, useAccess } from "#/features/auth/access.ts";
 import { usePhone } from "#/lib/use-phone.ts";
 
 /** One thing done with what a row shows, as its button and its menus offer it. */
-export interface RowAction {
+export interface RowAction extends Guarded {
   readonly key: string;
   readonly label: string;
   readonly icon: LucideIcon;
@@ -41,13 +42,14 @@ const MENU = "aperture:w-auto aperture:min-w-44 aperture:whitespace-nowrap";
  * rest. On a phone the menu has them all, and is all there is.
  */
 export function RowActions({
-  actions,
+  actions: all,
   label = "Actions",
 }: {
   actions: ReadonlyArray<RowAction>;
   label?: string;
 }) {
   const phone = usePhone();
+  const actions = all.filter(useAccess().offers);
   if (actions.length === 0) {
     return null;
   }
@@ -105,12 +107,13 @@ export function RowActions({
 
 /** The same actions where a right click or a long press was, on the row it wraps. */
 export function RowContextMenu({
-  actions,
+  actions: all,
   children,
 }: {
   actions: ReadonlyArray<RowAction>;
   children: React.ReactElement;
 }) {
+  const actions = all.filter(useAccess().offers);
   if (actions.length === 0) {
     return children;
   }

@@ -2084,6 +2084,162 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
     }),
   );
 
+  it.effect("the console offers a token what it is for, and nothing the API would refuse it", () =>
+    Effect.gen(function* () {
+      const proxy = yield* Proxy.Proxy;
+      const control = yield* Control.Control;
+      const viewer = yield* Viewer.Viewer;
+      const fs = yield* FileSystem.FileSystem;
+      const owner = yield* Control.account("Owner", true);
+      const team = yield* owner.api.workspaces.create({ payload: { name: "Team of the held" } });
+      const own = yield* until(
+        "a session on the node that registered",
+        owner.api.sessions.create({ payload: { suspended: true, label: "Owner's own" } }),
+        "30 seconds",
+      );
+      const shared = yield* owner.api.sessions.create({
+        payload: { suspended: true, label: "The team's", workspaceId: team.id },
+      });
+      const reader = yield* owner.api.accounts.createOwnToken({
+        payload: { name: "reader", scopes: ["sessions:read"] },
+      });
+      const held = yield* owner.api.accounts.createOwnToken({
+        payload: {
+          name: "held",
+          scopes: ["sessions:write", "snapshots:write"],
+          resources: { workspaces: [team.id], sessions: [], snapshots: [] },
+        },
+      });
+
+      const page = yield* viewer.open(`${proxy.url}/api/control/openapi.json`);
+      // Whoever was signed in before is not, and a token is given in their place.
+      const signIn = (token: string) =>
+        Effect.gen(function* () {
+          yield* until(
+            "the page being there to sign out from",
+            page.evaluate(
+              `(localStorage.clear(), Promise.all([fetch("/api/auth/sign-out", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }), fetch("/api/control/route/cookie", { method: "DELETE" })]).then(() => true))`,
+              Schema.Boolean,
+            ),
+          );
+          yield* page.evaluate(`void (location.href = "/")`);
+          yield* page.until(`!!document.querySelector("[data-console-sign-in-way]")`);
+          yield* page.click("[data-console-sign-in-way]");
+          yield* page.until(`!!document.querySelector('[data-console-sign-in="token"] input')`);
+          yield* page.click("[data-console-sign-in] input");
+          yield* page.type(token);
+          yield* page.key("Enter", "Enter", ENTER);
+          yield* page.until(`!!document.querySelector('a[href="/-/workspaces"]')`);
+          yield* page.evaluate(`void performance.setResourceTimingBufferSize(2000)`);
+        });
+      const has = (selector: string) =>
+        page.evaluate(`!!document.querySelector(${JSON.stringify(selector)})`, Schema.Boolean);
+      const menuOf = (card: string) =>
+        Effect.gen(function* () {
+          yield* page.click(`${card} [aria-label="Session actions"]`);
+          yield* page.until(`!!document.querySelector('[data-slot="dropdown-menu-item"]')`);
+          return yield* page.evaluate(
+            `[...document.querySelectorAll('[data-slot="dropdown-menu-item"]')].map((item) => item.textContent.trim())`,
+            Schema.Array(Schema.String),
+          );
+        });
+      /** What the page asked of the API and was refused, since it was last loaded. */
+      const refused = page.evaluate(
+        `performance.getEntriesByType("resource").filter((asked) => asked.responseStatus === 403).map((asked) => new URL(asked.name).pathname)`,
+        Schema.Array(Schema.String),
+      );
+      const menuClosed = Effect.gen(function* () {
+        yield* page.key("Escape", "Escape", ESCAPE);
+        yield* page.until(`!document.querySelector('[data-slot="dropdown-menu-item"]')`);
+      });
+
+      // A token that reads sessions sees them, and is offered nothing that changes one.
+      yield* signIn(reader.token);
+      const ownCard = `[data-console-session="${own.id}"]`;
+      yield* page.until(`!!document.querySelector('${ownCard}')`);
+      expect(yield* has("[data-console-create]")).toBe(false);
+      expect(yield* has(`${ownCard} input[type="checkbox"]`)).toBe(false);
+      // It is an admin's, and not for what an admin does, nor for anything else there is.
+      for (const gone of ["snapshots", "tokens", "connected-apps", "people", "nodes", "events"]) {
+        expect([gone, yield* has(`a[href="/-/${gone}"]`)]).toEqual([gone, false]);
+      }
+      expect(yield* menuOf(ownCard)).toEqual(["Open", "Copy link", "Details"]);
+      yield* shot(page, fs, "console-held-reader");
+      yield* shotDark(page, fs, "console-held-reader-dark");
+      yield* menuClosed;
+      yield* page.click(`${ownCard} [data-console-session-footer]`, "right");
+      yield* page.until(`!!document.querySelector("[data-console-session-context]")`);
+      expect(yield* page.text("[data-console-session-context]")).not.toContain("Delete");
+      yield* page.key("Escape", "Escape", ESCAPE);
+      yield* page.until(`!document.querySelector("[data-console-session-context]")`);
+      // Workspaces are told to all, and made and changed by a token that is for it.
+      yield* page.click(`a[href="/-/workspaces"]`);
+      const row = `[data-console-workspace="Team of the held"]`;
+      yield* page.until(`!!document.querySelector('${row}')`);
+      expect(yield* has("[data-console-workspace-new]")).toBe(false);
+      expect(yield* has(`${row} [data-console-row-action="members"]`)).toBe(true);
+      expect(yield* has(`${row} [data-console-row-actions]`)).toBe(false);
+      yield* shot(page, fs, "console-held-reader-workspaces");
+      // A page that is not the token's says so, where its address is come to.
+      yield* page.evaluate(
+        `void (history.pushState({}, "", "/-/tokens"), dispatchEvent(new PopStateEvent("popstate")))`,
+      );
+      yield* page.until(`!!document.querySelector('[data-console-not-allowed="tokens:write"]')`);
+      yield* shot(page, fs, "console-held-not-allowed");
+      const phone = yield* viewer.open(`${proxy.url}/-/sessions`, {
+        width: 390,
+        height: 844,
+        mobile: true,
+      });
+      yield* phone.until(`!!document.querySelector('${ownCard}')`);
+      expect(yield* phone.evaluate(`!!document.querySelector("[data-console-create]")`)).toBe(
+        false,
+      );
+      yield* shot(phone, fs, "console-phone-held-reader");
+      expect(yield* phone.evaluate(`document.documentElement.scrollWidth <= innerWidth`)).toBe(
+        true,
+      );
+      yield* phone.close;
+      // Nothing was asked of the API that it refuses this token.
+      expect(yield* refused).toEqual([]);
+      expect(page.errors()).toEqual([]);
+
+      // A token held to a workspace sees what is there, and makes sessions there alone.
+      yield* signIn(held.token);
+      yield* page.until(`!!document.querySelector("[data-console-empty]")`);
+      expect(yield* has(ownCard)).toBe(false);
+      expect(yield* has("[data-console-create]")).toBe(false);
+      yield* shot(page, fs, "console-held-personal");
+      yield* page.click("[data-console-workspace-switcher]");
+      yield* choose(page, `[data-slot="dropdown-menu-radio-item"]`, "Team of the held");
+      const sharedCard = `[data-console-session="${shared.id}"]`;
+      yield* page.until(`!!document.querySelector('${sharedCard}')`);
+      // The list stays for another choice, and is in the way of what is under it.
+      yield* page.key("Escape", "Escape", ESCAPE);
+      yield* page.until(`!document.querySelector('[data-slot="dropdown-menu-radio-item"]')`);
+      yield* page.until(`!!document.querySelector("[data-console-create]")`);
+      expect(yield* has(`a[href="/-/snapshots"]`)).toBe(true);
+      expect(yield* has(`a[href="/-/tokens"]`)).toBe(false);
+      const offered = yield* menuOf(sharedCard);
+      expect(offered).toEqual(expect.arrayContaining(["Share", "Save to snapshot", "Delete"]));
+      yield* shot(page, fs, "console-held-workspace");
+      yield* shotDark(page, fs, "console-held-workspace-dark");
+      yield* menuClosed;
+      // Its own server is told of with no token to make for it: this one makes none.
+      yield* fromMenu(page, sharedCard, "Details");
+      yield* closed(page);
+      expect(yield* refused).toEqual([]);
+      expect(page.errors()).toEqual([]);
+
+      yield* Effect.forEach([own.id, shared.id], (id) =>
+        owner.api.sessions.delete({ params: { id } }),
+      );
+      expect((yield* (yield* control.as(reader.token)).accounts.current()).scopes).toEqual([
+        "sessions:read",
+      ]);
+    }),
+  );
+
   it.effect(
     "an admin reads what was done on the page of events, by its kind and by who did it",
     () =>

@@ -17,6 +17,7 @@ import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { SecretDialog } from "#/components/secret-dialog.tsx";
 import { TablePage } from "#/components/table-page.tsx";
+import { useAccess } from "#/features/auth/access.ts";
 import { TokenCreateDialog } from "#/features/token/token-create-dialog.tsx";
 import { useRevokeTokenMutation } from "#/features/token/token.mutations.ts";
 import { type ApiToken, useTokensQuery } from "#/features/token/token.queries.ts";
@@ -83,6 +84,9 @@ type TokensPageProps = {
 export function TokensPage({ account }: TokensPageProps) {
   const tokens = useTokensQuery(account?.id);
   const revoke = useRevokeTokenMutation(account?.id);
+  const access = useAccess();
+  // An admin makes another account's as an admin; their own, whoever makes tokens at all.
+  const makes = account === undefined ? access.makesTokens : access.may("admin");
   const [shown, setShown] = useState<Shown>("active");
   const [creating, setCreating] = useState(false);
   const [secret, setSecret] = useState<string>();
@@ -102,10 +106,12 @@ export function TokensPage({ account }: TokensPageProps) {
             filter({ label: "Which tokens", value: shown, options: SHOWN, onChange: setShown }),
           ]}
         />
-        <Button data-console-token-new size="sm" onClick={() => setCreating(true)}>
-          <Plus />
-          New token
-        </Button>
+        {makes ? (
+          <Button data-console-token-new size="sm" onClick={() => setCreating(true)}>
+            <Plus />
+            New token
+          </Button>
+        ) : null}
       </PageHeaderActions>
       {tokens.isError ? (
         <p role="alert" className="aperture:text-sm aperture:text-destructive">

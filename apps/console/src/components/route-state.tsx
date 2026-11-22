@@ -1,8 +1,9 @@
+import type { Scope } from "@aperture-browser/control-api";
 import { Button } from "@aperture-browser/ui/components/button";
 import { Link, type ErrorComponentProps } from "@tanstack/react-router";
 import { ApertureMark } from "#/components/aperture-mark.tsx";
 import { WindowTitlebar } from "#/components/window-titlebar.tsx";
-import { useAccountQuery } from "#/features/auth/auth.queries.ts";
+import { useMay } from "#/features/auth/access.ts";
 import { told } from "#/lib/api.ts";
 import { useDocumentTitle } from "#/lib/document-title.ts";
 
@@ -41,18 +42,20 @@ function RouteState({ title, note, children, action }: RouteStateProps) {
   );
 }
 
-/** What only an admin does, shown to nobody else who comes to its address. */
-export function AdminOnly({ children }: { children: React.ReactNode }) {
-  const account = useAccountQuery();
-  if (account.data?.admin === true) {
+/**
+ * A page of what not everyone may do, shown to nobody else who comes to its address: what
+ * only an admin does, and what the token that is signed in with is not for.
+ */
+export function Only({ needs, children }: { needs: Scope; children: React.ReactNode }) {
+  if (useMay(needs)) {
     return children;
   }
   return (
     <p
-      data-console-admin-only
-      className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
+      data-console-not-allowed={needs}
+      className="aperture:px-4 aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
     >
-      Only an admin sees this page.
+      {needs === "admin" ? "Only an admin sees this page." : "This token is not for this page."}
     </p>
   );
 }

@@ -23,7 +23,7 @@ import { Choice } from "#/components/choice.tsx";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { TextField } from "#/components/text-field.tsx";
 import { type Account, useAccountsQuery } from "#/features/account/account.queries.ts";
-import { useAccountQuery } from "#/features/auth/auth.queries.ts";
+import { useMay } from "#/features/auth/access.ts";
 import {
   useAdmitMemberMutation,
   useDismissMemberMutation,
@@ -56,10 +56,9 @@ export function WorkspaceMembersDialog({
   open,
   onOpenChange,
 }: WorkspaceMembersDialogProps) {
-  const own = useAccountQuery();
   // Whom there is to let in is an admin's to list: anyone else names a person by the
   // address they sign in with, and is told of nobody they did not name.
-  const lists = administers && own.data?.admin === true;
+  const lists = useMay("admin") && administers;
   const accounts = useAccountsQuery(open && lists);
   const admit = useAdmitMemberMutation(workspace.id);
   const dismiss = useDismissMemberMutation(workspace.id);

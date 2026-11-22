@@ -15,7 +15,7 @@ import { useEffect, useState } from "react";
 import { filter, Filters } from "#/components/filter-menu.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { TablePage } from "#/components/table-page.tsx";
-import { useAccountQuery } from "#/features/auth/auth.queries.ts";
+import { useMay } from "#/features/auth/access.ts";
 import { ABOUT, ACTOR, HAPPENED, KINDS } from "#/features/event/event-words.ts";
 import {
   type Event,
@@ -52,7 +52,7 @@ type Shown =
  * what it is about, and then names it without leading anywhere.
  */
 function useShown() {
-  const admin = useAccountQuery().data?.admin === true;
+  const admin = useMay("admin");
   const sessions = useSessionsQuery().data;
   const snapshots = useSnapshotsQuery().data;
   const workspaces = useWorkspacesQuery().data;

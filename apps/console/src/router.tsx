@@ -6,7 +6,7 @@ import {
   redirect,
 } from "@tanstack/react-router";
 import { AppShell } from "#/components/app-shell.tsx";
-import { AdminOnly, NotFound, RouteError } from "#/components/route-state.tsx";
+import { NotFound, Only, RouteError } from "#/components/route-state.tsx";
 import { PeoplePage } from "#/features/account/people-page.tsx";
 import { ServiceAccountTokensPage } from "#/features/account/service-account-tokens-page.tsx";
 import { ServiceAccountsPage } from "#/features/account/service-accounts-page.tsx";
@@ -83,25 +83,41 @@ const pages = createRoute({
 const sessions = createRoute({
   getParentRoute: () => pages,
   path: "/-/sessions",
-  component: SessionsPage,
+  component: () => (
+    <Only needs="sessions:read">
+      <SessionsPage />
+    </Only>
+  ),
 });
 
 const snapshots = createRoute({
   getParentRoute: () => pages,
   path: "/-/snapshots",
-  component: SnapshotsPage,
+  component: () => (
+    <Only needs="snapshots:read">
+      <SnapshotsPage />
+    </Only>
+  ),
 });
 
 const tokens = createRoute({
   getParentRoute: () => pages,
   path: "/-/tokens",
-  component: TokensPage,
+  component: () => (
+    <Only needs="tokens:write">
+      <TokensPage />
+    </Only>
+  ),
 });
 
 const connectedApps = createRoute({
   getParentRoute: () => pages,
   path: "/-/connected-apps",
-  component: ConnectedAppsPage,
+  component: () => (
+    <Only needs="tokens:write">
+      <ConnectedAppsPage />
+    </Only>
+  ),
 });
 
 // Bare, as signing in is: whoever comes is sent by an app, and goes back to it.
@@ -121,9 +137,9 @@ const nodes = createRoute({
   getParentRoute: () => pages,
   path: "/-/nodes",
   component: () => (
-    <AdminOnly>
+    <Only needs="admin">
       <NodesPage />
-    </AdminOnly>
+    </Only>
   ),
 });
 
@@ -131,9 +147,9 @@ const registrationTokens = createRoute({
   getParentRoute: () => pages,
   path: "/-/registration-tokens",
   component: () => (
-    <AdminOnly>
+    <Only needs="admin">
       <RegistrationTokensPage />
-    </AdminOnly>
+    </Only>
   ),
 });
 
@@ -141,9 +157,9 @@ const people = createRoute({
   getParentRoute: () => pages,
   path: "/-/people",
   component: () => (
-    <AdminOnly>
+    <Only needs="admin">
       <PeoplePage />
-    </AdminOnly>
+    </Only>
   ),
 });
 
@@ -151,9 +167,9 @@ const serviceAccounts = createRoute({
   getParentRoute: () => pages,
   path: "/-/service-accounts",
   component: () => (
-    <AdminOnly>
+    <Only needs="admin">
       <ServiceAccountsPage />
-    </AdminOnly>
+    </Only>
   ),
 });
 
@@ -163,9 +179,9 @@ const serviceAccountTokens = createRoute({
   component: function Tokens() {
     const { accountId } = serviceAccountTokens.useParams();
     return (
-      <AdminOnly>
+      <Only needs="admin">
         <ServiceAccountTokensPage accountId={accountId} />
-      </AdminOnly>
+      </Only>
     );
   },
 });
@@ -173,7 +189,11 @@ const serviceAccountTokens = createRoute({
 const events = createRoute({
   getParentRoute: () => pages,
   path: "/-/events",
-  component: EventsPage,
+  component: () => (
+    <Only needs="events:read">
+      <EventsPage />
+    </Only>
+  ),
 });
 
 const session = createRoute({

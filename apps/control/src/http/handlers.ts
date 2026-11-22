@@ -54,10 +54,10 @@ const accounts = HttpApiBuilder.group(
         "current",
         Effect.fn(function* () {
           const caller = yield* CurrentCaller;
-          return yield* Option.match(caller.account, {
-            onNone: () => Effect.fail(new Forbidden({ message: "this token is of no account" })),
-            onSome: Effect.succeed,
-          });
+          if (Option.isNone(caller.account)) {
+            return yield* new Forbidden({ message: "this token is of no account" });
+          }
+          return { ...caller.account.value, scopes: caller.scopes, resources: caller.resources };
         }),
       )
       .handle("list", () => Effect.andThen(admin, accounts.list()))

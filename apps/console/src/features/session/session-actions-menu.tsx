@@ -41,6 +41,7 @@ import { SessionMcpDialog } from "#/features/mcp/session-mcp-dialog.tsx";
 import { SessionProxyDialog } from "#/features/proxy/session-proxy-dialog.tsx";
 import { SessionDetailsDialog } from "#/features/session/session-details-dialog.tsx";
 import { SessionShareDialog } from "#/features/share/session-share-dialog.tsx";
+import { type Guarded, useAccess } from "#/features/auth/access.ts";
 import type { Session } from "#/features/session/session.queries.ts";
 import {
   useDescribeSessionMutation,
@@ -49,7 +50,7 @@ import {
 import { SaveSnapshotDialog } from "#/features/snapshot/save-snapshot-dialog.tsx";
 
 /** One thing done with a session, as a menu of either kind offers it. */
-export interface SessionAction {
+export interface SessionAction extends Guarded {
   readonly key: string;
   readonly label: string;
   readonly icon: LucideIcon;
@@ -66,6 +67,7 @@ export interface SessionAction {
  */
 export function useSessionActions(session: Session, onDeleted?: () => void) {
   const navigate = useNavigate();
+  const access = useAccess();
   const suspend = useSessionActionMutation("suspend");
   const resume = useSessionActionMutation("resume");
   const remove = useSessionActionMutation("delete");
@@ -80,7 +82,7 @@ export function useSessionActions(session: Session, onDeleted?: () => void) {
     toast.success("Link copied");
   };
 
-  const actions: ReadonlyArray<SessionAction> = [
+  const all: ReadonlyArray<SessionAction> = [
     {
       key: "open",
       label: "Open",
@@ -89,13 +91,26 @@ export function useSessionActions(session: Session, onDeleted?: () => void) {
         void navigate({ to: "/-/sessions/$sessionId", params: { sessionId: session.id } }),
     },
     { key: "copy", label: "Copy link", icon: Link2, onSelect: () => void copyLink() },
-    { key: "share", label: "Share", icon: Share2, onSelect: () => setDialog("share") },
+    {
+      key: "share",
+      label: "Share",
+      icon: Share2,
+      needs: "sessions:write",
+      onSelect: () => setDialog("share"),
+    },
     { key: "details", label: "Details", icon: Info, onSelect: () => setDialog("details") },
-    { key: "describe", label: "Edit details", icon: Tags, onSelect: () => setDialog("describe") },
+    {
+      key: "describe",
+      label: "Edit details",
+      icon: Tags,
+      needs: "sessions:write",
+      onSelect: () => setDialog("describe"),
+    },
     {
       key: "proxy",
       label: "Edit routing",
       icon: Waypoints,
+      needs: "sessions:write",
       disabled: !placed,
       onSelect: () => setDialog("proxy"),
     },
@@ -103,6 +118,7 @@ export function useSessionActions(session: Session, onDeleted?: () => void) {
       key: "mcp",
       label: "Connect MCP",
       icon: Plug,
+      needs: "sessions:write",
       disabled: !placed,
       onSelect: () => setDialog("mcp"),
     },
@@ -111,6 +127,7 @@ export function useSessionActions(session: Session, onDeleted?: () => void) {
           key: "resume",
           label: "Resume",
           icon: Play,
+          needs: "sessions:write",
           disabled: !placed,
           parted: true,
           onSelect: () => resume.mutate(session.id),
@@ -119,6 +136,7 @@ export function useSessionActions(session: Session, onDeleted?: () => void) {
           key: "suspend",
           label: "Suspend",
           icon: Pause,
+          needs: "sessions:write",
           disabled: !placed,
           parted: true,
           onSelect: () => suspend.mutate(session.id),
@@ -127,6 +145,7 @@ export function useSessionActions(session: Session, onDeleted?: () => void) {
       key: "snapshot",
       label: "Save to snapshot",
       icon: Camera,
+      needs: "snapshots:write",
       disabled: !placed,
       onSelect: () => setDialog("snapshot"),
     },
@@ -134,11 +153,13 @@ export function useSessionActions(session: Session, onDeleted?: () => void) {
       key: "delete",
       label: "Delete",
       icon: Trash2,
+      needs: "sessions:write",
       destructive: true,
       parted: true,
       onSelect: () => setDialog("delete"),
     },
   ];
+  const actions = all.filter(access.offers);
 
   const dialogs = (
     <>

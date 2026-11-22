@@ -14,6 +14,7 @@ import {
   rememberClient,
   rememberedClient,
 } from "#/features/mcp/mcp-steps.tsx";
+import { useAccess } from "#/features/auth/access.ts";
 import { TokenCreateDialog } from "#/features/token/token-create-dialog.tsx";
 
 const clientOptions = mcpClients.map((client) => ({ value: client.id, label: client.name }));
@@ -48,6 +49,7 @@ export function McpSetupDialog({ open, onOpenChange }: McpSetupDialogProps) {
 function McpSetupSteps() {
   const [clientId, setClientId] = useState(() => rememberedClient(mcpClients, DEFAULT_MCP_CLIENT));
   const [auth, setAuth] = useState<McpSetup["auth"]>("oauth");
+  const { makesTokens } = useAccess();
   const [makingToken, setMakingToken] = useState(false);
   const makeToken = useRef<HTMLButtonElement>(null);
   /** A token made from here, which the steps then have in them. */
@@ -121,7 +123,7 @@ function McpSetupSteps() {
                 ? "The client sends an API token, which does what its scopes say."
                 : "The steps have the token you just made in them. It is not shown again once this is closed."}
           </span>
-          {auth === "token" ? (
+          {auth === "token" && makesTokens ? (
             <Button
               ref={makeToken}
               type="button"

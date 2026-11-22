@@ -64,6 +64,19 @@ export const Account = Schema.Struct({
   disabledAt: Schema.NullOr(Schema.DateTimeUtcFromString),
 });
 
+/**
+ * The account a caller is, with what the caller itself may do as it: what the token it came
+ * with is held to. Whoever signed in with cookies is held to nothing, and neither is a
+ * token that does whatever its account does.
+ */
+export const CurrentAccount = Schema.Struct({
+  ...Account.fields,
+  /** What the caller is held to; none for one that does whatever its account does. */
+  scopes: Schema.NullOr(Schema.Array(Scope)),
+  /** The resources the caller is held to; none for one that reaches all its account does. */
+  resources: Schema.NullOr(TokenResources),
+});
+
 /** What a person signs in with. */
 export const SignInMethods = Schema.Struct({
   /** Whether they have a password: one they set, since nobody is given one. */
@@ -290,7 +303,7 @@ const ofNode = [
 
 export class AccountsGroup extends HttpApiGroup.make("accounts")
   .add(
-    HttpApiEndpoint.get("current", "/account", { success: Account, error: Forbidden }),
+    HttpApiEndpoint.get("current", "/account", { success: CurrentAccount, error: Forbidden }),
     HttpApiEndpoint.get("tokens", "/account/tokens", {
       success: Schema.Array(ApiToken),
       error: Forbidden,
