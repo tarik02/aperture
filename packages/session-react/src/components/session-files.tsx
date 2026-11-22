@@ -221,16 +221,9 @@ function SessionFiles({
           data-session-file-request=""
           className="aperture:flex aperture:flex-col aperture:gap-2 aperture:border-b aperture:border-amber-500/40 aperture:bg-amber-500/10 aperture:p-2.5"
         >
-          <div className="aperture:flex aperture:flex-col aperture:gap-0.5">
-            <span className="aperture:text-sm aperture:font-medium">
-              {request.multiple ? "The page asks for files" : "The page asks for a file"}
-            </span>
-            <span className="aperture:text-xs aperture:text-muted-foreground">
-              {uploads.uploads.length === 0
-                ? "Upload from this device to answer it."
-                : "Pick from the uploads below, or upload from this device."}
-            </span>
-          </div>
+          <span className="aperture:text-sm aperture:font-medium">
+            {request.multiple ? "The page asks for files" : "The page asks for a file"}
+          </span>
           <div className="aperture:flex aperture:flex-wrap aperture:items-center aperture:gap-1.5">
             <Button
               type="button"
@@ -341,7 +334,7 @@ function SessionFiles({
                     size="icon-xs"
                     variant="ghost"
                     aria-label={`Remove ${file.name}`}
-                    className="aperture:shrink-0 aperture:opacity-55 aperture:group-hover/file:opacity-100 aperture:hover:opacity-100"
+                    className="aperture:shrink-0 aperture:opacity-55 aperture:group-hover/file:opacity-100 aperture:hover:opacity-100 aperture:pointer-coarse:opacity-100"
                     disabled={!puts}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -354,10 +347,11 @@ function SessionFiles({
               );
             })}
             {uploads.uploads.length === 0 && uploads.inProgress.length === 0 ? (
-              <p className="aperture:rounded-md aperture:border aperture:border-dashed aperture:px-2 aperture:py-3 aperture:text-center aperture:text-xs aperture:text-muted-foreground">
-                {puts
-                  ? "Nothing uploaded. Drop files here, or onto the page itself."
-                  : "Nothing uploaded."}
+              <p
+                title={puts ? "Drop files here, or onto the page itself" : undefined}
+                className="aperture:rounded-md aperture:border aperture:border-dashed aperture:px-2 aperture:py-3 aperture:text-center aperture:text-xs aperture:text-muted-foreground"
+              >
+                Nothing uploaded
               </p>
             ) : null}
           </section>
@@ -378,7 +372,7 @@ function SessionFiles({
             ))}
             {listed.length === 0 ? (
               <p className="aperture:px-1.5 aperture:py-1 aperture:text-xs aperture:text-muted-foreground">
-                The session has downloaded nothing.
+                No downloads
               </p>
             ) : null}
           </section>

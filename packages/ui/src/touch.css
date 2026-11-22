@@ -21,7 +21,8 @@
       min-height: 2.5rem;
     }
 
-    [data-button][data-icon-button]:not([data-touch-dense]) {
+    /* As wide as well: one that says nothing on a phone but its icon is narrow there. */
+    [data-button]:not([data-touch-dense]) {
       min-width: 2.5rem;
     }
 

@@ -174,7 +174,7 @@ export function AddressBar() {
   const address = useAddress();
 
   return (
-    <InputGroup className="aperture:h-7 aperture:min-w-0 aperture:pointer-coarse:h-9 aperture:border-transparent aperture:bg-transparent aperture:transition-colors aperture:hover:border-input/50 aperture:hover:bg-muted/35 aperture:has-[[data-slot=input-group-control]:focus-visible]:border-input/70 aperture:has-[[data-slot=input-group-control]:focus-visible]:bg-background aperture:has-[[data-slot=input-group-control]:focus-visible]:ring-2 aperture:has-[[data-slot=input-group-control]:focus-visible]:ring-ring/20 aperture:dark:hover:bg-input/20">
+    <InputGroup className="aperture:h-7 aperture:min-w-0 aperture:pointer-coarse:h-10 aperture:border-transparent aperture:bg-transparent aperture:transition-colors aperture:hover:border-input/50 aperture:hover:bg-muted/35 aperture:has-[[data-slot=input-group-control]:focus-visible]:border-input/70 aperture:has-[[data-slot=input-group-control]:focus-visible]:bg-background aperture:has-[[data-slot=input-group-control]:focus-visible]:ring-2 aperture:has-[[data-slot=input-group-control]:focus-visible]:ring-ring/20 aperture:dark:hover:bg-input/20">
       <InputGroupInput
         data-workbench-address=""
         aria-label="Address"
@@ -202,7 +202,7 @@ export function AddressBar() {
         autoCorrect="off"
         spellCheck={false}
         // A phone zooms into a field whose text is smaller than this.
-        className="aperture:h-7 aperture:px-2 aperture:font-mono aperture:text-xs aperture:text-muted-foreground aperture:transition-colors aperture:focus-visible:text-foreground aperture:pointer-coarse:h-9 aperture:pointer-coarse:text-base"
+        className="aperture:h-7 aperture:px-2 aperture:font-mono aperture:text-xs aperture:text-muted-foreground aperture:transition-colors aperture:focus-visible:text-foreground aperture:pointer-coarse:h-10 aperture:pointer-coarse:text-base"
         disabled={!address.navigates}
       />
     </InputGroup>

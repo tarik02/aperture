@@ -27,7 +27,8 @@ export function WorkspaceSwitcher() {
           <SidebarMenuButton
             data-console-workspace-switcher
             tooltip={selected?.name ?? "Personal"}
-            className="aperture:border"
+            // What opens a menu is named after that, and is as tall under a finger as the rest.
+            className="aperture:border aperture:pointer-coarse:min-h-10"
           />
         }
       >

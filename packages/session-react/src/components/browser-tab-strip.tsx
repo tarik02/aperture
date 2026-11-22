@@ -67,7 +67,8 @@ export function BrowserTabStrip() {
       >
         <div
           data-browser-tab-strip-tabs=""
-          className="aperture:flex aperture:min-w-max aperture:items-end aperture:gap-0.5 aperture:px-1 aperture:pt-1"
+          // Under a finger a tab is as tall as the strip: nothing of it is too small to press.
+          className="aperture:flex aperture:min-w-max aperture:items-end aperture:gap-0.5 aperture:px-1 aperture:pt-1 aperture:pointer-coarse:pt-0"
         >
           {targets.map((target) => (
             <BrowserTab
@@ -150,7 +151,7 @@ function BrowserTab({
       data-tab={target.tab}
       data-active={active ? "" : undefined}
       className={cn(
-        "aperture:group aperture:relative aperture:flex aperture:h-7 aperture:pointer-coarse:h-9 aperture:w-52 aperture:max-w-[38vw] aperture:min-w-28 aperture:items-center aperture:gap-1.5 aperture:rounded-t-lg aperture:border aperture:border-b-0 aperture:px-2 aperture:text-left aperture:text-xs aperture:transition-[background-color,border-color,color] aperture:select-none",
+        "aperture:group aperture:relative aperture:flex aperture:h-7 aperture:pointer-coarse:h-10 aperture:w-52 aperture:max-w-[38vw] aperture:min-w-28 aperture:items-center aperture:gap-1.5 aperture:rounded-t-lg aperture:border aperture:border-b-0 aperture:px-2 aperture:text-left aperture:text-xs aperture:transition-[background-color,border-color,color] aperture:select-none",
         active
           ? "aperture:border-border aperture:bg-background aperture:text-foreground"
           : "aperture:border-transparent aperture:bg-muted/55 aperture:text-muted-foreground aperture:hover:bg-muted",

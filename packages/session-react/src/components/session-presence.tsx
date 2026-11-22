@@ -88,7 +88,8 @@ export function SessionPresence() {
           className={cn(
             "aperture:relative aperture:transition-[margin] aperture:duration-200",
             (index > 0 || overflow > 0) &&
-              "aperture:-ml-2 aperture:group-focus-within:ml-0 aperture:group-hover:ml-0",
+              // A finger rests on nothing to spread them: there each stands whole.
+              "aperture:-ml-2 aperture:group-focus-within:ml-0 aperture:group-hover:ml-0 aperture:pointer-coarse:ml-0",
           )}
           style={{ zIndex: visible.length - index }}
         >
