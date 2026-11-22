@@ -23,6 +23,7 @@ Refusals here are plain text with a status: `401` no good credential, `403` the 
 | `GET /` | The workbench page; append `?token=<ticket>` | watching |
 | `GET /targets` | The tabs: `id`, `tab`, `title`, `url`, size | watching |
 | `GET /targets/{tab}/screenshot.png` | The tab as a PNG, now | watching |
+| `GET /targets/{tab}/favicon` | The icon of the tab's page, as the session's browser fetches it; `204` where the page has none | watching |
 | `GET /recordings`, `GET /screenshots`, `GET /downloads`, `GET /uploads` | What there is of each, as JSON | `recordings:r`, `downloads:r`, `uploads:r` |
 | `GET /files/<path>` | A file's bytes, `path` as the `files` tool gives it | the area of its directory |
 | `PUT /uploads/{name}` | Puts a file for a page to take; the body is the bytes | `uploads:w` |

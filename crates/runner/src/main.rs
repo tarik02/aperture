@@ -434,6 +434,7 @@ impl Session {
             targets: targets(),
             tabs,
             previews: Arc::default(),
+            icons: Arc::default(),
             recordings: recordings.clone(),
             egress: self.egress.clone(),
             rtc_ports: spec.rtc_ports,

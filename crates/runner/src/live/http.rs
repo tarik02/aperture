@@ -59,6 +59,7 @@ pub struct Live {
     pub tabs: Tabs,
     /// The small pictures of the tabs that were last made.
     pub previews: Arc<shots::Previews>,
+    pub icons: Arc<super::icons::Icons>,
     pub recordings: Recordings,
     pub egress: Arc<Egress>,
     pub rtc_ports: Option<PortRange>,
@@ -85,6 +86,7 @@ pub async fn serve(socket: &Path, live: Live, automation: Arc<Automation>) -> st
         .route("/targets", get(targets_list))
         .route("/targets/{id}/screenshot.png", get(screenshot))
         .route("/targets/{id}/preview.png", get(preview))
+        .route("/targets/{id}/favicon", get(favicon))
         .route("/targets/{id}/viewport", put(viewport_set))
         .route("/targets/{id}/mode", put(mode_set))
         .route("/proxy", put(proxy_update))
@@ -435,6 +437,36 @@ async fn preview(
     }
     let png = Body::from(made.png.clone());
     Ok((caching, [(header::CONTENT_TYPE, "image/png")], png).into_response())
+}
+
+/// The icon of the target's page, which whoever asked keeps for a while: the address it
+/// is asked at says which site's it is.
+async fn favicon(
+    State(live): State<Live>,
+    RoutePath(id): RoutePath<String>,
+) -> Result<Response, Refusal> {
+    let target = live.target(Some(&id))?;
+    let known: Vec<String> = live
+        .targets
+        .borrow()
+        .iter()
+        .map(|target| target.id.clone())
+        .collect();
+    let Some(icon) = live.icons.of(&live.pages, &target, &known).await else {
+        // Nothing, which whoever shows it takes as no picture, and no failure to tell of.
+        return Ok(StatusCode::NO_CONTENT.into_response());
+    };
+    let told = [
+        (header::CONTENT_TYPE, icon.kind),
+        (header::CACHE_CONTROL, "private, max-age=600"),
+        // An icon is drawn, and runs nothing where it is shown by itself.
+        (
+            header::CONTENT_SECURITY_POLICY,
+            "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+        ),
+        (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+    ];
+    Ok((told, Body::from(icon.bytes.clone())).into_response())
 }
 
 /// How a screenshot is asked for.

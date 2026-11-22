@@ -1,10 +1,12 @@
 import * as UrlPath from "@aperture-browser/shared/url-path";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { Executor } from "../src/executor.ts";
 import * as Node from "../src/node.ts";
 import type { Target } from "../src/runner.ts";
 import { suite } from "../src/suite.ts";
+import { until } from "../src/wait.ts";
 
 const node = Node.layer({ features: ["cdp"] });
 
@@ -174,5 +176,65 @@ suite(node)("the targets of a session on a node", (it) => {
       );
       expect(all.map((target) => target.id)).toEqual([firstTab.id, opened.id]);
     }),
+  );
+
+  it.effect(
+    "how a tab's pages are shown stays the tab's when the session is suspended and resumed",
+    () =>
+      Effect.gen(function* () {
+        const executor = yield* Executor;
+        const mode = yield* executor.session(
+          session,
+          "PUT",
+          UrlPath.make`/targets/${opened.id}/mode`,
+          { mode: "mobile" },
+        );
+        expect(mode.status).toBe(204);
+        const before = (yield* Node.targetsOnce(
+          executor,
+          session,
+          "the tab being shown as on a phone",
+          (all) => all.some((target) => target.id === opened.id && target.mobile),
+        )).find((target) => target.id === opened.id);
+
+        const SAYS = `JSON.stringify({ agent: /Mobile/u.test(navigator.userAgent), touches: navigator.maxTouchPoints > 0, coarse: matchMedia("(pointer: coarse)").matches, width: innerWidth })`;
+        // The page there loads again as a phone's a moment after the tab is told to be one.
+        const phone = yield* until(
+          "the tab's page being a phone's",
+          opened.page
+            .evaluate(SAYS, Schema.String)
+            .pipe(Effect.map((said) => said.startsWith(`{"agent":true,"touches":true,"coarse":true`) && said)),
+        );
+
+        yield* executor.client.sessions.suspend(session);
+        yield* executor.client.sessions.resume(session);
+
+        // The tab is another target after the session ran anew, and the same tab.
+        const all = yield* Node.targetsOnce(
+          executor,
+          session,
+          "the tab being there again, shown as on a phone",
+          (all) => all.some((target) => target.tab === before?.tab && target.mobile),
+        );
+        const after = all.find((target) => target.tab === before?.tab);
+        expect(after).toMatchObject({ mode: "mobile", mobile: true, width: before?.width });
+        expect(after?.id).not.toBe(opened.id);
+        // The tab that was left to its holder is left to its holder.
+        expect(all.find((target) => target.tab === firstTab.tab)).toMatchObject({
+          mode: "auto",
+          mobile: false,
+        });
+
+        // Its page is asked for and laid out as a phone's again, not only told to be one.
+        const cdp = yield* executor.cdp(session);
+        const page = yield* cdp.attach(after?.id ?? "");
+        const shown = page.evaluate(SAYS, Schema.String);
+        yield* until(
+          "the resumed tab's page being a phone's",
+          shown.pipe(Effect.map((said) => said === phone)),
+          "10 seconds",
+        ).pipe(Effect.ignore);
+        expect(yield* shown).toBe(phone);
+      }).pipe(Effect.scoped),
   );
 });

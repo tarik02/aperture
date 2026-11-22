@@ -9,6 +9,7 @@ pub mod edit;
 mod encode;
 mod encoders;
 mod http;
+pub mod icons;
 mod mcp;
 mod net;
 pub mod record;

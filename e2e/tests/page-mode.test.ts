@@ -3,6 +3,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Mcp from "../src/mcp.ts";
@@ -17,9 +18,20 @@ import { clickPicture, comes } from "../src/workbench.ts";
 /** A site that tells each page what the page was asked for with. */
 class Echo extends Context.Service<Echo, Site.Site>()("@aperture-browser/e2e/page-mode/Echo") {}
 
+/** The site's icon: a picture of one pixel. */
+const ICON = Uint8Array.from(
+  atob(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+  ),
+  (letter) => letter.charCodeAt(0),
+);
+
 const echo = Site.by((request) =>
-  Site.html(`<!doctype html>
+  request.url === "/icon.png"
+    ? Effect.succeed(HttpServerResponse.uint8Array(ICON, { contentType: "image/png" }))
+    : Site.html(`<!doctype html>
     <meta name="viewport" content="width=device-width,initial-scale=1">
+    <link rel="icon" href="/icon.png">
     <title>seen</title>
     <body style="margin:0;height:3000px">
     <script>
@@ -369,6 +381,34 @@ suite(session)("how a tab's pages are shown, with a desktop, a phone and the aut
       expect((yield* preview("not the token")).status).toBe(401);
       const none = yield* runner.request("GET", "/targets/999/preview.png");
       expect(none.status).toBe(404);
+    }),
+  );
+
+  it.effect("a tab has its page's icon, which the session fetches, for whoever is let in", () =>
+    Effect.gen(function* () {
+      const runner = yield* Runner.Runner;
+      const site = yield* Echo;
+      const client = yield* HttpClient.HttpClient;
+      const icon = (token: string | undefined, of = tab) =>
+        client.execute(
+          HttpClientRequest.get(`${runner.url}/targets/${of}/favicon`).pipe(
+            token === undefined ? (bare) => bare : HttpClientRequest.bearerToken(token),
+          ),
+        );
+      const before = site.asked().filter((path) => path === "/icon.png").length;
+      const first = yield* icon(runner.token);
+      expect(first.status).toBe(200);
+      expect(first.headers["content-type"]).toBe("image/png");
+      expect(new Uint8Array(yield* first.arrayBuffer)).toEqual(ICON);
+      // Asked again, it is the one the session has: the site is not asked each time.
+      const asked = site.asked().filter((path) => path === "/icon.png").length;
+      expect((yield* icon(runner.token)).status).toBe(200);
+      expect(site.asked().filter((path) => path === "/icon.png")).toHaveLength(asked);
+      expect(asked - before).toBeLessThanOrEqual(1);
+
+      expect((yield* icon(undefined)).status).toBe(401);
+      expect((yield* icon("not the token")).status).toBe(401);
+      expect((yield* icon(runner.token, 999)).status).toBe(404);
     }),
   );
 

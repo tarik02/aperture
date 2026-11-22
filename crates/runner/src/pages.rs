@@ -5,7 +5,7 @@
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
-use anyhow::{Context, bail};
+use anyhow::{Context, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::{
@@ -486,30 +486,122 @@ impl Pages {
         } else {
             content.as_bytes().to_vec()
         };
-        let kind = match bytes.as_slice() {
-            [0x89, b'P', b'N', b'G', ..] => "image/png",
-            [0xff, 0xd8, ..] => "image/jpeg",
-            [b'G', b'I', b'F', b'8', ..] => "image/gif",
-            [
-                b'R',
-                b'I',
-                b'F',
-                b'F',
-                _,
-                _,
-                _,
-                _,
-                b'W',
-                b'E',
-                b'B',
-                b'P',
-                ..,
-            ] => "image/webp",
-            _ if content.contains("<svg") => "image/svg+xml",
-            _ => bail!("not a picture"),
-        };
+        let kind = picture_kind(&bytes).context("not a picture")?;
         Ok((kind, bytes))
     }
+
+    /// The icon of the target's page, as the session's own browser fetches it: its bytes,
+    /// and what kind of picture they are. The page's site is asked by the session, as for
+    /// anything else the page shows, and is told nothing of who watches.
+    pub async fn icon(&self, target: &str) -> anyhow::Result<(&'static str, Vec<u8>)> {
+        use base64::Engine;
+        let decode = |text: &str| base64::engine::general_purpose::STANDARD.decode(text);
+        let named = self
+            .call(
+                target,
+                "Runtime.evaluate",
+                json!({ "expression": ICON_OF_PAGE, "returnByValue": true }),
+            )
+            .await?;
+        let url = named["result"]["value"]
+            .as_str()
+            .context("the page names no icon")?;
+        let bytes = if let Some(told) = url.strip_prefix("data:") {
+            let (how, data) = told.split_once(',').context("not an icon")?;
+            match how.ends_with(";base64") {
+                true => decode(data.trim())?,
+                false => percent_encoding::percent_decode_str(data).collect(),
+            }
+        } else {
+            let frames = self.call(target, "Page.getFrameTree", json!({})).await?;
+            let frame = frames["frameTree"]["frame"]["id"]
+                .as_str()
+                .context("the page has no frame")?;
+            let loaded = self
+                .call(
+                    target,
+                    "Network.loadNetworkResource",
+                    json!({
+                        "frameId": frame,
+                        "url": url,
+                        "options": { "disableCache": false, "includeCredentials": true },
+                    }),
+                )
+                .await?;
+            let resource = &loaded["resource"];
+            ensure!(resource["success"] == true, "the icon did not load");
+            let stream = resource["stream"].as_str().context("the icon is empty")?;
+            let mut bytes = Vec::new();
+            let read = async {
+                loop {
+                    let part = self
+                        .call(target, "IO.read", json!({ "handle": stream }))
+                        .await?;
+                    let data = part["data"].as_str().unwrap_or_default();
+                    match part["base64Encoded"] == true {
+                        true => bytes.extend(decode(data)?),
+                        false => bytes.extend(data.as_bytes()),
+                    }
+                    ensure!(bytes.len() <= ICON_MOST, "the icon is too large");
+                    if part["eof"] == true {
+                        return Ok(());
+                    }
+                }
+            };
+            let read: anyhow::Result<()> = read.await;
+            let closed = self.call(target, "IO.close", json!({ "handle": stream }));
+            closed.await.ok();
+            read?;
+            bytes
+        };
+        let kind = picture_kind(&bytes).context("not an icon")?;
+        Ok((kind, bytes))
+    }
+}
+
+/// The largest icon that is taken from a page, in bytes.
+const ICON_MOST: usize = 1024 * 1024;
+
+/// Which icon a page names for itself: one that is drawn at any size, else one of a size a
+/// list of tabs shows well, else the first, and where it names none, the one its site has
+/// where sites have theirs. A page that is not of the web has none.
+const ICON_OF_PAGE: &str = r#"(() => {
+  const links = [...document.querySelectorAll('link[rel~="icon" i][href]')];
+  const sized = (link) => /(^|\s)(32x32|48x48|64x64|96x96)(\s|$)/u.test(link.getAttribute("sizes") ?? "");
+  const link = links.find((one) => one.type === "image/svg+xml") ?? links.find(sized) ?? links[0];
+  if (link !== undefined) {
+    return /^(https?|data):/u.test(link.href) ? link.href : null;
+  }
+  return /^https?:$/u.test(location.protocol) ? new URL("/favicon.ico", location.origin).href : null;
+})()"#;
+
+/// What kind of picture the bytes are, where they are one a browser shows.
+fn picture_kind(bytes: &[u8]) -> Option<&'static str> {
+    Some(match bytes {
+        [0x89, b'P', b'N', b'G', ..] => "image/png",
+        [0xff, 0xd8, ..] => "image/jpeg",
+        [b'G', b'I', b'F', b'8', ..] => "image/gif",
+        [0, 0, 1, 0, ..] => "image/x-icon",
+        [
+            b'R',
+            b'I',
+            b'F',
+            b'F',
+            _,
+            _,
+            _,
+            _,
+            b'W',
+            b'E',
+            b'B',
+            b'P',
+            ..,
+        ] => "image/webp",
+        _ if String::from_utf8_lossy(&bytes[..bytes.len().min(4096)]).contains("<svg") => {
+            "image/svg+xml"
+        }
+        _ => return None,
+    })
 }
 
 /// What follows the pages for [`Pages`].
