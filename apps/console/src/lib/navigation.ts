@@ -27,7 +27,7 @@ export type NavItem = {
     | "/-/people"
     | "/-/service-accounts"
     | "/-/sign-in-providers"
-    | "/-/events";
+    | "/-/audit";
   icon: LucideIcon;
   group: "workspace" | "account" | "admin";
   /** Where it stands for whoever is no admin, who is shown no group of an admin's. */
@@ -85,8 +85,8 @@ export const primaryNavItems: NavItem[] = [
   },
   // An admin reads everyone's; anyone else their own account's and their workspaces'.
   {
-    title: "Events",
-    to: "/-/events",
+    title: "Audit",
+    to: "/-/audit",
     icon: ScrollText,
     group: "admin",
     otherwise: "account",

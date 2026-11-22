@@ -10,31 +10,32 @@ import {
   TableRow,
 } from "@aperture-browser/ui/components/table";
 import { Link } from "@tanstack/react-router";
-import { Search, X } from "lucide-react";
+import { ScrollText, Search, X } from "lucide-react";
 import { useState } from "react";
 import { filter, Filters } from "#/components/filter-menu.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { TablePage } from "#/components/table-page.tsx";
 import { useMay } from "#/features/auth/access.ts";
-import { ABOUT, ACTOR, HAPPENED, KINDS } from "#/features/event/event-words.ts";
+import { ABOUT, ACTOR, HAPPENED, KINDS } from "#/features/audit/event-words.ts";
 import {
   type Event,
   useAdministeredQuery,
   useEventsQuery,
-} from "#/features/event/event.queries.ts";
+} from "#/features/audit/event.queries.ts";
 import { useSessionsQuery } from "#/features/session/session.queries.ts";
 import { useSnapshotsQuery } from "#/features/snapshot/snapshot.queries.ts";
 import { useWorkspacesQuery } from "#/features/workspace/workspace.queries.ts";
 import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
 import { type ListSearchShape, useListSearch, useSearchText } from "#/lib/list-search.ts";
+import { ListEmpty, ListNoMatch } from "#/components/list-empty.tsx";
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
 
 const ALL = "all";
 const EVERY_KIND = [{ value: ALL, label: "All events" }] as const;
 /** Which events are listed, as the page's address keeps it. */
-export const EVENTS_SEARCH = {
+export const AUDIT_SEARCH = {
   kind: [ALL, ...KINDS.flatMap((group) => group.kinds.map((one) => one.value))],
   actor: "text",
 } as const satisfies ListSearchShape;
@@ -133,10 +134,10 @@ function About({ event, shown }: { event: Event; shown: Shown | undefined }) {
  * What was done by whom, the newest first: all of it for an admin, and for anyone else what
  * is their own account's and their workspaces'.
  */
-export function EventsPage() {
+export function AuditPage() {
   // What is searched for is asked of the control plane once the typing rests, as the
   // address says it.
-  const [{ kind, actor }, setList] = useListSearch(EVENTS_SEARCH);
+  const [{ kind, actor }, setList] = useListSearch(AUDIT_SEARCH);
   const [search, setSearch] = useSearchText(actor, (text) => setList({ actor: text }));
   const setKind = (next: EventKind | typeof ALL) => setList({ kind: next });
   /** Whether the field to search by is open, where it is not always there. */
@@ -212,12 +213,18 @@ export function EventsPage() {
           {told(events.error)}
         </p>
       ) : events.isSuccess && listed.length === 0 ? (
-        <p
-          data-console-empty
-          className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
-        >
-          No events.
-        </p>
+        kind !== ALL || actor !== "" ? (
+          <ListNoMatch
+            title="No event matches"
+            onClear={() => {
+              setSearch("");
+              setSearching(false);
+              setList({ kind: ALL, actor: "" });
+            }}
+          />
+        ) : (
+          <ListEmpty icon={ScrollText} title="No events yet" />
+        )
       ) : (
         <Table>
           <TableHeader>

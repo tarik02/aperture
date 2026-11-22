@@ -1,4 +1,5 @@
 import { Badge } from "@aperture-browser/ui/components/badge";
+import { Button } from "@aperture-browser/ui/components/button";
 import {
   Table,
   TableBody,
@@ -7,7 +8,8 @@ import {
   TableHeader,
   TableRow,
 } from "@aperture-browser/ui/components/table";
-import { Pencil, Play, Trash2 } from "lucide-react";
+import { Layers, Pencil, Play, Trash2 } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { DescribeDialog } from "#/components/describe-dialog.tsx";
@@ -25,6 +27,7 @@ import { type Snapshot, useSnapshotsQuery } from "#/features/snapshot/snapshot.q
 import { useSelectedWorkspace } from "#/features/workspace/workspace.queries.ts";
 import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
+import { ListEmpty } from "#/components/list-empty.tsx";
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
@@ -128,6 +131,7 @@ function SnapshotRow({ snapshot }: { snapshot: Snapshot }) {
 export function SnapshotsPage() {
   const snapshots = useSnapshotsQuery();
   const workspace = useSelectedWorkspace();
+  const access = useAccess();
   const shown = snapshots.data?.filter(
     (snapshot) => snapshot.workspaceId === (workspace?.id ?? null),
   );
@@ -141,12 +145,15 @@ export function SnapshotsPage() {
   }
   if (shown?.length === 0) {
     return (
-      <p
-        data-console-empty
-        className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
-      >
-        No snapshots yet. Save one from a session's menu.
-      </p>
+      <TablePage>
+        <ListEmpty icon={Layers} title="No snapshots yet">
+          {access.may("sessions:read") ? (
+            <Button size="sm" variant="outline" render={<Link to="/-/sessions" />}>
+              Save one from a session
+            </Button>
+          ) : null}
+        </ListEmpty>
+      </TablePage>
     );
   }
   return (

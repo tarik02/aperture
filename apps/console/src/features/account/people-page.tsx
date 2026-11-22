@@ -8,7 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@aperture-browser/ui/components/table";
-import { Link2, Plus } from "lucide-react";
+import { Plus, Users } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
@@ -34,6 +34,7 @@ import { useAccountQuery } from "#/features/auth/auth.queries.ts";
 import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
 import { useLast } from "#/lib/use-last.ts";
+import { ListEmpty } from "#/components/list-empty.tsx";
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
@@ -162,12 +163,12 @@ export function PeoplePage() {
           {told(accounts.error)}
         </p>
       ) : people?.length === 0 ? (
-        <p
-          data-console-empty
-          className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
-        >
-          Nobody yet.
-        </p>
+        <ListEmpty icon={Users} title="No people yet">
+          <Button size="sm" onClick={() => setCreating(true)}>
+            <Plus />
+            New person
+          </Button>
+        </ListEmpty>
       ) : (
         <Table stickyActionColumn>
           <TableHeader>
@@ -210,23 +211,8 @@ export function PeoplePage() {
                       {when.format(new Date(account.createdAt.epochMilliseconds))}
                     </TableCell>
                     <TableCell>
-                      <div className="aperture:flex aperture:items-center aperture:justify-end aperture:gap-1">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          data-console-setup-link
-                          className="aperture:max-sm:hidden"
-                          disabled={setupLink.isPending}
-                          onClick={() => onSelect("setup-link")}
-                        >
-                          <Link2 />
-                          Setup link
-                        </Button>
-                        <PersonActionsMenu
-                          actions={actions}
-                          buttoned="setup-link"
-                          onSelect={onSelect}
-                        />
+                      <div className="aperture:flex aperture:justify-end">
+                        <PersonActionsMenu actions={actions} onSelect={onSelect} />
                       </div>
                     </TableCell>
                   </TableRow>

@@ -67,7 +67,14 @@ export function useListSearch<Shape extends ListSearchShape>(shape: Shape) {
     void navigate({
       to: ".",
       replace: true,
-      search: ((before: Record<string, unknown>) => ({ ...before, ...next })) as never,
+      // What is set back to how the list is by itself is said no more, as it is not read.
+      search: ((before: Record<string, unknown>) => {
+        const said = { ...before, ...next };
+        return {
+          ...Object.fromEntries(Object.entries(said).filter(([key]) => !(key in shape))),
+          ...listSearch(shape)(said),
+        };
+      }) as never,
     });
   return [values, set] as const;
 }

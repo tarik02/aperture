@@ -1,4 +1,5 @@
 import { Badge } from "@aperture-browser/ui/components/badge";
+import { Button } from "@aperture-browser/ui/components/button";
 import {
   Table,
   TableBody,
@@ -8,11 +9,13 @@ import {
   TableRow,
 } from "@aperture-browser/ui/components/table";
 import { Link } from "@tanstack/react-router";
+import { Server, Ticket } from "lucide-react";
 import { LongName } from "#/components/long-name.tsx";
 import { TablePage } from "#/components/table-page.tsx";
 import { useNodesQuery } from "#/features/node/node.queries.ts";
 import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
+import { ListEmpty } from "#/components/list-empty.tsx";
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
@@ -29,16 +32,14 @@ export function NodesPage() {
   }
   if (nodes.data?.length === 0) {
     return (
-      <p
-        data-console-empty
-        className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
-      >
-        No node registered yet. Start an executor with a{" "}
-        <Link to="/-/registration-tokens" className="aperture:underline">
-          registration token
-        </Link>{" "}
-        and this control plane's address.
-      </p>
+      <TablePage>
+        <ListEmpty icon={Server} title="No nodes yet">
+          <Button size="sm" variant="outline" render={<Link to="/-/registration-tokens" />}>
+            <Ticket />
+            Registration tokens
+          </Button>
+        </ListEmpty>
+      </TablePage>
     );
   }
   return (

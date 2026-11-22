@@ -1,8 +1,9 @@
 import { Button } from "@aperture-browser/ui/components/button";
+import { ButtonGroup } from "@aperture-browser/ui/components/button-group";
 import { Input } from "@aperture-browser/ui/components/input";
 import { ScrollArea } from "@aperture-browser/ui/components/scroll-area";
 import { Separator } from "@aperture-browser/ui/components/separator";
-import { ChevronDown, Pause, Play, Plus, Search, Trash2, X } from "lucide-react";
+import { AppWindow, ChevronDown, Pause, Play, Plus, Search, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { filter, Filters } from "#/components/filter-menu.tsx";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
@@ -20,6 +21,7 @@ import { CARD_GRID, CardsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
 import { useListSearch, useSearchText } from "#/lib/list-search.ts";
 import { useLast } from "#/lib/use-last.ts";
+import { ListEmpty, ListNoMatch } from "#/components/list-empty.tsx";
 
 /** What the list is narrowed and ordered by, as the page's address keeps it. */
 export const SESSIONS_SEARCH = {
@@ -87,13 +89,11 @@ export function SessionsPage() {
   const anchor = useRef<string>(undefined);
 
   const sought = search.trim().toLowerCase();
-  const shown = (sessions.data ?? [])
-    .filter(
-      (session) =>
-        session.workspaceId === (workspace?.id ?? null) &&
-        STATUS[status](session) &&
-        (sought === "" || matches(session, sought)),
-    )
+  const owned = (sessions.data ?? []).filter(
+    (session) => session.workspaceId === (workspace?.id ?? null),
+  );
+  const shown = owned
+    .filter((session) => STATUS[status](session) && (sought === "" || matches(session, sought)))
     .toSorted((one, other) =>
       order === "label"
         ? (one.label ?? one.id).localeCompare(other.label ?? other.id)
@@ -134,6 +134,15 @@ export function SessionsPage() {
     setSelected(next);
   };
 
+  const makes = access.makesSessionsIn(workspace?.id ?? null);
+  const openPlain = () => void openNew(workspace === null ? {} : { workspaceId: workspace.id });
+  const narrowed = sought !== "" || status !== "all";
+  const clearFilters = () => {
+    setSearch("");
+    setSearching(false);
+    setList({ q: "", status: "all" });
+  };
+
   const busy = suspend.isPending || resume.isPending || remove.isPending;
   const clear = { onSettled: () => setSelected(new Set()) };
 
@@ -167,15 +176,9 @@ export function SessionsPage() {
             filter({ label: "Sort", value: order, options: ORDERS, onChange: setOrder }),
           ]}
         />
-        {access.makesSessionsIn(workspace?.id ?? null) ? (
-          <div className="aperture:flex">
-            <Button
-              data-console-create
-              size="sm"
-              aria-label="New session"
-              className="aperture:rounded-r-none"
-              onClick={() => void openNew(workspace === null ? {} : { workspaceId: workspace.id })}
-            >
+        {makes ? (
+          <ButtonGroup>
+            <Button data-console-create size="sm" aria-label="New session" onClick={openPlain}>
               <Plus />
               <span className="aperture:max-sm:hidden">New session</span>
             </Button>
@@ -183,12 +186,12 @@ export function SessionsPage() {
               data-console-create-custom
               size="icon-sm"
               aria-label="New session with options"
-              className="aperture:rounded-l-none aperture:border-l-primary-foreground/20"
+              className="aperture:border-l-primary-foreground/20!"
               onClick={() => setCreating(true)}
             >
               <ChevronDown />
             </Button>
-          </div>
+          </ButtonGroup>
         ) : null}
       </PageHeaderActions>
       {searching ? (
@@ -214,8 +217,11 @@ export function SessionsPage() {
           </Button>
         </div>
       ) : null}
-      <ScrollArea className="aperture:min-h-0 aperture:flex-1">
-        <div className="aperture:flex aperture:flex-col aperture:gap-4 aperture:p-4 aperture:max-sm:p-3">
+      <ScrollArea
+        className="aperture:min-h-0 aperture:flex-1"
+        viewportClassName="aperture:flex aperture:flex-col"
+      >
+        <div className="aperture:flex aperture:flex-1 aperture:flex-col aperture:gap-4 aperture:p-4 aperture:max-sm:p-3">
           {sessions.isError ? (
             <p role="alert" className="aperture:text-sm aperture:text-destructive">
               {told(sessions.error)}
@@ -224,12 +230,18 @@ export function SessionsPage() {
           {sessions.isPending ? (
             <CardsSkeleton />
           ) : sessions.data !== undefined && shown.length === 0 ? (
-            <p
-              data-console-empty
-              className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
-            >
-              {sessions.data.length === 0 ? "No sessions yet." : "No session matches."}
-            </p>
+            owned.length > 0 && narrowed ? (
+              <ListNoMatch title="No session matches" onClear={clearFilters} />
+            ) : (
+              <ListEmpty icon={AppWindow} title="No sessions yet">
+                {makes ? (
+                  <Button size="sm" onClick={openPlain}>
+                    <Plus />
+                    New session
+                  </Button>
+                ) : null}
+              </ListEmpty>
+            )
           ) : (
             <div className={CARD_GRID}>
               {shown.map((session) => (

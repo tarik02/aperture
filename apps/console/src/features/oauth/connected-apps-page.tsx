@@ -7,7 +7,7 @@ import {
   TableHeader,
   TableRow,
 } from "@aperture-browser/ui/components/table";
-import { Unplug } from "lucide-react";
+import { Blocks, Unplug } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { LongName } from "#/components/long-name.tsx";
@@ -18,6 +18,7 @@ import { type Grant, useGrantsQuery } from "#/features/oauth/oauth.queries.ts";
 import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
 import { useLast } from "#/lib/use-last.ts";
+import { ListEmpty } from "#/components/list-empty.tsx";
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
@@ -67,12 +68,7 @@ export function ConnectedAppsPage() {
           {told(grants.error)}
         </p>
       ) : grants.data?.length === 0 ? (
-        <p
-          data-console-empty
-          className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
-        >
-          No connected apps yet.
-        </p>
+        <ListEmpty icon={Blocks} title="No connected apps yet" />
       ) : (
         <Table stickyActionColumn>
           <TableHeader>

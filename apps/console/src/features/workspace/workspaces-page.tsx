@@ -8,7 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@aperture-browser/ui/components/table";
-import { Pencil, Plus, Trash2, Users } from "lucide-react";
+import { Building2, Pencil, Plus, Trash2, Users } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { LongName } from "#/components/long-name.tsx";
@@ -27,6 +27,7 @@ import {
   useWorkspacesQuery,
   type Workspace,
 } from "#/features/workspace/workspace.queries.ts";
+import { ListEmpty } from "#/components/list-empty.tsx";
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
@@ -135,12 +136,14 @@ export function WorkspacesPage() {
           {told(workspaces.error)}
         </p>
       ) : workspaces.data?.length === 0 ? (
-        <p
-          data-console-empty
-          className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
-        >
-          No workspaces yet.
-        </p>
+        <ListEmpty icon={Building2} title="No workspaces yet">
+          {makes ? (
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <Plus />
+              New workspace
+            </Button>
+          ) : null}
+        </ListEmpty>
       ) : (
         <Table stickyActionColumn>
           <TableHeader>

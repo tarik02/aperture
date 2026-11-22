@@ -11,7 +11,7 @@ import { PeoplePage } from "#/features/account/people-page.tsx";
 import { ServiceAccountTokensPage } from "#/features/account/service-account-tokens-page.tsx";
 import { ServiceAccountsPage } from "#/features/account/service-accounts-page.tsx";
 import { SignInPage } from "#/features/auth/sign-in-page.tsx";
-import { EVENTS_SEARCH, EventsPage } from "#/features/event/events-page.tsx";
+import { AUDIT_SEARCH, AuditPage } from "#/features/audit/audit-page.tsx";
 import { ConnectedAppsPage } from "#/features/oauth/connected-apps-page.tsx";
 import { ConsentPage } from "#/features/oauth/consent-page.tsx";
 import { NodesPage } from "#/features/node/nodes-page.tsx";
@@ -214,15 +214,25 @@ const providers = createRoute({
   ),
 });
 
+const audit = createRoute({
+  getParentRoute: () => pages,
+  path: "/-/audit",
+  validateSearch: listSearch(AUDIT_SEARCH),
+  component: () => (
+    <Only needs="events:read">
+      <AuditPage />
+    </Only>
+  ),
+});
+
+// Where the page was before it was called what it is: an address someone kept still leads to it.
 const events = createRoute({
   getParentRoute: () => pages,
   path: "/-/events",
-  validateSearch: listSearch(EVENTS_SEARCH),
-  component: () => (
-    <Only needs="events:read">
-      <EventsPage />
-    </Only>
-  ),
+  validateSearch: listSearch(AUDIT_SEARCH),
+  component: function Moved() {
+    return <Navigate to="/-/audit" search={events.useSearch()} replace />;
+  },
 });
 
 const session = createRoute({
@@ -262,6 +272,7 @@ export const router = createRouter({
         serviceAccounts,
         serviceAccountTokens,
         providers,
+        audit,
         events,
       ]),
       session,

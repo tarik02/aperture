@@ -8,7 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@aperture-browser/ui/components/table";
-import { CircleCheck, CircleSlash, Pencil, Plus, Trash2 } from "lucide-react";
+import { CircleCheck, CircleSlash, LogIn, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
@@ -24,6 +24,7 @@ import {
 import { type Provider, useProvidersQuery } from "#/features/provider/provider.queries.ts";
 import { told } from "#/lib/api.ts";
 import { useLast } from "#/lib/use-last.ts";
+import { ListEmpty } from "#/components/list-empty.tsx";
 
 /** The providers people sign in through beside their passwords and passkeys. */
 export function ProvidersPage() {
@@ -57,12 +58,12 @@ export function ProvidersPage() {
           {told(providers.error)}
         </p>
       ) : providers.isSuccess && listed.length === 0 ? (
-        <p
-          data-console-empty
-          className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
-        >
-          No sign-in providers yet.
-        </p>
+        <ListEmpty icon={LogIn} title="No sign-in providers yet">
+          <Button size="sm" onClick={() => setAdding(true)}>
+            <Plus />
+            New provider
+          </Button>
+        </ListEmpty>
       ) : (
         <Table stickyActionColumn>
           <TableHeader>

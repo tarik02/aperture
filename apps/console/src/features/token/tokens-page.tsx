@@ -8,7 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@aperture-browser/ui/components/table";
-import { Ban, Plus } from "lucide-react";
+import { Ban, KeyRound, Plus } from "lucide-react";
 import { useState } from "react";
 import { filter, Filters } from "#/components/filter-menu.tsx";
 import { LongName } from "#/components/long-name.tsx";
@@ -25,6 +25,7 @@ import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
 import { useListSearch } from "#/lib/list-search.ts";
 import { useLast } from "#/lib/use-last.ts";
+import { ListEmpty, ListNoMatch } from "#/components/list-empty.tsx";
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
@@ -126,12 +127,21 @@ export function TokensPage({ account, waiting = false }: TokensPageProps) {
           {told(tokens.error)}
         </p>
       ) : tokens.isSuccess && listed.length === 0 ? (
-        <p
-          data-console-empty
-          className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
-        >
-          {tokens.data.length === 0 ? "No API tokens yet." : "No token matches."}
-        </p>
+        shown !== "active" ? (
+          <ListNoMatch title="No token matches" onClear={() => setShown("active")} />
+        ) : (
+          <ListEmpty
+            icon={KeyRound}
+            title={tokens.data.length === 0 ? "No API tokens yet" : "No active API tokens"}
+          >
+            {makes ? (
+              <Button size="sm" onClick={() => setCreating(true)}>
+                <Plus />
+                New token
+              </Button>
+            ) : null}
+          </ListEmpty>
+        )
       ) : (
         <Table stickyActionColumn>
           <TableHeader>

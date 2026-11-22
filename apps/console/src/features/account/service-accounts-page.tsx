@@ -8,7 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@aperture-browser/ui/components/table";
-import { KeyRound, Plus } from "lucide-react";
+import { Bot, KeyRound, Plus } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
@@ -32,6 +32,7 @@ import { useAccountQuery } from "#/features/auth/auth.queries.ts";
 import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
 import { useLast } from "#/lib/use-last.ts";
+import { ListEmpty } from "#/components/list-empty.tsx";
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
@@ -105,12 +106,12 @@ export function ServiceAccountsPage() {
           {told(accounts.error)}
         </p>
       ) : services?.length === 0 ? (
-        <p
-          data-console-empty
-          className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
-        >
-          No service accounts yet.
-        </p>
+        <ListEmpty icon={Bot} title="No service accounts yet">
+          <Button size="sm" onClick={() => setCreating(true)}>
+            <Plus />
+            New service account
+          </Button>
+        </ListEmpty>
       ) : (
         <Table stickyActionColumn>
           <TableHeader>

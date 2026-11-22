@@ -1,5 +1,5 @@
 import type { EventKind } from "@aperture-browser/control-api";
-import type { Event } from "#/features/event/event.queries.ts";
+import type { Event } from "#/features/audit/event.queries.ts";
 
 const said = (value: unknown) => (typeof value === "string" && value !== "" ? value : undefined);
 

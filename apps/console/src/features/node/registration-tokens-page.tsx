@@ -8,7 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@aperture-browser/ui/components/table";
-import { Ban, Plus } from "lucide-react";
+import { Ban, Plus, Ticket } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { filter, Filters } from "#/components/filter-menu.tsx";
@@ -30,6 +30,7 @@ import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
 import { useListSearch } from "#/lib/list-search.ts";
 import { useLast } from "#/lib/use-last.ts";
+import { ListEmpty, ListNoMatch } from "#/components/list-empty.tsx";
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
@@ -77,12 +78,23 @@ export function RegistrationTokensPage() {
           {told(tokens.error)}
         </p>
       ) : tokens.isSuccess && listed.length === 0 ? (
-        <p
-          data-console-empty
-          className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
-        >
-          {tokens.data.length === 0 ? "No registration tokens yet." : "No token matches."}
-        </p>
+        shown !== "active" ? (
+          <ListNoMatch title="No token matches" onClear={() => setShown("active")} />
+        ) : (
+          <ListEmpty
+            icon={Ticket}
+            title={
+              tokens.data.length === 0
+                ? "No registration tokens yet"
+                : "No active registration tokens"
+            }
+          >
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <Plus />
+              New token
+            </Button>
+          </ListEmpty>
+        )
       ) : (
         <Table stickyActionColumn>
           <TableHeader>

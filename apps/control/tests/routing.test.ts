@@ -888,8 +888,11 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         );
         yield* page.until(`!document.querySelector("[data-console-name-dialog]")`);
         yield* shot(page, fs, "console-workspaces");
+        // A workspace with nothing in it yet says so, and offers to make the first.
         yield* page.click(`a[href="/-/sessions"]`);
-        yield* page.until(`!!document.querySelector("[data-console-empty]")`);
+        yield* page.until(
+          `!!document.querySelector('[data-console-empty="none"] button') && !document.querySelector("[data-console-clear-filters]")`,
+        );
         expect(page.errors()).toEqual([]);
       }),
     // It starts sessions and saves them several times over, and takes most of the time
@@ -2136,13 +2139,17 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         false,
       );
       expect(yield* page.text(lin)).not.toContain("API token");
-      yield* page.click(`${lin} [data-console-setup-link]`);
+      // The link is among what else is done with a person, in their menu and nowhere beside it.
+      expect(yield* page.evaluate(`document.querySelectorAll('${lin} button').length`)).toBe(1);
+      yield* page.click(`${lin} [data-console-person-actions]`);
+      yield* page.until(`!!document.querySelector('[data-console-person-action="setup-link"]')`);
+      yield* rested(page);
+      yield* shot(page, fs, "console-people");
+      yield* page.click(`[data-console-person-action="setup-link"]`);
       yield* page.until(`!!document.querySelector("[data-console-secret]")`);
       expect(yield* page.text("[data-console-secret]")).toContain("/invite#token=");
       yield* choose(page, `${DIALOG} button`, "Done");
       yield* page.until(`!document.querySelector("[data-console-secret]")`);
-      yield* page.hover(`${lin} [data-console-setup-link]`);
-      yield* shot(page, fs, "console-people");
 
       // What a person signs in with is told beside them: nothing, until they set a password.
       expect(yield* page.text(lin)).toContain("Nothing yet");
@@ -2647,7 +2654,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       expect(yield* has("[data-console-create]")).toBe(false);
       expect(yield* has(`${ownCard} input[type="checkbox"]`)).toBe(false);
       // It is an admin's, and not for what an admin does, nor for anything else there is.
-      for (const gone of ["snapshots", "tokens", "connected-apps", "people", "nodes", "events"]) {
+      for (const gone of ["snapshots", "tokens", "connected-apps", "people", "nodes", "audit"]) {
         expect([gone, yield* has(`a[href="/-/${gone}"]`)]).toEqual([gone, false]);
       }
       expect(yield* menuOf(ownCard)).toEqual(["Open", "Copy link", "Details"]);
@@ -2764,8 +2771,10 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         yield* page.type(auditor.token);
         yield* page.key("Enter", "Enter", ENTER);
 
-        yield* page.until(`!!document.querySelector('a[href="/-/events"]')`);
-        yield* page.click(`a[href="/-/events"]`);
+        yield* page.until(`!!document.querySelector('a[href="/-/audit"]')`);
+        expect(yield* page.text(`a[href="/-/audit"]`)).toBe("Audit");
+        yield* page.click(`a[href="/-/audit"]`);
+        yield* page.until(`document.title === "Aperture | Audit"`);
         const rows = `[...document.querySelectorAll("[data-console-event]")]`;
         const count = page.evaluate(`${rows}.length`, Schema.Number);
         // The newest first, a page of them, and the ones before when they are asked for.
@@ -2776,8 +2785,8 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         expect(yield* page.text(`[data-console-event] [data-console-event-says]`)).toBe(
           "Deleted the workspace",
         );
-        yield* shot(page, fs, "console-events");
-        yield* shotDark(page, fs, "console-events-dark");
+        yield* shot(page, fs, "console-audit");
+        yield* shotDark(page, fs, "console-audit-dark");
         yield* page.evaluate(
           `void document.querySelector("[data-console-events-more]").scrollIntoView({ block: "nearest" })`,
         );
@@ -2802,8 +2811,8 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         yield* page.click(`[aria-label="Kind of event"]`);
         yield* page.until(`!!document.querySelector('[data-slot="select-item"]')`);
         yield* rested(page);
-        yield* shot(page, fs, "console-events-kinds");
-        yield* shotDark(page, fs, "console-events-kinds-dark");
+        yield* shot(page, fs, "console-audit-kinds");
+        yield* shotDark(page, fs, "console-audit-kinds-dark");
         yield* pick(page, `[aria-label="Kind of event"]`, "All events");
         yield* page.until(`${rows}.length >= 50`);
 
@@ -2813,26 +2822,33 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         yield* page.until(
           `${rows}.length === 1 && ${rows}[0].textContent.includes("Quill") && ${rows}[0].textContent.includes("Made the workspace")`,
         );
-        yield* shot(page, fs, "console-events-actor");
+        yield* shot(page, fs, "console-audit-actor");
         yield* page.click("[data-console-events-actor]");
         yield* page.type("-nobody-is-called-this");
-        yield* page.until(`!!document.querySelector("[data-console-empty]")`);
+        // Nothing matches, which is not that there is nothing: what narrowed the list is
+        // taken back from there, and the list is whole again.
+        yield* page.until(`!!document.querySelector('[data-console-empty="no-match"]')`);
+        yield* shot(page, fs, "console-audit-no-match");
+        yield* page.click("[data-console-clear-filters]");
+        yield* page.until(
+          `${rows}.length >= 50 && document.querySelector("[data-console-events-actor]").value === "" && location.search === ""`,
+        );
 
         // On a phone an event is a block of its own, and what narrows the list is two
         // buttons in the title bar: the search opens below it, the kinds in a menu.
-        const phone = yield* viewer.open(`${proxy.url}/-/events`, {
+        const phone = yield* viewer.open(`${proxy.url}/-/audit`, {
           width: 390,
           height: 844,
           mobile: true,
         });
         yield* phone.until(`${rows}.length === 50`);
-        yield* shot(phone, fs, "console-phone-events");
+        yield* shot(phone, fs, "console-phone-audit");
         const scheme = (value: string) =>
           phone.cdp.call("Emulation.setEmulatedMedia", {
             features: [{ name: "prefers-color-scheme", value }],
           });
         yield* scheme("dark");
-        yield* shot(phone, fs, "console-phone-events-dark");
+        yield* shot(phone, fs, "console-phone-audit-dark");
         yield* scheme("");
         expect(
           yield* phone.evaluate(
@@ -2851,7 +2867,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         yield* phone.click("[data-console-filters]");
         yield* phone.until(`!!document.querySelector('[data-slot="dropdown-menu-radio-item"]')`);
         yield* rested(phone);
-        yield* shot(phone, fs, "console-phone-events-kinds");
+        yield* shot(phone, fs, "console-phone-audit-kinds");
         yield* choose(phone, `[data-slot="dropdown-menu-radio-item"]`, "Workspace deleted");
         yield* phone.until(
           `${rows}.length === 1 && ${rows}[0].getAttribute("data-console-event") === "workspace.deleted"`,
@@ -2862,13 +2878,21 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         );
         yield* phone.type("-nobody-is-called-this");
         yield* phone.until(`!!document.querySelector("[data-console-empty]")`);
-        yield* shot(phone, fs, "console-phone-events-search");
+        yield* shot(phone, fs, "console-phone-audit-search");
         expect(phone.errors()).toEqual([]);
         yield* phone.close;
 
-        const wide = yield* viewer.open(`${proxy.url}/-/events`, { width: 1440, height: 900 });
+        // An address of the page as it was called before leads to it, narrowed as it says.
+        const wide = yield* viewer.open(`${proxy.url}/-/events?kind=workspace.deleted`, {
+          width: 1440,
+          height: 900,
+        });
+        yield* wide.until(
+          `location.pathname === "/-/audit" && location.search === "?kind=workspace.deleted" && ${rows}.length === 1`,
+        );
+        yield* wide.evaluate(`void (location.href = "/-/audit")`);
         yield* wide.until(`${rows}.length === 50`);
-        yield* shot(wide, fs, "console-events-wide");
+        yield* shot(wide, fs, "console-audit-wide");
         yield* wide.close;
       }),
   );

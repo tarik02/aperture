@@ -1,4 +1,12 @@
 import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@aperture-browser/ui/components/breadcrumb";
+import {
   SidebarInset,
   SidebarProvider,
   SidebarTrigger,
@@ -26,6 +34,9 @@ const FILLS = "aperture:h-[calc(100dvh-var(--keyboard-inset,0px))]";
 /** Clear of what a phone's screen has at its edges, where the page is laid out under them. */
 const INSET =
   "aperture:h-full aperture:min-h-0 aperture:overflow-hidden aperture:pr-[env(safe-area-inset-right)] aperture:pb-[env(safe-area-inset-bottom)] aperture:pl-[env(safe-area-inset-left)]";
+
+const TITLE =
+  "aperture:min-w-0 aperture:shrink-0 aperture:truncate aperture:pr-2 aperture:text-sm aperture:font-semibold aperture:max-sm:shrink";
 
 export function AppShell({ layout, children }: AppShellProps) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -57,29 +68,34 @@ export function AppShell({ layout, children }: AppShellProps) {
           className="aperture:flex aperture:h-[calc(3rem+env(safe-area-inset-top))] aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:border-b aperture:px-3 aperture:pt-[env(safe-area-inset-top)] aperture:max-sm:gap-1 aperture:max-sm:px-2"
         >
           <SidebarTrigger className="aperture:-ml-1" />
-          <h1 className="aperture:min-w-0 aperture:shrink-0 aperture:truncate aperture:pr-2 aperture:text-sm aperture:font-semibold aperture:max-sm:shrink">
-            {crumb === undefined || item === undefined ? (
-              page
-            ) : (
-              <>
+          {crumb === undefined || item === undefined ? (
+            <h1 className={TITLE}>{page}</h1>
+          ) : (
+            <Breadcrumb className={TITLE}>
+              <h1 className="aperture:sr-only">{crumb}</h1>
+              <BreadcrumbList className="aperture:flex-nowrap aperture:gap-1.5">
                 {/* A phone's bar has room for whose page it is, and the menu leads back. */}
-                <Link
-                  to={item.to}
-                  data-console-crumb-back
-                  className="aperture:font-normal aperture:text-muted-foreground aperture:hover:text-foreground aperture:max-sm:hidden"
-                >
-                  {page}
-                </Link>
-                <span
-                  aria-hidden
-                  className="aperture:px-1.5 aperture:font-normal aperture:text-muted-foreground aperture:max-sm:hidden"
-                >
-                  /
-                </span>
-                <span data-console-crumb>{crumb}</span>
-              </>
-            )}
-          </h1>
+                <BreadcrumbItem className="aperture:max-sm:hidden">
+                  <BreadcrumbLink
+                    data-console-crumb-back
+                    className="aperture:font-normal"
+                    render={<Link to={item.to} />}
+                  >
+                    {page}
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator className="aperture:max-sm:hidden" />
+                <BreadcrumbItem className="aperture:min-w-0">
+                  <BreadcrumbPage
+                    data-console-crumb
+                    className="aperture:truncate aperture:font-semibold"
+                  >
+                    {crumb}
+                  </BreadcrumbPage>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
+          )}
           <div
             ref={setHeaderActions}
             className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:justify-end aperture:gap-2 aperture:max-sm:min-w-min aperture:max-sm:gap-1"
