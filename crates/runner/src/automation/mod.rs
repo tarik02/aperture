@@ -9,6 +9,7 @@
 //! anyone watches: it is given to the compositor as input to the target's window, so the
 //! browser gets it as it gets a person's, and those who watch see it happen.
 
+mod files;
 mod keys;
 mod tab;
 mod tools;
@@ -35,6 +36,7 @@ use tokio::{
 use tracing::warn;
 
 use self::{
+    files::FilesTool,
     tab::TabSession,
     tools::{RecordingTool, TabsTool},
 };
@@ -66,6 +68,7 @@ const READS_ONLY: &[&str] = &[
     "network",
     "wait_for",
     "recording",
+    "files",
 ];
 
 const INSTRUCTIONS: &str = "A browser session. Its pages are tabs: `tabs` lists them, \
@@ -73,7 +76,8 @@ const INSTRUCTIONS: &str = "A browser session. Its pages are tabs: `tabs` lists 
     that `tab`. A tab is named by its number or by its DevTools target id. A tab shows its \
     pages as on a desktop or as on a phone, which `tabs` tells and sets. Read a page with \
     `snapshot`, which gives elements refs that `click`, `fill` and the other tools take, or \
-    look at it with `screenshot`. People may be watching the session and using it too.";
+    look at it with `screenshot`. `recording` films a tab into the session's files, which \
+    `files` lists. People may be watching the session and using it too.";
 
 /// The session's tools, and what they act on.
 ///
@@ -119,6 +123,7 @@ impl Automation {
                 shown,
             }),
             Arc::new(RecordingTool(recordings.clone())),
+            Arc::new(FilesTool(files.clone())),
         ];
         let theirs = browse_page::tools()
             .into_iter()

@@ -22,6 +22,14 @@ const node = Layer.mergeAll(
 const AGENT_PAGE =
   "data:text/html,<title>agent tab</title><h1>opened by the agent</h1><input id=q autofocus>";
 
+const Files = Schema.fromJsonString(
+  Schema.Struct({
+    files: Schema.Array(
+      Schema.Struct({ path: Schema.String, size: Schema.Number, absolute: Schema.String }),
+    ),
+  }),
+);
+
 suite(node)("automation of a session of a node, over MCP", (it) => {
   let session: string;
   let opened: Node.Opened;
@@ -47,7 +55,7 @@ suite(node)("automation of a session of a node, over MCP", (it) => {
       );
       const tools = yield* agent.tools;
       expect(tools).toEqual(
-        expect.arrayContaining(["navigate", "click", "tabs", "execute", "recording"]),
+        expect.arrayContaining(["navigate", "click", "tabs", "execute", "recording", "files"]),
       );
     }),
   );
@@ -104,6 +112,37 @@ suite(node)("automation of a session of a node, over MCP", (it) => {
       const content = yield* agent.content("screenshot", { tab: opened.id });
       const image = content.find((item) => item.type === "image");
       expect(image?.data?.length ?? 0).toBeGreaterThan(1000);
+    }),
+  );
+
+  it.effect("files lists what the session keeps, the screenshot among it", () =>
+    Effect.gen(function* () {
+      const executor = yield* Executor;
+      expect((yield* executor.session(session, "POST", "/screenshots", {})).status).toBe(201);
+      const listed = yield* agent
+        .call("files", { directory: "screenshots" })
+        .pipe(Effect.flatMap(Schema.decodeUnknownEffect(Files)));
+      const [shot] = listed.files.filter((file) => file.path.endsWith(".png"));
+      expect(shot?.path).toMatch(/^screenshots\/[^/]+\.png$/u);
+      expect(shot?.size).toBeGreaterThan(0);
+      // The path is where the session serves the file, and where its own tools find it.
+      const served = yield* executor.session(session, "GET", `/files/${shot?.path ?? ""}`);
+      expect(served.status).toBe(200);
+      expect(shot?.absolute.endsWith(`/${shot.path}`)).toBe(true);
+      const all = yield* agent
+        .call("files")
+        .pipe(Effect.flatMap(Schema.decodeUnknownEffect(Files)));
+      expect(all.files.length).toBeGreaterThanOrEqual(listed.files.length);
+      const unknown = yield* Effect.flip(agent.call("files", { directory: "profile" }));
+      expect(unknown.reason).toMatch(/no directory profile/u);
+      const notAnUpload = yield* Effect.flip(
+        agent.call("files", { action: "delete", path: shot?.path }),
+      );
+      expect(notAnUpload.reason).toMatch(/only an upload/u);
+      const outside = yield* Effect.flip(
+        agent.call("files", { action: "delete", path: "uploads/../screenshots/x.png" }),
+      );
+      expect(outside.reason).toMatch(/no upload's name/u);
     }),
   );
 

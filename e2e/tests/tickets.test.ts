@@ -90,6 +90,44 @@ suite(session)("tickets into a session served on its own", (it) => {
     }),
   );
 
+  it.effect("a ticket that names a route is good there, and nowhere else in the session", () =>
+    Effect.gen(function* () {
+      const tickets = yield* Tickets.Tickets;
+      const runner = yield* Runner.Runner;
+      yield* answers(runner.token, [["PUT", "/uploads/linked.txt", 200, "x"]]);
+      const one = yield* tickets.ticket({ uploads: "r" }, { path: "/files/uploads/linked.txt" });
+      yield* answers(one, [
+        ["GET", "/files/uploads/linked.txt", 200],
+        ["GET", "/files/uploads/other.txt", 403],
+        ["GET", "/uploads", 403],
+        // Nor what any ticket into the session gives.
+        ["GET", "/targets", 403],
+        ["GET", "/", 403],
+      ]);
+      // What its access does not give is not given at its route either.
+      const without = yield* tickets.ticket({}, { path: "/files/uploads/linked.txt" });
+      yield* answers(without, [["GET", "/files/uploads/linked.txt", 403]]);
+      const put = yield* tickets.ticket({ uploads: "w" }, { path: "/uploads/put.txt" });
+      yield* answers(put, [
+        ["PUT", "/uploads/put.txt", 200, "x"],
+        ["PUT", "/uploads/linked.txt", 403, "x"],
+        ["GET", "/files/uploads/put.txt", 403],
+      ]);
+    }),
+  );
+
+  it.effect("what the browser keeps for its sites is whose its DevTools endpoint is", () =>
+    Effect.gen(function* () {
+      const tickets = yield* Tickets.Tickets;
+      yield* answers(yield* tickets.ticket({ cdp: "w" }), [["POST", "/storage-state", 200, {}]]);
+      const others = yield* tickets.ticket({ mcp: "rw", input: "rw", uploads: "rw", proxy: "rw" });
+      yield* answers(others, [
+        ["POST", "/storage-state", 403, {}],
+        ["PUT", "/storage-state", 403, {}],
+      ]);
+    }),
+  );
+
   it.effect("a ticket that ran out is refused", () =>
     Effect.gen(function* () {
       const tickets = yield* Tickets.Tickets;

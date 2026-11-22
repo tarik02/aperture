@@ -6,7 +6,9 @@
 //! key that was given. A ticket lets its holder watch the session it names, and do what
 //! its `access` says, area by area (see [`Access`]). It lets them in for as long as it is
 //! good: what was opened with it stays open after, but for a session socket whose ticket
-//! says `until` when, and one whose caller the operator dismisses.
+//! says `until` when, and one whose caller the operator dismisses. A ticket that says a
+//! `path` is good at that one route of its session and nowhere else: it is what a link to
+//! one file is made of.
 
 use std::{
     collections::HashMap,
@@ -48,6 +50,9 @@ struct Claims {
     /// opened with the ticket is closed then. One opened with a ticket that says nothing
     /// stays for as long as its client does.
     until: Option<u64>,
+    /// The one route the ticket is good at, as a path below its session's own; at every
+    /// route its access gives, without.
+    path: Option<String>,
 }
 
 /// Who a request comes from; with every request that got in.
@@ -190,6 +195,7 @@ fn caller(keys: &Keys, request: &Request) -> Result<Caller, Refused> {
         keys,
         &claims.sid,
         access,
+        claims.path.as_deref(),
         request.method(),
         request.uri().path(),
     ) {
@@ -252,6 +258,9 @@ fn needs(method: &Method, rest: &str) -> Needs {
         ("files", Some("downloads")) if reads => Needs::Reading(Area::Downloads),
         ("files", Some("uploads")) if reads => Needs::Reading(Area::Uploads),
         ("proxy", None) if !reads => Needs::Writing(Area::Proxy),
+        // What the browser keeps for the sites it visits is whose its DevTools endpoint
+        // is: that tells the same, a cookie at a time.
+        ("storage-state", None) if !reads => Needs::Writing(Area::Cdp),
         ("mcp", _) => Needs::Writing(Area::Mcp),
         ("cdp", _) => Needs::Writing(Area::Cdp),
         ("tunnel", None) => Needs::Writing(Area::Tunnel),
@@ -260,8 +269,16 @@ fn needs(method: &Method, rest: &str) -> Needs {
 }
 
 /// Whether a ticket for the session `sid` with this access lets its holder do this.
-/// Nothing outside the session is a ticket's.
-fn allows(keys: &Keys, sid: &str, access: Access, method: &Method, path: &str) -> bool {
+/// Nothing outside the session is a ticket's, and of the session nothing but the route
+/// `only`, where the ticket names one.
+fn allows(
+    keys: &Keys,
+    sid: &str,
+    access: Access,
+    only: Option<&str>,
+    method: &Method,
+    path: &str,
+) -> bool {
     let Some(session) = (keys.place)(sid) else {
         return false;
     };
@@ -269,6 +286,9 @@ fn allows(keys: &Keys, sid: &str, access: Access, method: &Method, path: &str) -
         return false;
     };
     if !rest.is_empty() && !rest.starts_with('/') {
+        return false;
+    }
+    if only.is_some_and(|only| only != rest) {
         return false;
     }
     match needs(method, rest) {

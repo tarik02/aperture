@@ -44,6 +44,25 @@ export const bytes = Effect.fn("bytes")(function* (url: string, token: string) {
   return new Uint8Array(yield* answered.arrayBuffer);
 });
 
+/**
+ * A request to an address that says itself what lets it in, as a link someone was given:
+ * it carries no token beside the address.
+ */
+export const follow = Effect.fn("follow")(function* (
+  url: string,
+  method: HttpMethod.HttpMethod = "GET",
+  body?: Uint8Array,
+) {
+  const client = yield* HttpClient.HttpClient;
+  const asked = HttpClientRequest.make(method)(url);
+  const answered = yield* client.execute(
+    body === undefined
+      ? asked
+      : HttpClientRequest.bodyUint8Array(asked, body, "application/octet-stream"),
+  );
+  return { status: answered.status, bytes: new Uint8Array(yield* answered.arrayBuffer) };
+});
+
 /** An answer's body as a check knows it, by the schema of what the check reads. */
 export const read = <S extends Schema.ConstraintDecoder<unknown>>(answer: Answer, schema: S) =>
   Schema.decodeUnknownEffect(schema)(answer.body);

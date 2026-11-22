@@ -24,6 +24,8 @@ export interface Claims {
   readonly exp?: number;
   /** When a session socket opened with it is closed, in seconds since the epoch. */
   readonly until?: number;
+  /** The one route it is good at, as a path below the session's own. */
+  readonly path?: string;
 }
 
 /** Whoever stands above the session and signs the tickets into it. */

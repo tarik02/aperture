@@ -307,7 +307,10 @@ async fn main() -> anyhow::Result<()> {
         routes = routes.route(&with_slash, get(async || aperture_gateway::viewer()));
     }
     let routes = routes.fallback_service(connect.into_axum_service());
-    let app = aperture_gateway::guarded(routes, keys, &arguments.cors_origins);
+    let app = aperture_gateway::guarded(routes, keys, &arguments.cors_origins)
+        // For what stands before the node and what starts it: answered to anyone once the
+        // node serves, and telling nothing.
+        .route("/health", get(async || "ok"));
     let listening = arguments
         .listen
         .bind()
