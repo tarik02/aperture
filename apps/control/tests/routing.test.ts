@@ -464,20 +464,15 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       );
 
       // A ticket is its account's way in while the account is in use, and no longer.
-      const bootstrap = yield* (yield* Control.Control).as((yield* Control.Control).bootstrapToken);
-      const team = yield* ada.api.workspaces.create({ payload: { name: "Of the link" } });
+      const control = yield* Control.Control;
+      const bootstrap = yield* control.as(control.bootstrapToken);
       const mate = yield* Control.account("Mate of the link");
-      yield* ada.api.workspaces.admit({
-        params: { id: team.id, accountId: mate.account.id },
-        payload: { role: "member" },
+      const theirs = yield* mate.api.sessions.create({ payload: {} });
+      const watching = yield* mate.api.sessions.createTicket({
+        params: { id: theirs.id },
+        payload: {},
       });
-      const shared = yield* ada.api.sessions.create({ payload: { workspaceId: team.id } });
-      const theirs = yield* until(
-        "a link of the mate's into the workspace's session",
-        mate.api.sessions.createTicket({ params: { id: shared.id }, payload: {} }),
-        "30 seconds",
-      );
-      const watched = `${proxy.url}${shared.path ?? ""}/targets?token=${theirs.ticket}`;
+      const watched = `${proxy.url}${theirs.path ?? ""}/targets?token=${watching.ticket}`;
       yield* until(
         "the mate's ticket letting them watch",
         follow(watched).pipe(Effect.map((answer) => answer.status === 200)),
@@ -487,8 +482,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       expect((yield* follow(watched)).status).toBe(401);
       yield* bootstrap.accounts.enable({ params: { id: mate.account.id } });
       expect((yield* follow(watched)).status).toBe(200);
-      yield* ada.api.sessions.delete({ params: { id: shared.id } });
-      yield* ada.api.workspaces.delete({ params: { id: team.id } });
+      yield* mate.api.sessions.delete({ params: { id: theirs.id } });
 
       // A person is handed the session's page the same way.
       const handed = yield* linked("/tickets", {});
