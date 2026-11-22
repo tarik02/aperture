@@ -380,7 +380,15 @@ impl Presence {
             }
             return held;
         }
-        if !held || (!turn && matches!(input, Input::PointerLeave)) {
+        // A key the member has down comes up wherever they are by then: the tab they
+        // pressed it in may be another's since, or they may watch another one, as after
+        // Control and a click on a link, and the key would stay down in the session.
+        let lets_go = matches!(
+            input,
+            Input::Key { code, pressed: false, .. }
+                if state.hands.get(&id).is_some_and(|hands| hands.keys.contains(&code))
+        );
+        if (!held && !lets_go) || (!turn && matches!(input, Input::PointerLeave)) {
             return false;
         }
         if !turn {
@@ -433,6 +441,24 @@ impl Presence {
         }
         self.compositor.input(input);
         true
+    }
+
+    /// A key the member has down comes up, though they watch no tab any more.
+    pub fn lift(&self, id: MemberId, code: u32) {
+        let mut state = self.state.lock().expect("not poisoned");
+        let turn = state.turn == Some(id);
+        let Some(hands) = state.hands.get_mut(&id) else {
+            return;
+        };
+        if !hands.keys.remove(&code) || !turn {
+            return;
+        }
+        self.compositor.input(Input::Key {
+            // Where a key comes up is the compositor's to say.
+            window: hands.at.map_or(WindowId(0), |(window, ..)| window),
+            code,
+            pressed: false,
+        });
     }
 
     /// Presses or lets go of the keys a member holds down, in `window` or wherever the

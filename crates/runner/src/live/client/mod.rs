@@ -682,7 +682,18 @@ impl Client {
     /// this client.
     fn input(&self, message: client_message::Message) {
         use client_message::Message;
-        let Some((_, window)) = self.selected else {
+        // A key that comes up does so though the tab it went down in is gone.
+        let lifted = match &message {
+            Message::Key(m) if !m.pressed => Some(m.code),
+            _ => None,
+        };
+        let (Some(window), Some(tab)) = (
+            self.selected.as_ref().map(|(_, window)| *window),
+            self.tab(),
+        ) else {
+            if let Some(code) = lifted {
+                self.live.presence.lift(self.member.id, code);
+            }
             return;
         };
         let input = match message {
@@ -752,9 +763,7 @@ impl Client {
             | Message::Pointing(_)
             | Message::FilesChosen(_) => return,
         };
-        if let Some(tab) = self.tab() {
-            self.live.presence.input(self.member.id, tab, input);
-        }
+        self.live.presence.input(self.member.id, tab, input);
     }
 
     fn watches(&self, target: &str) -> bool {

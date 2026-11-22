@@ -167,11 +167,13 @@ impl State {
                 code,
                 pressed,
             } => {
-                let Ok(window) = self.window(window) else {
-                    return;
-                };
-                self.focus_window(&window);
+                // A key comes up wherever the keyboard is by then: the window it went down
+                // in may be gone, as after Control and W, and it would stay down otherwise.
                 let state = if pressed {
+                    let Ok(window) = self.window(window) else {
+                        return;
+                    };
+                    self.focus_window(&window);
                     KeyState::Pressed
                 } else {
                     KeyState::Released
