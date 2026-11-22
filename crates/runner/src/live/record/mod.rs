@@ -108,14 +108,11 @@ pub enum State {
 pub struct Recording {
     pub id: String,
     /// The tab it is of.
-    #[serde(default)]
     pub tab: u32,
     /// The target it is of, which is no target of a later run of the session.
     pub target: String,
     /// The page's title and address as the recording began.
-    #[serde(default)]
     pub title: String,
-    #[serde(default)]
     pub url: String,
     /// The raw video's file, relative to the session's files.
     pub file: String,

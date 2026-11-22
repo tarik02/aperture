@@ -74,25 +74,19 @@ pub struct SessionRecord {
     pub base_layer: Option<String>,
     /// The layer a snapshot in progress moves the upper directory into. `Store::open`
     /// finishes or drops what a crash left here.
-    #[serde(default)]
     pub freezing: Option<String>,
     /// How the session's browser connections are routed, as whoever runs the session
     /// reads it. It holds the secrets of the session's upstreams.
-    #[serde(default)]
     pub proxy: Option<serde_json::Value>,
     /// What the session may use and how long it may sit idle, as whoever runs the session
     /// reads it.
-    #[serde(default)]
     pub limits: Option<serde_json::Value>,
     /// What the session offers and what network its browser has, where it says so itself,
     /// as whoever runs the session reads it.
-    #[serde(default)]
     pub options: Option<serde_json::Value>,
     /// It was suspended for sitting idle, and is to be resumed when someone reaches it.
-    #[serde(default)]
     pub asleep: bool,
     /// Which of the states nodes share of it its profile and files were last the same as.
-    #[serde(default)]
     pub revision: Option<String>,
 }
 
