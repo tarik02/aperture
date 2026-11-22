@@ -27,8 +27,6 @@ const Preset = Schema.Struct({
   /** What it is called, and what a provider made from it is called and known by at first. */
   name: Schema.String,
   providerId: Schema.String,
-  /** The letters it is marked by: no provider's own mark is drawn here. */
-  mark: Schema.String,
   /**
    * What it speaks: OpenID Connect, and says at its issuer how it is reached, or OAuth 2.0
    * alone, and is asked where it is said to be.
@@ -90,7 +88,6 @@ export const PRESETS: ReadonlyArray<Preset> = Schema.decodeUnknownSync(Schema.Ar
     id: "auth0",
     name: "Auth0",
     providerId: "auth0",
-    mark: "A0",
     kind: "oidc",
     parts: [
       {
@@ -112,7 +109,6 @@ export const PRESETS: ReadonlyArray<Preset> = Schema.decodeUnknownSync(Schema.Ar
     id: "authelia",
     name: "Authelia",
     providerId: "authelia",
-    mark: "Al",
     kind: "oidc",
     parts: [],
     issuerAt: { placeholder: "https://auth.example.com" },
@@ -125,7 +121,6 @@ export const PRESETS: ReadonlyArray<Preset> = Schema.decodeUnknownSync(Schema.Ar
     id: "authentik",
     name: "authentik",
     providerId: "authentik",
-    mark: "ak",
     kind: "oidc",
     parts: [
       {
@@ -155,7 +150,6 @@ export const PRESETS: ReadonlyArray<Preset> = Schema.decodeUnknownSync(Schema.Ar
     id: "dex",
     name: "Dex",
     providerId: "dex",
-    mark: "Dx",
     kind: "oidc",
     parts: [],
     issuerAt: { placeholder: "https://dex.example.com/dex" },
@@ -168,7 +162,6 @@ export const PRESETS: ReadonlyArray<Preset> = Schema.decodeUnknownSync(Schema.Ar
     id: "github",
     name: "GitHub",
     providerId: "github",
-    mark: "GH",
     kind: "oauth2",
     parts: [],
     endpoints: {
@@ -186,7 +179,6 @@ export const PRESETS: ReadonlyArray<Preset> = Schema.decodeUnknownSync(Schema.Ar
     id: "gitlab",
     name: "GitLab",
     providerId: "gitlab",
-    mark: "GL",
     kind: "oidc",
     parts: [],
     issuerAt: { placeholder: "https://gitlab.example.com", first: "https://gitlab.com" },
@@ -199,7 +191,6 @@ export const PRESETS: ReadonlyArray<Preset> = Schema.decodeUnknownSync(Schema.Ar
     id: "google",
     name: "Google",
     providerId: "google",
-    mark: "G",
     kind: "oidc",
     parts: [],
     issuer: "https://accounts.google.com",
@@ -212,7 +203,6 @@ export const PRESETS: ReadonlyArray<Preset> = Schema.decodeUnknownSync(Schema.Ar
     id: "kanidm",
     name: "Kanidm",
     providerId: "kanidm",
-    mark: "Kd",
     kind: "oidc",
     parts: [
       {
@@ -232,7 +222,6 @@ export const PRESETS: ReadonlyArray<Preset> = Schema.decodeUnknownSync(Schema.Ar
     id: "keycloak",
     name: "Keycloak",
     providerId: "keycloak",
-    mark: "Kc",
     kind: "oidc",
     parts: [
       {
@@ -260,7 +249,6 @@ export const PRESETS: ReadonlyArray<Preset> = Schema.decodeUnknownSync(Schema.Ar
     id: "entra",
     name: "Microsoft Entra ID",
     providerId: "microsoft",
-    mark: "M",
     kind: "oidc",
     parts: [
       {
@@ -284,7 +272,6 @@ export const PRESETS: ReadonlyArray<Preset> = Schema.decodeUnknownSync(Schema.Ar
     id: "okta",
     name: "Okta",
     providerId: "okta",
-    mark: "Ok",
     kind: "oidc",
     parts: [
       {
@@ -307,7 +294,6 @@ export const PRESETS: ReadonlyArray<Preset> = Schema.decodeUnknownSync(Schema.Ar
     id: "pocket-id",
     name: "Pocket ID",
     providerId: "pocket-id",
-    mark: "P",
     kind: "oidc",
     parts: [],
     issuerAt: { placeholder: "https://id.example.com" },
@@ -320,7 +306,6 @@ export const PRESETS: ReadonlyArray<Preset> = Schema.decodeUnknownSync(Schema.Ar
     id: "zitadel",
     name: "Zitadel",
     providerId: "zitadel",
-    mark: "Z",
     kind: "oidc",
     parts: [],
     issuerAt: { placeholder: "https://example.zitadel.cloud" },
@@ -333,7 +318,6 @@ export const PRESETS: ReadonlyArray<Preset> = Schema.decodeUnknownSync(Schema.Ar
     id: CUSTOM,
     name: "Custom OpenID Connect",
     providerId: "",
-    mark: "ID",
     kind: "oidc",
     parts: [],
     issuerAt: { placeholder: "https://id.example.com" },
@@ -345,7 +329,6 @@ export const PRESETS: ReadonlyArray<Preset> = Schema.decodeUnknownSync(Schema.Ar
     id: "custom-oauth2",
     name: "Custom OAuth 2.0",
     providerId: "",
-    mark: "OA",
     kind: "oauth2",
     parts: [],
     scopes: [],
@@ -363,6 +346,12 @@ export const presetOf = (id: string): Preset => {
   }
   return found;
 };
+
+/**
+ * Which provider's mark one made from it is shown with: its own, by its id, and none for
+ * one that is typed whole.
+ */
+export const iconOf = (preset: Preset) => (preset.providerId === "" ? null : preset.id);
 
 /** What was typed for a part, as an address names it. */
 const taken = (part: Part, typed: string) =>

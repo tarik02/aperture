@@ -16,6 +16,7 @@ import {
   addressOf,
   COMMON_SCOPES,
   CUSTOM_OF,
+  iconOf,
   partRule,
   type Preset,
   presetOf,
@@ -115,7 +116,7 @@ export function ProviderForm({ provider, callbackBase, onDone, children }: Provi
 
   const form = useForm({
     defaultValues: {
-      // What it was made from is kept nowhere: one that is changed is as one typed whole.
+      // What it was made from is kept as its mark alone: one that is changed is as one typed whole.
       preset: CUSTOM_OF[provider?.kind ?? "oidc"] as string,
       parts: {} as Record<string, string>,
       id: provider?.id ?? "",
@@ -138,6 +139,8 @@ export function ProviderForm({ provider, callbackBase, onDone, children }: Provi
       const said = {
         id: value.id,
         name: value.name.trim(),
+        // Said once, by what it is made from: one that is changed keeps the mark it has.
+        ...(provider === undefined ? { icon: iconOf(presetOf(value.preset)) } : {}),
         ...("issuer" in now
           ? { kind: "oidc" as const, issuer: now.issuer }
           : { kind: "oauth2" as const, endpoints: now.endpoints }),

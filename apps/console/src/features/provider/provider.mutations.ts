@@ -23,6 +23,8 @@ export type ProviderSaid = (
   | { readonly kind: "oauth2"; readonly endpoints: EndpointsSaid }
 ) & {
   readonly name: string;
+  /** Which provider's mark it is shown with; left out, the one it has stays. */
+  readonly icon?: string | null;
   readonly clientId: string;
   /** Empty for the secret it has. */
   readonly clientSecret: string;

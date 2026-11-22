@@ -1,3 +1,4 @@
+import { ProviderMark } from "#/features/provider/provider-mark.tsx";
 import { Button } from "@aperture-browser/ui/components/button";
 import { useForm, useStore } from "@tanstack/react-form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -96,6 +97,7 @@ function Providers({ onRefused }: { onRefused: (error: unknown) => void }) {
           disabled={leaving.isPending || leaving.isSuccess}
           onClick={() => leaving.mutate(provider.id)}
         >
+          <ProviderMark icon={provider.icon} />
           Continue with {provider.name}
         </Button>
       ))}

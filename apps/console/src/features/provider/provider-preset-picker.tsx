@@ -1,4 +1,3 @@
-import { Avatar, AvatarFallback } from "@aperture-browser/ui/components/avatar";
 import { Button } from "@aperture-browser/ui/components/button";
 import { Field, FieldError, FieldLabel } from "@aperture-browser/ui/components/field";
 import { Popover, PopoverContent, PopoverTrigger } from "@aperture-browser/ui/components/popover";
@@ -13,17 +12,12 @@ import {
 } from "@aperture-browser/ui/components/select";
 import { ExternalLink, Info } from "lucide-react";
 import { useId } from "react";
-import { type Preset, PRESETS, presetOf } from "#/features/provider/provider-presets.ts";
+import { ProviderMark } from "#/features/provider/provider-mark.tsx";
+import { iconOf, type Preset, PRESETS, presetOf } from "#/features/provider/provider-presets.ts";
 
-/** A provider's mark: its letters, since no provider's own mark is drawn here. */
+/** The mark of what is known of a provider: its own, or a generic one for one typed whole. */
 function PresetMark({ preset }: { preset: Preset }) {
-  return (
-    <Avatar aria-hidden className="aperture:size-5 aperture:rounded-md aperture:after:rounded-md">
-      <AvatarFallback className="aperture:rounded-md aperture:text-[0.625rem] aperture:font-semibold aperture:tracking-tight">
-        {preset.mark}
-      </AvatarFallback>
-    </Avatar>
-  );
+  return <ProviderMark icon={iconOf(preset)} kind={preset.kind} />;
 }
 
 function PresetOption({ preset }: { preset: Preset }) {

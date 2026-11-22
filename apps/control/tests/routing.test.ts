@@ -2523,7 +2523,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         yield* page.click(`a[href="/-/sign-in-providers"]`);
         const configured = `[data-console-provider="${Dex.PROVIDER}"]`;
         yield* page.until(`!!document.querySelector('${configured}')`);
-        expect(yield* page.text(configured)).toContain("from configuration");
+        expect(yield* page.text(configured)).toContain("From configuration");
         expect(yield* page.evaluate(`!!document.querySelector('${configured} button')`)).toBe(
           false,
         );
@@ -2596,6 +2596,12 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         expect(yield* scopes).toBe("read:user user:email");
         yield* pick(page, "[data-console-provider-preset]", "Dex");
         yield* page.until(`!!document.querySelector('${form} input[name="issuer"]')`);
+        // Each that is known is offered with its own mark, and chosen with it.
+        expect(
+          yield* page.evaluate(
+            `!!document.querySelector('[data-console-provider-preset] [data-provider-mark="dex"]')`,
+          ),
+        ).toBe(true);
         expect([yield* typed("name"), yield* typed("id"), yield* typed("issuer")]).toEqual([
           "Dex",
           "dex",
@@ -2683,6 +2689,15 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
             `document.body.innerHTML.includes(${JSON.stringify(dex.clientSecret)})`,
           ),
         ).toBe(false);
+        // It is shown with the mark of the provider it was made from, here and to whoever
+        // signs in; the one the settings name said none, and has none of any provider's.
+        expect(
+          yield* page.evaluate(`!!document.querySelector('${row} [data-provider-mark="dex"]')`),
+        ).toBe(true);
+        expect(
+          yield* page.evaluate(`!!document.querySelector('${configured} [data-provider-mark=""]')`),
+        ).toBe(true);
+        expect(yield* offered).toMatch(new RegExp(`"id":"${added}"[^}]*"icon":"dex"`, "u"));
         yield* rested(page);
         yield* shot(page, fs, "console-providers");
         yield* shotDark(page, fs, "console-providers-dark");

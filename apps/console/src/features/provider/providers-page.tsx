@@ -13,6 +13,7 @@ import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { LongName } from "#/components/long-name.tsx";
+import { ProviderMark } from "#/features/provider/provider-mark.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { type RowAction, RowActions, RowContextMenu } from "#/components/row-actions.tsx";
 import { TablePage } from "#/components/table-page.tsx";
@@ -110,7 +111,10 @@ export function ProvidersPage() {
                 <RowContextMenu key={`${provider.source}:${provider.id}`} actions={actions}>
                   <TableRow data-console-provider={provider.id}>
                     <TableCell className="aperture:font-medium">
-                      <LongName>{provider.name}</LongName>
+                      <span className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-2">
+                        <ProviderMark icon={provider.icon} kind={provider.kind} />
+                        <LongName>{provider.name}</LongName>
+                      </span>
                     </TableCell>
                     <TableCell>
                       <span className="aperture:flex aperture:flex-wrap aperture:gap-1">
@@ -118,10 +122,10 @@ export function ProvidersPage() {
                           data-console-provider-state={provider.enabled ? "enabled" : "disabled"}
                           variant={provider.enabled ? "default" : "outline"}
                         >
-                          {provider.enabled ? "enabled" : "disabled"}
+                          {provider.enabled ? "Enabled" : "Disabled"}
                         </Badge>
                         {provider.source === "configuration" ? (
-                          <Badge variant="secondary">from configuration</Badge>
+                          <Badge variant="secondary">From configuration</Badge>
                         ) : null}
                       </span>
                     </TableCell>
