@@ -63,7 +63,17 @@ export const makeWorkspacesStoreMemory = Effect.fn("WorkspacesStore.makeMemory")
     Effect.sync(() =>
       ordered(memory.accounts.values(), (account) => account.createdAt).flatMap((account) => {
         const role = membersOf(id).get(account.id);
-        return role === undefined ? [] : [{ accountId: account.id, name: account.name, role }];
+        return role === undefined
+          ? []
+          : [
+              {
+                accountId: account.id,
+                name: account.name,
+                kind: account.kind,
+                email: account.email,
+                role,
+              },
+            ];
       }),
     ),
   );

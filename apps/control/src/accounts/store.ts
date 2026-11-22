@@ -39,6 +39,8 @@ export interface AccountsStoreShape {
   readonly find: (id: string) => Effect.Effect<Option.Option<Account>>;
   /** The account someone signs in as. */
   readonly findByPerson: (personId: string) => Effect.Effect<Option.Option<Account>>;
+  /** The account of the person who signs in with that address, whatever its letters' case. */
+  readonly findByEmail: (email: string) => Effect.Effect<Option.Option<Account>>;
   /** Disables an account from then on, or with no moment puts it in use again. */
   readonly setDisabled: (id: string, at: Date | null) => Effect.Effect<Option.Option<Account>>;
   /**

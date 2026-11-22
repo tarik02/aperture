@@ -205,6 +205,21 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     }));
   });
 
+  const lookup = Effect.fn("Accounts.lookup")(function* (caller: Caller, email: string) {
+    if (!caller.admin && !caller.workspaces.some((workspace) => workspace.role === "admin")) {
+      return yield* new Forbidden({ message: "this is for an admin of a workspace to do" });
+    }
+    const sought = email.trim();
+    const found = Option.filter(
+      yield* store.findByEmail(sought),
+      (account) => account.disabledAt === null,
+    );
+    if (Option.isNone(found) || found.value.email === null) {
+      return yield* new PersonNotFound({ email: sought });
+    }
+    return { ...found.value, email: found.value.email };
+  });
+
   /** The account that is to be disabled or removed, where the caller may and it may be. */
   const dispensable = Effect.fn(function* (caller: Caller, id: string) {
     const account = yield* store.find(id);
@@ -405,6 +420,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     removePasskeys,
     ofPerson,
     list,
+    lookup,
     disable,
     enable,
     remove,

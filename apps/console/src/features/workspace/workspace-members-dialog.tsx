@@ -18,7 +18,7 @@ import {
 import { Field, FieldError } from "@aperture-browser/ui/components/field";
 import { useForm, useStore } from "@tanstack/react-form";
 import { Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Choice } from "#/components/choice.tsx";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { TextField } from "#/components/text-field.tsx";
@@ -30,9 +30,10 @@ import {
   useWorkspaceMembersQuery,
   type Workspace,
 } from "#/features/workspace/workspace.queries.ts";
+import { call, isFailure, told } from "#/lib/api.ts";
 import { reveal } from "#/lib/reveal.ts";
 import { useLast } from "#/lib/use-last.ts";
-import { required } from "#/lib/validation.ts";
+import { all, email, required } from "#/lib/validation.ts";
 
 const ROLES = [
   { value: "member", label: "member" },
@@ -56,19 +57,40 @@ export function WorkspaceMembersDialog({
   onOpenChange,
 }: WorkspaceMembersDialogProps) {
   const own = useAccountQuery();
-  const members = useWorkspaceMembersQuery(workspace.id, open);
-  // Whom there is to let in is an admin's to list: anyone else names an account by its id.
+  // Whom there is to let in is an admin's to list: anyone else names a person by the
+  // address they sign in with, and is told of nobody they did not name.
   const lists = administers && own.data?.admin === true;
   const accounts = useAccountsQuery(open && lists);
   const admit = useAdmitMemberMutation(workspace.id);
   const dismiss = useDismissMemberMutation(workspace.id);
   const [removing, setRemoving] = useState<{ accountId: string; name: string }>();
   const removed = useLast(removing);
+  const members = useWorkspaceMembersQuery(workspace.id, open);
+  const inside = new Set(members.data?.map((member) => member.accountId));
+  /** Whose the address that was typed is, as it was found when the form was sent. */
+  const found = useRef("");
+  const find = async (address: string) => {
+    try {
+      const person = await call((api) => api.accounts.lookup({ query: { email: address.trim() } }));
+      if (inside.has(person.id)) {
+        return `${person.name} is a member already`;
+      }
+      found.current = person.id;
+      return undefined;
+    } catch (error) {
+      return isFailure(error) && error._tag === "PersonNotFound"
+        ? "Nobody signs in with this address"
+        : told(error, "The address was not looked up");
+    }
+  };
   const form = useForm({
-    defaultValues: { accountId: "", role: "member" as Role },
+    defaultValues: { accountId: "", email: "", role: "member" as Role },
     onSubmit: async ({ value, formApi }) => {
       try {
-        await admit.mutateAsync({ accountId: value.accountId.trim(), role: value.role });
+        await admit.mutateAsync({
+          accountId: lists ? value.accountId : found.current,
+          role: value.role,
+        });
       } catch {
         // The mutation tells of it.
         return;
@@ -77,11 +99,9 @@ export function WorkspaceMembersDialog({
     },
   });
   const submitting = useStore(form.store, (state) => state.isSubmitting);
-  const inside = new Set(members.data?.map((member) => member.accountId));
   const outside = (accounts.data ?? []).filter(
     (account) => !inside.has(account.id) && account.disabledAt === null,
   );
-  const known = new Map(accounts.data?.map((account) => [account.id, account]));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -101,12 +121,9 @@ export function WorkspaceMembersDialog({
             }}
           >
             <div className="aperture:min-w-0 aperture:flex-1 aperture:max-sm:basis-full">
-              <form.Field
-                name="accountId"
-                validators={{ onSubmit: required(lists ? "Someone to add" : "An account id") }}
-              >
-                {(field) =>
-                  lists ? (
+              {lists ? (
+                <form.Field name="accountId" validators={{ onSubmit: required("Someone to add") }}>
+                  {(field) => (
                     <AccountPicker
                       accounts={outside}
                       asking={accounts.isPending}
@@ -114,17 +131,28 @@ export function WorkspaceMembersDialog({
                       error={field.state.meta.errors.find((error) => typeof error === "string")}
                       onChange={field.handleChange}
                     />
-                  ) : (
+                  )}
+                </form.Field>
+              ) : (
+                <form.Field
+                  name="email"
+                  validators={{
+                    onSubmit: all(required("An email address"), email),
+                    onSubmitAsync: ({ value }) => find(value),
+                  }}
+                >
+                  {(field) => (
                     <TextField
                       field={field}
-                      label="Account id"
-                      placeholder="Account id"
+                      label="Email"
+                      type="email"
+                      placeholder="Email"
                       autoComplete="off"
                       labelHidden
                     />
-                  )
-                }
-              </form.Field>
+                  )}
+                </form.Field>
+              )}
             </div>
             <form.Field name="role">
               {(field) => (
@@ -153,9 +181,7 @@ export function WorkspaceMembersDialog({
                 <span className="aperture:grid aperture:min-w-0 aperture:flex-1">
                   <span className="aperture:font-medium aperture:wrap-anywhere">{member.name}</span>
                   <span className="aperture:text-xs aperture:text-muted-foreground aperture:wrap-anywhere">
-                    {known.get(member.accountId)?.email ?? (
-                      <span className="aperture:font-mono">{member.accountId}</span>
-                    )}
+                    {member.email ?? "Service account"}
                   </span>
                 </span>
                 {administers ? (

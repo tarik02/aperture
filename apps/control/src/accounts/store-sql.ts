@@ -45,6 +45,13 @@ export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
     return yield* sql`SELECT * FROM accounts WHERE person_id = ${personId}`.pipe(first(Account));
   });
 
+  const findByEmail = Effect.fn("AccountsStore.findByEmail")(function* (email: string) {
+    return yield* sql`
+      SELECT * FROM accounts WHERE lower(email) = ${email.toLowerCase()} ORDER BY created_at, id
+      LIMIT 1
+    `.pipe(first(Account));
+  });
+
   const insertForPerson = Effect.fn("AccountsStore.insertForPerson")(function* (
     account: NewAccount & { readonly person: NonNullable<NewAccount["person"]> },
   ) {
@@ -133,6 +140,7 @@ export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
     list,
     find,
     findByPerson,
+    findByEmail,
     setDisabled,
     delete: delete_,
     insertToken,

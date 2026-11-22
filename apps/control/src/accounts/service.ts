@@ -43,6 +43,15 @@ export interface AccountsShape {
     ReadonlyArray<Account & { readonly signIn: SignInMethods | null }>
   >;
   /**
+   * The account of the person who signs in with exactly that address, for whoever says
+   * who is in a workspace: an admin, or an admin of one. A part of an address finds
+   * nobody, and neither does the address of an account that is disabled.
+   */
+  readonly lookup: (
+    caller: Caller,
+    email: string,
+  ) => Effect.Effect<Account & { readonly email: string }, Forbidden | PersonNotFound>;
+  /**
    * Disables an account: nothing signs in as it, and its cookies, API tokens and the
    * tokens of its grants are nobody's from then on, while all that is its own stays.
    * Whoever is in a session as it is put out, and so are the guests of the share links

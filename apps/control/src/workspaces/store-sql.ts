@@ -60,7 +60,9 @@ export const makeWorkspacesStore = Effect.fn("WorkspacesStore.make")(function* (
 
   const members = Effect.fn("WorkspacesStore.members")(function* (id: string) {
     return yield* sql`
-      SELECT accounts.id AS account_id, accounts.name, workspace_members.role
+      SELECT
+        accounts.id AS account_id, accounts.name, accounts.kind, accounts.email,
+        workspace_members.role
       FROM workspace_members
       JOIN accounts ON accounts.id = workspace_members.account_id
       WHERE workspace_members.workspace_id = ${id}

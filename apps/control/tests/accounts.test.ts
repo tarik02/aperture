@@ -561,6 +561,86 @@ for (const stores of Control.STORES) {
         }),
     );
 
+    it.effect(
+      "whoever says who is in a workspace finds a person by their whole address, and nobody else does",
+      () =>
+        Effect.gen(function* () {
+          const control = yield* Control.Control;
+          const bootstrap = yield* control.as(control.bootstrapToken);
+          const email = `ida-${stores}@example.test`;
+          const ida = yield* bootstrap.accounts.create({ payload: { name: "Ida", email } });
+          const lea = yield* Control.account(`Lea-${stores}`);
+          const asked = { query: { email } };
+
+          // In no workspace, and an admin of none.
+          expect((yield* Effect.flip(lea.api.accounts.lookup(asked)))._tag).toBe("Forbidden");
+          const team = yield* lea.api.workspaces.create({ payload: { name: "Lea's team" } });
+          const asLea = yield* control.as(lea.token);
+          expect(yield* asLea.accounts.lookup(asked)).toEqual({
+            id: ida.id,
+            name: "Ida",
+            email,
+          });
+          expect(
+            (yield* asLea.accounts.lookup({ query: { email: ` ${email.toUpperCase()} ` } })).id,
+          ).toBe(ida.id);
+
+          // A part of an address finds nobody, and neither does what is no address of anyone.
+          for (const part of ["ida", `ida-${stores}@`, "@example.test", "%", lea.account.name]) {
+            const none = yield* Effect.flip(asLea.accounts.lookup({ query: { email: part } }));
+            expect(none._tag).toBe("PersonNotFound");
+          }
+          const empty = yield* control.request(lea.token, "GET", "/api/control/accounts/lookup");
+          expect(empty.status).toBe(400);
+
+          // A member who is no admin of the workspace, and a token that is not for workspaces.
+          const mia = yield* Control.account(`Mia-${stores}`);
+          yield* asLea.workspaces.admit({
+            params: { id: team.id, accountId: mia.account.id },
+            payload: { role: "member" },
+          });
+          const asMia = yield* control.as(mia.token);
+          expect((yield* Effect.flip(asMia.accounts.lookup(asked)))._tag).toBe("Forbidden");
+          const reader = yield* asLea.accounts.createOwnToken({
+            payload: { name: "reader", scopes: ["tokens:write", "sessions:write"] },
+          });
+          const asReader = yield* control.as(reader.token);
+          expect((yield* Effect.flip(asReader.accounts.lookup(asked)))._tag).toBe("Forbidden");
+
+          // Who is in the workspace is told with what they sign in with.
+          yield* asLea.workspaces.admit({
+            params: { id: team.id, accountId: ida.id },
+            payload: { role: "member" },
+          });
+          expect(yield* asMia.workspaces.members({ params: { id: team.id } })).toEqual([
+            { accountId: ida.id, name: "Ida", kind: "person", email, role: "member" },
+            {
+              accountId: lea.account.id,
+              name: lea.account.name,
+              kind: "service",
+              email: null,
+              role: "admin",
+            },
+            {
+              accountId: mia.account.id,
+              name: mia.account.name,
+              kind: "service",
+              email: null,
+              role: "member",
+            },
+          ]);
+
+          // An account that is disabled is found by nobody.
+          yield* bootstrap.accounts.disable({ params: { id: ida.id } });
+          expect((yield* Effect.flip(asLea.accounts.lookup(asked)))._tag).toBe("PersonNotFound");
+          expect((yield* Effect.flip(bootstrap.accounts.lookup(asked)))._tag).toBe(
+            "PersonNotFound",
+          );
+          yield* bootstrap.accounts.enable({ params: { id: ida.id } });
+          expect((yield* bootstrap.accounts.lookup(asked)).id).toBe(ida.id);
+        }),
+    );
+
     it.effect("the last admin is neither disabled nor removed", () =>
       Effect.gen(function* () {
         const control = yield* Control.Control;

@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema";
+import { AccountKind } from "../accounts/schemas.ts";
 
 /** What a member does in a workspace: an admin also says who its members are. */
 export const WorkspaceRole = Schema.Literals(["member", "admin"]);
@@ -16,6 +17,9 @@ export const WorkspaceMember = Schema.Struct({
   accountId: Schema.String,
   /** The account's name, for whoever reads the list. */
   name: Schema.String,
+  kind: AccountKind,
+  /** The address a person signs in with; none for a service. */
+  email: Schema.NullOr(Schema.String),
   role: WorkspaceRole,
 });
 export type WorkspaceMember = typeof WorkspaceMember.Type;

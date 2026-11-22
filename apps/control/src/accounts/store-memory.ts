@@ -52,6 +52,16 @@ export const makeAccountsStoreMemory = Effect.fn("AccountsStore.makeMemory")(fun
     ),
   );
 
+  const findByEmail = Effect.fn("AccountsStore.findByEmail")((email: string) =>
+    Effect.sync(() =>
+      Option.fromUndefinedOr(
+        ordered(memory.accounts.values(), (account) => account.createdAt).find(
+          (account) => account.email?.toLowerCase() === email.toLowerCase(),
+        ),
+      ),
+    ),
+  );
+
   const setDisabled = Effect.fn("AccountsStore.setDisabled")((id: string, at: Date | null) =>
     Effect.sync(() =>
       Option.fromUndefinedOr(memory.accounts.get(id)).pipe(
@@ -177,6 +187,7 @@ export const makeAccountsStoreMemory = Effect.fn("AccountsStore.makeMemory")(fun
     list,
     find,
     findByPerson,
+    findByEmail,
     setDisabled,
     delete: delete_,
     insertToken,

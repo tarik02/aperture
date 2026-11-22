@@ -926,18 +926,44 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       );
       yield* shot(page, fs, "console-members-invalid");
       admitting.push(yield* placed(page, adding));
+      // Whoever is no admin names a person by the whole address they sign in with.
+      const control = yield* Control.Control;
+      const bootstrap = yield* control.as(control.bootstrapToken);
+      const error = `document.querySelector('[data-console-member-add] [data-slot="field-error"]')?.textContent`;
+      const address = `document.querySelector("[data-console-member-add] input")`;
+      const typed = (text: string) =>
+        Effect.gen(function* () {
+          yield* page.click("[data-console-member-add] input");
+          yield* page.type(text);
+          yield* page.until(`${address}.value.endsWith(${JSON.stringify(text)})`);
+        });
+      yield* typed("bo@");
+      yield* page.key("Enter", "Enter", ENTER);
+      yield* page.until(`${error} === "Enter an email address"`);
+      yield* typed("members.test");
+      yield* page.key("Enter", "Enter", ENTER);
+      yield* page.until(`${error} === "Nobody signs in with this address"`);
+      admitting.push(yield* placed(page, adding));
+      const admitted: Array<string> = [];
       for (const [at, name] of ["Bo", "Cy", "Di", "Ed", "Flo", "Gus"].entries()) {
-        const { account } = yield* Control.account(name);
-        yield* page.click("[data-console-member-add] input");
-        yield* page.type(account.id);
+        const email = `${name.toLowerCase()}@members.test`;
+        admitted.push((yield* bootstrap.accounts.create({ payload: { name, email } })).id);
+        // Bo's address is in the field already, and is somebody's now.
+        if (at > 0) {
+          yield* typed(email);
+        }
         yield* page.key("Enter", "Enter", ENTER);
         yield* members(at + 2);
+        yield* page.until(`${address}.value === ""`);
       }
+      expect(yield* page.text("[data-console-members]")).toContain("gus@members.test");
       yield* shot(page, fs, "console-members");
       yield* shotDark(page, fs, "console-members-dark");
       admitting.push(yield* placed(page, adding));
       alike(admitting);
       yield* closed(page);
+      // The checks after this one find the people they make themselves, and no others.
+      yield* Effect.forEach(admitted, (id) => bootstrap.accounts.remove({ params: { id } }));
 
       // A token is held to what is ticked and chosen in a dialog that is as tall for each.
       yield* page.click(`a[href="/-/tokens"]`);

@@ -61,6 +61,11 @@ const accounts = HttpApiBuilder.group(
         }),
       )
       .handle("list", () => Effect.andThen(admin, accounts.list()))
+      .handle("lookup", ({ query }) =>
+        Effect.flatMap(scoped("workspaces:write"), (caller) =>
+          accounts.lookup(caller, query.email),
+        ),
+      )
       .handle("create", ({ payload }) =>
         Effect.andThen(
           admin,

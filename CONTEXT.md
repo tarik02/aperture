@@ -55,7 +55,7 @@ A machine with an executor on it, as the control plane knows it: its name, where
 What lets an executor tell a control plane it is a node of it. An admin makes it; several can be good at once.
 
 **Workspace**:
-Where accounts keep sessions and snapshots together: what is a workspace's is all its members', and stays the workspace's when a member leaves. A session or a snapshot is of one workspace or of none, and of none it is its account's own. A member who is an admin of the workspace says who its members are.
+Where accounts keep sessions and snapshots together: what is a workspace's is all its members', and stays the workspace's when a member leaves. A session or a snapshot is of one workspace or of none, and of none it is its account's own. A member who is an admin of the workspace says who its members are. Whoever does finds a person to let in by the whole email address they sign in with, and is told of nobody they did not name.
 
 **Service account**:
 An account for something that is not a person: it comes with API tokens alone. It holds sessions and snapshots and is let into workspaces as a person's account is.

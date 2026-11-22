@@ -91,7 +91,17 @@ export const Workspace = Schema.Struct({
 export const WorkspaceMember = Schema.Struct({
   accountId: Schema.String,
   name: Schema.String,
+  kind: Account.fields.kind,
+  /** The address a person signs in with; none for a service. */
+  email: Account.fields.email,
   role: WorkspaceRole,
+});
+
+/** A person's account as whoever asked for it by its address is told of it. */
+export const AccountLookup = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  email: Schema.String,
 });
 
 /** An API token as its account sees it: never the token. */
@@ -295,6 +305,12 @@ export class AccountsGroup extends HttpApiGroup.make("accounts")
       success: Schema.Array(ListedAccount),
       error: Forbidden,
     }),
+    HttpApiEndpoint.get("lookup", "/accounts/lookup", {
+      /** The whole address: a part of one finds nobody. */
+      query: { email: Schema.NonEmptyString },
+      success: AccountLookup,
+      error: [Forbidden, PersonNotFound],
+    }),
     HttpApiEndpoint.post("create", "/accounts", {
       payload: Schema.Struct({
         name: Schema.NonEmptyString,
@@ -344,7 +360,7 @@ export class AccountsGroup extends HttpApiGroup.make("accounts")
     OpenApi.annotations({
       title: "Accounts",
       description:
-        "Accounts and their API tokens. Only an admin makes them, disables them and removes them.",
+        "Accounts and their API tokens. Only an admin makes them, disables them and removes them. Whoever says who is in a workspace finds a person's account by the whole of their email address.",
     }),
   ) {}
 
