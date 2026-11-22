@@ -77,6 +77,26 @@ export const makeAccountsStoreMemory = Effect.fn("AccountsStore.makeMemory")(fun
     ),
   );
 
+  const change = Effect.fn("AccountsStore.change")(
+    (
+      id: string,
+      said: { readonly name?: string | undefined; readonly admin?: boolean | undefined },
+    ) =>
+      Effect.sync(() =>
+        Option.fromUndefinedOr(memory.accounts.get(id)).pipe(
+          Option.map((account) => {
+            const kept: Account = {
+              ...account,
+              name: said.name ?? account.name,
+              admin: said.admin ?? account.admin,
+            };
+            memory.accounts.set(id, kept);
+            return kept;
+          }),
+        ),
+      ),
+  );
+
   /** What a database removes with an account by itself is removed here by hand. */
   const delete_ = Effect.fn("AccountsStore.delete")((id: string) =>
     Effect.sync(() => {
@@ -188,6 +208,7 @@ export const makeAccountsStoreMemory = Effect.fn("AccountsStore.makeMemory")(fun
     find,
     findByPerson,
     findByEmail,
+    change,
     setDisabled,
     delete: delete_,
     insertToken,

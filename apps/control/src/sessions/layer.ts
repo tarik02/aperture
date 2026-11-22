@@ -1,11 +1,13 @@
 import {
   type Access,
   type Caller,
+  covers,
   type ObservedState,
   ProxyConfig,
 } from "@aperture-browser/control-api";
 import { type ExecutorError, proto, type ProxyConfigInit } from "@aperture-browser/executor-client";
 import * as UrlPath from "@aperture-browser/shared/url-path";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -13,6 +15,7 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import { accountOf, reaches } from "../accounts/caller.ts";
 import {
+  FileLinkInvalid,
   Forbidden,
   type NodeRefused,
   type NodeUnreachable,
@@ -30,7 +33,8 @@ import { SnapshotsStore } from "../snapshots/store.ts";
 import { Tickets } from "../tickets/service.ts";
 import { now } from "../time.ts";
 import { Vault } from "../vault/service.ts";
-import type { Admission, Observation, Session } from "./schemas.ts";
+import { sessionPath } from "../routing/paths.ts";
+import type { Admission, FileLink, Observation, Session } from "./schemas.ts";
 import { type NewSessionOptions, Sessions } from "./service.ts";
 import { type SessionDescription, SessionsStore } from "./store.ts";
 
@@ -58,6 +62,16 @@ const toExecutor = (proxy: ProxyConfig): ProxyConfigInit => ({
   ),
   rules: proxy.rules.map((rule) => ({ ...rule })),
 });
+
+const UPLOADS = "uploads";
+/** The directories of a session's files, each with the area of access its files are read by. */
+const FILE_AREAS: Readonly<Record<string, keyof Access | undefined>> = {
+  [UPLOADS]: "uploads",
+  downloads: "downloads",
+  recordings: "recordings",
+  screenshots: "recordings",
+};
+const FILE_LINK_LASTS = Duration.minutes(5);
 
 const ProxyJson = Schema.fromJsonString(ProxyConfig);
 const encodeProxy = Schema.encodeSync(ProxyJson);
@@ -218,6 +232,10 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     if (workspaceId !== null && !caller.workspaces.some((one) => one.id === workspaceId)) {
       return yield* new WorkspaceNotFound({ id: workspaceId });
     }
+    // A session of a snapshot has what the snapshot has: making one reads it.
+    if (options.snapshotId !== undefined && !covers(caller.scopes, "snapshots:read")) {
+      return yield* new Forbidden({ message: "this token is not for snapshots:read" });
+    }
     const alive = yield* nodes.candidates();
     const candidates =
       options.snapshotId === undefined ? alive : yield* having(caller, options.snapshotId, alive);
@@ -341,10 +359,17 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     yield* events.record({ kind: "session.deleted", ...about(session) });
   });
 
+  /** Where a session is reached from outside: on its node, or through the proxy before it. */
+  const reachedAt = (node: Node, id: string, origin: string) =>
+    node.publicUrl === null
+      ? `${origin}${sessionPath(node.id, id)}`
+      : UrlPath.make`${UrlPath.raw(node.publicUrl)}/sessions/${id}`;
+
   const admit = Effect.fn("Sessions.admit")(function* (
     caller: Caller,
     id: string,
     options: { readonly name: string | undefined; readonly access: Access },
+    origin: string,
   ) {
     const account = yield* accountOf(caller);
     const { node } = yield* placed(caller, id);
@@ -356,11 +381,48 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     });
     return {
       ...issued,
-      url:
-        node.publicUrl === null
-          ? null
-          : UrlPath.make`${UrlPath.raw(node.publicUrl)}/sessions/${id}/?token=${issued.ticket}`,
+      url: UrlPath.make`${UrlPath.raw(reachedAt(node, id, origin))}/?token=${issued.ticket}`,
     } satisfies Admission;
+  });
+
+  const fileLink = Effect.fn("Sessions.fileLink")(function* (
+    caller: Caller,
+    id: string,
+    asked: {
+      readonly path: string;
+      readonly write: boolean;
+      readonly lasts: Duration.Duration | undefined;
+    },
+    origin: string,
+  ) {
+    const account = yield* accountOf(caller);
+    const { node } = yield* placed(caller, id);
+    const [directory = "", ...below] = asked.path.split("/");
+    const area = FILE_AREAS[directory];
+    if (area === undefined || below.length === 0) {
+      return yield* new FileLinkInvalid({ message: `${asked.path} is no file of a session` });
+    }
+    // What is put into a session is an upload, under a name and in no directory of its own.
+    if (asked.write && (directory !== UPLOADS || below.length !== 1)) {
+      return yield* new FileLinkInvalid({
+        message: `a file is put at ${UPLOADS}/<name>, and nowhere else`,
+      });
+    }
+    const named = below.map(encodeURIComponent).join("/");
+    const route = asked.write ? `/${UPLOADS}/${named}` : `/files/${directory}/${named}`;
+    const issued = yield* tickets.issue({
+      sessionId: id,
+      subject: account.id,
+      name: account.name,
+      access: { [area]: asked.write ? "w" : "r" },
+      path: route,
+      lasts: asked.lasts ?? FILE_LINK_LASTS,
+    });
+    return {
+      url: `${reachedAt(node, id, origin)}${route}?token=${issued.ticket}`,
+      method: asked.write ? "PUT" : "GET",
+      expiresAt: issued.expiresAt,
+    } satisfies FileLink;
   });
 
   const heard = Effect.fn("Sessions.heard")(function* (node: Node, session: proto.Session) {
@@ -413,6 +475,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     resume,
     delete: delete_,
     admit,
+    fileLink,
     heard,
     gone,
     reconcile,

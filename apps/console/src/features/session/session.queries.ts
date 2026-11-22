@@ -6,7 +6,7 @@ import { queryKeys } from "#/lib/query-keys.ts";
 
 export type Session = Awaited<ReturnType<typeof listSessions>>[number];
 
-const listSessions = () => call((api) => api.sessions.list());
+const listSessions = () => call((api) => api.sessions.list({ query: {} }));
 
 /** How often sessions are asked for again: what their nodes say of them is not pushed here yet. */
 const ASKED_EVERY = 2000;

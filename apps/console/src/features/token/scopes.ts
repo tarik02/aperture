@@ -6,6 +6,7 @@ export const SCOPES: ReadonlyArray<{ readonly scope: Scope; readonly lets: strin
   { scope: "sessions:write", lets: "Create, drive, change and delete sessions" },
   { scope: "snapshots:read", lets: "See snapshots" },
   { scope: "snapshots:write", lets: "Save, change and delete snapshots" },
+  { scope: "workspaces:read", lets: "See workspaces and who is in them" },
   { scope: "workspaces:write", lets: "Create workspaces and say who is in them" },
   { scope: "tokens:write", lets: "See, make and revoke API tokens" },
   { scope: "events:read", lets: "See what was done, and by whom" },

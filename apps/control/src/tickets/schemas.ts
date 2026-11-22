@@ -1,4 +1,5 @@
 import type * as DateTime from "effect/DateTime";
+import type * as Duration from "effect/Duration";
 import type { Access } from "@aperture-browser/control-api";
 
 /** Who a ticket is for, into which session, and what it lets them do there. */
@@ -12,6 +13,13 @@ export interface TicketRequest {
    * socket opened with it is closed then. Without, a socket stays for as long as its client.
    */
   readonly until?: DateTime.Utc | null;
+  /**
+   * The one route of the session the ticket is good at, as a path below the session's
+   * own: `/files/recordings/1a2b.mkv`. It is good at every route its access gives, without.
+   */
+  readonly path?: string;
+  /** How long it is good for; for as long as tickets are, without. */
+  readonly lasts?: Duration.Duration;
 }
 
 export interface Issued {

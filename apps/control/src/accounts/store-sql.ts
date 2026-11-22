@@ -81,6 +81,18 @@ export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
     `.pipe(first(Account));
   });
 
+  const change = Effect.fn("AccountsStore.change")(function* (
+    id: string,
+    said: { readonly name?: string | undefined; readonly admin?: boolean | undefined },
+  ) {
+    return yield* sql`
+      UPDATE accounts
+      SET name = COALESCE(${said.name ?? null}, name), admin = COALESCE(${said.admin ?? null}, admin)
+      WHERE id = ${id}
+      RETURNING *
+    `.pipe(first(Account));
+  });
+
   const delete_ = Effect.fn("AccountsStore.delete")(function* (id: string) {
     yield* sql`DELETE FROM accounts WHERE id = ${id}`.pipe(done);
   });
@@ -141,6 +153,7 @@ export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
     find,
     findByPerson,
     findByEmail,
+    change,
     setDisabled,
     delete: delete_,
     insertToken,

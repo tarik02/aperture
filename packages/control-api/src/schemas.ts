@@ -96,14 +96,17 @@ export type ProxyConfig = typeof ProxyConfig.Type;
 
 /**
  * What an API token is held to: it does what its scopes name and nothing else. Writing
- * something includes reading it; `events:read` reads the events of its account and of the
- * workspaces that is in, and `admin` is what an admin's token keeps an admin's with.
+ * something includes reading it. `sessions:read` sees sessions and watches them, and
+ * `sessions:write` does everything else in one; `workspaces:read` tells which workspaces
+ * its account is in and who else is; `events:read` reads the events of its account and of
+ * the workspaces that is in, and `admin` is what an admin's token keeps an admin's with.
  */
 export const Scope = Schema.Literals([
   "sessions:read",
   "sessions:write",
   "snapshots:read",
   "snapshots:write",
+  "workspaces:read",
   "workspaces:write",
   "tokens:write",
   "events:read",
@@ -136,6 +139,7 @@ export const EventKind = Schema.Literals([
   "sign_in.succeeded",
   "sign_in.failed",
   "account.created",
+  "account.changed",
   "account.disabled",
   "account.enabled",
   "account.removed",

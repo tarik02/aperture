@@ -103,7 +103,7 @@ for (const stores of Control.STORES) {
           yield* until(
             "both sessions running",
             ada.api.sessions
-              .list()
+              .list({ query: {} })
               .pipe(Effect.map((all) => all.every((one) => one.observedState === "running"))),
             "60 seconds",
           );

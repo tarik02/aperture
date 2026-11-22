@@ -1,10 +1,12 @@
 import { PREFIX, type Access, type Caller, covers } from "@aperture-browser/control-api";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import { accountOf } from "../accounts/caller.ts";
 import { Forbidden, SessionElsewhere, SessionNotFound } from "../errors.ts";
 import { Nodes } from "../nodes/service.ts";
 import { Sessions } from "../sessions/service.ts";
+import { SessionsStore } from "../sessions/store.ts";
 import { Settings } from "../settings/service.ts";
 import { Tickets } from "../tickets/service.ts";
 import { nodePath, sessionAt, sessionPath } from "./paths.ts";
@@ -41,6 +43,30 @@ export const makeRouting = Effect.fn("Routing.make")(function* () {
   const sessions = yield* Sessions;
   const tickets = yield* Tickets;
   const settings = yield* Settings;
+  const store = yield* SessionsStore;
+
+  const admitTicket = Effect.fn("Routing.admitTicket")(function* (
+    uri: string,
+    bearer: Option.Option<string>,
+  ) {
+    const at = sessionAt(uri);
+    // As a session takes one itself: on the request, or in its address.
+    const given =
+      Option.getOrNull(bearer) ?? new URLSearchParams(uri.split("?")[1] ?? "").get("token");
+    // An API token is no ticket, and is not looked at as one.
+    if (at === undefined || given === null || given.split(".").length !== 3) {
+      return Option.none<string>();
+    }
+    const into = yield* tickets.sessionOf(given);
+    if (Option.isNone(into) || into.value !== at.sessionId) {
+      return Option.none<string>();
+    }
+    // The session is where the request asks for it, or the ticket is into nothing there.
+    const session = yield* store.find(at.sessionId);
+    return Option.isSome(session) && session.value.nodeId === at.nodeId
+      ? Option.some(given)
+      : Option.none<string>();
+  });
 
   const admit = Effect.fn("Routing.admit")(function* (caller: Caller, uri: string) {
     const at = sessionAt(uri);
@@ -135,7 +161,7 @@ export const makeRouting = Effect.fn("Routing.make")(function* () {
     } satisfies ProxyConfig;
   });
 
-  return Routing.of({ admit, proxyConfig });
+  return Routing.of({ admit, admitTicket, proxyConfig });
 });
 
 export const layer = Layer.effect(Routing, makeRouting());

@@ -50,6 +50,11 @@ export const layer = HttpRouter.use(
       );
       // Whoever reaches the session as themselves comes as themselves. A guest's link is
       // looked at for whom that lets into nothing, and gets them into its own session.
+      // A link that carries a ticket of its own is whoever's was given it.
+      const carried = yield* routing.admitTicket(uri, bearerOf(request));
+      if (Option.isSome(carried)) {
+        return HttpServerResponse.empty({ headers: { authorization: `Bearer ${carried.value}` } });
+      }
       const ticket = yield* Option.match(guestOf(request, SHARE_COOKIE), {
         onNone: () => asCaller,
         onSome: (guest) =>

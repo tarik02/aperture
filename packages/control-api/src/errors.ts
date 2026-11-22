@@ -197,3 +197,10 @@ export class ProviderInvalid extends Schema.TaggedError<ProviderInvalid>()(
   { message: Schema.String, problems: Schema.Array(Schema.String) },
   { httpApiStatus: 400 },
 ) {}
+
+/** What was asked of a session's file is not asked of such a file. */
+export class FileLinkInvalid extends Schema.TaggedError<FileLinkInvalid>()(
+  "FileLinkInvalid",
+  { message: Schema.String },
+  { httpApiStatus: 400 },
+) {}

@@ -253,6 +253,9 @@ export const makeGrants = Effect.fn("Grants.make")(function* () {
   });
 
   const revoke = Effect.fn("Grants.revoke")(function* (caller: Caller, id: string) {
+    if (caller.resources !== null) {
+      return yield* new Forbidden({ message: "a token held to resources takes no grants back" });
+    }
     const grant = Option.filter(yield* store.findGrant(id), (found) =>
       reaches(caller, { accountId: found.accountId, workspaceId: null }),
     );

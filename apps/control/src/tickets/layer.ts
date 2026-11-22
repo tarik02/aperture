@@ -6,6 +6,9 @@ import * as Base64 from "effect/encoding/Base64";
 import * as Base64Url from "effect/encoding/Base64Url";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import { TicketKeyUnusable } from "../errors.ts";
 import { Settings } from "../settings/service.ts";
 import type { TicketRequest } from "./schemas.ts";
@@ -32,16 +35,34 @@ const readKey = Effect.fn("Tickets.readKey")(function* () {
   const der = yield* Effect.fromResult(Base64.decode(body.replace(/\s+/gu, ""))).pipe(
     Effect.mapError((error) => unusable(error.message)),
   );
-  // Effect signs nothing: the key is the platform's own.
+  // Effect signs nothing: the keys are the platform's own. The public key is the private
+  // one without what makes it private, and is what a ticket that comes back is checked by.
   return yield* Effect.tryPromise({
-    try: () => crypto.subtle.importKey("pkcs8", new Uint8Array(der), "Ed25519", false, ["sign"]),
+    try: async () => {
+      const whole = await crypto.subtle.importKey("pkcs8", new Uint8Array(der), "Ed25519", true, [
+        "sign",
+      ]);
+      const { kty, crv, x } = await crypto.subtle.exportKey("jwk", whole);
+      return {
+        signing: await crypto.subtle.importKey("pkcs8", new Uint8Array(der), "Ed25519", false, [
+          "sign",
+        ]),
+        checking: await crypto.subtle.importKey("jwk", { kty, crv, x }, "Ed25519", false, [
+          "verify",
+        ]),
+      };
+    },
     catch: (cause) => unusable(`it is no Ed25519 key: ${String(cause)}`),
   });
 });
 
+/** What of a ticket's claims this program reads again. */
+const Claims = Schema.fromJsonString(Schema.Struct({ sid: Schema.String, exp: Schema.Number }));
+const decodeClaims = Schema.decodeUnknownOption(Claims);
+
 export const makeTickets = Effect.fn("Tickets.make")(function* () {
   const settings = yield* Settings;
-  const key = yield* readKey();
+  const keys = yield* readKey();
 
   const issue = Effect.fn("Tickets.issue")(function* (ticket: TicketRequest) {
     const now = yield* Clock.currentTimeMillis;
@@ -50,7 +71,7 @@ export const makeTickets = Effect.fn("Tickets.make")(function* () {
         ? undefined
         : Math.floor(DateTime.toEpochMillis(ticket.until) / 1000);
     const expires = Math.min(
-      Math.floor((now + Duration.toMillis(settings.ticketLifetime)) / 1000),
+      Math.floor((now + Duration.toMillis(ticket.lasts ?? settings.ticketLifetime)) / 1000),
       until ?? Infinity,
     );
     const signed = [
@@ -62,10 +83,11 @@ export const makeTickets = Effect.fn("Tickets.make")(function* () {
         exp: expires,
         access: ticket.access,
         ...(until === undefined ? {} : { until }),
+        ...(ticket.path === undefined ? {} : { path: ticket.path }),
       }),
     ].join(".");
     const signature = yield* Effect.promise(() =>
-      crypto.subtle.sign("Ed25519", key, new TextEncoder().encode(signed)),
+      crypto.subtle.sign("Ed25519", keys.signing, new TextEncoder().encode(signed)),
     );
     return {
       ticket: `${signed}.${Base64Url.encode(new Uint8Array(signature))}`,
@@ -73,7 +95,36 @@ export const makeTickets = Effect.fn("Tickets.make")(function* () {
     };
   });
 
-  return Tickets.of({ issue });
+  const sessionOf = Effect.fn("Tickets.sessionOf")(function* (ticket: string) {
+    const [header, claims, signature, ...more] = ticket.split(".");
+    if (
+      header === undefined ||
+      claims === undefined ||
+      signature === undefined ||
+      more.length > 0
+    ) {
+      return Option.none<string>();
+    }
+    const signed = Base64Url.decode(signature);
+    const said = Result.flatMap(Base64Url.decodeString(claims), (json) =>
+      Result.fromOption(decodeClaims(json), () => undefined),
+    );
+    if (Result.isFailure(signed) || Result.isFailure(said)) {
+      return Option.none<string>();
+    }
+    const good = yield* Effect.promise(() =>
+      crypto.subtle.verify(
+        "Ed25519",
+        keys.checking,
+        new Uint8Array(signed.success),
+        new TextEncoder().encode(`${header}.${claims}`),
+      ),
+    );
+    const now = yield* Clock.currentTimeMillis;
+    return good && said.success.exp * 1000 > now ? Option.some(said.success.sid) : Option.none();
+  });
+
+  return Tickets.of({ issue, sessionOf });
 });
 
 export const layer = Layer.effect(Tickets, makeTickets());

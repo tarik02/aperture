@@ -35,6 +35,13 @@ export interface Observation {
 export interface Admission {
   readonly ticket: string;
   readonly expiresAt: DateTime.Utc;
-  /** The session's workbench with the ticket in it; none where its node has no public address. */
-  readonly url: string | null;
+  /** The session's workbench with the ticket in it. */
+  readonly url: string;
+}
+
+/** An address one file of a session is read at or put to, and until when. */
+export interface FileLink {
+  readonly url: string;
+  readonly method: "GET" | "PUT";
+  readonly expiresAt: DateTime.Utc;
 }

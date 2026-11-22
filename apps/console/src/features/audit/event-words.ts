@@ -29,6 +29,12 @@ export const HAPPENED: Readonly<Record<EventKind, (event: Event) => string>> = {
     event.detail["provisioned"] === true
       ? "Got an account by signing in through a provider"
       : `Made the ${event.detail["kind"] === "person" ? "person" : "service account"}`,
+  "account.changed": (event) =>
+    event.detail["admin"] === true
+      ? "Made the account an admin"
+      : event.detail["admin"] === false
+        ? "Made the account no admin"
+        : `Renamed the account from ${said(event.detail["from"]) ?? "another name"}`,
   "account.disabled": () => "Disabled the account",
   "account.enabled": () => "Enabled the account",
   "account.removed": () => "Deleted the account",

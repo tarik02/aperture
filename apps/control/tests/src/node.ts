@@ -24,7 +24,7 @@ const node = Layer.effect(
   Effect.gen(function* () {
     const control = yield* Control.Control;
     return yield* Executor.start({
-      features: ["mcp", "cdp", "recordings"],
+      features: ["mcp", "cdp", "recordings", "uploads", "downloads"],
       env: { APERTURE_TICKET_KEY: control.ticketKey },
     });
   }),

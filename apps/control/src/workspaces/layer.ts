@@ -30,7 +30,8 @@ export const makeWorkspaces = Effect.fn("Workspaces.make")(function* () {
   const joined = Effect.fn(function* (caller: Caller, id: string) {
     const workspace = yield* store.find(id);
     const role = caller.workspaces.find((one) => one.id === id)?.role ?? null;
-    if (Option.isNone(workspace) || (role === null && !caller.admin)) {
+    const held = caller.resources !== null && !caller.resources.workspaces.includes(id);
+    if (Option.isNone(workspace) || (role === null && !caller.admin) || held) {
       return yield* new WorkspaceNotFound({ id });
     }
     return { workspace: workspace.value, role } satisfies Joined;
@@ -55,16 +56,19 @@ export const makeWorkspaces = Effect.fn("Workspaces.make")(function* () {
 
   const list = Effect.fn("Workspaces.list")(function* (caller: Caller) {
     const mine = Option.isNone(caller.account) ? [] : yield* store.of(caller.account.value.id);
-    if (!caller.admin) {
-      return mine satisfies ReadonlyArray<Joined>;
-    }
-    const all = yield* store.list();
-    return all.map(
-      (workspace): Joined => ({
-        workspace,
-        role: mine.find((one) => one.workspace.id === workspace.id)?.role ?? null,
-      }),
-    );
+    const all = caller.admin
+      ? (yield* store.list()).map(
+          (workspace): Joined => ({
+            workspace,
+            role: mine.find((one) => one.workspace.id === workspace.id)?.role ?? null,
+          }),
+        )
+      : (mine satisfies ReadonlyArray<Joined>);
+    // A token held to resources is told of the workspaces it names, and of no other.
+    const { resources } = caller;
+    return resources === null
+      ? all
+      : all.filter(({ workspace }) => resources.workspaces.includes(workspace.id));
   });
 
   const of = Effect.fn("Workspaces.of")(function* (accountId: string) {

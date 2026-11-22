@@ -41,13 +41,17 @@ function WorkspaceRow({ workspace }: { workspace: Workspace }) {
   const administers =
     access.may("workspaces:write") && (workspace.role === "admin" || access.may("admin"));
   const actions: ReadonlyArray<RowAction> = [
-    {
-      key: "members",
-      label: "Members",
-      icon: Users,
-      shown: "button",
-      onSelect: () => setDialog("members"),
-    },
+    ...(access.may("workspaces:read")
+      ? ([
+          {
+            key: "members",
+            label: "Members",
+            icon: Users,
+            shown: "button",
+            onSelect: () => setDialog("members"),
+          },
+        ] satisfies ReadonlyArray<RowAction>)
+      : []),
     ...(administers
       ? ([
           { key: "rename", label: "Rename", icon: Pencil, onSelect: () => setDialog("rename") },

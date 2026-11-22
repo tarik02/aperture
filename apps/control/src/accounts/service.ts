@@ -42,6 +42,19 @@ export interface AccountsShape {
   readonly list: () => Effect.Effect<
     ReadonlyArray<Account & { readonly signIn: SignInMethods | null }>
   >;
+  /** One account, a person's with what they sign in with. */
+  readonly get: (
+    id: string,
+  ) => Effect.Effect<Account & { readonly signIn: SignInMethods | null }, AccountNotFound>;
+  /**
+   * Says anew what an account is called and whether it is an admin's. Nobody says of
+   * their own account whether it is an admin's, and the last admin stays one.
+   */
+  readonly change: (
+    caller: Caller,
+    id: string,
+    said: { readonly name?: string | undefined; readonly admin?: boolean | undefined },
+  ) => Effect.Effect<Account, AccountNotFound | Forbidden | AccountInUse>;
   /**
    * The account of the person who signs in with exactly that address, for whoever says
    * who is in a workspace: an admin, or an admin of one. A part of an address finds
@@ -86,8 +99,14 @@ export interface AccountsShape {
   ) => Effect.Effect<{ readonly token: ApiToken; readonly secret: string }, AccountNotFound>;
   /** The tokens of the caller's own account, those taken back among them. */
   readonly tokens: (caller: Caller) => Effect.Effect<ReadonlyArray<ApiToken>, Forbidden>;
-  /** Takes a token back: one of the caller's own account, or any for an admin. */
-  readonly revokeToken: (caller: Caller, id: string) => Effect.Effect<void, ApiTokenNotFound>;
+  /**
+   * Takes a token back: one of the caller's own account, or any for an admin. A token
+   * held to resources takes none back, as it makes none.
+   */
+  readonly revokeToken: (
+    caller: Caller,
+    id: string,
+  ) => Effect.Effect<void, ApiTokenNotFound | Forbidden>;
   /** The tokens of an account an admin names, those taken back among them. */
   readonly tokensOf: (accountId: string) => Effect.Effect<ReadonlyArray<ApiToken>, AccountNotFound>;
   /** Takes back a token of an account an admin names: one of another's is none of it. */

@@ -1,8 +1,10 @@
 import type { Access, Caller, ProxyConfig } from "@aperture-browser/control-api";
 import type { ExecutorError, proto } from "@aperture-browser/executor-client";
 import * as Context from "effect/Context";
+import type * as Duration from "effect/Duration";
 import type * as Effect from "effect/Effect";
 import type {
+  FileLinkInvalid,
   Forbidden,
   NodeRefused,
   NodeUnreachable,
@@ -13,7 +15,7 @@ import type {
   WorkspaceNotFound,
 } from "../errors.ts";
 import type { Node } from "../nodes/schemas.ts";
-import type { Admission, Session } from "./schemas.ts";
+import type { Admission, FileLink, Session } from "./schemas.ts";
 import type { SessionDescription } from "./store.ts";
 
 export interface NewSessionOptions {
@@ -75,12 +77,32 @@ export interface SessionsShape {
   readonly suspend: (caller: Caller, id: string) => Effect.Effect<Session, NodeError>;
   readonly resume: (caller: Caller, id: string) => Effect.Effect<Session, NodeError>;
   readonly delete: (caller: Caller, id: string) => Effect.Effect<void, NodeError>;
-  /** A ticket for the caller's account into the session. */
+  /**
+   * A ticket for the caller's account into the session, and the session's workbench with
+   * it: on its node where that has an address of its own, and otherwise below `origin`,
+   * where the proxy before the nodes is.
+   */
   readonly admit: (
     caller: Caller,
     id: string,
     options: { readonly name: string | undefined; readonly access: Access },
+    origin: string,
   ) => Effect.Effect<Admission, Forbidden | SessionNotFound | SessionHasNoNode>;
+  /**
+   * An address one file of the session is read at, or one of its uploads is put to, by
+   * whoever is given it and for a short while: the ticket in it is good there alone.
+   */
+  readonly fileLink: (
+    caller: Caller,
+    id: string,
+    asked: {
+      /** Below the session's files: `recordings/1a2b.mkv`. */
+      readonly path: string;
+      readonly write: boolean;
+      readonly lasts: Duration.Duration | undefined;
+    },
+    origin: string,
+  ) => Effect.Effect<FileLink, Forbidden | SessionNotFound | SessionHasNoNode | FileLinkInvalid>;
   /** Takes what a node's executor said of one of its sessions. */
   readonly heard: (node: Node, session: proto.Session) => Effect.Effect<void>;
   /** Takes a node's word that it has a session no more. */

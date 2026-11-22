@@ -308,10 +308,10 @@ for (const stores of Control.STORES) {
         expect(reader.scopes).toEqual(["sessions:read"]);
         const asReader = yield* control.as(reader.token);
 
-        expect(yield* asReader.sessions.list()).toEqual([]);
+        expect(yield* asReader.sessions.list({ query: {} })).toEqual([]);
         const writes = yield* Effect.flip(asReader.sessions.create({ payload: {} }));
         expect(writes).toMatchObject({ _tag: "Forbidden" });
-        expect((yield* Effect.flip(asReader.snapshots.list()))._tag).toBe("Forbidden");
+        expect((yield* Effect.flip(asReader.snapshots.list({ query: {} })))._tag).toBe("Forbidden");
         // It is of an admin's account, and not an admin's: it was not made for that.
         expect((yield* Effect.flip(asReader.accounts.list()))._tag).toBe("Forbidden");
         expect((yield* Effect.flip(asReader.accounts.tokens()))._tag).toBe("Forbidden");
@@ -321,7 +321,7 @@ for (const stores of Control.STORES) {
         });
         const asMaker = yield* control.as(maker.token);
         // Writing snapshots includes reading them.
-        expect(yield* asMaker.snapshots.list()).toEqual([]);
+        expect(yield* asMaker.snapshots.list({ query: {} })).toEqual([]);
         const more = yield* Effect.flip(
           asMaker.accounts.createOwnToken({ payload: { name: "more", scopes: ["admin"] } }),
         );
@@ -378,6 +378,154 @@ for (const stores of Control.STORES) {
             scopes: null,
             resources: null,
           });
+        }),
+    );
+
+    it.effect("an admin reads one account, renames it and says whether it is an admin's", () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const root = yield* Control.account(`Changer-${stores}`, true);
+        const bot = yield* root.api.accounts.create({ payload: { name: "Bot" } });
+        const at = { params: { id: bot.id } };
+        expect(yield* root.api.accounts.get(at)).toMatchObject({
+          id: bot.id,
+          name: "Bot",
+          kind: "service",
+          admin: false,
+          signIn: null,
+        });
+
+        const renamed = yield* root.api.accounts.change({ ...at, payload: { name: "Crawler" } });
+        expect(renamed).toMatchObject({ name: "Crawler", admin: false });
+        const raised = yield* root.api.accounts.change({ ...at, payload: { admin: true } });
+        expect(raised).toMatchObject({ name: "Crawler", admin: true });
+        expect((yield* root.api.accounts.get(at)).admin).toBe(true);
+        const events = yield* root.api.events.list({
+          query: { kind: "account.changed", resourceId: bot.id },
+        });
+        expect(events.events.map((event) => event.detail)).toEqual([
+          { admin: true },
+          { from: "Bot" },
+        ]);
+        // What is said as it is already is no change, and is not written down as one.
+        yield* root.api.accounts.change({ ...at, payload: { name: "Crawler", admin: true } });
+        expect(
+          (yield* root.api.events.list({ query: { kind: "account.changed", resourceId: bot.id } }))
+            .events.length,
+        ).toBe(2);
+        yield* root.api.accounts.change({ ...at, payload: { admin: false } });
+
+        // Nobody says of their own account whether it is an admin's; its name they say.
+        const own = { params: { id: root.account.id } };
+        const self = yield* Effect.flip(
+          root.api.accounts.change({ ...own, payload: { admin: false } }),
+        );
+        expect(self._tag).toBe("Forbidden");
+        expect((yield* root.api.accounts.change({ ...own, payload: { name: "Root" } })).name).toBe(
+          "Root",
+        );
+
+        const eve = yield* Control.account(`Plain-${stores}`);
+        expect((yield* Effect.flip(eve.api.accounts.get(at)))._tag).toBe("Forbidden");
+        expect(
+          (yield* Effect.flip(eve.api.accounts.get({ params: { id: eve.account.id } })))._tag,
+        ).toBe("Forbidden");
+        const notTheirs = yield* Effect.flip(
+          eve.api.accounts.change({ ...at, payload: { admin: true } }),
+        );
+        expect(notTheirs._tag).toBe("Forbidden");
+        // An admin's token that is not for an admin's doings does none of them.
+        const plain = yield* root.api.accounts.createOwnToken({
+          payload: { name: "plain", scopes: ["sessions:write", "workspaces:write"] },
+        });
+        const asPlain = yield* control.as(plain.token);
+        expect((yield* Effect.flip(asPlain.accounts.get(at)))._tag).toBe("Forbidden");
+        expect(
+          (yield* Effect.flip(asPlain.accounts.change({ ...at, payload: { name: "Theirs" } })))
+            ._tag,
+        ).toBe("Forbidden");
+
+        const nobody = { params: { id: "00000000-0000-7000-8000-000000000000" } };
+        expect((yield* Effect.flip(root.api.accounts.get(nobody)))._tag).toBe("AccountNotFound");
+        expect(
+          (yield* Effect.flip(root.api.accounts.change({ ...nobody, payload: { name: "None" } })))
+            ._tag,
+        ).toBe("AccountNotFound");
+        expect((yield* root.api.accounts.get(at)).name).toBe("Crawler");
+      }),
+    );
+
+    it.effect(
+      "who is in a workspace is told to a token that reads workspaces, and to no other",
+      () =>
+        Effect.gen(function* () {
+          const control = yield* Control.Control;
+          const lead = yield* Control.account(`Lead-${stores}`);
+          const team = yield* lead.api.workspaces.create({ payload: { name: "Readers" } });
+          const other = yield* lead.api.workspaces.create({ payload: { name: "Others" } });
+          const token = (scopes: readonly ["sessions:write" | "workspaces:read"]) =>
+            lead.api.accounts
+              .createOwnToken({ payload: { name: "held", scopes } })
+              .pipe(Effect.flatMap((made) => control.as(made.token)));
+
+          // Which workspaces its account is in is told to any token: it is who the caller is.
+          const sessionsOnly = yield* token(["sessions:write"]);
+          expect((yield* sessionsOnly.workspaces.list()).map((one) => one.name).sort()).toEqual([
+            "Others",
+            "Readers",
+          ]);
+          const refused = yield* Effect.flip(
+            sessionsOnly.workspaces.members({ params: { id: team.id } }),
+          );
+          expect(refused).toMatchObject({
+            _tag: "Forbidden",
+            message: expect.stringMatching(/workspaces:read/u),
+          });
+
+          const reader = yield* token(["workspaces:read"]);
+          expect(
+            (yield* reader.workspaces.members({ params: { id: team.id } })).map(
+              (one) => one.accountId,
+            ),
+          ).toEqual([lead.account.id]);
+          // Reading is not writing.
+          expect(
+            (yield* Effect.flip(reader.workspaces.create({ payload: { name: "More" } })))._tag,
+          ).toBe("Forbidden");
+          expect(
+            (yield* Effect.flip(
+              reader.workspaces.rename({ params: { id: team.id }, payload: { name: "Theirs" } }),
+            ))._tag,
+          ).toBe("Forbidden");
+
+          // A token held to one workspace is told of that one, and of nobody in another.
+          const bootstrap = yield* control.as(control.bootstrapToken);
+          const narrow = yield* bootstrap.accounts.createToken({
+            params: { id: lead.account.id },
+            payload: {
+              name: "narrow",
+              scopes: ["workspaces:write", "tokens:write"],
+              resources: { workspaces: [team.id], sessions: [], snapshots: [] },
+            },
+          });
+          const asNarrow = yield* control.as(narrow.token);
+          expect((yield* asNarrow.workspaces.list()).map((one) => one.id)).toEqual([team.id]);
+          expect((yield* asNarrow.workspaces.members({ params: { id: team.id } })).length).toBe(1);
+          expect(
+            (yield* Effect.flip(asNarrow.workspaces.members({ params: { id: other.id } })))._tag,
+          ).toBe("WorkspaceNotFound");
+          expect(
+            (yield* Effect.flip(
+              asNarrow.workspaces.rename({ params: { id: other.id }, payload: { name: "Theirs" } }),
+            ))._tag,
+          ).toBe("WorkspaceNotFound");
+          // It makes no tokens, and takes none back either.
+          const kept = (yield* lead.api.accounts.tokens()).find((one) => one.name === "checks");
+          const taken = yield* Effect.flip(
+            asNarrow.accounts.revokeToken({ params: { id: kept?.id ?? "" } }),
+          );
+          expect(taken._tag).toBe("Forbidden");
+          expect((yield* lead.api.accounts.current()).id).toBe(lead.account.id);
         }),
     );
 
@@ -932,8 +1080,21 @@ for (const stores of Control.STORES) {
             "/api/control/accounts",
             "/api/control/sessions",
             "/api/control/sessions/{id}/tickets",
+            "/api/control/sessions/{id}/file-links",
+            "/api/control/accounts/{id}",
+            "/api/control/health",
           ]),
         );
+      }),
+    );
+
+    it.effect("anyone is told that it serves, and nothing else", () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const http = yield* HttpClient.HttpClient;
+        const answer = yield* http.get(`${control.url}/api/control/health`);
+        expect(answer.status).toBe(200);
+        expect(yield* answer.json).toEqual({ status: "ok" });
       }),
     );
   });

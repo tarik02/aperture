@@ -1,9 +1,10 @@
 import { proto } from "@aperture-browser/executor-client";
 import * as Executor from "@aperture-browser/e2e/src/executor.ts";
-import { request } from "@aperture-browser/e2e/src/http.ts";
+import { follow, request } from "@aperture-browser/e2e/src/http.ts";
 import { suite } from "@aperture-browser/e2e/src/suite.ts";
 import { until } from "@aperture-browser/e2e/src/wait.ts";
 import { expect } from "@effect/vitest";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Control from "./src/control.ts";
@@ -27,6 +28,10 @@ for (const stores of Control.STORES) {
         const [registered] = yield* bootstrap.nodes.list();
         expect(registered).toMatchObject({ name: NODE, alive: true });
         expect(registered?.offers?.version).not.toBe("");
+        // The node tells anyone that it serves, and nothing else without its token.
+        const health = yield* follow(`${executor.url}/health`);
+        expect([health.status, new TextDecoder().decode(health.bytes)]).toEqual([200, "ok"]);
+        expect((yield* follow(`${executor.url}/sessions/any/targets`)).status).toBe(401);
 
         ada = yield* Control.account("Ada");
         const created = yield* ada.api.sessions.create({ payload: {} });
@@ -46,7 +51,9 @@ for (const stores of Control.STORES) {
             .pipe(Effect.map((seen) => seen.observedState === "running")),
           "60 seconds",
         );
-        expect((yield* ada.api.sessions.list()).map((listed) => listed.id)).toEqual([session]);
+        expect((yield* ada.api.sessions.list({ query: {} })).map((listed) => listed.id)).toEqual([
+          session,
+        ]);
       }),
     );
 
@@ -87,11 +94,155 @@ for (const stores of Control.STORES) {
       }),
     );
 
+    it.effect("a token that reads sessions is given a ticket that watches, and no other", () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const executor = yield* Executor.Executor;
+        const made = yield* ada.api.accounts.createOwnToken({
+          payload: { name: "reader", scopes: ["sessions:read"] },
+        });
+        const reader = yield* control.as(made.token);
+        const at = { params: { id: session } };
+        const watching = yield* reader.sessions.createTicket({ ...at, payload: {} });
+        const targets = `/sessions/${session}/targets`;
+        expect((yield* request(executor.url, watching.ticket, "GET", targets)).status).toBe(200);
+        const more = yield* Effect.flip(
+          reader.sessions.createTicket({ ...at, payload: { access: { input: "rw" } } }),
+        );
+        expect(more).toMatchObject({
+          _tag: "Forbidden",
+          message: expect.stringMatching(/sessions:write/u),
+        });
+        const files = yield* Effect.flip(
+          reader.sessions.createFileLink({ ...at, payload: { path: "uploads/notes.txt" } }),
+        );
+        expect(files._tag).toBe("Forbidden");
+      }),
+    );
+
+    it.effect(
+      "a link puts one file into the session and another reads it, and neither does more",
+      () =>
+        Effect.gen(function* () {
+          const executor = yield* Executor.Executor;
+          const at = { params: { id: session } };
+          const said = new TextEncoder().encode("put there through a link");
+          const put = yield* ada.api.sessions.createFileLink({
+            ...at,
+            payload: { path: "uploads/notes.txt", write: true, expiresInSeconds: 60 },
+          });
+          expect(put.method).toBe("PUT");
+          expect(
+            put.url.startsWith(`${executor.url}/sessions/${session}/uploads/notes.txt?token=`),
+          ).toBe(true);
+          const lasts = DateTime.toEpochMillis(put.expiresAt) - Date.now();
+          expect(lasts).toBeGreaterThan(30_000);
+          expect(lasts).toBeLessThanOrEqual(60_000);
+          expect((yield* follow(put.url, "PUT", said)).status).toBe(200);
+
+          const got = yield* ada.api.sessions.createFileLink({
+            ...at,
+            payload: { path: "uploads/notes.txt" },
+          });
+          expect(got.method).toBe("GET");
+          const read = yield* follow(got.url);
+          expect(read.status).toBe(200);
+          expect(new TextDecoder().decode(read.bytes)).toBe("put there through a link");
+
+          // The ticket of a link is good at its one address: at no other file, and nothing else.
+          const ticket = (url: string) => new URL(url).searchParams.get("token") ?? "";
+          const base = `${executor.url}/sessions/${session}`;
+          for (const [link, method, path] of [
+            [got.url, "GET", "/files/uploads/other.txt"],
+            [got.url, "GET", "/uploads"],
+            [got.url, "GET", "/targets"],
+            [got.url, "GET", "/ws"],
+            [got.url, "PUT", "/uploads/notes.txt"],
+            [got.url, "DELETE", "/uploads/notes.txt"],
+            [put.url, "GET", "/files/uploads/notes.txt"],
+            [put.url, "PUT", "/uploads/other.txt"],
+            [put.url, "GET", "/targets"],
+          ] as const) {
+            const refused = yield* follow(`${base}${path}?token=${ticket(link)}`, method, said);
+            expect(refused.status, `${method} ${path}`).toBe(403);
+          }
+          const other = yield* ada.api.sessions.create({ payload: { suspended: true } });
+          const elsewhere = `${executor.url}/sessions/${other.id}/files/uploads/notes.txt`;
+          expect((yield* follow(`${elsewhere}?token=${ticket(got.url)}`)).status).toBe(403);
+          yield* ada.api.sessions.delete({ params: { id: other.id } });
+
+          // A file is put among the uploads alone, and a path is of the session's files.
+          const elsewherePut = yield* Effect.flip(
+            ada.api.sessions.createFileLink({
+              ...at,
+              payload: { path: "recordings/made-up.mkv", write: true },
+            }),
+          );
+          expect(elsewherePut._tag).toBe("FileLinkInvalid");
+          const control = yield* Control.Control;
+          for (const path of [
+            "../token",
+            "uploads/../../token",
+            "uploads/.hidden",
+            "profile/Cookies",
+            "uploads",
+          ]) {
+            const answer = yield* control.request(
+              ada.token,
+              "POST",
+              `/api/control/sessions/${session}/file-links`,
+              { path },
+            );
+            expect(answer.status, path).toBe(400);
+          }
+          const long = yield* control.request(
+            ada.token,
+            "POST",
+            `/api/control/sessions/${session}/file-links`,
+            { path: "uploads/notes.txt", expiresInSeconds: 3601 },
+          );
+          expect(long.status).toBe(400);
+
+          const eve = yield* Control.account("Mallory");
+          const notTheirs = yield* Effect.flip(
+            eve.api.sessions.createFileLink({ ...at, payload: { path: "uploads/notes.txt" } }),
+          );
+          expect(notTheirs._tag).toBe("SessionNotFound");
+        }),
+    );
+
+    it.effect("sessions are listed by their label, tag, state and workspace", () =>
+      Effect.gen(function* () {
+        const team = yield* ada.api.workspaces.create({ payload: { name: "Listed" } });
+        const shop = yield* ada.api.sessions.create({
+          payload: {
+            suspended: true,
+            label: "Shop checkout",
+            tags: { purpose: "demo", owner: "ada" },
+            workspaceId: team.id,
+          },
+        });
+        const listed = (query: Parameters<typeof ada.api.sessions.list>[0]["query"]) =>
+          ada.api.sessions.list({ query }).pipe(Effect.map((all) => all.map((one) => one.id)));
+        expect(yield* listed({ label: "CHECKOUT" })).toEqual([shop.id]);
+        expect(yield* listed({ tag: "purpose=demo" })).toEqual([shop.id]);
+        expect(yield* listed({ tag: "purpose" })).toEqual([shop.id]);
+        expect(yield* listed({ tag: "purpose=other" })).toEqual([]);
+        expect(yield* listed({ workspaceId: team.id })).toEqual([shop.id]);
+        expect(yield* listed({ workspaceId: "none" })).toEqual([session]);
+        expect(yield* listed({ state: "suspended" })).toEqual([shop.id]);
+        expect(yield* listed({ state: "running", label: "shop" })).toEqual([]);
+        expect((yield* listed({})).sort()).toEqual([session, shop.id].sort());
+        yield* ada.api.sessions.delete({ params: { id: shop.id } });
+        yield* ada.api.workspaces.delete({ params: { id: team.id } });
+      }),
+    );
+
     it.effect("another account neither sees nor touches it, and an admin sees it", () =>
       Effect.gen(function* () {
         const eve = yield* Control.account("Eve");
         const at = { params: { id: session } };
-        expect(yield* eve.api.sessions.list()).toEqual([]);
+        expect(yield* eve.api.sessions.list({ query: {} })).toEqual([]);
         expect((yield* Effect.flip(eve.api.sessions.get(at)))._tag).toBe("SessionNotFound");
         expect((yield* Effect.flip(eve.api.sessions.suspend(at)))._tag).toBe("SessionNotFound");
         expect((yield* Effect.flip(eve.api.sessions.resume(at)))._tag).toBe("SessionNotFound");
@@ -102,7 +253,9 @@ for (const stores of Control.STORES) {
         expect((yield* ada.api.sessions.get(at)).observedState).toBe("running");
 
         const root = yield* Control.account("Root", true);
-        expect((yield* root.api.sessions.list()).map((listed) => listed.id)).toEqual([session]);
+        expect((yield* root.api.sessions.list({ query: {} })).map((listed) => listed.id)).toEqual([
+          session,
+        ]);
       }),
     );
 
@@ -121,11 +274,13 @@ for (const stores of Control.STORES) {
           shared: false,
         });
         expect((yield* executor.client.snapshots.get(taken.id)).id).toBe(taken.id);
-        expect((yield* ada.api.snapshots.list()).map((listed) => listed.id)).toEqual([taken.id]);
+        expect((yield* ada.api.snapshots.list({ query: {} })).map((listed) => listed.id)).toEqual([
+          taken.id,
+        ]);
 
         const mallory = yield* Control.account("Mallory");
         const at = { params: { id: taken.id } };
-        expect(yield* mallory.api.snapshots.list()).toEqual([]);
+        expect(yield* mallory.api.snapshots.list({ query: {} })).toEqual([]);
         expect((yield* Effect.flip(mallory.api.snapshots.get(at)))._tag).toBe("SnapshotNotFound");
         expect((yield* Effect.flip(mallory.api.snapshots.delete(at)))._tag).toBe(
           "SnapshotNotFound",
@@ -134,6 +289,28 @@ for (const stores of Control.STORES) {
           mallory.api.sessions.create({ payload: { snapshotId: taken.id } }),
         );
         expect(refused._tag).toBe("SnapshotNotFound");
+        // A session of a snapshot has what the snapshot has: a token that makes sessions
+        // and reads no snapshots makes none of one.
+        const sessionsOnly = yield* ada.api.accounts.createOwnToken({
+          payload: { name: "sessions only", scopes: ["sessions:write"] },
+        });
+        const unread = yield* Effect.flip(
+          (yield* control.as(sessionsOnly.token)).sessions.create({
+            payload: { snapshotId: taken.id, suspended: true },
+          }),
+        );
+        expect(unread).toMatchObject({
+          _tag: "Forbidden",
+          message: expect.stringMatching(/snapshots:read/u),
+        });
+        expect(
+          yield* ada.api.snapshots
+            .list({ query: { name: "SIGNED" } })
+            .pipe(Effect.map((all) => all.map((one) => one.id))),
+        ).toEqual([taken.id]);
+        expect(
+          yield* ada.api.snapshots.list({ query: { workspaceId: "none", tag: "nothing" } }),
+        ).toEqual([]);
 
         const from = yield* ada.api.sessions.create({
           payload: { snapshotId: taken.id, suspended: true },
@@ -197,7 +374,9 @@ for (const stores of Control.STORES) {
           description: "Signed in, a day later",
           tags: { team: "shop" },
         });
-        expect((yield* ada.api.snapshots.list()).map((listed) => listed.id)).toEqual([again.id]);
+        expect((yield* ada.api.snapshots.list({ query: {} })).map((listed) => listed.id)).toEqual([
+          again.id,
+        ]);
         expect((yield* Effect.flip(executor.client.snapshots.get(taken.id))).code).toBe(
           "not_found",
         );
@@ -211,8 +390,10 @@ for (const stores of Control.STORES) {
           },
         });
         const asHeld = yield* control.as(held.token);
-        expect((yield* asHeld.sessions.list()).map((listed) => listed.id)).toEqual([session]);
-        expect(yield* asHeld.snapshots.list()).toEqual([]);
+        expect((yield* asHeld.sessions.list({ query: {} })).map((listed) => listed.id)).toEqual([
+          session,
+        ]);
+        expect(yield* asHeld.snapshots.list({ query: {} })).toEqual([]);
         expect((yield* Effect.flip(asHeld.snapshots.get({ params: { id: again.id } })))._tag).toBe(
           "SnapshotNotFound",
         );
@@ -224,7 +405,7 @@ for (const stores of Control.STORES) {
         );
 
         yield* ada.api.snapshots.delete({ params: { id: again.id } });
-        expect(yield* ada.api.snapshots.list()).toEqual([]);
+        expect(yield* ada.api.snapshots.list({ query: {} })).toEqual([]);
         expect((yield* Effect.flip(executor.client.snapshots.get(taken.id))).code).toBe(
           "not_found",
         );
@@ -256,7 +437,9 @@ for (const stores of Control.STORES) {
         // The same token, now of a member: what it reaches is told anew with each request.
         const asBob = yield* control.as(bob.token);
         expect((yield* asBob.sessions.get(at)).label).toBe("Shared");
-        expect((yield* asBob.sessions.list()).map((one) => one.id)).toEqual([shared.id]);
+        expect((yield* asBob.sessions.list({ query: {} })).map((one) => one.id)).toEqual([
+          shared.id,
+        ]);
         expect((yield* asBob.workspaces.list()).map((one) => one.role)).toEqual(["member"]);
         expect((yield* asBob.workspaces.members({ params: { id: team.id } })).length).toBe(2);
         const notTheirs = yield* Effect.flip(
@@ -355,7 +538,7 @@ for (const stores of Control.STORES) {
         const at = { params: { id: session } };
         yield* ada.api.sessions.delete(at);
         expect((yield* Effect.flip(ada.api.sessions.get(at)))._tag).toBe("SessionNotFound");
-        expect(yield* ada.api.sessions.list()).toEqual([]);
+        expect(yield* ada.api.sessions.list({ query: {} })).toEqual([]);
         expect((yield* Effect.flip(executor.client.sessions.get(session))).code).toBe("not_found");
       }),
     );
@@ -393,7 +576,9 @@ for (const stores of Control.STORES) {
         });
         // Disabled, it is nobody's caller, and what is its own stays for an admin to see.
         yield* bootstrap.accounts.disable(at);
-        expect((yield* Effect.flip(bea.api.sessions.list()))._tag).toBe("Unauthorized");
+        expect((yield* Effect.flip(bea.api.sessions.list({ query: {} })))._tag).toBe(
+          "Unauthorized",
+        );
         expect((yield* bootstrap.sessions.get({ params: { id: made.id } })).accountId).toBe(
           bea.account.id,
         );

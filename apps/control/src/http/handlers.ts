@@ -1,4 +1,4 @@
-import { Api, covers, CurrentCaller, Scope } from "@aperture-browser/control-api";
+import { type Access, Api, covers, CurrentCaller, Scope } from "@aperture-browser/control-api";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -19,9 +19,13 @@ import type { Session } from "../sessions/schemas.ts";
 import { Sessions } from "../sessions/service.ts";
 import { Settings } from "../settings/service.ts";
 import { Shares } from "../shares/service.ts";
+import type { Snapshot } from "../snapshots/schemas.ts";
 import { Snapshots } from "../snapshots/service.ts";
 import { type Joined, Workspaces } from "../workspaces/service.ts";
 import { originOf } from "./origin.ts";
+
+/** What a list is asked by for what is of no workspace. */
+const NO_WORKSPACE = "none";
 
 /** Goes on for an admin, and for nobody else. */
 const admin = Effect.gen(function* () {
@@ -41,6 +45,11 @@ const scoped = (scope: Scope) =>
     }
     return caller;
   });
+
+/** Where the request says it came to, for the addresses that are told in answer to it. */
+const origin = Effect.gen(function* () {
+  return originOf(yield* Settings, yield* HttpServerRequest.HttpServerRequest);
+});
 
 const lasting = (days: number | undefined) =>
   days === undefined ? undefined : Duration.days(days);
@@ -62,6 +71,10 @@ const accounts = HttpApiBuilder.group(
         }),
       )
       .handle("list", () => Effect.andThen(admin, accounts.list()))
+      .handle("get", ({ params }) => Effect.andThen(admin, accounts.get(params.id)))
+      .handle("change", ({ params, payload }) =>
+        Effect.flatMap(admin, (caller) => accounts.change(caller, params.id, payload)),
+      )
       .handle("lookup", ({ query }) =>
         Effect.flatMap(scoped("workspaces:write"), (caller) =>
           accounts.lookup(caller, query.email),
@@ -335,6 +348,52 @@ export const telling = Effect.gen(function* () {
   return { one, all };
 });
 
+/** A tag as a list is asked by one: `name=value`, or `name` for whatever it is set to. */
+const tagged = (tags: Readonly<Record<string, string>>, asked: string) => {
+  const at = asked.indexOf("=");
+  return at === -1 ? asked in tags : tags[asked.slice(0, at)] === asked.slice(at + 1);
+};
+
+/** Whose something is, as a list is asked by it: a workspace's, or `none` for no workspace's. */
+const inWorkspace = (workspaceId: string | null, asked: string) =>
+  asked === NO_WORKSPACE ? workspaceId === null : workspaceId === asked;
+
+/** What a list of sessions is narrowed to, as the API and the tools ask for it alike. */
+export interface SessionsAsked {
+  readonly workspaceId?: string | undefined;
+  readonly state?: Session["observedState"] | undefined;
+  /** A part of the label, whatever its letters' case. */
+  readonly label?: string | undefined;
+  readonly tag?: string | undefined;
+}
+
+export const sessionsAsked = (asked: SessionsAsked) => (session: Session) =>
+  (asked.workspaceId === undefined || inWorkspace(session.workspaceId, asked.workspaceId)) &&
+  (asked.state === undefined || session.observedState === asked.state) &&
+  (asked.label === undefined ||
+    (session.label ?? "").toLowerCase().includes(asked.label.toLowerCase())) &&
+  (asked.tag === undefined || tagged(session.tags, asked.tag));
+
+export interface SnapshotsAsked {
+  readonly workspaceId?: string | undefined;
+  /** A part of the name, whatever its letters' case. */
+  readonly name?: string | undefined;
+  readonly tag?: string | undefined;
+}
+
+export const snapshotsAsked = (asked: SnapshotsAsked) => (snapshot: Snapshot) =>
+  (asked.workspaceId === undefined || inWorkspace(snapshot.workspaceId, asked.workspaceId)) &&
+  (asked.name === undefined ||
+    (snapshot.name ?? "").toLowerCase().includes(asked.name.toLowerCase())) &&
+  (asked.tag === undefined || tagged(snapshot.tags, asked.tag));
+
+/**
+ * What a token has to be for to be given a ticket: one with no access watches, as a token
+ * that reads sessions does wherever it reaches one, and any other does what writing does.
+ */
+export const ticketScope = (access: Access): Scope =>
+  Object.values(access).some((given) => given !== undefined) ? "sessions:write" : "sessions:read";
+
 const sessions = HttpApiBuilder.group(
   Api,
   "sessions",
@@ -342,8 +401,12 @@ const sessions = HttpApiBuilder.group(
     const sessions = yield* Sessions;
     const tell = yield* telling;
     return handlers
-      .handle("list", () =>
-        scoped("sessions:read").pipe(Effect.flatMap(sessions.list), Effect.flatMap(tell.all)),
+      .handle("list", ({ query }) =>
+        scoped("sessions:read").pipe(
+          Effect.flatMap(sessions.list),
+          Effect.map((all) => all.filter(sessionsAsked(query))),
+          Effect.flatMap(tell.all),
+        ),
       )
       .handle("create", ({ payload }) =>
         Effect.flatMap(scoped("sessions:write"), (caller) =>
@@ -390,23 +453,50 @@ const sessions = HttpApiBuilder.group(
       .handle("delete", ({ params }) =>
         Effect.flatMap(scoped("sessions:write"), (caller) => sessions.delete(caller, params.id)),
       )
-      .handle("createTicket", ({ params, payload }) =>
-        Effect.flatMap(scoped("sessions:write"), (caller) =>
-          sessions.admit(caller, params.id, {
-            name: payload.name,
-            access: payload.access ?? {},
-          }),
-        ),
+      .handle(
+        "createTicket",
+        Effect.fn(function* ({ params, payload }) {
+          const access = payload.access ?? {};
+          const caller = yield* scoped(ticketScope(access));
+          return yield* sessions.admit(
+            caller,
+            params.id,
+            { name: payload.name, access },
+            yield* origin,
+          );
+        }),
+      )
+      .handle(
+        "createFileLink",
+        Effect.fn(function* ({ params, payload }) {
+          const caller = yield* scoped("sessions:write");
+          return yield* sessions.fileLink(
+            caller,
+            params.id,
+            {
+              path: payload.path,
+              write: payload.write ?? false,
+              lasts:
+                payload.expiresInSeconds === undefined
+                  ? undefined
+                  : Duration.seconds(payload.expiresInSeconds),
+            },
+            yield* origin,
+          );
+        }),
       );
   }),
 );
+
+/** What a guest opens: the secret after the `#`, so it is sent nowhere when the link is. */
+export const shareUrl = (origin: string, id: string, secret: string) =>
+  `${origin}/share/${id}#${secret}`;
 
 const shares = HttpApiBuilder.group(
   Api,
   "shares",
   Effect.fn(function* (handlers) {
     const shares = yield* Shares;
-    const settings = yield* Settings;
     return handlers
       .handle("list", ({ params }) =>
         Effect.flatMap(scoped("sessions:read"), (caller) => shares.list(caller, params.id)),
@@ -423,9 +513,7 @@ const shares = HttpApiBuilder.group(
                 ? undefined
                 : Duration.hours(payload.expiresInHours),
           });
-          const origin = originOf(settings, yield* HttpServerRequest.HttpServerRequest);
-          // After the `#`, so the secret is sent nowhere when the link is opened.
-          return { ...share, url: `${origin}/share/${share.id}#${secret}` };
+          return { ...share, url: shareUrl(yield* origin, share.id, secret) };
         }),
       )
       .handle("revoke", ({ params }) =>
@@ -442,7 +530,12 @@ const snapshots = HttpApiBuilder.group(
   Effect.fn(function* (handlers) {
     const snapshots = yield* Snapshots;
     return handlers
-      .handle("list", () => Effect.flatMap(scoped("snapshots:read"), snapshots.list))
+      .handle("list", ({ query }) =>
+        scoped("snapshots:read").pipe(
+          Effect.flatMap(snapshots.list),
+          Effect.map((all) => all.filter(snapshotsAsked(query))),
+        ),
+      )
       .handle("take", ({ params, payload }) =>
         Effect.flatMap(scoped("snapshots:write"), (caller) =>
           snapshots.take(caller, params.id, {
@@ -496,7 +589,9 @@ const workspaces = HttpApiBuilder.group(
         ),
       )
       .handle("members", ({ params }) =>
-        Effect.flatMap(CurrentCaller, (caller) => workspaces.members(caller, params.id)),
+        Effect.flatMap(scoped("workspaces:read"), (caller) =>
+          workspaces.members(caller, params.id),
+        ),
       )
       .handle("admit", ({ params, payload }) =>
         Effect.flatMap(scoped("workspaces:write"), (caller) =>
@@ -516,10 +611,15 @@ const workspaces = HttpApiBuilder.group(
   }),
 );
 
+const health = HttpApiBuilder.group(Api, "health", (handlers) =>
+  handlers.handle("check", () => Effect.succeed({ status: "ok" as const })),
+);
+
 export const layer = Layer.mergeAll(
   accounts,
   events,
   grants,
+  health,
   nodes,
   providers,
   sessions,

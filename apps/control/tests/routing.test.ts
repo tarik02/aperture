@@ -1,5 +1,5 @@
 import * as Executor from "@aperture-browser/e2e/src/executor.ts";
-import { request } from "@aperture-browser/e2e/src/http.ts";
+import { follow, read, request } from "@aperture-browser/e2e/src/http.ts";
 import * as Mcp from "@aperture-browser/e2e/src/mcp.ts";
 import { directory, logsDirectory } from "@aperture-browser/e2e/src/process.ts";
 import { suite } from "@aperture-browser/e2e/src/suite.ts";
@@ -414,6 +414,64 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
     }),
   );
 
+  it.effect("a link with a ticket of its own is let through the proxy, to what it is for", () =>
+    Effect.gen(function* () {
+      const proxy = yield* Proxy.Proxy;
+      const id = path.split("/").at(-1) ?? "";
+      const api = `/api/control/sessions/${id}`;
+      const Linked = Schema.Struct({ url: Schema.String });
+      const linked = (at: string, body: object) =>
+        request(proxy.url, ada.token, "POST", `${api}${at}`, body).pipe(
+          Effect.flatMap((answer) => read(answer, Linked)),
+        );
+      // The node has no address of its own here: what is told is below the proxy's.
+      const put = yield* linked("/file-links", { path: "uploads/linked.txt", write: true });
+      expect(put.url.startsWith(`${proxy.url}${path}/uploads/linked.txt?token=`)).toBe(true);
+      const said = new TextEncoder().encode("through the proxy");
+      expect((yield* follow(put.url, "PUT", said)).status).toBe(200);
+      const got = yield* linked("/file-links", { path: "uploads/linked.txt" });
+      const fetched = yield* follow(got.url);
+      expect([fetched.status, new TextDecoder().decode(fetched.bytes)]).toEqual([
+        200,
+        "through the proxy",
+      ]);
+
+      const ticket = new URL(got.url).searchParams.get("token") ?? "";
+      // The link's ticket is the node's to hold to its one file.
+      expect((yield* follow(`${proxy.url}${path}/targets?token=${ticket}`)).status).toBe(403);
+      expect(
+        (yield* follow(`${proxy.url}${path}/files/uploads/other.txt?token=${ticket}`)).status,
+      ).toBe(403);
+      // One that is no ticket of this control plane lets nobody in, nor one into a session elsewhere.
+      const forged = `${ticket.slice(0, -4)}AAAA`;
+      expect(
+        (yield* follow(`${proxy.url}${path}/files/uploads/linked.txt?token=${forged}`)).status,
+      ).toBe(401);
+      const other = yield* ada.api.sessions.create({ payload: { suspended: true } });
+      const elsewhere = `${proxy.url}${other.path ?? ""}/files/uploads/linked.txt?token=${ticket}`;
+      expect((yield* follow(elsewhere)).status).toBe(401);
+      yield* ada.api.sessions.delete({ params: { id: other.id } });
+
+      // A ticket is carried on the request as well, as a program does that was handed one.
+      const forPages = yield* ada.api.sessions.createTicket({
+        params: { id },
+        payload: { access: { cdp: "rw" } },
+      });
+      const version = `${path}/cdp/json/version`;
+      expect((yield* request(proxy.url, forPages.ticket, "GET", version)).status).toBe(200);
+      expect((yield* request(proxy.url, forPages.ticket, "PUT", `${path}/proxy`, {})).status).toBe(
+        403,
+      );
+
+      // A person is handed the session's page the same way.
+      const handed = yield* linked("/tickets", {});
+      expect(handed.url.startsWith(`${proxy.url}${path}/?token=`)).toBe(true);
+      const page = yield* follow(handed.url);
+      expect(page.status).toBe(200);
+      expect(new TextDecoder().decode(page.bytes)).toMatch(/<html/iu);
+    }),
+  );
+
   it.effect("a browser that was given the cookie opens the session there, socket and all", () =>
     Effect.gen(function* () {
       const proxy = yield* Proxy.Proxy;
@@ -574,8 +632,10 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         expect(secret).toMatch(/^apc_/u);
         const withIt = yield* (yield* Control.Control).as(secret);
         expect((yield* withIt.accounts.current()).id).toBe(ada.account.id);
-        expect((yield* withIt.sessions.list()).map((session) => session.id)).toEqual([id]);
-        expect((yield* Effect.flip(withIt.snapshots.list()))._tag).toBe("Forbidden");
+        expect((yield* withIt.sessions.list({ query: {} })).map((session) => session.id)).toEqual([
+          id,
+        ]);
+        expect((yield* Effect.flip(withIt.snapshots.list({ query: {} })))._tag).toBe("Forbidden");
         const held = (yield* ada.api.accounts.tokens()).find(
           (token) => token.name === "from the console",
         );
@@ -724,7 +784,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         yield* page.until(`!!document.querySelector(${JSON.stringify(card)})`);
 
         // The session is saved in the place of the snapshot there is, which keeps its name.
-        const [replaced] = yield* ada.api.snapshots.list();
+        const [replaced] = yield* ada.api.snapshots.list({ query: {} });
         yield* page.click(`${card} [aria-label="Session actions"]`);
         yield* choose(page, `[data-slot="dropdown-menu-item"]`, "Save to snapshot");
         const save = "[data-console-save-snapshot]";
@@ -743,7 +803,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         yield* shot(page, fs, "console-save-snapshot-replace");
         yield* page.click(`${save} button[type="submit"]`);
         yield* page.until(`!document.querySelector('${save}')`, "60 seconds");
-        const kept = yield* ada.api.snapshots.list();
+        const kept = yield* ada.api.snapshots.list({ query: {} });
         expect(kept.map((snapshot) => [snapshot.name, snapshot.description])).toEqual([
           ["signed in", "After the checkout"],
         ]);
@@ -2554,8 +2614,8 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       const withIt = yield* control.as((yield* page.text("[data-console-secret]")) ?? "");
       const whose = yield* withIt.accounts.current();
       expect([whose.name, whose.kind]).toEqual(["Deploy bot", "service"]);
-      yield* withIt.sessions.list();
-      expect((yield* Effect.flip(withIt.snapshots.list()))._tag).toBe("Forbidden");
+      yield* withIt.sessions.list({ query: {} });
+      expect((yield* Effect.flip(withIt.snapshots.list({ query: {} })))._tag).toBe("Forbidden");
       yield* choose(page, `${DIALOG} button`, "Done");
       yield* page.until(`!document.querySelector("[data-console-secret]")`);
       const deploys = `[data-console-token="deploys"]`;
@@ -3075,12 +3135,13 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       expect(yield* page.text("[data-console-session-context]")).not.toContain("Delete");
       yield* page.key("Escape", "Escape", ESCAPE);
       yield* page.until(`!document.querySelector("[data-console-session-context]")`);
-      // Workspaces are told to all, and made and changed by a token that is for it.
+      // Workspaces are told to all; who is in one, and making and changing one, is for a
+      // token that is for it.
       yield* page.click(`a[href="/-/workspaces"]`);
       const row = `[data-console-workspace="Team of the held"]`;
       yield* page.until(`!!document.querySelector('${row}')`);
       expect(yield* has("[data-console-workspace-new]")).toBe(false);
-      expect(yield* has(`${row} [data-console-row-action="members"]`)).toBe(true);
+      expect(yield* has(`${row} [data-console-row-action="members"]`)).toBe(false);
       expect(yield* has(`${row} [data-console-row-actions]`)).toBe(false);
       yield* shot(page, fs, "console-held-reader-workspaces");
       // A page that is not the token's says so, where its address is come to.

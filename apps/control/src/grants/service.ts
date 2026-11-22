@@ -71,7 +71,7 @@ export interface GrantsShape {
   /** The grants of the caller's own account. */
   readonly list: (caller: Caller) => Effect.Effect<ReadonlyArray<Grant>, Forbidden>;
   /** Takes a grant back, and every token of it with it. */
-  readonly revoke: (caller: Caller, id: string) => Effect.Effect<void, GrantNotFound>;
+  readonly revoke: (caller: Caller, id: string) => Effect.Effect<void, GrantNotFound | Forbidden>;
 }
 
 export class Grants extends Context.Service<Grants, GrantsShape>()(

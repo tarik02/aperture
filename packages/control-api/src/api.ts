@@ -14,6 +14,7 @@ import {
   AccountNotFound,
   ApiTokenNotFound,
   EmailTaken,
+  FileLinkInvalid,
   PersonNotFound,
   Forbidden,
   ProviderConfigured,
@@ -374,11 +375,34 @@ export const ProviderChecked = Schema.Struct({
   scopes: Schema.Array(Schema.String),
 });
 
+/** A ticket into a session, as it is told to whoever asked for it. */
 export const Admission = Schema.Struct({
+  /** What a request to the session carries: as a bearer token, or as `token` in its query. */
   ticket: Schema.String,
   expiresAt: Schema.DateTimeUtcFromString,
-  url: Schema.NullOr(Schema.String),
+  /**
+   * The session's workbench, for a person to open in a browser: on its node where that
+   * has an address of its own, and through the proxy before the nodes otherwise. What
+   * comes before its `?` is where the session's other routes are.
+   */
+  url: Schema.String,
 });
+
+/** What a file of a session is found by, below its files: `recordings/1a2b.mkv`. */
+export const SessionFilePath = Schema.String.check(
+  Schema.isPattern(/^(uploads|downloads|recordings|screenshots)(\/(?!\.)[^/\\?#]+)+$/u),
+);
+
+/** An address one file of a session is read at, or put to, by whoever is given it. */
+export const FileLink = Schema.Struct({
+  url: Schema.String,
+  /** What a request to it is made with: `GET` reads the file, `PUT` puts its bytes there. */
+  method: Schema.Literals(["GET", "PUT"]),
+  expiresAt: Schema.DateTimeUtcFromString,
+});
+
+/** The longest a file link is good for, in seconds. */
+export const FILE_LINK_MOST = 3600;
 
 /** A share link as whoever has its session sees it: never its secret. */
 export const Share = Schema.Struct({
@@ -442,6 +466,10 @@ const session = { id: Schema.String };
 const Tags = Schema.Record(Schema.NonEmptyString, Schema.String);
 /** A session's routing as it was last set through the control plane; none goes direct. */
 const SessionProxy = Schema.Struct({ proxy: Schema.NullOr(ProxyConfig) });
+/** A tag something is listed by: `name=value`, or `name` alone for whatever it is set to. */
+const TagFilter = Schema.NonEmptyString;
+/** `none` for what is of no workspace: its account's own. */
+const WorkspaceFilter = Schema.NonEmptyString;
 const ofNode = [
   Forbidden,
   SessionNotFound,
@@ -486,6 +514,21 @@ export class AccountsGroup extends HttpApiGroup.make("accounts")
       }),
       success: Account.pipe(HttpApiSchema.status(201)),
       error: [Forbidden, EmailTaken, AccountInvalid],
+    }),
+    HttpApiEndpoint.get("get", "/accounts/:id", {
+      params: { id: Id },
+      success: ListedAccount,
+      error: [Forbidden, AccountNotFound],
+    }),
+    HttpApiEndpoint.patch("change", "/accounts/:id", {
+      params: { id: Id },
+      /** What is said anew of the account; what is left out stays as it was. */
+      payload: Schema.Struct({
+        name: Schema.optional(Schema.NonEmptyString),
+        admin: Schema.optional(Schema.Boolean),
+      }),
+      success: Account,
+      error: [Forbidden, AccountNotFound, AccountInUse],
     }),
     HttpApiEndpoint.post("resetSecondFactor", "/accounts/:id/second-factor/reset", {
       params: { id: Id },
@@ -534,7 +577,7 @@ export class AccountsGroup extends HttpApiGroup.make("accounts")
     OpenApi.annotations({
       title: "Accounts",
       description:
-        "Accounts and their API tokens. Only an admin makes them, disables them and removes them, and sees and takes back the tokens of an account that is not their own. Whoever says who is in a workspace finds a person's account by the whole of their email address.",
+        "Accounts and their API tokens. Only an admin makes them, changes what they are called and whether they are admins, disables them and removes them, and sees and takes back the tokens of an account that is not their own. Whoever says who is in a workspace finds a person's account by the whole of their email address.",
     }),
   ) {}
 
@@ -566,6 +609,13 @@ export class NodesGroup extends HttpApiGroup.make("nodes")
 export class SessionsGroup extends HttpApiGroup.make("sessions")
   .add(
     HttpApiEndpoint.get("list", "/sessions", {
+      /** Each narrows the list; together, a session has to be all of them. */
+      query: {
+        workspaceId: Schema.optional(WorkspaceFilter),
+        state: Schema.optional(ObservedState),
+        label: Schema.optional(Schema.NonEmptyString),
+        tag: Schema.optional(TagFilter),
+      },
       success: Schema.Array(Session),
       error: Forbidden,
     }),
@@ -627,11 +677,26 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
       success: Admission.pipe(HttpApiSchema.status(201)),
       error: [Forbidden, SessionNotFound, SessionHasNoNode],
     }),
+    HttpApiEndpoint.post("createFileLink", "/sessions/:id/file-links", {
+      params: session,
+      payload: Schema.Struct({
+        path: SessionFilePath,
+        /** A link a file is put at, in `uploads` alone; one it is read at, without. */
+        write: Schema.optional(Schema.Boolean),
+        /** Five minutes, without. */
+        expiresInSeconds: Schema.optional(
+          Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: FILE_LINK_MOST })),
+        ),
+      }),
+      success: FileLink.pipe(HttpApiSchema.status(201)),
+      error: [Forbidden, SessionNotFound, SessionHasNoNode, FileLinkInvalid],
+    }),
   )
   .annotateMerge(
     OpenApi.annotations({
       title: "Sessions",
-      description: "An account's sessions, wherever they run, and the tickets into them.",
+      description:
+        "An account's sessions, wherever they run, the tickets into them, and links to their files. A ticket with no access watches, which a token that reads sessions asks for; a ticket that does more, and a link to a file, is for a token that writes them.",
     }),
   ) {}
 
@@ -672,6 +737,12 @@ export class SharesGroup extends HttpApiGroup.make("shares")
 export class SnapshotsGroup extends HttpApiGroup.make("snapshots")
   .add(
     HttpApiEndpoint.get("list", "/snapshots", {
+      /** Each narrows the list; together, a snapshot has to be all of them. */
+      query: {
+        workspaceId: Schema.optional(WorkspaceFilter),
+        name: Schema.optional(Schema.NonEmptyString),
+        tag: Schema.optional(TagFilter),
+      },
       success: Schema.Array(Snapshot),
       error: Forbidden,
     }),
@@ -740,7 +811,7 @@ export class WorkspacesGroup extends HttpApiGroup.make("workspaces")
     HttpApiEndpoint.get("members", "/workspaces/:id/members", {
       params: workspace,
       success: Schema.Array(WorkspaceMember),
-      error: WorkspaceNotFound,
+      error: [WorkspaceNotFound, Forbidden],
     }),
     HttpApiEndpoint.put("admit", "/workspaces/:id/members/:accountId", {
       params: { ...workspace, accountId: Id },
@@ -761,7 +832,7 @@ export class WorkspacesGroup extends HttpApiGroup.make("workspaces")
     OpenApi.annotations({
       title: "Workspaces",
       description:
-        "Where accounts keep sessions and snapshots together: what is a workspace's is all its members'. An admin of a workspace says who is in it, naming an account by its id; an admin is told which workspaces any account is in.",
+        "Where accounts keep sessions and snapshots together: what is a workspace's is all its members'. Any token is told the workspaces its account is in, of those it is held to where it is held to resources; who else is in one is for a token that reads workspaces. An admin of a workspace says who is in it, naming an account by its id; an admin is told which workspaces any account is in.",
     }),
   ) {}
 
@@ -893,6 +964,19 @@ export class SignInGroup extends HttpApiGroup.make("signIn")
     }),
   ) {}
 
+/** Whether this program serves: nothing of what it knows, and for anyone who asks. */
+export const Health = Schema.Struct({ status: Schema.Literal("ok") });
+
+export class HealthGroup extends HttpApiGroup.make("health")
+  .add(HttpApiEndpoint.get("check", "/health", { success: Health }))
+  .annotateMerge(
+    OpenApi.annotations({
+      title: "Health",
+      description:
+        "Whether the control plane serves, for what stands before it and what starts it: answered once its database is there, to anyone, and telling nothing.",
+    }),
+  ) {}
+
 export class Api extends HttpApi.make("control")
   .add(
     AccountsGroup,
@@ -907,12 +991,13 @@ export class Api extends HttpApi.make("control")
   )
   .middleware(Authorization)
   // After the middleware, so that it has none: it is asked before anyone is signed in.
-  .add(SignInGroup)
+  .add(SignInGroup, HealthGroup)
   .prefix(PREFIX)
   .annotateMerge(
     OpenApi.annotations({
       title: "Aperture control plane",
       version: "0.0.0",
-      description: "Accounts, nodes, where sessions run, and tickets into them.",
+      description:
+        "Accounts, nodes, where sessions run, and tickets into them. A request carries an account's API token, or the access token an app was given over OAuth, as `Authorization: Bearer`.",
     }),
   ) {}

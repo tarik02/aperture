@@ -203,6 +203,57 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     }));
   });
 
+  const get = Effect.fn("Accounts.get")(function* (id: string) {
+    const account = yield* store.find(id);
+    if (Option.isNone(account)) {
+      return yield* new AccountNotFound({ id });
+    }
+    const { email } = account.value;
+    return {
+      ...account.value,
+      signIn: email === null ? null : ((yield* identity.methods()).get(email) ?? null),
+    };
+  });
+
+  const change = Effect.fn("Accounts.change")(function* (
+    caller: Caller,
+    id: string,
+    said: { readonly name?: string | undefined; readonly admin?: boolean | undefined },
+  ) {
+    const account = yield* store.find(id);
+    if (Option.isNone(account)) {
+      return yield* new AccountNotFound({ id });
+    }
+    const before = account.value;
+    const admin = said.admin !== undefined && said.admin !== before.admin ? said.admin : undefined;
+    const name = said.name !== undefined && said.name !== before.name ? said.name : undefined;
+    if (admin !== undefined && Option.exists(caller.account, (own) => own.id === id)) {
+      return yield* new Forbidden({
+        message: "nobody says of their own account whether it is an admin's",
+      });
+    }
+    if (admin === false && before.disabledAt === null) {
+      const others = (yield* store.list()).filter(
+        (other) => other.admin && other.disabledAt === null && other.id !== id,
+      );
+      if (others.length === 0) {
+        return yield* new AccountInUse({ id, message: "this is the last admin there is" });
+      }
+    }
+    const changed = Option.getOrElse(yield* store.change(id, { name, admin }), () => before);
+    if (name !== undefined || admin !== undefined) {
+      yield* events.record({
+        kind: "account.changed",
+        ...about(changed),
+        detail: {
+          ...(name === undefined ? {} : { from: before.name }),
+          ...(admin === undefined ? {} : { admin }),
+        },
+      });
+    }
+    return changed;
+  });
+
   const lookup = Effect.fn("Accounts.lookup")(function* (caller: Caller, email: string) {
     if (!caller.admin && !caller.workspaces.some((workspace) => workspace.role === "admin")) {
       return yield* new Forbidden({ message: "this is for an admin of a workspace to do" });
@@ -411,6 +462,9 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
   });
 
   const revokeToken = Effect.fn("Accounts.revokeToken")(function* (caller: Caller, id: string) {
+    if (caller.resources !== null) {
+      return yield* new Forbidden({ message: "a token held to resources takes no tokens back" });
+    }
     yield* revoke(id, (token) =>
       reaches(caller, { accountId: token.accountId, workspaceId: null }),
     );
@@ -440,6 +494,8 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     removePasskeys,
     ofPerson,
     list,
+    get,
+    change,
     lookup,
     disable,
     enable,
