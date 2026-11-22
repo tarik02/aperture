@@ -1549,12 +1549,15 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         const bar = "[data-workbench-phone-bar]";
         const mark = "[data-workbench-phone-mark]";
         const barAt = `document.querySelector(${JSON.stringify(phone)}).dataset.bar`;
-        /** A sheet that has come in: it does a moment after what it shows is there. */
+        /**
+         * A sheet that has come in: it does a moment after what it shows is there. What it
+         * shows may move for as long as it is there, as what pulses does.
+         */
         const landed = (selector: string) =>
           page.until(
             `(() => {
               const sheet = document.querySelector(${JSON.stringify(selector)});
-              return sheet !== null && sheet.hasAttribute("data-open") && !sheet.hasAttribute("data-starting-style") && sheet.getAnimations({ subtree: true }).every((one) => one.playState === "finished");
+              return sheet !== null && sheet.hasAttribute("data-open") && !sheet.hasAttribute("data-starting-style") && sheet.getAnimations().every((one) => one.playState === "finished");
             })()`,
           );
         const still = (selector: string) =>
@@ -1780,22 +1783,29 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         const sheetHeight = `document.querySelector("[data-menu-sheet]")?.dataset.height`;
         const settled = landed("[data-menu-sheet]");
         const pageOf = (title: string) => `[data-menu-sheet-page="${title}"]`;
+        /**
+         * Presses what is in the menu by a finger. A mouse left over the menu is over
+         * another row once the rows move, as when a page of it comes or goes or the phone
+         * is turned, and a menu takes that for leaving the page that is open.
+         */
+        const tap = (selector: string) =>
+          Effect.gen(function* () {
+            const at = yield* page.box(selector);
+            yield* tapAt(at.x, at.y);
+          });
         /** Presses a row of the menu, which may be below what the sheet shows of it at rest. */
         const pressRow = (row: string) =>
           Effect.gen(function* () {
             yield* page.evaluate(
               `document.querySelector('${menu} ${row}').scrollIntoView({ block: "center" })`,
             );
-            // By a finger: a mouse left over the row would be over another one once the
-            // phone is turned, and a menu takes that for leaving the page the row opened.
-            const at = yield* page.box(`${menu} ${row}`);
-            yield* tapAt(at.x, at.y);
+            yield* tap(`${menu} ${row}`);
           });
         /**
          * Opens the page a row of the menu leads to. A page that was just left may still
          * take the press: the row is pressed again where it did not take.
          */
-        const openPage = (row: string, title: string) =>
+        const openPage = (row: string, title: string, within?: string) =>
           Effect.gen(function* () {
             if (
               !(yield* page.evaluate(
@@ -1803,9 +1813,19 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
                 Schema.Boolean,
               ))
             ) {
-              yield* pressRow(row);
+              yield* within === undefined ? pressRow(row) : tap(`${within} ${row}`);
             }
             yield* page.until(`!!document.querySelector('${pageOf(title)}')`, "3 seconds");
+          }).pipe(Effect.retry({ times: 4 }));
+        /** Leaves a page of the menu by its way back, pressed again where it did not take. */
+        const leavePage = (title: string) =>
+          Effect.gen(function* () {
+            if (
+              yield* page.evaluate(`!!document.querySelector('${pageOf(title)}')`, Schema.Boolean)
+            ) {
+              yield* tap(`${pageOf(title)} [data-menu-sheet-back]`);
+            }
+            yield* page.until(`!document.querySelector('${pageOf(title)}')`, "3 seconds");
           }).pipe(Effect.retry({ times: 4 }));
         yield* page.click("[data-workbench-menu]");
         yield* page.until(`!!document.querySelector('${menu} [data-workbench-page-mode]')`);
@@ -1865,18 +1885,15 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
             `document.querySelector('${pageOf("View")}').getBoundingClientRect().height`,
           ),
         ).toBe(kept);
-        yield* page.click(`${pageOf("View")} [data-phone-menu-page=picture]`);
-        yield* page.until(`!!document.querySelector('${pageOf("Picture and viewport")}')`);
+        yield* openPage("[data-phone-menu-page=picture]", "Picture and viewport", pageOf("View"));
         yield* still(pageOf("Picture and viewport"));
         expect(
           yield* page.evaluate(
             `document.querySelector('${pageOf("Picture and viewport")}').getBoundingClientRect().height`,
           ),
         ).toBe(kept);
-        yield* page.click(`${pageOf("Picture and viewport")} [data-menu-sheet-back]`);
-        yield* page.until(`!document.querySelector('${pageOf("Picture and viewport")}')`);
-        yield* page.click(`${pageOf("View")} [data-menu-sheet-back]`);
-        yield* page.until(`!document.querySelector('${pageOf("View")}')`);
+        yield* leavePage("Picture and viewport");
+        yield* leavePage("View");
         yield* openPage("[data-console-session-submenu]", "Session");
         yield* still(pageOf("Session"));
         yield* shot(page, fs, "console-phone-workbench-menu-session");
@@ -1957,8 +1974,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
             })()`,
           ),
         ).toEqual({ sheets: 1, page: true, side: true });
-        yield* page.click(`${pageOf("View")} [data-menu-sheet-back]`);
-        yield* page.until(`!document.querySelector('${pageOf("View")}')`);
+        yield* leavePage("View");
         // Dragged to its side the menu is gone.
         const side = yield* page.box("[data-menu-sheet]");
         yield* drawnAcross(side.left + 40, side.left + 330, 12);

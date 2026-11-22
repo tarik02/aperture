@@ -375,6 +375,8 @@ function DropdownMenuSubTrigger({
     <MenuPrimitive.SubmenuTrigger
       ref={React.useContext(SheetSubContext)?.trigger}
       data-slot="dropdown-menu-sub-trigger"
+      // A sheet's page is opened by a press: a pointer left over its row asks for nothing.
+      {...(sheet ? { openOnHover: false } : {})}
       data-inset={inset}
       className={cn(
         "aperture:flex aperture:cursor-default aperture:items-center aperture:gap-1.5 aperture:rounded-md aperture:px-1.5 aperture:py-1 aperture:text-sm aperture:outline-hidden aperture:select-none aperture:data-highlighted:bg-accent aperture:data-highlighted:text-accent-foreground aperture:not-data-[variant=destructive]:data-highlighted:**:[svg]:text-accent-foreground aperture:data-inset:pl-7 aperture:data-popup-open:bg-accent aperture:data-popup-open:text-accent-foreground aperture:data-open:bg-accent aperture:data-open:text-accent-foreground aperture:[&_svg]:pointer-events-none aperture:[&_svg]:shrink-0 aperture:[&_svg:not([class*='size-'])]:size-4",
@@ -435,7 +437,9 @@ function DropdownMenuSubContent({
             data-menu-sheet-page={title}
             className={cn(
               SHEET_PAGE,
-              "aperture:pointer-events-auto aperture:transition-transform aperture:duration-300 aperture:ease-[cubic-bezier(0.32,0.72,0,1)] aperture:data-ending-style:translate-x-full aperture:data-starting-style:translate-x-full aperture:motion-reduce:duration-0",
+              // A page that is on its way out takes no press: one meant for the row under it
+              // would be a press beside the menu, which is rid of the menu.
+              "aperture:pointer-events-auto aperture:transition-transform aperture:duration-300 aperture:ease-[cubic-bezier(0.32,0.72,0,1)] aperture:data-ending-style:pointer-events-none aperture:data-ending-style:translate-x-full aperture:data-starting-style:translate-x-full aperture:motion-reduce:duration-0",
             )}
             {...page}
           >

@@ -428,8 +428,13 @@ suite(session)("how a tab's pages are shown, with a desktop, a phone and the aut
         /** A sheet that has come in: it does a moment after what it shows is there. */
         const landed = (sheet: string) =>
           eve.until(
-            `${sheet} !== null && ${sheet}.hasAttribute("data-open") && !${sheet}.hasAttribute("data-starting-style") && ${sheet}.getAnimations({ subtree: true }).every((one) => one.playState === "finished")`,
+            `${sheet} !== null && ${sheet}.hasAttribute("data-open") && !${sheet}.hasAttribute("data-starting-style") && ${sheet}.getAnimations().every((one) => one.playState === "finished")`,
           );
+        /** The menu, pressed again where the rail was still on its way as it was pressed. */
+        const opened = Effect.gen(function* () {
+          yield* eve.click("[data-workbench-menu]");
+          yield* eve.until(`${menu} !== null`, "3 seconds");
+        }).pipe(Effect.retry({ times: 4 }), Effect.andThen(landed(menu)));
         const touch = (type: string, x?: number, y?: number) =>
           eve.cdp.call("Input.dispatchTouchEvent", {
             type,
@@ -474,8 +479,7 @@ suite(session)("how a tab's pages are shown, with a desktop, a phone and the aut
 
         // The menu comes in from the rail's side, as tall as the window, and stays the
         // one menu as the phone is turned: a sheet at the foot upright, half of the way up.
-        yield* eve.click("[data-workbench-menu]");
-        yield* landed(menu);
+        yield* opened;
         const side = `(() => {
         const sheet = ${menu}.getBoundingClientRect();
         return [${menu}.dataset.side, sheet.top === 0, sheet.height === innerHeight, Math.round(sheet.right) === innerWidth, sheet.width < innerWidth * 0.6].join();
@@ -519,8 +523,7 @@ suite(session)("how a tab's pages are shown, with a desktop, a phone and the aut
         // of it is left over the picture.
         yield* turn(844, 390);
         yield* eve.until(`${phone}.dataset.lay === "right"`);
-        yield* eve.click("[data-workbench-menu]");
-        yield* landed(menu);
+        yield* opened;
         const left = yield* eve.evaluate(`${menu}.getBoundingClientRect().left`, Schema.Number);
         yield* touch("touchStart", left + 40, 12);
         for (let step = 1; step <= 10; step += 1) {
