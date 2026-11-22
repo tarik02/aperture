@@ -12,3 +12,13 @@ export function useCreateRegistrationTokenMutation() {
     onSettled: () => queries.invalidateQueries({ queryKey: queryKeys.registrationTokens }),
   });
 }
+
+export function useRevokeRegistrationTokenMutation() {
+  const queries = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      call((api) => api.nodes.revokeRegistrationToken({ params: { id } })),
+    onError: (error) => toastMutationError(error, "The token was not revoked"),
+    onSettled: () => queries.invalidateQueries({ queryKey: queryKeys.registrationTokens }),
+  });
+}

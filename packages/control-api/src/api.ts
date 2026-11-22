@@ -22,6 +22,7 @@ import {
   NoNode,
   OAuthClientNotFound,
   RedirectRefused,
+  RegistrationTokenNotFound,
   SessionHasNoNode,
   SessionNotFound,
   ShareNotFound,
@@ -135,6 +136,8 @@ export const RegistrationToken = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   createdAt: Schema.DateTimeUtcFromString,
+  /** Since when it registers no new node; the nodes that registered with it stay. */
+  revokedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
 });
 
 export const RegistrationTokenCreated = Schema.Struct({
@@ -376,11 +379,16 @@ export class NodesGroup extends HttpApiGroup.make("nodes")
       success: RegistrationTokenCreated.pipe(HttpApiSchema.status(201)),
       error: Forbidden,
     }),
+    HttpApiEndpoint.delete("revokeRegistrationToken", "/registration-tokens/:id", {
+      params: { id: Id },
+      error: [Forbidden, RegistrationTokenNotFound],
+    }),
   )
   .annotateMerge(
     OpenApi.annotations({
       title: "Nodes",
-      description: "The nodes that registered, and the tokens that let nodes register.",
+      description:
+        "The nodes that registered, and the tokens that let nodes register. A token that is revoked registers no new node, and the nodes that registered with it stay.",
     }),
   ) {}
 

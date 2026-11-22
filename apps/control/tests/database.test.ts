@@ -29,6 +29,7 @@ suite(database)("the database", (it) => {
         "session_shares",
         "accounts_disabled",
         "events",
+        "registration_tokens_revoked",
       ]);
 
       const tables = yield* sql`

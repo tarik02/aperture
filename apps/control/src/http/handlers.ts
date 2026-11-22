@@ -257,6 +257,9 @@ const nodes = HttpApiBuilder.group(
           const { token, secret } = yield* nodes.createRegistrationToken(payload.name);
           return { ...token, token: secret };
         }),
+      )
+      .handle("revokeRegistrationToken", ({ params }) =>
+        Effect.andThen(admin, nodes.revokeRegistrationToken(params.id)),
       );
   }),
 );

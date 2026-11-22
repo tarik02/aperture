@@ -84,6 +84,7 @@ const SAID: Readonly<Record<string, string>> = {
   SnapshotNotFound: "This snapshot does not exist. It may have been deleted.",
   SessionElsewhere: "This session is on another node now.",
   ApiTokenNotFound: "There is no such API token.",
+  RegistrationTokenNotFound: "There is no such registration token.",
   WorkspaceNotFound: "There is no such workspace.",
   WorkspaceInUse: "The workspace still has sessions or snapshots.",
   EmailTaken: "Someone has this email address already.",

@@ -52,7 +52,7 @@ _Avoid_: Server, manager, orchestrator
 A machine with an executor on it, as the control plane knows it: its name, where it is reached, what its sessions may have, and when it was last heard from. A node tells of itself with a keepalive, and one that falls silent gets no new sessions.
 
 **Registration token**:
-What lets an executor tell a control plane it is a node of it. An admin makes it; several can be good at once.
+What lets an executor tell a control plane it is a node of it. An admin makes it; several can be good at once. An admin takes one back as well: no new node registers with it then, and the nodes that registered with it stay for as long as they say of themselves what they said before.
 
 **Workspace**:
 Where accounts keep sessions and snapshots together: what is a workspace's is all its members', and stays the workspace's when a member leaves. A session or a snapshot is of one workspace or of none, and of none it is its account's own. A member who is an admin of the workspace says who its members are. Whoever does finds a person to let in by the whole email address they sign in with, and is told of nobody they did not name.

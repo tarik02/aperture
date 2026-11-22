@@ -3,7 +3,11 @@ import * as Context from "effect/Context";
 import type * as Duration from "effect/Duration";
 import type * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
-import type { KeepaliveInvalid, RegistrationRefused } from "../errors.ts";
+import type {
+  KeepaliveInvalid,
+  RegistrationRefused,
+  RegistrationTokenNotFound,
+} from "../errors.ts";
 import type { Keepalive, Node, NodeRecord, RegistrationToken } from "./schemas.ts";
 
 /** The nodes that registered, which of them are in use, and how each is reached. */
@@ -12,10 +16,18 @@ export interface NodesShape {
   readonly createRegistrationToken: (
     name: string,
   ) => Effect.Effect<{ readonly token: RegistrationToken; readonly secret: string }>;
+  /** Every registration token that was made, those taken back among them. */
   readonly registrationTokens: () => Effect.Effect<ReadonlyArray<RegistrationToken>>;
   /**
+   * Takes a registration token back: no new node registers with it, and no node says
+   * anything new of itself with it. The nodes that registered with it stay.
+   */
+  readonly revokeRegistrationToken: (id: string) => Effect.Effect<void, RegistrationTokenNotFound>;
+  /**
    * Takes a node's keepalive: registers the node where its name is new, and keeps it in
-   * use. Says how long the node is to wait before the next.
+   * use. Says how long the node is to wait before the next. With a token that was taken
+   * back it is taken of a node that registered with that token alone, and only while the
+   * node says of itself what it said before.
    */
   readonly keepalive: (
     said: Keepalive,

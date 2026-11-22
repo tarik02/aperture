@@ -30,9 +30,13 @@ export interface NodesStoreShape {
     token: NewRegistrationToken,
   ) => Effect.Effect<RegistrationToken>;
   readonly listRegistrationTokens: () => Effect.Effect<ReadonlyArray<RegistrationToken>>;
+  readonly findRegistrationToken: (id: string) => Effect.Effect<Option.Option<RegistrationToken>>;
+  /** The token with that digest, one that was taken back as well: it says that it was. */
   readonly findRegistrationTokenByHash: (
     tokenHash: string,
   ) => Effect.Effect<Option.Option<RegistrationToken>>;
+  /** Takes a token back; one that was taken back before stays as it was. */
+  readonly revokeRegistrationToken: (id: string, now: Date) => Effect.Effect<void>;
   /**
    * Writes what a node said of itself and that it was seen now. The node with that name
    * stays the node it was.
@@ -46,6 +50,7 @@ export interface NodesStoreShape {
   readonly noteSilent: (since: Date, now: Date) => Effect.Effect<ReadonlyArray<NodeRecord>>;
   readonly list: () => Effect.Effect<ReadonlyArray<NodeRecord>>;
   readonly find: (id: string) => Effect.Effect<Option.Option<NodeRecord>>;
+  readonly findByName: (name: string) => Effect.Effect<Option.Option<NodeRecord>>;
   /** The nodes seen since then. */
   readonly seenSince: (since: Date) => Effect.Effect<ReadonlyArray<NodeRecord>>;
   /**

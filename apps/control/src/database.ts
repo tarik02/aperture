@@ -201,6 +201,12 @@ const events = statements([
   `UPDATE nodes SET silent_at = last_seen_at`,
 ]);
 
+// A registration token that was taken back is kept, so that an admin sees it was, and so
+// that the nodes that registered with it are still known to have.
+const registrationTokensRevoked = statements([
+  `ALTER TABLE registration_tokens ADD COLUMN revoked_at timestamptz`,
+]);
+
 /** Brings the database to what this program expects; what was applied before is left alone. */
 export const migrate = Migrator.make({})({
   loader: Migrator.fromRecord({
@@ -209,6 +215,7 @@ export const migrate = Migrator.make({})({
     "0003_session_shares": sessionShares,
     "0004_accounts_disabled": accountsDisabled,
     "0005_events": events,
+    "0006_registration_tokens_revoked": registrationTokensRevoked,
   }),
   table: "control_migrations",
 });

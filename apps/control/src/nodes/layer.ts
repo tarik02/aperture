@@ -7,7 +7,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
-import { KeepaliveInvalid, RegistrationRefused } from "../errors.ts";
+import { KeepaliveInvalid, RegistrationRefused, RegistrationTokenNotFound } from "../errors.ts";
 import { Events } from "../events/service.ts";
 import * as Secrets from "../secrets.ts";
 import { keepaliveEvery, Settings } from "../settings/service.ts";
@@ -98,6 +98,47 @@ export const makeNodes = Effect.fn("Nodes.make")(function* () {
     return yield* store.listRegistrationTokens();
   });
 
+  const revokeRegistrationToken = Effect.fn("Nodes.revokeRegistrationToken")(function* (
+    id: string,
+  ) {
+    const token = yield* store.findRegistrationToken(id);
+    if (Option.isNone(token)) {
+      return yield* new RegistrationTokenNotFound({ id });
+    }
+    if (token.value.revokedAt !== null) {
+      return;
+    }
+    yield* store.revokeRegistrationToken(id, yield* now);
+    yield* events.record({
+      kind: "registration_token.revoked",
+      resource: { kind: "registration_token", id, label: token.value.name },
+    });
+  });
+
+  /**
+   * Whether a node says of itself what the node of that name said before, and registered
+   * with that token: what a token that was taken back is still good for.
+   */
+  const unchanged = Effect.fn(function* (
+    tokenId: string,
+    said: Pick<NodeRecord, "name" | "internalUrl" | "balancerUrl" | "publicUrl"> & {
+      readonly operatorToken: string;
+    },
+  ) {
+    const known = yield* store.findByName(said.name);
+    if (
+      Option.isNone(known) ||
+      known.value.registrationTokenId !== tokenId ||
+      known.value.internalUrl !== said.internalUrl ||
+      known.value.balancerUrl !== said.balancerUrl ||
+      known.value.publicUrl !== said.publicUrl
+    ) {
+      return false;
+    }
+    const node = yield* opened(known.value);
+    return Option.exists(node, (one) => one.operatorToken === said.operatorToken);
+  });
+
   const keepalive = Effect.fn("Nodes.keepalive")(function* (said: Keepalive) {
     const hashed = yield* Secrets.hash(said.registrationToken);
     const token = yield* store.findRegistrationTokenByHash(hashed);
@@ -112,12 +153,30 @@ export const makeNodes = Effect.fn("Nodes.make")(function* () {
       return yield* new KeepaliveInvalid({ message: "the node gave no operator token" });
     }
     const name = said.name.trim();
+    const internalUrl = yield* address("the internal address", said.internalUrl);
+    const balancerUrl = yield* optionalAddress("the load balancer's address", said.balancerUrl);
+    const publicUrl = yield* optionalAddress("the public address", said.publicUrl);
+    // Whoever has a token that was taken back makes no node with it, and sends no
+    // session elsewhere by saying that a node moved.
+    if (
+      Option.isSome(token) &&
+      token.value.revokedAt !== null &&
+      !(yield* unchanged(token.value.id, {
+        name,
+        internalUrl,
+        balancerUrl,
+        publicUrl,
+        operatorToken: said.operatorToken,
+      }))
+    ) {
+      return yield* new RegistrationRefused({ message: "that registration token was revoked" });
+    }
     const { operatorTokenSealed: _, ...node } = yield* store.seen({
       id: yield* Secrets.id,
       name,
-      internalUrl: yield* address("the internal address", said.internalUrl),
-      balancerUrl: yield* optionalAddress("the load balancer's address", said.balancerUrl),
-      publicUrl: yield* optionalAddress("the public address", said.publicUrl),
+      internalUrl,
+      balancerUrl,
+      publicUrl,
       operatorTokenSealed: yield* vault.seal(said.operatorToken, name),
       registrationTokenId: Option.getOrNull(Option.map(token, (made) => made.id)),
       now: yield* now,
@@ -187,6 +246,7 @@ export const makeNodes = Effect.fn("Nodes.make")(function* () {
   return Nodes.of({
     createRegistrationToken,
     registrationTokens,
+    revokeRegistrationToken,
     keepalive,
     list,
     alive,

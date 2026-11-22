@@ -76,6 +76,13 @@ export class ApiTokenNotFound extends Schema.TaggedError<ApiTokenNotFound>()(
   { httpApiStatus: 404 },
 ) {}
 
+/** There is no such registration token. */
+export class RegistrationTokenNotFound extends Schema.TaggedError<RegistrationTokenNotFound>()(
+  "RegistrationTokenNotFound",
+  { id: Schema.String },
+  { httpApiStatus: 404 },
+) {}
+
 /** There is no such workspace, or the caller is not in it: the two are told alike. */
 export class WorkspaceNotFound extends Schema.TaggedError<WorkspaceNotFound>()(
   "WorkspaceNotFound",

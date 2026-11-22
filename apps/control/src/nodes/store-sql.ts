@@ -12,6 +12,8 @@ const encodeOffers = Schema.encodeSync(Schema.fromJsonString(Offers));
 /** Nodes in the SQL database. */
 export const makeNodesStore = Effect.fn("NodesStore.make")(function* () {
   const sql = yield* SqlClient.SqlClient;
+  // Never the digest: a token is known by it, and it is told to nobody.
+  const kept = sql.literal("id, name, created_at, revoked_at");
 
   const insertRegistrationToken = Effect.fn("NodesStore.insertRegistrationToken")(function* (
     token: NewRegistrationToken,
@@ -19,23 +21,40 @@ export const makeNodesStore = Effect.fn("NodesStore.make")(function* () {
     return yield* sql`
       INSERT INTO registration_tokens (id, name, token_hash, created_at)
       VALUES (${token.id}, ${token.name}, ${token.tokenHash}, ${token.createdAt})
-      RETURNING id, name, created_at
+      RETURNING ${kept}
     `.pipe(one(RegistrationToken));
   });
 
   const listRegistrationTokens = Effect.fn("NodesStore.listRegistrationTokens")(function* () {
     return yield* sql`
-      SELECT id, name, created_at FROM registration_tokens ORDER BY created_at, id
+      SELECT ${kept} FROM registration_tokens ORDER BY created_at, id
     `.pipe(all(RegistrationToken));
+  });
+
+  const findRegistrationToken = Effect.fn("NodesStore.findRegistrationToken")(function* (
+    id: string,
+  ) {
+    return yield* sql`SELECT ${kept} FROM registration_tokens WHERE id = ${id}`.pipe(
+      first(RegistrationToken),
+    );
   });
 
   const findRegistrationTokenByHash = Effect.fn("NodesStore.findRegistrationTokenByHash")(
     function* (tokenHash: string) {
       return yield* sql`
-        SELECT id, name, created_at FROM registration_tokens WHERE token_hash = ${tokenHash}
+        SELECT ${kept} FROM registration_tokens WHERE token_hash = ${tokenHash}
       `.pipe(first(RegistrationToken));
     },
   );
+
+  const revokeRegistrationToken = Effect.fn("NodesStore.revokeRegistrationToken")(function* (
+    id: string,
+    now: Date,
+  ) {
+    yield* sql`
+      UPDATE registration_tokens SET revoked_at = ${now} WHERE id = ${id} AND revoked_at IS NULL
+    `.pipe(done);
+  });
 
   const seen = Effect.fn("NodesStore.seen")(function* (node: SeenNode) {
     return yield* sql`
@@ -82,6 +101,10 @@ export const makeNodesStore = Effect.fn("NodesStore.make")(function* () {
     return yield* sql`SELECT * FROM nodes WHERE id = ${id}`.pipe(first(NodeRecord));
   });
 
+  const findByName = Effect.fn("NodesStore.findByName")(function* (name: string) {
+    return yield* sql`SELECT * FROM nodes WHERE name = ${name}`.pipe(first(NodeRecord));
+  });
+
   const seenSince = Effect.fn("NodesStore.seenSince")(function* (since: Date) {
     return yield* sql`
       SELECT * FROM nodes WHERE last_seen_at > ${since} ORDER BY registered_at, id
@@ -102,12 +125,15 @@ export const makeNodesStore = Effect.fn("NodesStore.make")(function* () {
   return NodesStore.of({
     insertRegistrationToken,
     listRegistrationTokens,
+    findRegistrationToken,
     findRegistrationTokenByHash,
+    revokeRegistrationToken,
     seen,
     describe,
     noteSilent,
     list,
     find,
+    findByName,
     seenSince,
     candidates,
   });

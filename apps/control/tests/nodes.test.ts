@@ -106,6 +106,92 @@ for (const stores of Control.STORES) {
         }),
       );
 
+      it.effect(
+        "a registration token that is revoked registers no node, and the nodes it registered stay",
+        () =>
+          Effect.gen(function* () {
+            const control = yield* Control.Control;
+            const bootstrap = yield* control.as(control.bootstrapToken);
+            const made = yield* bootstrap.nodes.createRegistrationToken({
+              payload: { name: "leaked" },
+            });
+            expect(made.revokedAt).toBeNull();
+            const said = {
+              registrationToken: made.token,
+              name: "node-kept",
+              internalUrl: NOWHERE,
+              publicUrl: "https://kept.example",
+              operatorToken: "secret",
+            };
+            expect((yield* control.keepalive(said)).status).toBe(200);
+
+            // Only an admin takes one back, and only one there is.
+            const at = { params: { id: made.id } };
+            const ada = yield* Control.account("Ada");
+            expect((yield* Effect.flip(ada.api.nodes.revokeRegistrationToken(at)))._tag).toBe(
+              "Forbidden",
+            );
+            const none = yield* Effect.flip(
+              bootstrap.nodes.revokeRegistrationToken({
+                params: { id: "00000000-0000-7000-8000-00000000dead" },
+              }),
+            );
+            expect(none._tag).toBe("RegistrationTokenNotFound");
+            yield* bootstrap.nodes.revokeRegistrationToken(at);
+            // Taking it back again changes nothing, and is noted once.
+            const listed = () =>
+              bootstrap.nodes
+                .registrationTokens()
+                .pipe(Effect.map((all) => all.find((token) => token.id === made.id)));
+            const revoked = yield* listed();
+            expect(revoked?.revokedAt).not.toBeNull();
+            yield* bootstrap.nodes.revokeRegistrationToken(at);
+            expect(yield* listed()).toEqual(revoked);
+            const noted = yield* bootstrap.events.list({
+              query: { kind: "registration_token.revoked", resourceId: made.id },
+            });
+            expect(noted.events.map((event) => event.resource)).toEqual([
+              { kind: "registration_token", id: made.id, label: "leaked" },
+            ]);
+            expect(JSON.stringify(noted.events)).not.toContain(made.token);
+
+            // No new node registers with it.
+            const fresh = yield* control.keepalive({ ...said, name: "node-new" });
+            expect(fresh.status).toBe(401);
+            expect(fresh.body).toMatchObject({ code: "unauthenticated" });
+            expect(yield* node("node-new")).toBeUndefined();
+
+            // The node that registered with it stays, and is heard from as before.
+            const before = yield* node("node-kept");
+            expect((yield* control.keepalive(said)).status).toBe(200);
+            const after = yield* node("node-kept");
+            expect(after).toMatchObject({ id: before?.id, alive: true });
+            // It says nothing new of itself with it: whoever has the token moves no node.
+            for (const changed of [
+              { internalUrl: "http://127.0.0.1:10" },
+              { publicUrl: "https://elsewhere.example" },
+              { balancerUrl: "https://elsewhere.example" },
+              { operatorToken: "another" },
+            ]) {
+              expect((yield* control.keepalive({ ...said, ...changed })).status).toBe(401);
+            }
+            expect(yield* node("node-kept")).toMatchObject({
+              internalUrl: NOWHERE,
+              balancerUrl: null,
+              publicUrl: "https://kept.example",
+            });
+            // Nor does it take a node that registered with another token.
+            yield* control.keepalive({
+              registrationToken: yield* registrationToken,
+              name: "node-of-another-token",
+              internalUrl: NOWHERE,
+              operatorToken: "secret",
+            });
+            const taken = yield* control.keepalive({ ...said, name: "node-of-another-token" });
+            expect(taken.status).toBe(401);
+          }),
+      );
+
       it.effect("a keepalive is taken as protobuf too, and answered in kind", () =>
         Effect.gen(function* () {
           const control = yield* Control.Control;

@@ -41,6 +41,7 @@ export const HAPPENED: Readonly<Record<EventKind, (event: Event) => string>> = {
   "grant.revoked": (event) =>
     event.detail["by"] === "app" ? "The app disconnected itself" : "Disconnected the app",
   "registration_token.created": () => "Made the registration token",
+  "registration_token.revoked": () => "Revoked the registration token",
   "workspace.created": () => "Made the workspace",
   "workspace.renamed": (event) =>
     `Renamed the workspace from ${said(event.detail["from"]) ?? "another name"}`,
@@ -136,6 +137,7 @@ export const KINDS: ReadonlyArray<{
     label: "Nodes",
     kinds: [
       { value: "registration_token.created", label: "Registration token made" },
+      { value: "registration_token.revoked", label: "Registration token revoked" },
       { value: "node.registered", label: "Node registered" },
       { value: "node.silent", label: "Node fell silent" },
     ],

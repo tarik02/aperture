@@ -11,6 +11,8 @@ export const NodeRecord = Schema.Struct({
   operatorTokenSealed: Schema.String,
   /** None until the control plane has reached the node's executor. */
   offers: Schema.NullOr(Offers),
+  /** The token it registered with; none for the one that is good without being made. */
+  registrationTokenId: Schema.NullOr(Schema.String),
   registeredAt: Schema.DateTimeUtcFromDate,
   lastSeenAt: Schema.DateTimeUtcFromDate,
 });
@@ -26,6 +28,8 @@ export const RegistrationToken = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   createdAt: Schema.DateTimeUtcFromDate,
+  /** When it was taken back; it is kept so that an admin sees it was. */
+  revokedAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
 });
 export type RegistrationToken = typeof RegistrationToken.Type;
 

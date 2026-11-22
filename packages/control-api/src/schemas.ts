@@ -148,6 +148,7 @@ export const EventKind = Schema.Literals([
   "grant.given",
   "grant.revoked",
   "registration_token.created",
+  "registration_token.revoked",
   "workspace.created",
   "workspace.renamed",
   "workspace.deleted",

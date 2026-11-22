@@ -1935,10 +1935,57 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.until(`!document.querySelector('${bot}')`);
 
       // What lets nodes register is kept apart from the nodes.
+      yield* root.api.nodes.createRegistrationToken({ payload: { name: "spare" } });
       yield* page.click(`a[href="/-/registration-tokens"]`);
       yield* page.until(`!!document.querySelector('[data-console-registration-token="checks"]')`);
       expect(yield* page.evaluate(`!!document.querySelector("[data-console-node]")`)).toBe(false);
       yield* shot(page, fs, "console-registration-tokens");
+      // One is taken back from its row's menu, once that is said again, and is kept among
+      // those that were.
+      const spare = `[data-console-registration-token="spare"]`;
+      const which = `[aria-label="Which tokens"]`;
+      yield* page.click(`${spare} [aria-label="Token actions"]`);
+      yield* choose(page, `[data-slot="dropdown-menu-item"]`, "Revoke");
+      yield* page.until(`!!document.querySelector('${BUTTONS} button:last-child')`);
+      yield* placed(page);
+      yield* shot(page, fs, "console-registration-token-revoke");
+      yield* confirmed;
+      yield* page.until(`!document.querySelector('${spare}')`);
+      yield* pick(page, which, "Revoked");
+      yield* page.until(`document.querySelector('${spare}')?.textContent.includes("revoked")`);
+      expect(
+        yield* page.evaluate(
+          `!!document.querySelector('[data-console-registration-token="checks"]')`,
+        ),
+      ).toBe(false);
+      // Nothing is left to do with it.
+      expect(yield* page.evaluate(`!!document.querySelector('${spare} button')`)).toBe(false);
+      yield* shot(page, fs, "console-registration-tokens-revoked");
+      yield* shotDark(page, fs, "console-registration-tokens-revoked-dark");
+      // A right click on a row offers what its menu does.
+      yield* pick(page, which, "Active");
+      const row = yield* page.box(`[data-console-registration-token="checks"]`);
+      yield* page.clickAt(row.x, row.y, "right");
+      yield* page.until(
+        `[...document.querySelectorAll('[data-slot="context-menu-item"]')].some((item) => item.textContent.includes("Revoke"))`,
+      );
+      yield* shot(page, fs, "console-registration-token-context");
+      yield* page.key("Escape", "Escape", ESCAPE);
+      yield* page.until(`!document.querySelector('[data-slot="context-menu-item"]')`);
+      // On a phone a token is a block of its own, with what is done with it in its menu.
+      const phone = yield* viewer.open(`${proxy.url}/-/registration-tokens`, {
+        width: 390,
+        height: 844,
+        mobile: true,
+      });
+      yield* phone.until(`!!document.querySelector('[data-console-registration-token="checks"]')`);
+      yield* phone.click(`[data-console-registration-token="checks"] [aria-label="Token actions"]`);
+      yield* phone.until(`!!document.querySelector('[data-slot="dropdown-menu-item"]')`);
+      yield* shot(phone, fs, "console-phone-registration-tokens");
+      expect(yield* phone.evaluate(`document.documentElement.scrollWidth <= innerWidth`)).toBe(
+        true,
+      );
+      yield* phone.close;
       yield* page.click(`a[href="/-/nodes"]`);
       yield* page.until(`!!document.querySelector("[data-console-node]")`);
       expect(

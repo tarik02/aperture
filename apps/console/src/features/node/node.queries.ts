@@ -13,9 +13,13 @@ export function useNodesQuery() {
   });
 }
 
+const listRegistrationTokens = () => call((api) => api.nodes.registrationTokens());
+
+export type RegistrationToken = Awaited<ReturnType<typeof listRegistrationTokens>>[number];
+
 export function useRegistrationTokensQuery() {
   return useQuery({
     queryKey: queryKeys.registrationTokens,
-    queryFn: () => call((api) => api.nodes.registrationTokens()),
+    queryFn: listRegistrationTokens,
   });
 }
