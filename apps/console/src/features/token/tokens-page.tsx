@@ -21,10 +21,15 @@ import { useAccess } from "#/features/auth/access.ts";
 import { TokenCreateDialog } from "#/features/token/token-create-dialog.tsx";
 import { useRevokeTokenMutation } from "#/features/token/token.mutations.ts";
 import { type ApiToken, useTokensQuery } from "#/features/token/token.queries.ts";
+import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
+import { useListSearch } from "#/lib/list-search.ts";
 import { useLast } from "#/lib/use-last.ts";
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+
+/** Which tokens are listed, as the page's address keeps it. */
+export const TOKENS_SEARCH = { show: ["active", "revoked", "all"] } as const;
 
 const SHOWN = [
   { value: "active", label: "Active" },
@@ -77,17 +82,20 @@ function TokenReach({ resources }: { resources: ApiToken["resources"] }) {
 
 type TokensPageProps = {
   /** Whose tokens they are, where they are not the one's who is signed in: a service account's. */
-  account?: { readonly id: string; readonly name: string; readonly admin: boolean };
+  account?: { readonly id: string; readonly name: string; readonly admin: boolean } | undefined;
+  /** Whether whose tokens they are is not known yet: none are asked for until it is. */
+  waiting?: boolean;
 };
 
 /** The API tokens of the account that is signed in, or of the one an admin looks at. */
-export function TokensPage({ account }: TokensPageProps) {
-  const tokens = useTokensQuery(account?.id);
+export function TokensPage({ account, waiting = false }: TokensPageProps) {
+  const tokens = useTokensQuery(account?.id, !waiting);
   const revoke = useRevokeTokenMutation(account?.id);
   const access = useAccess();
   // An admin makes another account's as an admin; their own, whoever makes tokens at all.
-  const makes = account === undefined ? access.makesTokens : access.may("admin");
-  const [shown, setShown] = useState<Shown>("active");
+  const makes = !waiting && (account === undefined ? access.makesTokens : access.may("admin"));
+  const [{ show: shown }, setList] = useListSearch(TOKENS_SEARCH);
+  const setShown = (show: Shown) => setList({ show });
   const [creating, setCreating] = useState(false);
   const [secret, setSecret] = useState<string>();
   const [revoking, setRevoking] = useState<ApiToken>();
@@ -138,6 +146,7 @@ export function TokensPage({ account }: TokensPageProps) {
             </TableRow>
           </TableHeader>
           <TableBody>
+            {tokens.isPending ? <TableRowsSkeleton columns={7} actions /> : null}
             {listed.map((token) => {
               const state = stateOf(token);
               const actions: ReadonlyArray<RowAction> =

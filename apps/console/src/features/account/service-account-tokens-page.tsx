@@ -9,11 +9,8 @@ export function ServiceAccountTokensPage({ accountId }: { accountId: string }) {
   const account = accounts.data?.find((one) => one.id === accountId && one.kind === "service");
   usePageCrumb(account?.name);
 
-  if (account !== undefined) {
-    return <TokensPage account={account} />;
-  }
-  if (accounts.isPending) {
-    return null;
+  if (account !== undefined || accounts.isPending) {
+    return <TokensPage account={account} waiting={account === undefined} />;
   }
   return (
     <p

@@ -12,9 +12,10 @@ const listTokens = (accountId: string | undefined) =>
 export type ApiToken = Awaited<ReturnType<typeof listTokens>>[number];
 
 /** The tokens of the account that is signed in, or of another's for an admin. */
-export function useTokensQuery(accountId?: string) {
+export function useTokensQuery(accountId?: string, enabled = true) {
   return useQuery({
     queryKey: [...queryKeys.tokens, accountId ?? null],
     queryFn: () => listTokens(accountId),
+    enabled,
   });
 }

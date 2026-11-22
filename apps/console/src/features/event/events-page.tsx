@@ -11,7 +11,7 @@ import {
 } from "@aperture-browser/ui/components/table";
 import { Link } from "@tanstack/react-router";
 import { Search, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { filter, Filters } from "#/components/filter-menu.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { TablePage } from "#/components/table-page.tsx";
@@ -25,14 +25,20 @@ import {
 import { useSessionsQuery } from "#/features/session/session.queries.ts";
 import { useSnapshotsQuery } from "#/features/snapshot/snapshot.queries.ts";
 import { useWorkspacesQuery } from "#/features/workspace/workspace.queries.ts";
+import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
+import { type ListSearchShape, useListSearch, useSearchText } from "#/lib/list-search.ts";
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
 
-/** How long nothing is typed before what was typed is searched for. */
-const SEARCHED_AFTER = 300;
 const ALL = "all";
 const EVERY_KIND = [{ value: ALL, label: "All events" }] as const;
+/** Which events are listed, as the page's address keeps it. */
+export const EVENTS_SEARCH = {
+  kind: [ALL, ...KINDS.flatMap((group) => group.kinds.map((one) => one.value))],
+  actor: "text",
+} as const satisfies ListSearchShape;
+
 const KIND_GROUPS = KINDS.map((group) => ({ label: group.label, options: group.kinds }));
 
 /** Where the console shows what an event is about; nowhere for what has no page of its own. */
@@ -128,22 +134,19 @@ function About({ event, shown }: { event: Event; shown: Shown | undefined }) {
  * is their own account's and their workspaces'.
  */
 export function EventsPage() {
-  const [kind, setKind] = useState<EventKind | typeof ALL>(ALL);
-  const [search, setSearch] = useState("");
-  const [actor, setActor] = useState("");
+  // What is searched for is asked of the control plane once the typing rests, as the
+  // address says it.
+  const [{ kind, actor }, setList] = useListSearch(EVENTS_SEARCH);
+  const [search, setSearch] = useSearchText(actor, (text) => setList({ actor: text }));
+  const setKind = (next: EventKind | typeof ALL) => setList({ kind: next });
   /** Whether the field to search by is open, where it is not always there. */
-  const [searching, setSearching] = useState(false);
+  const [searching, setSearching] = useState(actor !== "");
   const events = useEventsQuery({
     kind: kind === ALL ? undefined : kind,
     actor: actor === "" ? undefined : actor,
   });
   const shown = useShown();
   const listed = events.data?.pages.flatMap((page) => page.events) ?? [];
-
-  useEffect(() => {
-    const waited = setTimeout(() => setActor(search.trim()), SEARCHED_AFTER);
-    return () => clearTimeout(waited);
-  }, [search]);
 
   return (
     <TablePage>
@@ -226,6 +229,7 @@ export function EventsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
+            {events.isPending ? <TableRowsSkeleton columns={4} twoLines /> : null}
             {listed.map((event) => (
               <TableRow key={event.id} data-console-event={event.kind}>
                 {/* On a phone what happened leads the row's block, and when ends it. */}

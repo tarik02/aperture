@@ -26,10 +26,15 @@ import {
   type RegistrationToken,
   useRegistrationTokensQuery,
 } from "#/features/node/node.queries.ts";
+import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
+import { useListSearch } from "#/lib/list-search.ts";
 import { useLast } from "#/lib/use-last.ts";
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+
+/** Which tokens are listed, as the page's address keeps it. */
+export const REGISTRATION_TOKENS_SEARCH = { show: ["active", "revoked", "all"] } as const;
 
 const SHOWN = [
   { value: "active", label: "Active" },
@@ -43,7 +48,8 @@ export function RegistrationTokensPage() {
   const tokens = useRegistrationTokensQuery();
   const create = useCreateRegistrationTokenMutation();
   const revoke = useRevokeRegistrationTokenMutation();
-  const [shown, setShown] = useState<Shown>("active");
+  const [{ show: shown }, setList] = useListSearch(REGISTRATION_TOKENS_SEARCH);
+  const setShown = (show: Shown) => setList({ show });
   const [creating, setCreating] = useState(false);
   const [secret, setSecret] = useState<string>();
   const [revoking, setRevoking] = useState<RegistrationToken>();
@@ -88,6 +94,7 @@ export function RegistrationTokensPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
+            {tokens.isPending ? <TableRowsSkeleton columns={4} actions /> : null}
             {listed.map((token) => {
               const actions: ReadonlyArray<RowAction> =
                 token.revokedAt === null

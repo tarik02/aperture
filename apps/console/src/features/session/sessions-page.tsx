@@ -16,8 +16,17 @@ import {
 } from "#/features/session/session.mutations.ts";
 import { type Session, useSessionsQuery } from "#/features/session/session.queries.ts";
 import { useSelectedWorkspace } from "#/features/workspace/workspace.queries.ts";
+import { CARD_GRID, CardsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
+import { useListSearch, useSearchText } from "#/lib/list-search.ts";
 import { useLast } from "#/lib/use-last.ts";
+
+/** What the list is narrowed and ordered by, as the page's address keeps it. */
+export const SESSIONS_SEARCH = {
+  q: "text",
+  status: ["all", "active", "suspended", "failed"],
+  sort: ["created", "label"],
+} as const;
 
 const STATUSES = [
   { value: "all", label: "All" },
@@ -62,16 +71,17 @@ export function SessionsPage() {
   const workspace = useSelectedWorkspace();
   const access = useAccess();
   const writes = access.may("sessions:write");
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<Status>("all");
-  const [order, setOrder] = useState<Order>("created");
+  const [{ q, status, sort: order }, setList] = useListSearch(SESSIONS_SEARCH);
+  const [search, setSearch] = useSearchText(q, (text) => setList({ q: text }));
+  const setStatus = (next: Status) => setList({ status: next });
+  const setOrder = (next: Order) => setList({ sort: next });
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   /** How many sessions are asked to be deleted, while that is asked. */
   const [confirming, setConfirming] = useState<number>();
   const deleted = useLast(confirming);
   const [creating, setCreating] = useState(false);
   /** Whether the field to search by is open, where it is not always there. */
-  const [searching, setSearching] = useState(false);
+  const [searching, setSearching] = useState(q !== "");
   const searchInput = useRef<HTMLInputElement>(null);
   /** Where a range that Shift extends starts. */
   const anchor = useRef<string>(undefined);
@@ -133,6 +143,7 @@ export function SessionsPage() {
         <Input
           ref={searchInput}
           type="search"
+          aria-label="Search sessions"
           placeholder="Search sessions"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
@@ -210,7 +221,9 @@ export function SessionsPage() {
               {told(sessions.error)}
             </p>
           ) : null}
-          {sessions.data !== undefined && shown.length === 0 ? (
+          {sessions.isPending ? (
+            <CardsSkeleton />
+          ) : sessions.data !== undefined && shown.length === 0 ? (
             <p
               data-console-empty
               className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
@@ -218,7 +231,7 @@ export function SessionsPage() {
               {sessions.data.length === 0 ? "No sessions yet." : "No session matches."}
             </p>
           ) : (
-            <div className="aperture:grid aperture:grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] aperture:gap-4 aperture:max-sm:gap-3">
+            <div className={CARD_GRID}>
               {shown.map((session) => (
                 <SessionCard
                   key={session.id}
