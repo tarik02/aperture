@@ -54,8 +54,8 @@ type ScopesPickerProps = {
 
 /**
  * Chooses scopes: those that are known are ticked in a list, and any other is typed and
- * added. What is chosen is shown in two lines, which scroll once there is more, so that
- * the picker is as tall whatever is chosen.
+ * added. The picker is as tall as what is chosen, up to three lines, and scrolls once
+ * there is more.
  */
 function ScopesPicker({
   id,
@@ -133,8 +133,8 @@ function ScopesPicker({
         ref={anchor}
         data-slot="scopes-picker"
         className={cn(
-          // Two lines of what is chosen, of the height those have where a finger presses.
-          "aperture:h-14 aperture:content-start aperture:items-start aperture:overflow-x-hidden aperture:overflow-y-auto aperture:overscroll-contain aperture:[scrollbar-width:thin] aperture:pointer-coarse:h-[5.875rem]",
+          // Up to three lines of what is chosen, of the height those have where a finger presses.
+          "aperture:max-h-20 aperture:content-start aperture:items-start aperture:overflow-x-hidden aperture:overflow-y-auto aperture:overscroll-contain aperture:[scrollbar-width:thin] aperture:pointer-coarse:max-h-[8.75rem]",
           disabled && "aperture:pointer-events-none aperture:opacity-50",
           className,
         )}
