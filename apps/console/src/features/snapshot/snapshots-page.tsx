@@ -23,6 +23,7 @@ import {
 } from "#/features/snapshot/snapshot.mutations.ts";
 import { type Snapshot, useSnapshotsQuery } from "#/features/snapshot/snapshot.queries.ts";
 import { useSelectedWorkspace } from "#/features/workspace/workspace.queries.ts";
+import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -160,6 +161,7 @@ export function SnapshotsPage() {
           </TableRow>
         </TableHeader>
         <TableBody>
+          {snapshots.isPending ? <TableRowsSkeleton columns={4} actions twoLines /> : null}
           {shown?.map((snapshot) => (
             <SnapshotRow key={snapshot.id} snapshot={snapshot} />
           ))}

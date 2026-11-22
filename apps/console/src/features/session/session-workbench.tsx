@@ -22,7 +22,7 @@ import {
   SessionActionsSubmenu,
   useSessionActions,
 } from "#/features/session/session-actions-menu.tsx";
-import { useNewSession } from "#/features/session/new-sessions.ts";
+import { askAgain, useNewSession } from "#/features/session/new-sessions.ts";
 import { WorkbenchSkeleton } from "#/features/session/workbench-skeleton.tsx";
 import { useDocumentTitle } from "#/lib/document-title.ts";
 import { openedPicture } from "#/lib/view-transition.ts";
@@ -158,7 +158,14 @@ export function NewSessionWorkbench({ sessionKey }: { sessionKey: string }) {
   }
   if (asked.state === "failed") {
     return (
-      <State note="failed">
+      <State
+        note="failed"
+        action={
+          <Button data-console-create-again onClick={() => askAgain(sessionKey)}>
+            Try again
+          </Button>
+        }
+      >
         <span role="alert" className="aperture:text-destructive">
           The session was not created: {told(asked.error)}
         </span>

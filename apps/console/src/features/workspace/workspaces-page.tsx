@@ -16,6 +16,8 @@ import { NameDialog } from "#/components/name-dialog.tsx";
 import { type RowAction, RowActions, RowContextMenu } from "#/components/row-actions.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { TablePage } from "#/components/table-page.tsx";
+import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
+import { told } from "#/lib/api.ts";
 import { useAccess, useMay } from "#/features/auth/access.ts";
 import { WorkspaceMembersDialog } from "#/features/workspace/workspace-members-dialog.tsx";
 import {
@@ -128,7 +130,11 @@ export function WorkspacesPage() {
         onOpenChange={setCreating}
         onSubmit={(name) => create.mutateAsync(name)}
       />
-      {workspaces.data?.length === 0 ? (
+      {workspaces.isError ? (
+        <p role="alert" className="aperture:text-sm aperture:text-destructive">
+          {told(workspaces.error)}
+        </p>
+      ) : workspaces.data?.length === 0 ? (
         <p
           data-console-empty
           className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
@@ -146,6 +152,7 @@ export function WorkspacesPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
+            {workspaces.isPending ? <TableRowsSkeleton columns={4} actions /> : null}
             {workspaces.data?.map((workspace) => (
               <WorkspaceRow key={workspace.id} workspace={workspace} />
             ))}

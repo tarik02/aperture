@@ -29,6 +29,7 @@ import {
   serviceActions,
 } from "#/features/account/person-actions-menu.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
+import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
 import { useLast } from "#/lib/use-last.ts";
 
@@ -121,6 +122,7 @@ export function ServiceAccountsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
+            {accounts.isPending ? <TableRowsSkeleton columns={4} actions twoLines /> : null}
             {services?.map((account) => {
               const actions = serviceActions(account, own.data?.id === account.id);
               const onSelect = (doing: ServiceDoing) => select(account, doing);

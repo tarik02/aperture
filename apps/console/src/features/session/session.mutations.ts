@@ -23,13 +23,17 @@ export function useOpenNewSession() {
   const queries = useQueryClient();
   const navigate = useNavigate();
   return (options: NewSessionOptions = {}) => {
-    const making = call((api) => api.sessions.create({ payload: options }));
-    void making
-      .then((session) => queries.setQueryData(queryKeys.session(session.id), session))
-      // Told of in the workbench that waits for it.
-      .catch(() => undefined)
-      .finally(() => queries.invalidateQueries({ queryKey: queryKeys.sessions }));
-    return navigate({ to: "/-/sessions/$sessionId", params: { sessionId: noteAsked(making) } });
+    // What it fails with is told in the workbench that waits for it, which asks again.
+    const make = async () => {
+      try {
+        const session = await call((api) => api.sessions.create({ payload: options }));
+        queries.setQueryData(queryKeys.session(session.id), session);
+        return session;
+      } finally {
+        void queries.invalidateQueries({ queryKey: queryKeys.sessions });
+      }
+    };
+    return navigate({ to: "/-/sessions/$sessionId", params: { sessionId: noteAsked(make) } });
   };
 }
 
@@ -66,7 +70,7 @@ export function useBulkSessionActionMutation(action: "suspend" | "resume" | "del
       if (failed === 0) {
         toast.success(`${done} ${what}`);
       } else {
-        toast.error(`${done} ${what}, ${failed} failed`);
+        toast.error(`${done} ${what}, ${failed} failed.`);
       }
     },
     onSettled: () => queries.invalidateQueries({ queryKey: queryKeys.sessions }),

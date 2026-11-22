@@ -111,7 +111,7 @@ export function GuestPage({ shareId }: { shareId: string }) {
             {naming.error.message}
           </p>
         ) : null}
-        <Button type="submit" disabled={submitting}>
+        <Button type="submit" pending={submitting}>
           {link.data.role === "control" ? "Join" : "Watch"}
         </Button>
       </AuthCard>

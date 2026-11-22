@@ -11,6 +11,7 @@ import { Link } from "@tanstack/react-router";
 import { LongName } from "#/components/long-name.tsx";
 import { TablePage } from "#/components/table-page.tsx";
 import { useNodesQuery } from "#/features/node/node.queries.ts";
+import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -53,6 +54,7 @@ export function NodesPage() {
           </TableRow>
         </TableHeader>
         <TableBody>
+          {nodes.isPending ? <TableRowsSkeleton columns={5} /> : null}
           {nodes.data?.map((node) => (
             <TableRow key={node.id} data-console-node={node.name}>
               <TableCell className="aperture:font-medium">

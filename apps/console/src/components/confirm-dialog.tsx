@@ -7,7 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@aperture-browser/ui/components/dialog";
-import type { ComponentProps } from "react";
+import { type ComponentProps, useEffect, useRef } from "react";
 
 type ConfirmDialogProps = {
   open: boolean;
@@ -30,6 +30,15 @@ export function ConfirmDialog({
   onOpenChange,
   onConfirm,
 }: ConfirmDialogProps) {
+  // Once is enough: a second press comes before what the first did is known here, so
+  // nothing that is told later holds it back. It is taken again once that is done with.
+  const confirmed = useRef(false);
+  useEffect(() => {
+    if (!pending) {
+      confirmed.current = false;
+    }
+  }, [pending, open]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent showCloseButton={false}>
@@ -41,12 +50,19 @@ export function ConfirmDialog({
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          {/* Once is enough: not again while it is done, nor while the dialog closes. */}
+          {/* Not again while it is done, nor while the dialog closes. */}
           <Button
             type="button"
             variant={variant}
-            disabled={pending || !open}
-            onClick={() => (pending || !open ? undefined : onConfirm())}
+            pending={pending}
+            disabled={!open}
+            onClick={() => {
+              if (pending || !open || confirmed.current) {
+                return;
+              }
+              confirmed.current = true;
+              onConfirm();
+            }}
           >
             {confirmLabel}
           </Button>

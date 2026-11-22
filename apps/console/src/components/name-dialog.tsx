@@ -81,7 +81,7 @@ function NameForm({
         <Button type="button" variant="outline" onClick={onDone}>
           Cancel
         </Button>
-        <Button type="submit" disabled={submitting}>
+        <Button type="submit" pending={submitting}>
           {submitLabel}
         </Button>
       </DialogFooter>

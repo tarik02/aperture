@@ -15,6 +15,7 @@ import { type RowAction, RowActions, RowContextMenu } from "#/components/row-act
 import { TablePage } from "#/components/table-page.tsx";
 import { useRevokeGrantMutation } from "#/features/oauth/oauth.mutations.ts";
 import { type Grant, useGrantsQuery } from "#/features/oauth/oauth.queries.ts";
+import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
 import { useLast } from "#/lib/use-last.ts";
 
@@ -84,6 +85,7 @@ export function ConnectedAppsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
+            {grants.isPending ? <TableRowsSkeleton columns={5} actions /> : null}
             {(grants.data ?? []).map((grant) => {
               const actions: ReadonlyArray<RowAction> = [
                 {

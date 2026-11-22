@@ -225,7 +225,7 @@ function SaveForm({ session, replaceable, onDone }: SaveFormProps) {
         <Button type="button" variant="outline" onClick={onDone}>
           Cancel
         </Button>
-        <Button type="submit" disabled={submitting}>
+        <Button type="submit" pending={submitting}>
           {mode === "replace" ? "Replace snapshot" : "Save snapshot"}
         </Button>
       </DialogFooter>
