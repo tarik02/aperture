@@ -43,6 +43,7 @@ const Document = Schema.fromJsonString(
     authorization_endpoint: Schema.optional(Schema.String),
     token_endpoint: Schema.optional(Schema.String),
     jwks_uri: Schema.optional(Schema.String),
+    scopes_supported: Schema.optional(Schema.Array(Schema.String)),
   }),
 );
 
@@ -164,8 +165,14 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
 
   const check = Effect.fn("Providers.check")(function* (issuer: string) {
     return yield* discovered(issuer).pipe(
-      Effect.as({ ok: true, problems: Arr.empty<string>() }),
-      Effect.catchTag("DiscoveryFailed", ({ problems }) => Effect.succeed({ ok: false, problems })),
+      Effect.map((document) => ({
+        ok: true,
+        problems: Arr.empty<string>(),
+        scopes: Arr.dedupe(document.scopes_supported ?? []),
+      })),
+      Effect.catchTag("DiscoveryFailed", ({ problems }) =>
+        Effect.succeed({ ok: false, problems, scopes: Arr.empty<string>() }),
+      ),
     );
   });
 

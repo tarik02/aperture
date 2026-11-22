@@ -62,6 +62,8 @@ export interface Checked {
   readonly ok: boolean;
   /** What is wrong, each a sentence. */
   readonly problems: ReadonlyArray<string>;
+  /** The scopes it says it gives, where it is reached and says any. */
+  readonly scopes: ReadonlyArray<string>;
 }
 
 /**

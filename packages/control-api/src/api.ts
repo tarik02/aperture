@@ -312,6 +312,8 @@ export const ProviderChecked = Schema.Struct({
   ok: Schema.Boolean,
   /** What is wrong, each a sentence; nothing where it is reached as it should be. */
   problems: Schema.Array(Schema.String),
+  /** The scopes it says it gives, where it is reached and says any. */
+  scopes: Schema.Array(Schema.String),
 });
 
 export const Admission = Schema.Struct({

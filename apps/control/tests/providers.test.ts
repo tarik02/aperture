@@ -25,7 +25,11 @@ const Told = Schema.Struct({
 });
 const Listed = Schema.Struct({ callbackBase: Schema.String, providers: Schema.Array(Told) });
 const Refused = Schema.Struct({ _tag: Schema.String, problems: Schema.Array(Schema.String) });
-const Checked = Schema.Struct({ ok: Schema.Boolean, problems: Schema.Array(Schema.String) });
+const Checked = Schema.Struct({
+  ok: Schema.Boolean,
+  problems: Schema.Array(Schema.String),
+  scopes: Schema.Array(Schema.String),
+});
 
 const needs = (options: Control.ControlOptions) =>
   Dex.layer.pipe(Layer.provideMerge(Control.layer(options)), Layer.provideMerge(Dex.address));
@@ -210,12 +214,12 @@ for (const stores of Control.STORES) {
             asAdmin("POST", `${PROVIDERS}/check`, { issuer }).pipe(
               Effect.flatMap((answer) => Schema.decodeUnknownEffect(Checked)(answer.body)),
             );
-          expect(yield* check(at.issuer)).toEqual({ ok: true, problems: [] });
-          expect(yield* check(`${at.issuer}/.well-known/openid-configuration`)).toEqual({
-            ok: true,
-            problems: [],
-          });
-          expect((yield* check(`${control.url}/nowhere`)).ok).toBe(false);
+          // Reached, it is told with the scopes it says it gives.
+          const reached = yield* check(at.issuer);
+          expect(reached).toMatchObject({ ok: true, problems: [] });
+          expect(reached.scopes).toEqual(expect.arrayContaining(["openid", "email", "groups"]));
+          expect(yield* check(`${at.issuer}/.well-known/openid-configuration`)).toEqual(reached);
+          expect(yield* check(`${control.url}/nowhere`)).toMatchObject({ ok: false, scopes: [] });
           // A document of another issuer than was asked for is nobody's word.
           const elsewhere = yield* check(`http://localhost:${at.port}/dex`);
           expect(elsewhere.ok).toBe(false);
