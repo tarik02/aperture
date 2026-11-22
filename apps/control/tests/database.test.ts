@@ -31,6 +31,7 @@ suite(database)("the database", (it) => {
         "events",
         "registration_tokens_revoked",
         "providers",
+        "providers_oauth2",
       ]);
 
       const tables = yield* sql`

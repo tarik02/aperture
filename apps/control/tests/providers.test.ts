@@ -9,9 +9,14 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Control from "./src/control.ts";
 import * as Dex from "./src/dex.ts";
+import * as Hub from "./src/hub.ts";
 import { askedThrough, signInThrough } from "./src/sso.ts";
 
 const [ADDED, ANOTHER] = Dex.ADDED;
+/** What the provider that speaks OAuth 2.0 alone is known by, and one it is made of anew. */
+const HUB = "hub";
+const HUB_OPEN = "hub-open";
+const HUB_SCOPES = ["read:user", "user:email"];
 const PROVIDERS = "/api/control/sign-in-providers";
 const OFFERED = "/api/control/sign-in/providers";
 const WRONG_SECRET = "a-secret-the-provider-never-gave";
@@ -331,6 +336,190 @@ for (const stores of Control.STORES) {
               .status,
           ).toBe(403);
           expect((yield* control.request("", "GET", PROVIDERS)).status).toBe(401);
+        }),
+      );
+    },
+  );
+
+  suite(Hub.layer.pipe(Layer.provideMerge(needs({ stores, sso: { unnamed: true } }))))(
+    `a provider that speaks OAuth 2.0 alone, as GitHub does, kept in ${stores}`,
+    (it) => {
+      /** The hub as an admin says it, known by `id`. */
+      const hub = Effect.fn(function* (id: string, more: object = {}) {
+        const at = yield* Hub.Hub;
+        return {
+          id,
+          name: "Hub",
+          kind: "oauth2",
+          endpoints: at.endpoints,
+          clientId: at.clientId,
+          clientSecret: at.clientSecret,
+          scopes: HUB_SCOPES,
+          ...more,
+        };
+      });
+      const person = Effect.fn(function* (name: string, email: string) {
+        const control = yield* Control.Control;
+        const bootstrap = yield* control.as(control.bootstrapToken);
+        return yield* bootstrap.accounts.create({ payload: { name, email } });
+      });
+
+      it.effect("it signs in whom it says it verified the first address of, and nobody else", () =>
+        Effect.gen(function* () {
+          const control = yield* Control.Control;
+          const at = yield* Hub.Hub;
+          const made = yield* asAdmin("POST", PROVIDERS, yield* hub(HUB));
+          expect(made.status).toBe(201);
+          expect(made.body).toMatchObject({
+            id: HUB,
+            kind: "oauth2",
+            issuer: "",
+            endpoints: at.endpoints,
+            scopes: HUB_SCOPES,
+            secretSet: true,
+            enabled: true,
+            source: "stored",
+          });
+          expect(JSON.stringify(made.body)).not.toContain(at.clientSecret);
+          expect(yield* offered()).toEqual([{ id: HUB, name: "Hub" }]);
+
+          // Ada is a person here by the address the hub has first for her, and verified.
+          yield* person("Ada", "ada@example.test");
+          const landed = yield* Hub.signInThroughHub(control.url, HUB, "ada");
+          expect(landed.at).toBe("/-/sessions");
+          expect(yield* signedIn(landed.cookie)).toBe(true);
+          expect(yield* through("ada@example.test")).toEqual(["Hub"]);
+          // And again, as who the hub knows her by.
+          expect((yield* Hub.signInThroughHub(control.url, HUB, "ada")).at).toBe("/-/sessions");
+
+          // Eve's first address is not verified, and the one of hers that is, is Bob's
+          // here: she signs in as neither.
+          yield* person("Eve", "eve@example.test");
+          yield* person("Bob", "bob@example.test");
+          const eve = yield* Hub.signInThroughHub(control.url, HUB, "eve");
+          expect(eve.at).toMatch(/^\/sign-in-refused\?error=/u);
+          expect(yield* signedIn(eve.cookie)).toBe(false);
+          expect(yield* through("eve@example.test")).toEqual([]);
+          expect(yield* through("bob@example.test")).toEqual([]);
+          // Nor does someone the hub tells no address of at all.
+          const mallory = yield* Hub.signInThroughHub(control.url, HUB, "mallory");
+          expect(mallory.at).toMatch(/^\/sign-in-refused\?error=/u);
+          // Nobody an admin did not make a person is made one: it was not told to.
+          const grace = yield* Hub.signInThroughHub(control.url, HUB, "grace");
+          expect(grace.at).toMatch(/^\/sign-in-refused\?error=/u);
+          expect(yield* through("grace@example.test")).toBeUndefined();
+        }),
+      );
+
+      it.effect("told to, it makes people of those it verified, of its domains alone", () =>
+        Effect.gen(function* () {
+          const control = yield* Control.Control;
+          const made = yield* asAdmin(
+            "POST",
+            PROVIDERS,
+            yield* hub(HUB_OPEN, { name: "Open hub", provision: true, domains: ["example.test"] }),
+          );
+          expect(made.status).toBe(201);
+          const grace = yield* Hub.signInThroughHub(control.url, HUB_OPEN, "grace");
+          expect(grace.at).toBe("/-/sessions");
+          expect(yield* signedIn(grace.cookie)).toBe(true);
+          expect(yield* through("grace@example.test")).toEqual(["Open hub"]);
+          const heidi = yield* Hub.signInThroughHub(control.url, HUB_OPEN, "heidi");
+          expect(heidi.at).toMatch(/^\/sign-in-refused\?error=email_domain_refused/u);
+          // An address nobody verified makes nobody a person, whatever its domain.
+          const ivan = yield* Hub.signInThroughHub(control.url, HUB_OPEN, "ivan");
+          expect(ivan.at).toMatch(/^\/sign-in-refused\?error=/u);
+          expect(yield* through("ivan@example.test")).toBeUndefined();
+        }),
+      );
+
+      it.effect(
+        "each place it is asked at is asked as nobody, and has to answer as that place",
+        () =>
+          Effect.gen(function* () {
+            const at = yield* Hub.Hub;
+            const check = (endpoints: object) =>
+              asAdmin("POST", `${PROVIDERS}/check`, {
+                endpoints: { ...at.endpoints, ...endpoints },
+              }).pipe(Effect.flatMap((answer) => Schema.decodeUnknownEffect(Checked)(answer.body)));
+            expect(yield* check({})).toEqual({ ok: true, problems: [], scopes: [] });
+            // Without where its addresses are listed, it is asked at three places.
+            expect(yield* check({ emails: null })).toMatchObject({ ok: true });
+
+            const nowhere = yield* check({ userInfo: `${at.url}/nowhere` });
+            expect(nowhere.ok).toBe(false);
+            expect(nowhere.problems).toHaveLength(1);
+            expect(nowhere.problems[0]).toContain(`${at.url}/nowhere answered 404`);
+            expect((yield* check({ authorization: `${at.url}/nowhere` })).problems[0]).toContain(
+              "answered 404",
+            );
+            // A place that tells anyone anything is none that tells who a token is someone's.
+            const open = yield* check({ emails: at.endpoints.authorization });
+            expect(open.problems).toHaveLength(1);
+            expect(open.problems[0]).toContain("has to ask who asks");
+            // Each of what is wrong is said, and none is asked without TLS but on this machine.
+            const several = yield* check({
+              token: "http://provider.example/token",
+              userInfo: "not an address",
+            });
+            expect(several.ok).toBe(false);
+            expect(several.problems).toHaveLength(2);
+            expect(several.problems.join(" ")).toContain("https://");
+
+            // One that is to sign people in at once is held to it; kept disabled, it is not.
+            const wrong = yield* hub(ANOTHER, {
+              endpoints: { ...at.endpoints, userInfo: `${at.url}/nowhere` },
+            });
+            const refused = yield* asAdmin("POST", PROVIDERS, wrong);
+            expect(refused.status).toBe(400);
+            const why = yield* Schema.decodeUnknownEffect(Refused)(refused.body);
+            expect(why._tag).toBe("ProviderInvalid");
+            expect(why.problems[0]).toContain("/nowhere");
+            const kept = yield* asAdmin("POST", PROVIDERS, { ...wrong, enabled: false });
+            expect(kept).toMatchObject({ status: 201, body: { enabled: false, kind: "oauth2" } });
+            expect(
+              yield* asAdmin("PATCH", `${PROVIDERS}/${ANOTHER}`, { enabled: true }),
+            ).toMatchObject({ status: 400, body: { _tag: "ProviderInvalid" } });
+            yield* asAdmin("DELETE", `${PROVIDERS}/${ANOTHER}`);
+
+            // Neither is one without what it speaks takes: places to ask at, or an issuer.
+            const { endpoints: _, ...placeless } = yield* hub(ANOTHER);
+            expect(yield* asAdmin("POST", PROVIDERS, placeless)).toMatchObject({
+              status: 400,
+              body: { _tag: "ProviderInvalid" },
+            });
+            expect(yield* asAdmin("POST", PROVIDERS, { ...placeless, kind: "oidc" })).toMatchObject(
+              { status: 400, body: { _tag: "ProviderInvalid" } },
+            );
+          }),
+      );
+
+      it.effect("where it is asked is changed, and what it speaks stays", () =>
+        Effect.gen(function* () {
+          const control = yield* Control.Control;
+          const at = yield* Hub.Hub;
+          // Without the list of her addresses, nothing tells Ada's: the hub keeps it to itself.
+          const changed = yield* asAdmin("PATCH", `${PROVIDERS}/${HUB}`, {
+            endpoints: { ...at.endpoints, emails: "" },
+          });
+          expect(changed).toMatchObject({
+            status: 200,
+            body: { kind: "oauth2", endpoints: { ...at.endpoints, emails: null } },
+          });
+          const refused = yield* Hub.signInThroughHub(control.url, HUB, "ada");
+          expect(refused.at).toMatch(/^\/sign-in-refused\?error=/u);
+          yield* asAdmin("PATCH", `${PROVIDERS}/${HUB}`, { endpoints: at.endpoints });
+          expect((yield* Hub.signInThroughHub(control.url, HUB, "ada")).at).toBe("/-/sessions");
+
+          const events = yield* asAdmin(
+            "GET",
+            "/api/control/events?resourceKind=provider&limit=100",
+          );
+          expect(JSON.stringify(events.body)).toContain('"changed":["endpoints"]');
+          const listed = yield* Schema.decodeUnknownEffect(Listed)(
+            (yield* asAdmin("GET", PROVIDERS)).body,
+          );
+          expect(listed.providers.map((one) => one.id)).toEqual([HUB, HUB_OPEN]);
         }),
       );
     },

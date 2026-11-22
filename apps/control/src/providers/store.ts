@@ -1,12 +1,14 @@
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
-import type { StoredProvider } from "./schemas.ts";
+import type { Endpoints, Kind, StoredProvider } from "./schemas.ts";
 
 export interface NewProvider {
   readonly id: string;
   readonly name: string;
+  readonly kind: Kind;
   readonly issuer: string;
+  readonly endpoints: Endpoints | null;
   readonly clientId: string;
   readonly clientSecretSealed: string;
   readonly scopes: ReadonlyArray<string>;
@@ -16,8 +18,11 @@ export interface NewProvider {
   readonly createdAt: Date;
 }
 
-/** A provider as it is from now on: all of it but what it is known by and when it was added. */
-export interface ChangedProvider extends Omit<NewProvider, "id" | "createdAt"> {
+/**
+ * A provider as it is from now on: all of it but what it is known by, what it speaks and
+ * when it was added.
+ */
+export interface ChangedProvider extends Omit<NewProvider, "id" | "kind" | "createdAt"> {
   readonly updatedAt: Date;
 }
 

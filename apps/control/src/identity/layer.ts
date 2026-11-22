@@ -140,16 +140,36 @@ const make = Effect.fn("Identity.make")(function* (
           config: through.map((provider) => ({
             providerId: provider.id,
             name: provider.name,
-            discoveryUrl: provider.discoveryUrl,
             clientId: provider.clientId,
             clientSecret: Redacted.value(provider.clientSecret),
             scopes: [...provider.scopes],
-            // Who someone is, is read from a token: one that is not checked says nothing.
-            requireIdTokenVerification: true,
             disableSignUp: !provider.provision,
-            // With headers of its own, the document is taken from where it was said to be
-            // and from nowhere another origin sends on to.
-            ...(provider.stored ? { discoveryHeaders: DISCOVERY_HEADERS } : {}),
+            ...(provider.kind === "oidc"
+              ? {
+                  discoveryUrl: provider.discoveryUrl,
+                  // Who someone is, is read from a token: one that is not checked says nothing.
+                  requireIdTokenVerification: true,
+                  // With headers of its own, the document is taken from where it was said to
+                  // be and from nowhere another origin sends on to.
+                  ...(provider.stored ? { discoveryHeaders: DISCOVERY_HEADERS } : {}),
+                }
+              : {
+                  authorizationUrl: provider.endpoints.authorization,
+                  tokenUrl: provider.endpoints.token,
+                  // No token of such a provider says who someone is: it is asked with the
+                  // token it gave, and an address is someone's only as it says it verified it.
+                  getUserInfo: async (tokens: { readonly accessToken?: string | undefined }) => {
+                    if (tokens.accessToken === undefined) {
+                      return null;
+                    }
+                    return Option.match(
+                      await Effect.runPromise(
+                        providers.vouched(provider.endpoints, tokens.accessToken),
+                      ),
+                      { onNone: () => null, onSome: (vouched) => ({ ...vouched }) },
+                    );
+                  },
+                }),
           })),
         }),
       ],

@@ -2,6 +2,7 @@ import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import type * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
@@ -18,13 +19,23 @@ import { Events } from "../events/service.ts";
 import { type Provider, Settings } from "../settings/service.ts";
 import { now } from "../time.ts";
 import { Vault } from "../vault/service.ts";
-import { discoveryOf, SCOPES, type StoredProvider, WELL_KNOWN } from "./schemas.ts";
+import {
+  discoveryOf,
+  type Endpoints,
+  type Kind,
+  SCOPES,
+  type StoredProvider,
+  WELL_KNOWN,
+} from "./schemas.ts";
 import {
   type ActiveProvider,
+  type Asked,
   type ChangedProvider,
+  type GivenEndpoints,
   type GivenProvider,
   Providers,
   type ToldProvider,
+  type Vouched,
 } from "./service.ts";
 import { ProvidersStore } from "./store.ts";
 
@@ -33,7 +44,13 @@ const ANSWERS_WITHIN = "5 seconds";
 /** Many times what any provider says of itself, and little to hold in memory. */
 const DOCUMENT_BYTES = 256 * 1024;
 const OK = 200;
+const NOT_FOUND = 404;
+const FAILED_FROM = 500;
 const REDIRECTS = [301, 302, 303, 307, 308];
+/** What a place that tells who someone is answers whoever brings no token. */
+const ASKS_WHO = [401, 403];
+/** What this program says it is, where it asks: GitHub answers nobody who does not say. */
+const AGENT = "aperture-control";
 const LOOPBACK = /^(localhost|127(\.\d{1,3}){3}|\[::1\])$/u;
 
 /** What a discovery document says, as far as signing people in takes it. */
@@ -53,7 +70,48 @@ const ENDPOINTS = [
   ["jwks_uri", "the keys its tokens are checked against"],
 ] as const;
 
+/** Where a provider that speaks OAuth 2.0 alone is asked, each with what it is for. */
+const PLACES = [
+  ["authorization", "Where people are sent to sign in"],
+  ["token", "Where their sign-in is exchanged for a token"],
+  ["userInfo", "Where a token tells who someone is"],
+  ["emails", "Where a token tells someone's addresses"],
+] as const;
+
+const Id = Schema.Union([Schema.String, Schema.Number]);
+
+/** Who a token is someone's, as a provider that speaks OAuth 2.0 alone tells it. */
+const UserInfo = Schema.fromJsonString(
+  Schema.Struct({
+    id: Schema.optional(Schema.NullOr(Id)),
+    sub: Schema.optional(Schema.NullOr(Id)),
+    login: Schema.optional(Schema.NullOr(Schema.String)),
+    name: Schema.optional(Schema.NullOr(Schema.String)),
+    email: Schema.optional(Schema.NullOr(Schema.String)),
+    email_verified: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  }),
+);
+
+/** Someone's addresses as GitHub lists them: one is theirs first, and each is verified or not. */
+const Emails = Schema.fromJsonString(
+  Schema.Array(
+    Schema.Struct({
+      email: Schema.String,
+      primary: Schema.optional(Schema.NullOr(Schema.Boolean)),
+      verified: Schema.optional(Schema.NullOr(Schema.Boolean)),
+    }),
+  ),
+);
+
 const slashless = (address: string) => address.replace(/\/+$/u, "");
+
+/** Where a provider is asked as it is kept: without what was typed around each address. */
+const endpointsOf = (given: GivenEndpoints): Endpoints => ({
+  authorization: given.authorization.trim(),
+  token: given.token.trim(),
+  userInfo: given.userInfo.trim(),
+  emails: (given.emails ?? "").trim() === "" ? null : (given.emails ?? "").trim(),
+});
 
 /** What a secret is sealed as: it opens as that provider's and no other's. */
 const sealedAs = (id: string) => `provider:${id}`;
@@ -86,6 +144,31 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
     return Option.some(`${what} has to be an https:// address: ${given}`);
   };
 
+  /** What was answered, where it is no more than any document here is; or why it is not read. */
+  const whole = Effect.fn("Providers.whole")(function* (
+    answer: HttpClientResponse.HttpClientResponse,
+  ) {
+    const read = yield* answer.stream.pipe(
+      Stream.mapError(() => "halted" as const),
+      Stream.runFoldEffect(
+        () => ({ size: 0, parts: Arr.empty<Uint8Array>() }),
+        (so, part) =>
+          so.size + part.byteLength > DOCUMENT_BYTES
+            ? Effect.fail("large" as const)
+            : Effect.succeed({ size: so.size + part.byteLength, parts: [...so.parts, part] }),
+      ),
+    );
+    return new TextDecoder().decode(
+      read.parts.reduce((all, part, index) => {
+        all.set(
+          part,
+          read.parts.slice(0, index).reduce((at, one) => at + one.byteLength, 0),
+        );
+        return all;
+      }, new Uint8Array(read.size)),
+    );
+  });
+
   /** What a provider says of how it is reached, where it says what signing in takes. */
   const discovered = Effect.fn("Providers.discovered")(
     function* (issuer: string) {
@@ -106,24 +189,14 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
       if (answer.status !== OK) {
         return yield* failed(`${url} answered ${answer.status}.`);
       }
-      const read = yield* answer.stream.pipe(
-        Stream.mapError(() => failed(`${url} stopped answering midway.`)),
-        Stream.runFoldEffect(
-          () => ({ size: 0, parts: Arr.empty<Uint8Array>() }),
-          (so, part) =>
-            so.size + part.byteLength > DOCUMENT_BYTES
-              ? Effect.fail(failed(`What ${url} answers is too large to be a discovery document.`))
-              : Effect.succeed({ size: so.size + part.byteLength, parts: [...so.parts, part] }),
+      const text = yield* whole(answer).pipe(
+        Effect.mapError((why) =>
+          failed(
+            why === "large"
+              ? `What ${url} answers is too large to be a discovery document.`
+              : `${url} stopped answering midway.`,
+          ),
         ),
-      );
-      const text = new TextDecoder().decode(
-        read.parts.reduce((whole, part, index) => {
-          whole.set(
-            part,
-            read.parts.slice(0, index).reduce((at, one) => at + one.byteLength, 0),
-          );
-          return whole;
-        }, new Uint8Array(read.size)),
       );
       const document = yield* Schema.decodeUnknownEffect(Document)(text).pipe(
         Effect.mapError(() => failed(`What ${url} answers is not a discovery document.`)),
@@ -163,8 +236,73 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
     }),
   );
 
-  const check = Effect.fn("Providers.check")(function* (issuer: string) {
-    return yield* discovered(issuer).pipe(
+  /** Why any of the places a provider is asked at is none this program asks. */
+  const misplaced = (endpoints: Endpoints) =>
+    PLACES.flatMap(([place, what]) => {
+      const url = endpoints[place];
+      return url === null ? [] : Option.toArray(refused(what, url));
+    });
+
+  /**
+   * What is wrong with where a provider that speaks OAuth 2.0 alone is asked. It says
+   * nowhere how it is reached, so each place is asked as nobody: where people are sent is
+   * there, where a token is given answers at all, which GitHub's does a client it does not
+   * know with 404, and where a token tells of someone asks who asks.
+   */
+  const answering = Effect.fn("Providers.answering")(function* (endpoints: Endpoints) {
+    const unusable = misplaced(endpoints);
+    if (unusable.length > 0) {
+      return unusable;
+    }
+    const problems = yield* Effect.forEach(
+      PLACES,
+      Effect.fn(function* ([place]) {
+        const url = endpoints[place];
+        if (url === null) {
+          return Arr.empty<string>();
+        }
+        const request =
+          place === "token"
+            ? HttpClientRequest.post(url).pipe(
+                HttpClientRequest.bodyUrlParams({ grant_type: "authorization_code" }),
+              )
+            : HttpClientRequest.get(url);
+        const answer = yield* client
+          .execute(
+            request.pipe(
+              HttpClientRequest.acceptJson,
+              HttpClientRequest.setHeader("user-agent", AGENT),
+            ),
+          )
+          .pipe(Effect.option, Effect.timeoutOption(ANSWERS_WITHIN));
+        if (Option.isNone(answer)) {
+          return [`${url} did not answer within ${ANSWERS_WITHIN}.`];
+        }
+        if (Option.isNone(answer.value)) {
+          return [`Nothing answers at ${url}.`];
+        }
+        const { status } = answer.value.value;
+        // What it answers with is not read, and not left unread either.
+        yield* Effect.ignore(whole(answer.value.value));
+        if (status >= FAILED_FROM || (place === "authorization" && status === NOT_FOUND)) {
+          return [`${url} answered ${status}.`];
+        }
+        if ((place === "userInfo" || place === "emails") && !ASKS_WHO.includes(status)) {
+          return [`${url} answered ${status} to nobody, where it has to ask who asks.`];
+        }
+        return Arr.empty<string>();
+      }),
+      { concurrency: "unbounded" },
+    );
+    return problems.flat();
+  });
+
+  const check = Effect.fn("Providers.check")(function* (asked: Asked) {
+    if ("endpoints" in asked) {
+      const problems = yield* answering(endpointsOf(asked.endpoints));
+      return { ok: problems.length === 0, problems, scopes: Arr.empty<string>() };
+    }
+    return yield* discovered(asked.issuer).pipe(
       Effect.map((document) => ({
         ok: true,
         problems: Arr.empty<string>(),
@@ -179,7 +317,9 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
   const toldStored = (provider: StoredProvider): ToldProvider => ({
     id: provider.id,
     name: provider.name,
+    kind: provider.kind,
     issuer: provider.issuer,
+    endpoints: provider.endpoints,
     clientId: provider.clientId,
     secretSet: provider.clientSecretSealed !== "",
     scopes: provider.scopes,
@@ -196,9 +336,11 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
   const toldConfigured = (provider: Provider): ToldProvider => ({
     id: provider.id,
     name: provider.name,
+    kind: "oidc",
     issuer: provider.discoveryUrl.endsWith(WELL_KNOWN)
       ? provider.discoveryUrl.slice(0, -WELL_KNOWN.length)
       : provider.discoveryUrl,
+    endpoints: null,
     clientId: provider.clientId,
     secretSet: true,
     scopes: SCOPES,
@@ -220,7 +362,9 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
   /** What is said of a provider as it is kept, or why it is not kept as that. */
   const said = Effect.fn("Providers.said")(function* (given: {
     readonly name: string;
+    readonly kind: Kind;
     readonly issuer: string;
+    readonly endpoints: Endpoints | null;
     readonly clientId: string;
     readonly scopes: ReadonlyArray<string>;
     readonly domains: ReadonlyArray<string>;
@@ -234,26 +378,47 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
     if (name === "" || clientId === "") {
       return yield* invalid("A provider has a name and a client id.");
     }
+    const unreached = (problems: ReadonlyArray<string>) =>
+      invalid(
+        "The provider is not reached as one has to be. Save it disabled to keep it anyway.",
+        problems,
+      );
+    const domains = Arr.dedupe(given.domains.map((domain) => domain.toLowerCase()));
+    if (given.kind === "oauth2") {
+      const { endpoints } = given;
+      if (endpoints === null) {
+        return yield* invalid("A provider that speaks OAuth 2.0 alone is told where it is asked.");
+      }
+      const [first, ...others] = misplaced(endpoints);
+      if (first !== undefined) {
+        return yield* invalid(first, [first, ...others]);
+      }
+      if (given.enabled) {
+        const problems = yield* answering(endpoints);
+        if (problems.length > 0) {
+          return yield* unreached(problems);
+        }
+      }
+      // Nothing is asked of it that was not said: there is no scope all of them know.
+      return { name, issuer: "", endpoints, clientId, scopes: Arr.dedupe(given.scopes), domains };
+    }
+    if (issuer === "") {
+      return yield* invalid("A provider that speaks OpenID Connect has an issuer.");
+    }
     const unusable = refused("The issuer", issuer);
     if (Option.isSome(unusable)) {
       return yield* invalid(unusable.value);
     }
     if (given.enabled) {
-      yield* discovered(issuer).pipe(
-        Effect.mapError(({ problems }) =>
-          invalid(
-            "The provider is not reached as one has to be. Save it disabled to keep it anyway.",
-            problems,
-          ),
-        ),
-      );
+      yield* discovered(issuer).pipe(Effect.mapError(({ problems }) => unreached(problems)));
     }
     return {
       name,
       issuer,
+      endpoints: null,
       clientId,
       scopes: given.scopes.length === 0 ? SCOPES : Arr.dedupe(given.scopes),
-      domains: Arr.dedupe(given.domains.map((domain) => domain.toLowerCase())),
+      domains,
     };
   });
 
@@ -271,17 +436,21 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
       });
     }
     const enabled = given.enabled ?? true;
+    const kind = given.kind ?? "oidc";
     const kept = yield* said({
       name: given.name,
-      issuer: given.issuer,
+      kind,
+      issuer: given.issuer ?? "",
+      endpoints: given.endpoints === undefined ? null : endpointsOf(given.endpoints),
       clientId: given.clientId,
-      scopes: given.scopes ?? SCOPES,
+      scopes: given.scopes ?? [],
       domains: given.domains ?? [],
       enabled,
     });
     const made = yield* store.insert({
       ...kept,
       id: given.id,
+      kind,
       clientSecretSealed: yield* vault.seal(given.clientSecret, sealedAs(given.id)),
       provision: given.provision ?? false,
       enabled,
@@ -297,6 +466,7 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
       kind: "provider.added",
       resource: resource(made.value),
       detail: {
+        kind: made.value.kind,
         issuer: made.value.issuer,
         enabled: made.value.enabled,
         provision: made.value.provision,
@@ -326,7 +496,9 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
     const provision = changed.provision ?? was.provision;
     const kept = yield* said({
       name: changed.name ?? was.name,
+      kind: was.kind,
       issuer: changed.issuer ?? was.issuer,
+      endpoints: changed.endpoints === undefined ? was.endpoints : endpointsOf(changed.endpoints),
       clientId: changed.clientId ?? was.clientId,
       scopes: changed.scopes ?? was.scopes,
       domains: changed.domains ?? was.domains,
@@ -353,6 +525,7 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
     const fields = [
       ...(is.name === was.name ? [] : ["name"]),
       ...(is.issuer === was.issuer ? [] : ["issuer"]),
+      ...(JSON.stringify(is.endpoints) === JSON.stringify(was.endpoints) ? [] : ["endpoints"]),
       ...(is.clientId === was.clientId ? [] : ["clientId"]),
       ...(Option.isNone(secret) ? [] : ["clientSecret"]),
       ...(Arr.join(is.scopes, " ") === Arr.join(was.scopes, " ") ? [] : ["scopes"]),
@@ -401,12 +574,20 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
             ),
           ),
         );
+        if (provider.kind === "oauth2" && provider.endpoints === null) {
+          yield* Effect.logWarning(
+            `the provider ${provider.id} is not used: it is kept without where it is asked`,
+          );
+          return Option.none<ActiveProvider>();
+        }
         return Option.map(
           secret,
           (opened): ActiveProvider => ({
             id: provider.id,
             name: provider.name,
-            discoveryUrl: discoveryOf(provider.issuer),
+            ...(provider.kind === "oauth2" && provider.endpoints !== null
+              ? { kind: "oauth2", endpoints: provider.endpoints }
+              : { kind: "oidc", discoveryUrl: discoveryOf(provider.issuer) }),
             clientId: provider.clientId,
             clientSecret: Redacted.make(opened),
             scopes: provider.scopes,
@@ -421,6 +602,7 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
       ...settings.providers.map(
         (provider): ActiveProvider => ({
           ...provider,
+          kind: "oidc",
           scopes: SCOPES,
           provision: settings.provisionPeople,
           domains: settings.provisionDomains,
@@ -435,7 +617,68 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
     return yield* store.revision();
   });
 
-  return Providers.of({ list, create, change, remove, check, active, revision });
+  /** What a place that tells of a token's holder answers with it, where it answers. */
+  const toldWith = Effect.fn("Providers.toldWith")(function* (url: string, accessToken: string) {
+    const answer = yield* client.execute(
+      HttpClientRequest.get(url).pipe(
+        HttpClientRequest.acceptJson,
+        HttpClientRequest.bearerToken(accessToken),
+        HttpClientRequest.setHeader("user-agent", AGENT),
+      ),
+    );
+    if (answer.status !== OK) {
+      // What it answers with is not read, and not left unread either.
+      yield* Effect.ignore(whole(answer));
+      return yield* Effect.fail(`${url} answered ${answer.status}` as const);
+    }
+    return yield* whole(answer);
+  });
+
+  const vouched = Effect.fn("Providers.vouched")(
+    function* (endpoints: Endpoints, accessToken: string) {
+      const info = yield* toldWith(endpoints.userInfo, accessToken).pipe(
+        Effect.flatMap(Schema.decodeUnknownEffect(UserInfo)),
+      );
+      const id = info.id ?? info.sub;
+      if (id === undefined || id === null || String(id) === "") {
+        return Option.none<Vouched>();
+      }
+      // The address that is theirs first, where the provider lists them apart: another of
+      // theirs is none they are known by here, verified or not.
+      const address =
+        endpoints.emails === null
+          ? { email: info.email ?? "", verified: info.email_verified === true }
+          : yield* toldWith(endpoints.emails, accessToken).pipe(
+              Effect.flatMap(Schema.decodeUnknownEffect(Emails)),
+              Effect.map((all) => {
+                const first = all.find((one) => one.primary === true);
+                return { email: first?.email ?? "", verified: first?.verified === true };
+              }),
+            );
+      if (address.email === "") {
+        return Option.none<Vouched>();
+      }
+      return Option.some<Vouched>({
+        id: String(id),
+        email: address.email,
+        emailVerified: address.verified,
+        name: info.name ?? info.login ?? address.email,
+      });
+    },
+    Effect.timeoutOption(ANSWERS_WITHIN),
+    Effect.map(Option.flatten),
+    // Why not is no secret, and the token that was asked with is not in it.
+    Effect.catch((error) =>
+      Effect.as(
+        Effect.logWarning(
+          `a provider did not tell who signs in: ${typeof error === "string" ? error : "what it answered is not read"}`,
+        ),
+        Option.none<Vouched>(),
+      ),
+    ),
+  );
+
+  return Providers.of({ list, create, change, remove, check, vouched, active, revision });
 });
 
 export const layer = Layer.effect(Providers, makeProviders());

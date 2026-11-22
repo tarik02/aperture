@@ -249,14 +249,47 @@ const ProviderDomains = Schema.Array(
 );
 
 /**
+ * What a provider speaks: OpenID Connect, whose signed token says who someone is, or OAuth
+ * 2.0 alone, where that is asked of the provider with the token it gave.
+ */
+export const ProviderKind = Schema.Literals(["oidc", "oauth2"]);
+
+/**
+ * Where a provider that speaks OAuth 2.0 alone is asked: where people are sent, where what
+ * they come back with is exchanged for a token, and where the token tells who they are,
+ * which is a document with their `id` or `sub`, and their `email` with `email_verified`.
+ * Where it lists their addresses apart as GitHub does, each with `primary` and `verified`,
+ * the one that is theirs first is taken from there. Nobody signs in on an address the
+ * provider does not say it verified.
+ */
+const ProviderEndpoints = Schema.Struct({
+  authorization: Schema.String,
+  token: Schema.String,
+  userInfo: Schema.String,
+  emails: Schema.NullOr(Schema.String),
+});
+const GivenProviderEndpoints = Schema.Struct({
+  authorization: Schema.NonEmptyString,
+  token: Schema.NonEmptyString,
+  userInfo: Schema.NonEmptyString,
+  /** None, where it is left out or empty. */
+  emails: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
+/**
  * A provider as an admin is told of it: all that was said of it but its client secret,
  * of which only whether there is one is told.
  */
 export const SignInProvider = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
-  /** Its issuer, or its discovery document where that was given in place of it. */
+  kind: ProviderKind,
+  /**
+   * Its issuer, or its discovery document where that was given in place of it; nothing
+   * for one that speaks OAuth 2.0 alone, which has `endpoints` in its place.
+   */
   issuer: Schema.String,
+  endpoints: Schema.NullOr(ProviderEndpoints),
   clientId: Schema.String,
   secretSet: Schema.Boolean,
   scopes: Schema.Array(Schema.String),
@@ -282,11 +315,16 @@ export const SignInProviders = Schema.Struct({
 const NewSignInProvider = Schema.Struct({
   id: ProviderId,
   name: Schema.NonEmptyString,
-  issuer: Schema.NonEmptyString,
+  /** OpenID Connect, without. It stays what it is said to be here. */
+  kind: Schema.optional(ProviderKind),
+  /** Of one that speaks OpenID Connect, which has to have one. */
+  issuer: Schema.optional(Schema.NonEmptyString),
+  /** Of one that speaks OAuth 2.0 alone, which has to have them. */
+  endpoints: Schema.optional(GivenProviderEndpoints),
   clientId: Schema.NonEmptyString,
   /** Told here and never again. */
   clientSecret: Schema.NonEmptyString,
-  /** `openid email profile`, without. */
+  /** `openid email profile` without, and none for one that speaks OAuth 2.0 alone. */
   scopes: Schema.optional(ProviderScopes),
   provision: Schema.optional(Schema.Boolean),
   domains: Schema.optional(ProviderDomains),
@@ -298,6 +336,7 @@ const NewSignInProvider = Schema.Struct({
 const ChangedSignInProvider = Schema.Struct({
   name: Schema.optional(Schema.NonEmptyString),
   issuer: Schema.optional(Schema.NonEmptyString),
+  endpoints: Schema.optional(GivenProviderEndpoints),
   clientId: Schema.optional(Schema.NonEmptyString),
   /** The secret it has stays where none is given, or an empty one. */
   clientSecret: Schema.optional(Schema.String),
@@ -793,7 +832,11 @@ export class ProvidersGroup extends HttpApiGroup.make("providers")
       error: [Forbidden, ProviderTaken, ProviderInvalid],
     }),
     HttpApiEndpoint.post("check", "/sign-in-providers/check", {
-      payload: Schema.Struct({ issuer: Schema.String }),
+      // An issuer, or where a provider without one is asked.
+      payload: Schema.Struct({
+        issuer: Schema.optional(Schema.String),
+        endpoints: Schema.optional(GivenProviderEndpoints),
+      }),
       success: ProviderChecked,
       error: Forbidden,
     }),
@@ -812,7 +855,7 @@ export class ProvidersGroup extends HttpApiGroup.make("providers")
     OpenApi.annotations({
       title: "Sign-in providers",
       description:
-        "The OpenID Connect providers people sign in through, which an admin adds, changes, disables and removes while the control plane runs. Those the settings name are told beside them and changed there alone. A client secret is given and never told. Removing or disabling a provider removes nobody: whoever came through it alone does not sign in until it is back.",
+        "The providers people sign in through, which an admin adds, changes, disables and removes while the control plane runs. One speaks OpenID Connect and says at its issuer how it is reached, or OAuth 2.0 alone, as GitHub does, and is asked where it is said to be. Those the settings name are told beside them and changed there alone. A client secret is given and never told. Removing or disabling a provider removes nobody: whoever came through it alone does not sign in until it is back.",
     }),
   ) {}
 

@@ -241,7 +241,16 @@ const providers = HttpApiBuilder.group(
         }),
       )
       .handle("create", ({ payload }) => Effect.andThen(admin, providers.create(payload)))
-      .handle("check", ({ payload }) => Effect.andThen(admin, providers.check(payload.issuer)))
+      .handle("check", ({ payload }) =>
+        Effect.andThen(
+          admin,
+          providers.check(
+            payload.endpoints === undefined
+              ? { issuer: payload.issuer ?? "" }
+              : { endpoints: payload.endpoints },
+          ),
+        ),
+      )
       .handle("change", ({ params, payload }) =>
         Effect.andThen(admin, providers.change(params.id, payload)),
       )

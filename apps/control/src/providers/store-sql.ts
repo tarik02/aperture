@@ -21,11 +21,12 @@ export const makeProvidersStore = Effect.fn("ProvidersStore.make")(function* () 
     return yield* sql`
       WITH ${counted}
       INSERT INTO providers (
-        id, name, issuer, client_id, client_secret_sealed, scopes, provision, domains, enabled,
-        created_at, updated_at
+        id, name, kind, issuer, endpoints, client_id, client_secret_sealed, scopes, provision,
+        domains, enabled, created_at, updated_at
       )
       VALUES (
-        ${given.id}, ${given.name}, ${given.issuer}, ${given.clientId},
+        ${given.id}, ${given.name}, ${given.kind}, ${given.issuer},
+        ${JSON.stringify(given.endpoints)}::jsonb, ${given.clientId},
         ${given.clientSecretSealed}, ${JSON.stringify(given.scopes)}::jsonb, ${given.provision},
         ${JSON.stringify(given.domains)}::jsonb, ${given.enabled}, ${given.createdAt},
         ${given.createdAt}
@@ -47,7 +48,8 @@ export const makeProvidersStore = Effect.fn("ProvidersStore.make")(function* () 
     return yield* sql`
       WITH ${counted}
       UPDATE providers SET
-        name = ${to.name}, issuer = ${to.issuer}, client_id = ${to.clientId},
+        name = ${to.name}, issuer = ${to.issuer},
+        endpoints = ${JSON.stringify(to.endpoints)}::jsonb, client_id = ${to.clientId},
         client_secret_sealed = ${to.clientSecretSealed},
         scopes = ${JSON.stringify(to.scopes)}::jsonb, provision = ${to.provision},
         domains = ${JSON.stringify(to.domains)}::jsonb, enabled = ${to.enabled},

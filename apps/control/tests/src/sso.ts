@@ -34,16 +34,17 @@ export const askedThrough = Effect.fn("Control.askedThrough")(function* (
 });
 
 /**
- * Signs in through the provider as a browser does, without one: asks the control plane
- * where to go, gives the provider the email and the password at its form, and follows it
- * back until the control plane sends the browser to a page of the console.
+ * Signs in through a provider as a browser does, without one: asks the control plane
+ * where to go, goes where `first` makes of that, sends `form` to whatever the provider
+ * shows in place of sending the browser on, and follows it back until the control plane
+ * sends the browser to a page of the console.
  */
-export const signInThrough = Effect.fn("Control.signInThrough")(function* (
+export const signInBy = Effect.fn("Control.signInBy")(function* (
   base: string,
-  connector: Dex.Connector,
-  email: string,
-  to = "/-/sessions",
-  provider: string = Dex.PROVIDER,
+  provider: string,
+  to: string,
+  first: (sent: string) => URL,
+  form: Readonly<Record<string, string>>,
 ) {
   const http = yield* HttpClient.HttpClient;
   /** What each origin had the browser keep. */
@@ -84,8 +85,7 @@ export const signInThrough = Effect.fn("Control.signInThrough")(function* (
     start,
   );
   const { url } = yield* Schema.decodeUnknownEffect(Started)(yield* started.json);
-  // Straight to the way that is asked for: the provider would have a person choose one.
-  let at = new URL(url.replace("/dex/auth?", `/dex/auth/${connector}?`));
+  let at = first(url);
   for (let step = 0; step < STEPS; step++) {
     if (at.origin === new URL(base).origin && !at.pathname.startsWith("/api/auth/")) {
       return { at: `${at.pathname}${at.search}`, cookie: carried(at) } satisfies Landed;
@@ -94,9 +94,7 @@ export const signInThrough = Effect.fn("Control.signInThrough")(function* (
     if (!REDIRECTS.includes(answer.status)) {
       // The provider's form, which is sent to where it was shown.
       answer = yield* send(
-        HttpClientRequest.post(at).pipe(
-          HttpClientRequest.bodyUrlParams({ login: email, password: Dex.PASSWORD }),
-        ),
+        HttpClientRequest.post(at).pipe(HttpClientRequest.bodyUrlParams(form)),
         at,
       );
     }
@@ -109,4 +107,24 @@ export const signInThrough = Effect.fn("Control.signInThrough")(function* (
     at = new URL(next, at);
   }
   return yield* Effect.die(new Error(`signing in did not end within ${STEPS} steps`));
+});
+
+/**
+ * Signs in through the suite's provider: gives it the email and the password at its form.
+ */
+export const signInThrough = Effect.fn("Control.signInThrough")(function* (
+  base: string,
+  connector: Dex.Connector,
+  email: string,
+  to = "/-/sessions",
+  provider: string = Dex.PROVIDER,
+) {
+  return yield* signInBy(
+    base,
+    provider,
+    to,
+    // Straight to the way that is asked for: the provider would have a person choose one.
+    (sent) => new URL(sent.replace("/dex/auth?", `/dex/auth/${connector}?`)),
+    { login: email, password: Dex.PASSWORD },
+  );
 });

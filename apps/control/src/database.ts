@@ -232,6 +232,13 @@ const providers = statements([
   `INSERT INTO providers_revision (revision) VALUES (0)`,
 ]);
 
+// A provider that speaks OAuth 2.0 alone has no issuer to say how it is reached: where it
+// is asked is kept with it. Those that were there speak OpenID Connect.
+const providersOauth2 = statements([
+  `ALTER TABLE providers ADD COLUMN kind text NOT NULL DEFAULT 'oidc'`,
+  `ALTER TABLE providers ADD COLUMN endpoints jsonb`,
+]);
+
 /** Brings the database to what this program expects; what was applied before is left alone. */
 export const migrate = Migrator.make({})({
   loader: Migrator.fromRecord({
@@ -242,6 +249,7 @@ export const migrate = Migrator.make({})({
     "0005_events": events,
     "0006_registration_tokens_revoked": registrationTokensRevoked,
     "0007_providers": providers,
+    "0008_providers_oauth2": providersOauth2,
   }),
   table: "control_migrations",
 });
