@@ -207,6 +207,31 @@ const registrationTokensRevoked = statements([
   `ALTER TABLE registration_tokens ADD COLUMN revoked_at timestamptz`,
 ]);
 
+// A provider's client secret is sent to the provider, so no digest of it would do: it is
+// sealed as a node's operator token is. People who came through a provider name it and
+// reference nothing: it may be removed, and they stay. The count is what tells every
+// program on this database that the providers are not what it last read.
+const providers = statements([
+  `CREATE TABLE providers (
+    id text PRIMARY KEY,
+    name text NOT NULL,
+    issuer text NOT NULL,
+    client_id text NOT NULL,
+    client_secret_sealed text NOT NULL,
+    scopes jsonb NOT NULL,
+    provision boolean NOT NULL,
+    domains jsonb NOT NULL,
+    enabled boolean NOT NULL,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL
+  )`,
+  `CREATE TABLE providers_revision (
+    only_one boolean PRIMARY KEY DEFAULT true CHECK (only_one),
+    revision bigint NOT NULL
+  )`,
+  `INSERT INTO providers_revision (revision) VALUES (0)`,
+]);
+
 /** Brings the database to what this program expects; what was applied before is left alone. */
 export const migrate = Migrator.make({})({
   loader: Migrator.fromRecord({
@@ -216,6 +241,7 @@ export const migrate = Migrator.make({})({
     "0004_accounts_disabled": accountsDisabled,
     "0005_events": events,
     "0006_registration_tokens_revoked": registrationTokensRevoked,
+    "0007_providers": providers,
   }),
   table: "control_migrations",
 });

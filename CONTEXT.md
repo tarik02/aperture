@@ -68,7 +68,7 @@ What an authenticator of a person's keeps for them and proves it has, in place o
 _Avoid_: Security key, WebAuthn credential
 
 **Provider**:
-An OpenID Connect issuer the control plane lets people sign in through, beside their passwords. It signs in the person who has the email address it says it verified, and no second factor is asked after it. Where the control plane is set to, someone it vouches for whom no admin made a person is made one when they first come, with no password until they set one.
+An OpenID Connect issuer the control plane lets people sign in through, beside their passwords. It signs in the person who has the email address it says it verified, and no second factor is asked after it. A provider says for itself whether someone it vouches for whom no admin made a person is made one when they first come, with no password until they set one, and of which domains. The settings name providers, which stay as they are while the control plane runs; an admin adds others meanwhile, changes them, disables them and removes them, and each is asked how it is reached before it is kept enabled. What a provider is known by stays for as long as it is there: the address it sends people back to has it, and so does whoever came through it. Its client secret is given and never told. Disabling or removing a provider removes nobody: whoever came through it alone does not sign in until it is back, and passwords and passkeys are no provider's to take.
 _Avoid_: IdP, SSO, social login
 
 **Grant**:

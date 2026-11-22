@@ -166,3 +166,34 @@ export class TooManyTries extends Schema.TaggedError<TooManyTries>()(
   { message: Schema.String },
   { httpApiStatus: 429 },
 ) {}
+
+/** There is no such provider among those that are kept here. */
+export class ProviderNotFound extends Schema.TaggedError<ProviderNotFound>()(
+  "ProviderNotFound",
+  { id: Schema.String },
+  { httpApiStatus: 404 },
+) {}
+
+/** A provider is known by that id already: one that is kept here, or one the settings name. */
+export class ProviderTaken extends Schema.TaggedError<ProviderTaken>()(
+  "ProviderTaken",
+  { id: Schema.String, message: Schema.String },
+  { httpApiStatus: 409 },
+) {}
+
+/** The provider is named by the settings: it is changed and removed there, and not here. */
+export class ProviderConfigured extends Schema.TaggedError<ProviderConfigured>()(
+  "ProviderConfigured",
+  { id: Schema.String, message: Schema.String },
+  { httpApiStatus: 409 },
+) {}
+
+/**
+ * What was said of a provider is nothing to sign people in through: `problems` are the
+ * reasons, each a sentence, where there are several.
+ */
+export class ProviderInvalid extends Schema.TaggedError<ProviderInvalid>()(
+  "ProviderInvalid",
+  { message: Schema.String, problems: Schema.Array(Schema.String) },
+  { httpApiStatus: 400 },
+) {}

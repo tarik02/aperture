@@ -32,6 +32,9 @@ import * as ShareRoutes from "./http/shares.ts";
 import * as Nodes from "./nodes/layer.ts";
 import * as NodesStoreMemory from "./nodes/store-memory.ts";
 import * as NodesStoreSql from "./nodes/store-sql.ts";
+import * as Providers from "./providers/layer.ts";
+import * as ProvidersStoreMemory from "./providers/store-memory.ts";
+import * as ProvidersStoreSql from "./providers/store-sql.ts";
 import * as Routing from "./routing/layer.ts";
 import * as Sessions from "./sessions/layer.ts";
 import { Settings } from "./settings/service.ts";
@@ -56,6 +59,7 @@ export const stores = Layer.mergeAll(
   EventsStoreSql.layer,
   GrantsStoreSql.layer,
   NodesStoreSql.layer,
+  ProvidersStoreSql.layer,
   SessionsStoreSql.layer,
   SharesStoreSql.layer,
   SnapshotsStoreSql.layer,
@@ -68,6 +72,7 @@ export const storesTest = Layer.mergeAll(
   EventsStoreMemory.layerTest,
   GrantsStoreMemory.layerTest,
   NodesStoreMemory.layerTest,
+  ProvidersStoreMemory.layerTest,
   SessionsStoreMemory.layerTest,
   SharesStoreMemory.layerTest,
   SnapshotsStoreMemory.layerTest,
@@ -131,15 +136,28 @@ const serving = Layer.mergeAll(
  * the following of nodes and the forgetting of what apps left and of old events, for as
  * long as the layer lasts.
  */
+/** The providers, which are asked how they are reached by this program itself. */
+const providers = Providers.layer.pipe(Layer.provide(NodeHttpClient.layerUndici));
+
 export const layer = serving.pipe(
-  Layer.provide(Identity.layer.pipe(Layer.provideMerge(Events.layer), Layer.provideMerge(stores))),
+  Layer.provide(
+    Identity.layer.pipe(
+      Layer.provideMerge(providers),
+      Layer.provideMerge(Events.layer),
+      Layer.provideMerge(stores),
+    ),
+  ),
   Layer.provide(Vault.layer),
 );
 
 /** The same with nothing kept beyond the layer: for checks that need no database. */
 export const layerTest = serving.pipe(
   Layer.provide(
-    Identity.layerTest.pipe(Layer.provideMerge(Events.layer), Layer.provideMerge(storesTest)),
+    Identity.layerTest.pipe(
+      Layer.provideMerge(providers),
+      Layer.provideMerge(Events.layer),
+      Layer.provideMerge(storesTest),
+    ),
   ),
   Layer.provide(Vault.layer),
 );

@@ -175,11 +175,9 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     if (Option.isSome(account)) {
       return yield* inUse(account.value);
     }
-    // Someone no admin made a person is one a provider vouched for, where that makes
-    // people: their account is made when they first come.
-    if (!settings.provisionPeople) {
-      return yield* new Unauthorized({ message: "nobody is signed in" });
-    }
+    // Someone no admin made a person is one a provider vouched for, and that provider
+    // makes people, or what signs people in had not let them in: their account is made
+    // when they first come.
     const made = yield* store.insertForPerson({
       id: yield* Secrets.id,
       name: person.value.name.trim() || person.value.email,

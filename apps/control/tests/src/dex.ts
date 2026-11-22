@@ -12,6 +12,8 @@ import { Proxy } from "./proxy.ts";
 /** What the control plane knows the provider by. */
 export const PROVIDER = "dex";
 export const PROVIDER_NAME = "Dex";
+/** What an admin may come to know it by as well, once the control plane runs. */
+export const ADDED = ["added", "another"] as const;
 /** Everyone's password there. */
 export const PASSWORD = "password";
 /** That password as Dex keeps it: the digest its own documentation gives for it. */
@@ -122,8 +124,8 @@ export const start = Effect.gen(function* () {
         secret: at.clientSecret,
         name: "Aperture",
         // People come to the control plane itself, or through the proxy before it.
-        redirectURIs: [control.url, ...Option.toArray(proxy).map((one) => one.url)].map(
-          (origin) => `${origin}/api/auth/callback/${PROVIDER}`,
+        redirectURIs: [control.url, ...Option.toArray(proxy).map((one) => one.url)].flatMap(
+          (origin) => [PROVIDER, ...ADDED].map((id) => `${origin}/api/auth/callback/${id}`),
         ),
       },
     ],

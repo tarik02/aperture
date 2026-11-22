@@ -30,6 +30,7 @@ suite(database)("the database", (it) => {
         "accounts_disabled",
         "events",
         "registration_tokens_revoked",
+        "providers",
       ]);
 
       const tables = yield* sql`
@@ -45,6 +46,8 @@ suite(database)("the database", (it) => {
         "oauth_codes",
         "oauth_grants",
         "oauth_tokens",
+        "providers",
+        "providers_revision",
         "registration_tokens",
         "session_shares",
         "sessions",

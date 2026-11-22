@@ -18,6 +18,21 @@ export interface Landed {
   readonly cookie: string;
 }
 
+/** What the control plane answers someone who asks to be sent to a provider, as a status. */
+export const askedThrough = Effect.fn("Control.askedThrough")(function* (
+  base: string,
+  provider: string,
+) {
+  const http = yield* HttpClient.HttpClient;
+  const answer = yield* http.execute(
+    HttpClientRequest.post(new URL("/api/auth/sign-in/social", base)).pipe(
+      HttpClientRequest.setHeader("origin", new URL(base).origin),
+      HttpClientRequest.bodyJsonUnsafe({ provider, callbackURL: "/", disableRedirect: true }),
+    ),
+  );
+  return answer.status;
+});
+
 /**
  * Signs in through the provider as a browser does, without one: asks the control plane
  * where to go, gives the provider the email and the password at its form, and follows it
@@ -28,6 +43,7 @@ export const signInThrough = Effect.fn("Control.signInThrough")(function* (
   connector: Dex.Connector,
   email: string,
   to = "/-/sessions",
+  provider: string = Dex.PROVIDER,
 ) {
   const http = yield* HttpClient.HttpClient;
   /** What each origin had the browser keep. */
@@ -59,7 +75,7 @@ export const signInThrough = Effect.fn("Control.signInThrough")(function* (
   const started = yield* send(
     HttpClientRequest.post(start).pipe(
       HttpClientRequest.bodyJsonUnsafe({
-        provider: Dex.PROVIDER,
+        provider,
         callbackURL: to,
         errorCallbackURL: "/sign-in-refused",
         disableRedirect: true,

@@ -6,6 +6,7 @@ import type { Event } from "../events/schemas.ts";
 import type { Client, Grant } from "../grants/schemas.ts";
 import type { NewCode, NewToken } from "../grants/store.ts";
 import type { NodeRecord, RegistrationToken } from "../nodes/schemas.ts";
+import type { StoredProvider } from "../providers/schemas.ts";
 import type { Session } from "../sessions/schemas.ts";
 import type { Share } from "../shares/schemas.ts";
 import type { Snapshot } from "../snapshots/schemas.ts";
@@ -27,6 +28,9 @@ export interface MemoryShape {
   /** The nodes that were noted to have fallen silent, and were not heard from since. */
   readonly nodesSilent: Set<string>;
   readonly events: Map<string, Event>;
+  readonly providers: Map<string, StoredProvider>;
+  /** How many times the providers were changed. */
+  readonly providersRevision: { count: number };
   readonly sessions: Map<string, Session>;
   /** Sessions' routing, sealed, by the session's id. */
   readonly sessionProxies: Map<string, string>;
@@ -59,6 +63,8 @@ export const layer = Layer.sync(Memory, () =>
     nodes: new Map(),
     nodesSilent: new Set(),
     events: new Map(),
+    providers: new Map(),
+    providersRevision: { count: 0 },
     sessions: new Map(),
     sessionProxies: new Map(),
     shares: new Map(),

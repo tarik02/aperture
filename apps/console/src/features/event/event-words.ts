@@ -63,6 +63,11 @@ export const HAPPENED: Readonly<Record<EventKind, (event: Event) => string>> = {
   "share.joined": () => "Joined through the share link",
   "node.registered": () => "Registered",
   "node.silent": () => "Fell silent",
+  "provider.added": () => "Added the sign-in provider",
+  "provider.changed": () => "Changed the sign-in provider",
+  "provider.enabled": () => "Enabled the sign-in provider",
+  "provider.disabled": () => "Disabled the sign-in provider",
+  "provider.removed": () => "Removed the sign-in provider",
 };
 
 /** The kinds of events as a list to choose from tells them, those of one thing together. */
@@ -75,6 +80,11 @@ export const KINDS: ReadonlyArray<{
     kinds: [
       { value: "sign_in.succeeded", label: "Signed in" },
       { value: "sign_in.failed", label: "Did not sign in" },
+      { value: "provider.added", label: "Provider added" },
+      { value: "provider.changed", label: "Provider changed" },
+      { value: "provider.enabled", label: "Provider enabled" },
+      { value: "provider.disabled", label: "Provider disabled" },
+      { value: "provider.removed", label: "Provider removed" },
     ],
   },
   {
@@ -155,6 +165,7 @@ export const ABOUT: Readonly<Record<NonNullable<Event["resource"]>["kind"], stri
   snapshot: "snapshot",
   share: "share link",
   node: "node",
+  provider: "sign-in provider",
 };
 
 /** Who did it, where they have no name of their own. */

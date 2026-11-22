@@ -46,20 +46,27 @@ export interface SettingsShape {
   /** Whether signing in is held to so many tries a while from one address. */
   readonly rateLimit: boolean;
   /**
-   * The providers people sign in through beside their passwords; none where there are
-   * none. A provider is told to send people back to `/api/auth/callback/<id>`.
+   * The providers people sign in through beside their passwords that are named here; an
+   * admin adds others while the program runs, and changes none of these. A provider is
+   * told to send people back to `/api/auth/callback/<id>`.
    */
   readonly providers: ReadonlyArray<Provider>;
   /**
-   * Whether someone a provider vouches for, whom no admin made a person, is made one when
-   * they first sign in. Without, a provider signs in only the people there are.
+   * Whether someone one of the providers named here vouches for, whom no admin made a
+   * person, is made one when they first sign in. Without, they sign in only the people
+   * there are. A provider an admin added says this of itself.
    */
   readonly provisionPeople: boolean;
   /**
    * The domains of the email addresses people are made for so, as `example.com`; any
-   * address where none is named.
+   * address where none is named. A provider an admin added names its own.
    */
   readonly provisionDomains: ReadonlyArray<string>;
+  /**
+   * Whether an admin adds a provider that is reached without TLS on this machine itself,
+   * as one that is tried out is. Any other is reached with TLS, whatever this says.
+   */
+  readonly providersOnLoopback: boolean;
   /** Lets its holder do what an admin does before there is any account. */
   readonly bootstrapToken: Redacted.Redacted;
   /**

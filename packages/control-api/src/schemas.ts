@@ -166,6 +166,11 @@ export const EventKind = Schema.Literals([
   "share.joined",
   "node.registered",
   "node.silent",
+  "provider.added",
+  "provider.changed",
+  "provider.enabled",
+  "provider.disabled",
+  "provider.removed",
 ]);
 export type EventKind = typeof EventKind.Type;
 
@@ -195,6 +200,7 @@ export const EventResource = Schema.Struct({
     "snapshot",
     "share",
     "node",
+    "provider",
   ]),
   id: Schema.String,
   label: Schema.NullOr(Schema.String),

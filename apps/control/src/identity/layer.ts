@@ -12,11 +12,13 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import { Pool } from "pg";
 import { AccountsStore } from "../accounts/store.ts";
 import { EmailTaken, PersonNotFound } from "../errors.ts";
 import { anonymous } from "../events/schemas.ts";
 import { Events } from "../events/service.ts";
+import { type ActiveProvider, Providers } from "../providers/service.ts";
 import * as Secrets from "../secrets.ts";
 import { Settings } from "../settings/service.ts";
 import { Vault } from "../vault/service.ts";
@@ -46,6 +48,15 @@ const SIGN_INS: ReadonlyArray<readonly [RegExp, "password" | "two_factor" | "pas
   [/\/passkey\/verify-authentication$/u, "passkey"],
 ];
 const PROVIDER_CAME_BACK = /\/callback\/([^/]+)$/u;
+/** The routes that go through a provider: they are answered by the providers there are now. */
+const THROUGH_PROVIDER = /\/(sign-in\/social|link-social|callback\/[^/]+)$/u;
+/**
+ * How long the providers are waited for to say how they are reached, before people are
+ * signed in without the ones that did not: what signs people in asks them all first.
+ */
+const PROVIDERS_WITHIN = "10 seconds";
+/** What the providers an admin added are asked how they are reached with. */
+const DISCOVERY_HEADERS = { accept: "application/json" };
 const REDIRECTS_FROM = 300;
 const ERRORS_FROM = 400;
 
@@ -65,11 +76,16 @@ const Answered = Schema.fromJsonString(
  * Identity by better-auth, on whatever database it is given. Everything of better-auth is
  * in this function: what it is asked, and what its answers are taken for.
  */
-const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["database"]) {
+const make = Effect.fn("Identity.make")(function* (
+  database: BetterAuthOptions["database"],
+  /** Whether it is a database whose tables are brought up to date before it is asked anything. */
+  migrated: boolean,
+) {
   const vault = yield* Vault;
   const settings = yield* Settings;
   const accounts = yield* AccountsStore;
   const events = yield* Events;
+  const providers = yield* Providers;
   const context = yield* Effect.context<Crypto.Crypto>();
   /** Setup tokens on their way: better-auth hands one to whoever sends it, which is this. */
   const sent = new Map<string, string>();
@@ -77,110 +93,192 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
   /** Why a provider's word makes nobody a person; the code is told to the page that asked. */
   const refused = (code: string, message: string) => new APIError("FORBIDDEN", { code, message });
 
-  const options = {
-    basePath: PATH,
-    ...Option.match(settings.publicUrl, {
-      onNone: () => ({}),
-      onSome: (baseURL) => ({ baseURL }),
-    }),
-    secret: yield* vault.secret("identity"),
-    database,
-    emailAndPassword: {
-      enabled: true,
-      // A person is made with a password nobody knows, and sets their own.
-      autoSignIn: false,
-      sendResetPassword: async ({ user, token }) => {
-        sent.set(user.email, token);
+  const secret = yield* vault.secret("identity");
+
+  /**
+   * What better-auth is told, with the providers people sign in through. It reads them
+   * once, when it is made: other providers take another of it, on the same database and
+   * with the same secret, so that whoever is signed in stays so.
+   */
+  const optionsFor = (through: ReadonlyArray<ActiveProvider>) => {
+    const byId = new Map(through.map((provider) => [provider.id, provider]));
+    return {
+      basePath: PATH,
+      ...Option.match(settings.publicUrl, {
+        onNone: () => ({}),
+        onSome: (baseURL) => ({ baseURL }),
+      }),
+      secret,
+      database,
+      emailAndPassword: {
+        enabled: true,
+        // A person is made with a password nobody knows, and sets their own.
+        autoSignIn: false,
+        sendResetPassword: async ({ user, token }) => {
+          sent.set(user.email, token);
+        },
       },
-    },
-    // A second factor is a person's own to turn on, with an authenticator's codes. Its secret
-    // and backup codes are kept in its own table, sealed with the secret above.
-    plugins: [
-      twoFactor({ issuer: ISSUER }),
-      // A passkey signs a person in by itself: no code is asked after it. It is good at
-      // the address people reach this program at, and where none is said, at the one a
-      // request came to.
-      passkey({
-        rpName: ISSUER,
-        ...Option.match(settings.publicUrl, {
-          onNone: () => ({}),
-          onSome: (url) => ({ rpID: new URL(url).hostname, origin: new URL(url).origin }),
+      // A second factor is a person's own to turn on, with an authenticator's codes. Its secret
+      // and backup codes are kept in its own table, sealed with the secret above.
+      plugins: [
+        twoFactor({ issuer: ISSUER }),
+        // A passkey signs a person in by itself: no code is asked after it. It is good at
+        // the address people reach this program at, and where none is said, at the one a
+        // request came to.
+        passkey({
+          rpName: ISSUER,
+          ...Option.match(settings.publicUrl, {
+            onNone: () => ({}),
+            onSome: (url) => ({ rpID: new URL(url).hostname, origin: new URL(url).origin }),
+          }),
         }),
-      }),
-      // No second factor is asked after a provider: who it signs in is its to prove.
-      genericOAuth({
-        config: settings.providers.map((provider) => ({
-          providerId: provider.id,
-          name: provider.name,
-          discoveryUrl: provider.discoveryUrl,
-          clientId: provider.clientId,
-          clientSecret: Redacted.value(provider.clientSecret),
-          scopes: ["openid", "email", "profile"],
-          // Who someone is, is read from a token: one that is not checked says nothing.
-          requireIdTokenVerification: true,
-          disableSignUp: !settings.provisionPeople,
-        })),
-      }),
-    ],
-    // A provider signs in the person who has the address it vouches for, and no provider's
-    // word is taken for an address it does not say it verified. The person's own address
-    // was never verified here: an admin gave it, which is what a letter to it would show.
-    account: { accountLinking: { requireLocalEmailVerified: false } },
-    databaseHooks: {
-      // Nobody whose account is disabled is signed in, whatever they prove themselves by.
-      // It is told once they did prove it, and so to nobody else.
-      session: {
-        create: {
-          before: async (session) => {
-            const account = await Effect.runPromise(accounts.findByPerson(session.userId));
-            if (Option.isSome(account) && account.value.disabledAt !== null) {
-              throw refused("account_disabled", "This account is disabled. Ask an admin.");
-            }
+        // No second factor is asked after a provider: who it signs in is its to prove.
+        genericOAuth({
+          config: through.map((provider) => ({
+            providerId: provider.id,
+            name: provider.name,
+            discoveryUrl: provider.discoveryUrl,
+            clientId: provider.clientId,
+            clientSecret: Redacted.value(provider.clientSecret),
+            scopes: [...provider.scopes],
+            // Who someone is, is read from a token: one that is not checked says nothing.
+            requireIdTokenVerification: true,
+            disableSignUp: !provider.provision,
+            // With headers of its own, the document is taken from where it was said to be
+            // and from nowhere another origin sends on to.
+            ...(provider.stored ? { discoveryHeaders: DISCOVERY_HEADERS } : {}),
+          })),
+        }),
+      ],
+      // A provider signs in the person who has the address it vouches for, and no provider's
+      // word is taken for an address it does not say it verified. The person's own address
+      // was never verified here: an admin gave it, which is what a letter to it would show.
+      account: { accountLinking: { requireLocalEmailVerified: false } },
+      databaseHooks: {
+        // Nobody whose account is disabled is signed in, whatever they prove themselves by.
+        // It is told once they did prove it, and so to nobody else.
+        session: {
+          create: {
+            before: async (session) => {
+              const account = await Effect.runPromise(accounts.findByPerson(session.userId));
+              if (Option.isSome(account) && account.value.disabledAt !== null) {
+                throw refused("account_disabled", "This account is disabled. Ask an admin.");
+              }
+            },
+            // Who a provider signed in is told nowhere but here: its answer is a redirect.
+            after: async (session, context) => {
+              if (context?.path !== PROVIDER_CALLBACK) {
+                return;
+              }
+              await Effect.runPromise(
+                signedIn(
+                  session.userId,
+                  { method: "provider", provider: String(context.params?.["id"] ?? "") },
+                  Option.fromNullishOr(context.headers?.get(FROM_HEADER)),
+                ),
+              );
+            },
           },
-          // Who a provider signed in is told nowhere but here: its answer is a redirect.
-          after: async (session, context) => {
-            if (context?.path !== PROVIDER_CALLBACK) {
-              return;
-            }
-            await Effect.runPromise(
-              signedIn(
-                session.userId,
-                { method: "provider", provider: String(context.params?.["id"] ?? "") },
-                Option.fromNullishOr(context.headers?.get(FROM_HEADER)),
-              ),
+        },
+        user: {
+          create: {
+            before: async (user, context) => {
+              if (context?.path === MADE_BY_ADMIN) {
+                return;
+              }
+              // Whoever else is made a person came through a provider, which says itself
+              // whether it makes any, and of which domains.
+              const provider = byId.get(
+                String(context?.params?.["id"] ?? context?.body?.["provider"] ?? ""),
+              );
+              if (provider?.provision !== true) {
+                throw refused("signup_disabled", "nobody is made a person by signing in");
+              }
+              if (user.emailVerified !== true) {
+                throw refused("email_not_verified", "the provider did not verify the address");
+              }
+              const domain = user.email.slice(user.email.lastIndexOf("@") + 1).toLowerCase();
+              if (provider.domains.length > 0 && !provider.domains.includes(domain)) {
+                throw refused("email_domain_refused", "people of that domain are not made here");
+              }
+            },
+          },
+        },
+      },
+      rateLimit: { enabled: settings.rateLimit },
+      advanced: { ipAddress: { ipAddressHeaders: [FROM_HEADER] } },
+      telemetry: { enabled: false },
+    } satisfies BetterAuthOptions;
+  };
+
+  /** better-auth with those providers, once it asked each of them how it is reached. */
+  const ready = (through: ReadonlyArray<ActiveProvider>) =>
+    Effect.promise(async () => {
+      const options = optionsFor(through);
+      const auth = betterAuth(options);
+      await auth.$context;
+      return { auth };
+    });
+
+  /** What signs people in for the providers as they are kept now, where they answer in time. */
+  const read = Effect.fn(function* () {
+    // Before the providers themselves: a change between the two is seen the next time.
+    const revision = yield* providers.revision();
+    const made = yield* ready(yield* providers.active()).pipe(
+      Effect.timeoutOption(PROVIDERS_WITHIN),
+    );
+    return Option.map(made, (one) => ({ ...one, revision }));
+  });
+
+  if (migrated) {
+    // The tables are the same whichever providers there are.
+    yield* Effect.promise(async () => {
+      const migrations = await getMigrations(optionsFor([]));
+      await migrations.runMigrations();
+    });
+  }
+
+  // A provider that does not answer holds nobody up who signs in without one: they are
+  // signed in with no providers until all of them answered. No number of changes is -1,
+  // so the providers are asked again when someone next comes through one.
+  let current = yield* read().pipe(
+    Effect.flatMap(
+      Option.match({
+        onSome: Effect.succeed,
+        onNone: () =>
+          Effect.logWarning("the providers did not answer in time: starting without them").pipe(
+            Effect.andThen(ready([])),
+            Effect.map((one) => ({ ...one, revision: -1 })),
+          ),
+      }),
+    ),
+  );
+  const turn = yield* Semaphore.make(1);
+
+  /**
+   * What signs people in, for the providers as any program on this database last changed
+   * them. What is being answered meanwhile is answered by what was there before.
+   */
+  const upToDate = Effect.fn("Identity.upToDate")(function* () {
+    if ((yield* providers.revision()) === current.revision) {
+      return current.auth;
+    }
+    return yield* turn.withPermit(
+      Effect.gen(function* () {
+        if ((yield* providers.revision()) !== current.revision) {
+          const next = yield* read();
+          if (Option.isSome(next)) {
+            current = next.value;
+          } else {
+            yield* Effect.logWarning(
+              "the providers did not answer in time: they stay as they were",
             );
-          },
-        },
-      },
-      user: {
-        create: {
-          before: async (user, context) => {
-            if (context?.path === MADE_BY_ADMIN) {
-              return;
-            }
-            // Whoever else is made a person came through a provider.
-            if (!settings.provisionPeople) {
-              throw refused("signup_disabled", "nobody is made a person by signing in");
-            }
-            if (user.emailVerified !== true) {
-              throw refused("email_not_verified", "the provider did not verify the address");
-            }
-            const domain = user.email.slice(user.email.lastIndexOf("@") + 1).toLowerCase();
-            if (
-              settings.provisionDomains.length > 0 &&
-              !settings.provisionDomains.includes(domain)
-            ) {
-              throw refused("email_domain_refused", "people of that domain are not made here");
-            }
-          },
-        },
-      },
-    },
-    rateLimit: { enabled: settings.rateLimit },
-    advanced: { ipAddress: { ipAddressHeaders: [FROM_HEADER] } },
-    telemetry: { enabled: false },
-  } satisfies BetterAuthOptions;
-  const auth = betterAuth(options);
+          }
+        }
+        return current.auth;
+      }),
+    );
+  });
 
   /** Records that someone signed in, as the account they sign in as where they have one. */
   const signedIn = Effect.fn(function* (
@@ -287,6 +385,7 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
     if (Option.isSome(from)) {
       headers.set(FROM_HEADER, from.value);
     }
+    const auth = THROUGH_PROVIDER.test(pathname) ? yield* upToDate() : current.auth;
     const answer = yield* Effect.promise(() => auth.handler(new Request(request, { headers })));
     if (!already) {
       yield* noted(pathname, sent, answer, from);
@@ -294,12 +393,12 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
     return answer;
   });
 
-  const providers = Effect.fn("Identity.providers")(() =>
-    Effect.succeed(settings.providers.map(({ id, name }) => ({ id, name }))),
-  );
+  const offered = Effect.fn("Identity.providers")(function* () {
+    return (yield* providers.active()).map(({ id, name }) => ({ id, name }));
+  });
 
   const personOf = Effect.fn("Identity.personOf")(function* (headers: Headers) {
-    const session = yield* Effect.tryPromise(() => auth.api.getSession({ headers })).pipe(
+    const session = yield* Effect.tryPromise(() => current.auth.api.getSession({ headers })).pipe(
       // Cookies that are not read sign nobody in.
       Effect.orElseSucceed(() => null),
     );
@@ -315,19 +414,19 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
     // Asked first: signing up with an address that is taken is answered as if it were not,
     // so that nobody learns from it who signs in here.
     const taken = yield* Effect.promise(async () =>
-      (await auth.$context).internalAdapter.findUserByEmail(person.email),
+      (await current.auth.$context).internalAdapter.findUserByEmail(person.email),
     );
     if (taken !== null) {
       return yield* new EmailTaken({ email: person.email });
     }
     const password = yield* Secrets.make("unset");
     const made = yield* Effect.promise(() =>
-      auth.api.signUpEmail({ body: { ...person, password } }),
+      current.auth.api.signUpEmail({ body: { ...person, password } }),
     );
     // Made with a password since nobody is made without, which is then nobody's: a
     // person has one once they set it.
     yield* Effect.promise(async () =>
-      (await auth.$context).adapter.deleteMany({
+      (await current.auth.$context).adapter.deleteMany({
         model: "account",
         where: [
           { field: "userId", value: made.user.id },
@@ -341,7 +440,7 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
   const setupToken = Effect.fn("Identity.setupToken")(function* (email: string) {
     sent.delete(email);
     // It answers alike whether or not there is such a person, and sends a token to one there is.
-    yield* Effect.tryPromise(() => auth.api.requestPasswordReset({ body: { email } })).pipe(
+    yield* Effect.tryPromise(() => current.auth.api.requestPasswordReset({ body: { email } })).pipe(
       Effect.ignore,
     );
     const token = sent.get(email);
@@ -354,13 +453,13 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
 
   const resetSecondFactor = Effect.fn("Identity.resetSecondFactor")(function* (email: string) {
     const found = yield* Effect.promise(async () =>
-      (await auth.$context).internalAdapter.findUserByEmail(email),
+      (await current.auth.$context).internalAdapter.findUserByEmail(email),
     );
     if (found === null) {
       return yield* new PersonNotFound({ email });
     }
     yield* Effect.promise(async () => {
-      const { adapter, internalAdapter } = await auth.$context;
+      const { adapter, internalAdapter } = await current.auth.$context;
       await adapter.deleteMany({
         model: "twoFactor",
         where: [{ field: "userId", value: found.user.id }],
@@ -381,14 +480,21 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
 
   const methods = Effect.fn("Identity.methods")(function* () {
     const { people, proven, passkeys } = yield* Effect.promise(async () => {
-      const { adapter } = await auth.$context;
+      const { adapter } = await current.auth.$context;
       return {
         people: await adapter.findMany({ model: "user" }),
         proven: await adapter.findMany({ model: "account" }),
         passkeys: await adapter.findMany({ model: "passkey" }),
       };
     });
-    const named = new Map(settings.providers.map(({ id, name }) => [id, name]));
+    // A provider that was disabled or removed took nobody with it: who came through it
+    // is still told to have, and that it signs nobody in now.
+    const named = new Map(
+      (yield* providers.list()).map(({ id, name, enabled }) => [
+        id,
+        enabled ? name : `${name} (disabled)`,
+      ]),
+    );
     const theirs = Arr.groupBy(
       yield* Effect.orDie(Schema.decodeUnknownEffect(Proven)(proven)),
       (one) => one.userId,
@@ -408,7 +514,7 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
             passkeys: held[person.id]?.length ?? 0,
             providers: ways
               .filter((way) => way !== PASSWORD)
-              .map((way) => named.get(way) ?? way)
+              .map((way) => named.get(way) ?? `${way} (removed)`)
               .toSorted((one, other) => one.localeCompare(other)),
           } satisfies SignInMethods,
         ] as const;
@@ -418,25 +524,25 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
 
   const signOut = Effect.fn("Identity.signOut")(function* (email: string) {
     const found = yield* Effect.promise(async () =>
-      (await auth.$context).internalAdapter.findUserByEmail(email),
+      (await current.auth.$context).internalAdapter.findUserByEmail(email),
     );
     if (found === null) {
       return yield* new PersonNotFound({ email });
     }
     yield* Effect.promise(async () =>
-      (await auth.$context).internalAdapter.deleteUserSessions(found.user.id),
+      (await current.auth.$context).internalAdapter.deleteUserSessions(found.user.id),
     );
   });
 
   const remove = Effect.fn("Identity.remove")(function* (email: string) {
     const found = yield* Effect.promise(async () =>
-      (await auth.$context).internalAdapter.findUserByEmail(email),
+      (await current.auth.$context).internalAdapter.findUserByEmail(email),
     );
     if (found === null) {
       return yield* new PersonNotFound({ email });
     }
     yield* Effect.promise(async () => {
-      const { adapter, internalAdapter } = await auth.$context;
+      const { adapter, internalAdapter } = await current.auth.$context;
       // What plugins keep of a person is not removed with them where nothing ties the two.
       for (const model of ["twoFactor", "passkey"]) {
         await adapter.deleteMany({ model, where: [{ field: "userId", value: found.user.id }] });
@@ -447,13 +553,13 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
 
   const removePasskeys = Effect.fn("Identity.removePasskeys")(function* (email: string) {
     const found = yield* Effect.promise(async () =>
-      (await auth.$context).internalAdapter.findUserByEmail(email),
+      (await current.auth.$context).internalAdapter.findUserByEmail(email),
     );
     if (found === null) {
       return yield* new PersonNotFound({ email });
     }
     yield* Effect.promise(async () => {
-      const { adapter } = await auth.$context;
+      const { adapter } = await current.auth.$context;
       await adapter.deleteMany({
         model: "passkey",
         where: [{ field: "userId", value: found.user.id }],
@@ -461,23 +567,19 @@ const make = Effect.fn("Identity.make")(function* (database: BetterAuthOptions["
     });
   });
 
-  return {
-    auth,
-    options,
-    service: Identity.of({
-      path: PATH,
-      providers,
-      handle,
-      personOf,
-      create,
-      methods,
-      signOut,
-      remove,
-      setupToken,
-      resetSecondFactor,
-      removePasskeys,
-    }),
-  };
+  return Identity.of({
+    path: PATH,
+    providers: offered,
+    handle,
+    personOf,
+    create,
+    methods,
+    signOut,
+    remove,
+    setupToken,
+    resetSecondFactor,
+    removePasskeys,
+  });
 });
 
 /** Identity kept in the database the settings name, with its tables brought up to date first. */
@@ -487,17 +589,12 @@ export const makeIdentity = Effect.fn("Identity.makeSql")(function* () {
     Effect.sync(() => new Pool({ connectionString: Redacted.value(settings.databaseUrl) })),
     (pool) => Effect.promise(() => pool.end()),
   );
-  const { options, service } = yield* make(pool);
-  yield* Effect.promise(async () => {
-    const migrations = await getMigrations(options);
-    await migrations.runMigrations();
-  });
-  return service;
+  return yield* make(pool, true);
 });
 
 /** Identity kept in memory, which is gone with the layer. */
 export const makeIdentityMemory = Effect.fn("Identity.makeMemory")(function* () {
-  const { service } = yield* make(
+  return yield* make(
     memoryAdapter({
       user: [],
       session: [],
@@ -506,8 +603,8 @@ export const makeIdentityMemory = Effect.fn("Identity.makeMemory")(function* () 
       twoFactor: [],
       passkey: [],
     }),
+    false,
   );
-  return service;
 });
 
 export const layer = Layer.effect(Identity, makeIdentity());

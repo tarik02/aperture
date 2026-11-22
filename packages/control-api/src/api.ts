@@ -16,6 +16,10 @@ import {
   EmailTaken,
   PersonNotFound,
   Forbidden,
+  ProviderConfigured,
+  ProviderInvalid,
+  ProviderNotFound,
+  ProviderTaken,
   GrantNotFound,
   NodeRefused,
   NodeUnreachable,
@@ -223,6 +227,89 @@ export const Provider = Schema.Struct({
   /** What it is known by in addresses. */
   id: Schema.String,
   name: Schema.String,
+});
+
+/** What a provider is known by: a part of the address it sends people back to. */
+export const ProviderId = Schema.String.check(
+  // `credential` is what a password is kept as, among what people sign in with.
+  Schema.isPattern(/^(?!credential$)[a-z0-9][a-z0-9-]{0,39}$/u),
+);
+
+/** What is asked of a provider for the people it signs in, each a word of its own. */
+const ProviderScopes = Schema.Array(
+  Schema.String.check(Schema.isPattern(/^[\x21\x23-\x5b\x5d-\x7e]+$/u)),
+);
+/** The domains of email addresses, as `example.com`. */
+const ProviderDomains = Schema.Array(
+  Schema.String.check(
+    Schema.isPattern(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/iu),
+  ),
+);
+
+/**
+ * A provider as an admin is told of it: all that was said of it but its client secret,
+ * of which only whether there is one is told.
+ */
+export const SignInProvider = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  /** Its issuer, or its discovery document where that was given in place of it. */
+  issuer: Schema.String,
+  clientId: Schema.String,
+  secretSet: Schema.Boolean,
+  scopes: Schema.Array(Schema.String),
+  /** Whether someone it vouches for, whom no admin made a person, is made one. */
+  provision: Schema.Boolean,
+  /** The domains of the addresses people are made for so; any address where none is named. */
+  domains: Schema.Array(Schema.String),
+  /** Whether people sign in through it now. */
+  enabled: Schema.Boolean,
+  /** Kept here, where an admin changes it, or named by the settings, which alone change it. */
+  source: Schema.Literals(["stored", "configuration"]),
+  /** When it was added and last changed here; never, for one the settings name. */
+  createdAt: Schema.NullOr(Schema.DateTimeUtcFromString),
+  updatedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
+});
+
+export const SignInProviders = Schema.Struct({
+  /** What a provider is told to send people back to, once its id is put after it. */
+  callbackBase: Schema.String,
+  providers: Schema.Array(SignInProvider),
+});
+
+const NewSignInProvider = Schema.Struct({
+  id: ProviderId,
+  name: Schema.NonEmptyString,
+  issuer: Schema.NonEmptyString,
+  clientId: Schema.NonEmptyString,
+  /** Told here and never again. */
+  clientSecret: Schema.NonEmptyString,
+  /** `openid email profile`, without. */
+  scopes: Schema.optional(ProviderScopes),
+  provision: Schema.optional(Schema.Boolean),
+  domains: Schema.optional(ProviderDomains),
+  /** One that is not enabled is kept whether or not it is reached. */
+  enabled: Schema.optional(Schema.Boolean),
+});
+
+/** What is said anew of a provider; what is left out stays as it was. */
+const ChangedSignInProvider = Schema.Struct({
+  name: Schema.optional(Schema.NonEmptyString),
+  issuer: Schema.optional(Schema.NonEmptyString),
+  clientId: Schema.optional(Schema.NonEmptyString),
+  /** The secret it has stays where none is given, or an empty one. */
+  clientSecret: Schema.optional(Schema.String),
+  scopes: Schema.optional(ProviderScopes),
+  provision: Schema.optional(Schema.Boolean),
+  domains: Schema.optional(ProviderDomains),
+  enabled: Schema.optional(Schema.Boolean),
+});
+
+/** What came of asking a provider how it is reached: nothing wrong, or why not. */
+export const ProviderChecked = Schema.Struct({
+  ok: Schema.Boolean,
+  /** What is wrong, each a sentence; nothing where it is reached as it should be. */
+  problems: Schema.Array(Schema.String),
 });
 
 export const Admission = Schema.Struct({
@@ -690,6 +777,41 @@ export class GrantsGroup extends HttpApiGroup.make("grants")
     }),
   ) {}
 
+export class ProvidersGroup extends HttpApiGroup.make("providers")
+  .add(
+    HttpApiEndpoint.get("list", "/sign-in-providers", {
+      success: SignInProviders,
+      error: Forbidden,
+    }),
+    HttpApiEndpoint.post("create", "/sign-in-providers", {
+      payload: NewSignInProvider,
+      success: SignInProvider.pipe(HttpApiSchema.status(201)),
+      error: [Forbidden, ProviderTaken, ProviderInvalid],
+    }),
+    HttpApiEndpoint.post("check", "/sign-in-providers/check", {
+      payload: Schema.Struct({ issuer: Schema.String }),
+      success: ProviderChecked,
+      error: Forbidden,
+    }),
+    HttpApiEndpoint.patch("change", "/sign-in-providers/:id", {
+      params: { id: Schema.String },
+      payload: ChangedSignInProvider,
+      success: SignInProvider,
+      error: [Forbidden, ProviderNotFound, ProviderConfigured, ProviderInvalid],
+    }),
+    HttpApiEndpoint.delete("remove", "/sign-in-providers/:id", {
+      params: { id: Schema.String },
+      error: [Forbidden, ProviderNotFound, ProviderConfigured],
+    }),
+  )
+  .annotateMerge(
+    OpenApi.annotations({
+      title: "Sign-in providers",
+      description:
+        "The OpenID Connect providers people sign in through, which an admin adds, changes, disables and removes while the control plane runs. Those the settings name are told beside them and changed there alone. A client secret is given and never told. Removing or disabling a provider removes nobody: whoever came through it alone does not sign in until it is back.",
+    }),
+  ) {}
+
 export class SignInGroup extends HttpApiGroup.make("signIn")
   .add(HttpApiEndpoint.get("providers", "/sign-in/providers", { success: Schema.Array(Provider) }))
   .annotateMerge(
@@ -706,6 +828,7 @@ export class Api extends HttpApi.make("control")
     EventsGroup,
     GrantsGroup,
     NodesGroup,
+    ProvidersGroup,
     SessionsGroup,
     SharesGroup,
     SnapshotsGroup,

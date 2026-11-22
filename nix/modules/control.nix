@@ -84,7 +84,10 @@ in
         description = ''
           The OpenID Connect providers people sign in through beside their passwords, by
           what each is known by in addresses. A provider is told to send people back to
-          `<publicUrl>/api/auth/callback/<name>`.
+          `<publicUrl>/api/auth/callback/<name>`. An admin adds providers in the console
+          as well, under "Sign-in providers", while the control plane runs; those named
+          here are shown there and changed here alone, and where both know one by the
+          same name, the one named here is used.
         '';
         example = lib.literalExpression ''
           {
@@ -129,13 +132,13 @@ in
       provision = lib.mkOption {
         type = lib.types.bool;
         default = false;
-        description = "Make whoever a provider vouches for a person when they first sign in. Without, a provider signs in only the people an admin made.";
+        description = "Make whoever one of the providers named here vouches for a person when they first sign in. Without, they sign in only the people an admin made. A provider added in the console says this of itself.";
       };
       domains = lib.mkOption {
         type = lib.types.listOf lib.types.str;
         default = [ ];
         example = [ "example.com" ];
-        description = "The domains of the email addresses people are made for so; any, where none is named.";
+        description = "The domains of the email addresses people are made for so by the providers named here; any, where none is named. A provider added in the console names its own.";
       };
     };
     eventsKeep = lib.mkOption {

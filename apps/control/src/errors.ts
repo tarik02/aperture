@@ -72,3 +72,9 @@ export class ClientInvalid extends Schema.TaggedError<ClientInvalid>()("ClientIn
 export class GrantRefused extends Schema.TaggedError<GrantRefused>()("GrantRefused", {
   message: Schema.String,
 }) {}
+
+/** A provider does not tell how it is reached, or tells what nobody is signed in by. */
+export class DiscoveryFailed extends Schema.TaggedError<DiscoveryFailed>()("DiscoveryFailed", {
+  /** Why, each a sentence an admin reads. */
+  problems: Schema.Array(Schema.String),
+}) {}

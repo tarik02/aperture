@@ -50,6 +50,9 @@ const given = Config.all({
     Config.withDefault(""),
     Config.map((list) => listed(list).map((domain) => domain.toLowerCase())),
   ),
+  providersOnLoopback: Config.Boolean("APERTURE_CONTROL_SSO_LOOPBACK_HTTP").pipe(
+    Config.withDefault(false),
+  ),
   rateLimit: Config.Boolean("APERTURE_CONTROL_RATE_LIMIT").pipe(Config.withDefault(true)),
   consoleDir: Config.option(Config.NonEmptyString("APERTURE_CONTROL_CONSOLE_DIR")),
   // A secret is given as it is, or as a file that holds it: the second is how whatever

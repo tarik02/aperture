@@ -13,6 +13,7 @@ import { Events } from "../events/service.ts";
 import { Grants } from "../grants/service.ts";
 import { Identity } from "../identity/service.ts";
 import { Nodes } from "../nodes/service.ts";
+import { Providers } from "../providers/service.ts";
 import { sessionPath } from "../routing/paths.ts";
 import type { Session } from "../sessions/schemas.ts";
 import { Sessions } from "../sessions/service.ts";
@@ -217,6 +218,34 @@ const grants = HttpApiBuilder.group(
       .handle("revoke", ({ params }) =>
         Effect.flatMap(scoped("tokens:write"), (caller) => grants.revoke(caller, params.id)),
       );
+  }),
+);
+
+const providers = HttpApiBuilder.group(
+  Api,
+  "providers",
+  Effect.fn(function* (handlers) {
+    const providers = yield* Providers;
+    const identity = yield* Identity;
+    const settings = yield* Settings;
+    return handlers
+      .handle(
+        "list",
+        Effect.fn(function* () {
+          yield* admin;
+          const origin = originOf(settings, yield* HttpServerRequest.HttpServerRequest);
+          return {
+            callbackBase: `${origin}${identity.path}/callback/`,
+            providers: yield* providers.list(),
+          };
+        }),
+      )
+      .handle("create", ({ payload }) => Effect.andThen(admin, providers.create(payload)))
+      .handle("check", ({ payload }) => Effect.andThen(admin, providers.check(payload.issuer)))
+      .handle("change", ({ params, payload }) =>
+        Effect.andThen(admin, providers.change(params.id, payload)),
+      )
+      .handle("remove", ({ params }) => Effect.andThen(admin, providers.remove(params.id)));
   }),
 );
 
@@ -457,6 +486,7 @@ export const layer = Layer.mergeAll(
   events,
   grants,
   nodes,
+  providers,
   sessions,
   shares,
   signIn,

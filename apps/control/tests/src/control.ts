@@ -40,7 +40,12 @@ export interface ControlOptions {
    * Sign people in through the suite's provider, whose address is given beside this. With
    * `provision`, whoever it vouches for is made a person; of `domains` alone, where named.
    */
-  readonly sso?: { readonly provision?: boolean; readonly domains?: ReadonlyArray<string> };
+  readonly sso?: {
+    readonly provision?: boolean;
+    readonly domains?: ReadonlyArray<string>;
+    /** The settings name no provider: the suite's is there for an admin to add. */
+    readonly unnamed?: boolean;
+  };
 }
 
 /** What a node says of itself in a keepalive, as JSON has it. */
@@ -153,7 +158,9 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
     APERTURE_CONTROL_BOOTSTRAP_TOKEN: BOOTSTRAP,
     APERTURE_CONTROL_TICKET_KEY: signingKey,
     ...(options.console === true ? { APERTURE_CONTROL_CONSOLE_DIR: CONSOLE } : {}),
-    ...(Option.isNone(provider)
+    // The suite's provider is on this machine, and speaks no TLS.
+    ...(Option.isNone(provider) ? {} : { APERTURE_CONTROL_SSO_LOOPBACK_HTTP: "true" }),
+    ...(Option.isNone(provider) || options.sso?.unnamed === true
       ? {}
       : {
           APERTURE_CONTROL_SSO_PROVIDERS: JSON.stringify([
