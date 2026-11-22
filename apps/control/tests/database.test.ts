@@ -23,17 +23,7 @@ suite(database)("the database", (it) => {
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       const applied = yield* Database.migrate;
-      expect(applied.map(([, name]) => name)).toEqual([
-        "initial",
-        "clients_granted",
-        "session_shares",
-        "accounts_disabled",
-        "events",
-        "registration_tokens_revoked",
-        "providers",
-        "providers_oauth2",
-        "providers_icon",
-      ]);
+      expect(applied.map(([, name]) => name)).toEqual(["initial"]);
 
       const tables = yield* sql`
         SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'

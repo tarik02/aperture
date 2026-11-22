@@ -26,7 +26,9 @@ const initial = statements([
     -- Who signs in as the account, as what signs people in knows them; none for a service.
     person_id text UNIQUE,
     email text,
-    created_at timestamptz NOT NULL
+    created_at timestamptz NOT NULL,
+    -- A disabled account stays with all that is its own, and is nobody's way in.
+    disabled_at timestamptz
   )`,
   `CREATE TABLE workspaces (
     id uuid PRIMARY KEY,
@@ -52,11 +54,14 @@ const initial = statements([
     resources jsonb
   )`,
   `CREATE INDEX api_tokens_account_id ON api_tokens (account_id)`,
+  // A registration token that was taken back is kept, so that an admin sees it was, and so
+  // that the nodes that registered with it are still known to have.
   `CREATE TABLE registration_tokens (
     id uuid PRIMARY KEY,
     name text NOT NULL,
     token_hash text NOT NULL UNIQUE,
-    created_at timestamptz NOT NULL
+    created_at timestamptz NOT NULL,
+    revoked_at timestamptz
   )`,
   // The control plane has to send the operator token to the node, so no digest of it
   // would do: it is sealed with the master key, which is not here.
@@ -70,7 +75,9 @@ const initial = statements([
     offers jsonb,
     registration_token_id uuid REFERENCES registration_tokens (id) ON DELETE SET NULL,
     registered_at timestamptz NOT NULL,
-    last_seen_at timestamptz NOT NULL
+    last_seen_at timestamptz NOT NULL,
+    -- When it was noted silent: once, until it is heard from again.
+    silent_at timestamptz
   )`,
   // The session a snapshot was taken of is named and not referenced: it may be deleted,
   // and the snapshot stays.
@@ -113,12 +120,15 @@ const initial = statements([
   `CREATE INDEX sessions_workspace_id ON sessions (workspace_id)`,
   `CREATE INDEX snapshots_workspace_id ON snapshots (workspace_id)`,
   // An app registers itself, and nobody is asked first: it is nothing until a person
-  // gives it a grant.
+  // gives it a grant. One that was given a grant once is kept though the grant was taken
+  // back: it may ask again as what it registered as. One that never was is forgotten after
+  // a while.
   `CREATE TABLE oauth_clients (
     id uuid PRIMARY KEY,
     name text NOT NULL,
     redirect_uris jsonb NOT NULL,
-    created_at timestamptz NOT NULL
+    created_at timestamptz NOT NULL,
+    granted_at timestamptz
   )`,
   `CREATE TABLE oauth_grants (
     id uuid PRIMARY KEY,
@@ -143,19 +153,7 @@ const initial = statements([
     expires_at timestamptz NOT NULL
   )`,
   `CREATE INDEX oauth_tokens_grant_id ON oauth_tokens (grant_id)`,
-]);
-
-// An app that was given a grant once is kept though the grant was taken back: it may ask
-// again as what it registered as. One that never was is forgotten after a while.
-const clientsGranted = statements([
-  `ALTER TABLE oauth_clients ADD COLUMN granted_at timestamptz`,
-  `UPDATE oauth_clients SET granted_at = (
-    SELECT min(created_at) FROM oauth_grants WHERE client_id = oauth_clients.id
-  )`,
-]);
-
-// A link's secret is kept as its digest: whoever reads the database gets into no session.
-const sessionShares = statements([
+  // A link's secret is kept as its digest: whoever reads the database gets into no session.
   `CREATE TABLE session_shares (
     id uuid PRIMARY KEY,
     session_id text NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
@@ -168,15 +166,7 @@ const sessionShares = statements([
     last_used_at timestamptz
   )`,
   `CREATE INDEX session_shares_session_id ON session_shares (session_id)`,
-]);
-
-// A disabled account stays with all that is its own, and is nobody's way in.
-const accountsDisabled = statements([`ALTER TABLE accounts ADD COLUMN disabled_at timestamptz`]);
-
-// An event names what it is about and references nothing: it stays when that is gone.
-// A node is noted silent once, until it is heard from again; the ones there are were
-// noted before there was anything to note it in.
-const events = statements([
+  // An event names what it is about and references nothing: it stays when that is gone.
   `CREATE TABLE events (
     id uuid PRIMARY KEY,
     occurred_at timestamptz NOT NULL,
@@ -197,21 +187,9 @@ const events = statements([
   `CREATE INDEX events_owner_id ON events (owner_id, occurred_at DESC)`,
   `CREATE INDEX events_workspace_id ON events (workspace_id, occurred_at DESC)`,
   `CREATE INDEX events_resource ON events (resource_kind, resource_id, occurred_at DESC)`,
-  `ALTER TABLE nodes ADD COLUMN silent_at timestamptz`,
-  `UPDATE nodes SET silent_at = last_seen_at`,
-]);
-
-// A registration token that was taken back is kept, so that an admin sees it was, and so
-// that the nodes that registered with it are still known to have.
-const registrationTokensRevoked = statements([
-  `ALTER TABLE registration_tokens ADD COLUMN revoked_at timestamptz`,
-]);
-
-// A provider's client secret is sent to the provider, so no digest of it would do: it is
-// sealed as a node's operator token is. People who came through a provider name it and
-// reference nothing: it may be removed, and they stay. The count is what tells every
-// program on this database that the providers are not what it last read.
-const providers = statements([
+  // A provider's client secret is sent to the provider, so no digest of it would do: it is
+  // sealed as a node's operator token is. People who came through a provider name it and
+  // reference nothing: it may be removed, and they stay.
   `CREATE TABLE providers (
     id text PRIMARY KEY,
     name text NOT NULL,
@@ -223,8 +201,17 @@ const providers = statements([
     domains jsonb NOT NULL,
     enabled boolean NOT NULL,
     created_at timestamptz NOT NULL,
-    updated_at timestamptz NOT NULL
+    updated_at timestamptz NOT NULL,
+    kind text NOT NULL DEFAULT 'oidc',
+    -- A provider that speaks OAuth 2.0 alone has no issuer to say how it is reached:
+    -- where it is asked is kept with it.
+    endpoints jsonb,
+    -- Which provider's mark one is shown with is said by whoever adds it, and kept as
+    -- said: nothing tells it from where a provider is reached.
+    icon text
   )`,
+  // The count is what tells every program on this database that the providers are not
+  // what it last read.
   `CREATE TABLE providers_revision (
     only_one boolean PRIMARY KEY DEFAULT true CHECK (only_one),
     revision bigint NOT NULL
@@ -232,30 +219,9 @@ const providers = statements([
   `INSERT INTO providers_revision (revision) VALUES (0)`,
 ]);
 
-// A provider that speaks OAuth 2.0 alone has no issuer to say how it is reached: where it
-// is asked is kept with it. Those that were there speak OpenID Connect.
-const providersOauth2 = statements([
-  `ALTER TABLE providers ADD COLUMN kind text NOT NULL DEFAULT 'oidc'`,
-  `ALTER TABLE providers ADD COLUMN endpoints jsonb`,
-]);
-
-// Which provider's mark one is shown with is said by whoever adds it, and kept as said:
-// nothing tells it from where a provider is reached. Those that were there said none.
-const providersIcon = statements([`ALTER TABLE providers ADD COLUMN icon text`]);
-
 /** Brings the database to what this program expects; what was applied before is left alone. */
 export const migrate = Migrator.make({})({
-  loader: Migrator.fromRecord({
-    "0001_initial": initial,
-    "0002_clients_granted": clientsGranted,
-    "0003_session_shares": sessionShares,
-    "0004_accounts_disabled": accountsDisabled,
-    "0005_events": events,
-    "0006_registration_tokens_revoked": registrationTokensRevoked,
-    "0007_providers": providers,
-    "0008_providers_oauth2": providersOauth2,
-    "0009_providers_icon": providersIcon,
-  }),
+  loader: Migrator.fromRecord({ "0001_initial": initial }),
   table: "control_migrations",
 });
 
