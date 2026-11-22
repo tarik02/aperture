@@ -4,9 +4,10 @@ import {
   SidebarTrigger,
 } from "@aperture-browser/ui/components/sidebar";
 import { cn } from "@aperture-browser/ui/utils";
-import { useRouterState } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
 import { AppSidebar } from "#/components/app-sidebar.tsx";
+import { PageCrumb } from "#/components/page-crumb.tsx";
 import { PageHeaderActionsTarget } from "#/components/page-header-actions.tsx";
 import { WindowTitlebar } from "#/components/window-titlebar.tsx";
 import { useDocumentTitle } from "#/lib/document-title.ts";
@@ -29,9 +30,11 @@ const INSET =
 export function AppShell({ layout, children }: AppShellProps) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [headerActions, setHeaderActions] = useState<HTMLDivElement | null>(null);
-  const page = resolveNavItem(pathname)?.title ?? "Sessions";
+  const [crumb, setCrumb] = useState<string>();
+  const item = resolveNavItem(pathname);
+  const page = item?.title ?? "Sessions";
   // The workbench names the tab itself, after what its session shows.
-  useDocumentTitle(layout === "page" ? page : undefined, layout === "page");
+  useDocumentTitle(layout === "page" ? (crumb ?? page) : undefined, layout === "page");
 
   if (layout === "workbench") {
     return (
@@ -55,7 +58,27 @@ export function AppShell({ layout, children }: AppShellProps) {
         >
           <SidebarTrigger className="aperture:-ml-1" />
           <h1 className="aperture:min-w-0 aperture:shrink-0 aperture:truncate aperture:pr-2 aperture:text-sm aperture:font-semibold aperture:max-sm:shrink">
-            {page}
+            {crumb === undefined || item === undefined ? (
+              page
+            ) : (
+              <>
+                {/* A phone's bar has room for whose page it is, and the menu leads back. */}
+                <Link
+                  to={item.to}
+                  data-console-crumb-back
+                  className="aperture:font-normal aperture:text-muted-foreground aperture:hover:text-foreground aperture:max-sm:hidden"
+                >
+                  {page}
+                </Link>
+                <span
+                  aria-hidden
+                  className="aperture:px-1.5 aperture:font-normal aperture:text-muted-foreground aperture:max-sm:hidden"
+                >
+                  /
+                </span>
+                <span data-console-crumb>{crumb}</span>
+              </>
+            )}
           </h1>
           <div
             ref={setHeaderActions}
@@ -63,9 +86,11 @@ export function AppShell({ layout, children }: AppShellProps) {
           />
         </header>
         <div className="aperture:relative aperture:min-h-0 aperture:flex-1">
-          <PageHeaderActionsTarget.Provider value={headerActions}>
-            {children}
-          </PageHeaderActionsTarget.Provider>
+          <PageCrumb.Provider value={setCrumb}>
+            <PageHeaderActionsTarget.Provider value={headerActions}>
+              {children}
+            </PageHeaderActionsTarget.Provider>
+          </PageCrumb.Provider>
         </div>
       </SidebarInset>
     </SidebarProvider>

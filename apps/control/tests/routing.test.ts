@@ -1915,25 +1915,31 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.until(`!document.querySelector("[data-console-name-dialog]")`);
       expect(yield* page.evaluate(`!!document.querySelector("[data-console-person]")`)).toBe(false);
       yield* shot(page, fs, "console-service-accounts");
-      yield* page.click(`${bot} [data-console-service-token]`);
+      // Its tokens have a page of their own, reached from its row: none yet.
+      const botId =
+        (yield* root.api.accounts.list()).find((one) => one.name === "Deploy bot")?.id ?? "";
+      const spareToken = yield* root.api.accounts.createToken({
+        params: { id: botId },
+        payload: { name: "spare", scopes: ["sessions:read"] },
+      });
+      yield* page.click(`${bot} [data-console-service-tokens]`);
+      yield* page.until(`location.pathname === "/-/service-accounts/${botId}/tokens"`);
+      yield* page.until(
+        `document.querySelector("[data-console-crumb]")?.textContent === "Deploy bot"`,
+      );
+      yield* page.until(`!!document.querySelector('[data-console-token="spare"]')`);
+      expect(yield* page.evaluate(`!!document.querySelector("[data-console-service]")`)).toBe(
+        false,
+      );
+      yield* page.click("[data-console-token-new]");
       yield* page.until(`!!document.querySelector("[data-console-token-create] input")`);
+      expect(yield* page.text(DIALOG)).toContain("Deploy bot");
       yield* page.click(`[data-console-scope="sessions:write"]`);
       yield* page.until(
         `document.querySelector('[data-console-scope="sessions:write"]').hasAttribute("data-checked")`,
       );
-      // The dialog may still be coming to rest, and a press beside the field names nothing:
-      // it is pressed until it has the caret, and what is typed is seen in it before it is sent.
-      const naming = `document.querySelector('[data-console-token-create] input[name="name"]')`;
-      yield* page
-        .click(`[data-console-token-create] input[name="name"]`)
-        .pipe(
-          Effect.andThen(page.until(`document.activeElement === ${naming}`, "2 seconds")),
-          Effect.retry({ times: 5 }),
-        );
-      yield* page.type("deploys");
-      yield* page.until(`${naming}.value === "deploys"`);
       yield* shot(page, fs, "console-service-token");
-      yield* page.key("Enter", "Enter", ENTER);
+      yield* nameToken(page, "deploys");
       yield* page.until(`!!document.querySelector("[data-console-secret]")`);
       const withIt = yield* control.as((yield* page.text("[data-console-secret]")) ?? "");
       const whose = yield* withIt.accounts.current();
@@ -1942,6 +1948,53 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       expect((yield* Effect.flip(withIt.snapshots.list()))._tag).toBe("Forbidden");
       yield* page.key("Escape", "Escape", ESCAPE);
       yield* page.until(`!document.querySelector("[data-console-secret]")`);
+      const deploys = `[data-console-token="deploys"]`;
+      yield* page.until(`!!document.querySelector('${deploys}')`);
+      yield* shot(page, fs, "console-service-tokens");
+      yield* shotDark(page, fs, "console-service-tokens-dark");
+      // One is taken back from its row, once that is said again, and the other stays good.
+      const spared = `[data-console-token="spare"]`;
+      const asSpare = yield* control.as(spareToken.token);
+      expect((yield* asSpare.accounts.current()).name).toBe("Deploy bot");
+      yield* page.click(`${spared} [data-console-row-action="revoke"]`);
+      yield* page.until(`!!document.querySelector('${BUTTONS} button:last-child')`);
+      yield* placed(page);
+      yield* shot(page, fs, "console-service-token-revoke");
+      yield* page.click(`${BUTTONS} button:last-child`);
+      yield* page.until(`!document.querySelector('${DIALOG}')`);
+      yield* page.until(`!document.querySelector('${spared}')`);
+      expect((yield* Effect.flip(asSpare.accounts.current()))._tag).toBe("Unauthorized");
+      expect((yield* withIt.accounts.current()).name).toBe("Deploy bot");
+      yield* pick(page, `[aria-label="Which tokens"]`, "Revoked or expired");
+      yield* page.until(`document.querySelector('${spared}')?.textContent.includes("revoked")`);
+      expect(yield* page.evaluate(`!!document.querySelector('${deploys}')`)).toBe(false);
+      expect(yield* page.evaluate(`!!document.querySelector('${spared} button')`)).toBe(false);
+      yield* pick(page, `[aria-label="Which tokens"]`, "Active");
+      // A right click on a row offers what its button does.
+      yield* page.click(`${deploys} td`, "right");
+      yield* page.until(
+        `[...document.querySelectorAll('[data-slot="context-menu-item"]')].some((item) => item.textContent.includes("Revoke"))`,
+      );
+      yield* page.key("Escape", "Escape", ESCAPE);
+      yield* page.until(`!document.querySelector('[data-slot="context-menu-item"]')`);
+      // On a phone a token is a block of its own, with what is done with it in its menu.
+      const narrow = yield* viewer.open(`${proxy.url}/-/service-accounts/${botId}/tokens`, {
+        width: 390,
+        height: 844,
+        mobile: true,
+      });
+      yield* narrow.until(`!!document.querySelector('${deploys}')`);
+      yield* narrow.click(`${deploys} [aria-label="Token actions"]`);
+      yield* narrow.until(`!!document.querySelector('[data-slot="dropdown-menu-item"]')`);
+      yield* shot(narrow, fs, "console-phone-service-tokens");
+      yield* shotDark(narrow, fs, "console-phone-service-tokens-dark");
+      expect(yield* narrow.evaluate(`document.documentElement.scrollWidth <= innerWidth`)).toBe(
+        true,
+      );
+      yield* narrow.close;
+      // The title bar leads back to the accounts.
+      yield* page.click("[data-console-crumb-back]");
+      yield* page.until(`!!document.querySelector('${bot}')`);
       // It is kept out and removed as a person is: disabled, its token is nobody's.
       const doesToBot = (says: string) =>
         Effect.gen(function* () {
@@ -1959,7 +2012,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       expect((yield* Effect.flip(withIt.accounts.current()))._tag).toBe("Unauthorized");
       yield* page.click(`${bot} td`, "right");
       yield* page.until(`!!document.querySelector("[data-console-person-context]")`);
-      expect(yield* page.text("[data-console-person-context]")).toContain("New API token");
+      expect(yield* page.text("[data-console-person-context]")).toContain("API tokens");
       yield* shot(page, fs, "console-service-accounts-disabled");
       yield* shotDark(page, fs, "console-service-accounts-disabled-dark");
       yield* choose(page, `[data-slot="context-menu-item"]`, "Enable");

@@ -74,10 +74,15 @@ function TokenReach({ resources }: { resources: ApiToken["resources"] }) {
   );
 }
 
-/** The API tokens of the account that is signed in. */
-export function TokensPage() {
-  const tokens = useTokensQuery();
-  const revoke = useRevokeTokenMutation();
+type TokensPageProps = {
+  /** Whose tokens they are, where they are not the one's who is signed in: a service account's. */
+  account?: { readonly id: string; readonly name: string; readonly admin: boolean };
+};
+
+/** The API tokens of the account that is signed in, or of the one an admin looks at. */
+export function TokensPage({ account }: TokensPageProps) {
+  const tokens = useTokensQuery(account?.id);
+  const revoke = useRevokeTokenMutation(account?.id);
   const [shown, setShown] = useState<Shown>("active");
   const [creating, setCreating] = useState(false);
   const [secret, setSecret] = useState<string>();
@@ -106,78 +111,91 @@ export function TokensPage() {
         <p role="alert" className="aperture:text-sm aperture:text-destructive">
           {told(tokens.error)}
         </p>
-      ) : null}
-      <Table stickyActionColumn>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>State</TableHead>
-            <TableHead>Scopes</TableHead>
-            <TableHead>Resources</TableHead>
-            <TableHead>Created</TableHead>
-            <TableHead>Expires</TableHead>
-            <TableHead className="aperture:w-px" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {listed.map((token) => {
-            const state = stateOf(token);
-            const actions: ReadonlyArray<RowAction> =
-              state === "active"
-                ? [
-                    {
-                      key: "revoke",
-                      label: "Revoke",
-                      icon: Ban,
-                      destructive: true,
-                      shown: "button",
-                      onSelect: () => setRevoking(token),
-                    },
-                  ]
-                : [];
-            return (
-              <RowContextMenu key={token.id} actions={actions}>
-                <TableRow data-console-token={token.name}>
-                  <TableCell className="aperture:font-medium">
-                    <LongName>{token.name}</LongName>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={state === "active" ? "default" : "outline"}>{state}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    {token.scopes === null ? (
-                      <span className="aperture:text-muted-foreground">Everything</span>
-                    ) : (
-                      <span className="aperture:flex aperture:max-w-64 aperture:flex-wrap aperture:gap-1">
-                        {token.scopes.map((scope) => (
-                          <Badge key={scope} variant="secondary" data-console-token-scope={scope}>
-                            {scope}
-                          </Badge>
-                        ))}
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <TokenReach resources={token.resources} />
-                  </TableCell>
-                  <TableCell label="Created" className="aperture:text-muted-foreground">
-                    {when.format(new Date(token.createdAt.epochMilliseconds))}
-                  </TableCell>
-                  <TableCell label="Expires" className="aperture:text-muted-foreground">
-                    {token.expiresAt === null
-                      ? "Never"
-                      : when.format(new Date(token.expiresAt.epochMilliseconds))}
-                  </TableCell>
-                  <TableCell>
-                    <RowActions actions={actions} label="Token actions" />
-                  </TableCell>
-                </TableRow>
-              </RowContextMenu>
-            );
-          })}
-        </TableBody>
-      </Table>
-      <TokenCreateDialog open={creating} onOpenChange={setCreating} onCreated={setSecret} />
+      ) : tokens.isSuccess && listed.length === 0 ? (
+        <p
+          data-console-empty
+          className="aperture:py-16 aperture:text-center aperture:text-sm aperture:text-muted-foreground"
+        >
+          {tokens.data.length === 0 ? "No API tokens yet." : "No token matches."}
+        </p>
+      ) : (
+        <Table stickyActionColumn>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>State</TableHead>
+              <TableHead>Scopes</TableHead>
+              <TableHead>Resources</TableHead>
+              <TableHead>Created</TableHead>
+              <TableHead>Expires</TableHead>
+              <TableHead className="aperture:w-px" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {listed.map((token) => {
+              const state = stateOf(token);
+              const actions: ReadonlyArray<RowAction> =
+                state === "active"
+                  ? [
+                      {
+                        key: "revoke",
+                        label: "Revoke",
+                        icon: Ban,
+                        destructive: true,
+                        shown: "button",
+                        onSelect: () => setRevoking(token),
+                      },
+                    ]
+                  : [];
+              return (
+                <RowContextMenu key={token.id} actions={actions}>
+                  <TableRow data-console-token={token.name}>
+                    <TableCell className="aperture:font-medium">
+                      <LongName>{token.name}</LongName>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={state === "active" ? "default" : "outline"}>{state}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      {token.scopes === null ? (
+                        <span className="aperture:text-muted-foreground">Everything</span>
+                      ) : (
+                        <span className="aperture:flex aperture:max-w-64 aperture:flex-wrap aperture:gap-1">
+                          {token.scopes.map((scope) => (
+                            <Badge key={scope} variant="secondary" data-console-token-scope={scope}>
+                              {scope}
+                            </Badge>
+                          ))}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <TokenReach resources={token.resources} />
+                    </TableCell>
+                    <TableCell label="Created" className="aperture:text-muted-foreground">
+                      {when.format(new Date(token.createdAt.epochMilliseconds))}
+                    </TableCell>
+                    <TableCell label="Expires" className="aperture:text-muted-foreground">
+                      {token.expiresAt === null
+                        ? "Never"
+                        : when.format(new Date(token.expiresAt.epochMilliseconds))}
+                    </TableCell>
+                    <TableCell>
+                      <RowActions actions={actions} label="Token actions" />
+                    </TableCell>
+                  </TableRow>
+                </RowContextMenu>
+              );
+            })}
+          </TableBody>
+        </Table>
+      )}
+      <TokenCreateDialog
+        account={account}
+        open={creating}
+        onOpenChange={setCreating}
+        onCreated={setSecret}
+      />
       <SecretDialog title="API token" secret={secret} onClose={() => setSecret(undefined)} />
       <ConfirmDialog
         open={revoking !== undefined}

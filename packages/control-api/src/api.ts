@@ -358,12 +358,21 @@ export class AccountsGroup extends HttpApiGroup.make("accounts")
       success: ApiTokenCreated.pipe(HttpApiSchema.status(201)),
       error: [Forbidden, AccountNotFound],
     }),
+    HttpApiEndpoint.get("tokensOf", "/accounts/:id/tokens", {
+      params: { id: Id },
+      success: Schema.Array(ApiToken),
+      error: [Forbidden, AccountNotFound],
+    }),
+    HttpApiEndpoint.delete("revokeTokenOf", "/accounts/:id/tokens/:tokenId", {
+      params: { id: Id, tokenId: Id },
+      error: [Forbidden, AccountNotFound, ApiTokenNotFound],
+    }),
   )
   .annotateMerge(
     OpenApi.annotations({
       title: "Accounts",
       description:
-        "Accounts and their API tokens. Only an admin makes them, disables them and removes them. Whoever says who is in a workspace finds a person's account by the whole of their email address.",
+        "Accounts and their API tokens. Only an admin makes them, disables them and removes them, and sees and takes back the tokens of an account that is not their own. Whoever says who is in a workspace finds a person's account by the whole of their email address.",
     }),
   ) {}
 

@@ -88,6 +88,13 @@ export interface AccountsShape {
   readonly tokens: (caller: Caller) => Effect.Effect<ReadonlyArray<ApiToken>, Forbidden>;
   /** Takes a token back: one of the caller's own account, or any for an admin. */
   readonly revokeToken: (caller: Caller, id: string) => Effect.Effect<void, ApiTokenNotFound>;
+  /** The tokens of an account an admin names, those taken back among them. */
+  readonly tokensOf: (accountId: string) => Effect.Effect<ReadonlyArray<ApiToken>, AccountNotFound>;
+  /** Takes back a token of an account an admin names: one of another's is none of it. */
+  readonly revokeTokenOf: (
+    accountId: string,
+    id: string,
+  ) => Effect.Effect<void, AccountNotFound | ApiTokenNotFound>;
   /** Whose a bearer token is. */
   readonly identify: (bearer: string) => Effect.Effect<Caller, Unauthorized>;
 }

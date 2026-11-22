@@ -8,6 +8,7 @@ import {
 import { AppShell } from "#/components/app-shell.tsx";
 import { AdminOnly, NotFound, RouteError } from "#/components/route-state.tsx";
 import { PeoplePage } from "#/features/account/people-page.tsx";
+import { ServiceAccountTokensPage } from "#/features/account/service-account-tokens-page.tsx";
 import { ServiceAccountsPage } from "#/features/account/service-accounts-page.tsx";
 import { SignInPage } from "#/features/auth/sign-in-page.tsx";
 import { EventsPage } from "#/features/event/events-page.tsx";
@@ -156,6 +157,19 @@ const serviceAccounts = createRoute({
   ),
 });
 
+const serviceAccountTokens = createRoute({
+  getParentRoute: () => pages,
+  path: "/-/service-accounts/$accountId/tokens",
+  component: function Tokens() {
+    const { accountId } = serviceAccountTokens.useParams();
+    return (
+      <AdminOnly>
+        <ServiceAccountTokensPage accountId={accountId} />
+      </AdminOnly>
+    );
+  },
+});
+
 const events = createRoute({
   getParentRoute: () => pages,
   path: "/-/events",
@@ -197,6 +211,7 @@ export const router = createRouter({
         registrationTokens,
         people,
         serviceAccounts,
+        serviceAccountTokens,
         events,
       ]),
       session,

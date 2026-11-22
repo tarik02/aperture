@@ -374,6 +374,81 @@ for (const stores of Control.STORES) {
       }),
     );
 
+    it.effect("an admin sees the tokens of an account, and takes one of them back", () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const root = yield* Control.account("Root", true);
+        const bot = yield* root.api.accounts.create({ payload: { name: "Bot" } });
+        const whose = { id: bot.id };
+        const made = yield* root.api.accounts.createToken({
+          params: whose,
+          payload: { name: "deploys", scopes: ["sessions:read"] },
+        });
+        const spare = yield* root.api.accounts.createToken({
+          params: whose,
+          payload: { name: "spare", scopes: ["sessions:read"], expiresInDays: 1 },
+        });
+        const listed = yield* root.api.accounts.tokensOf({ params: whose });
+        expect(listed.map((token) => [token.name, token.accountId, token.revokedAt])).toEqual([
+          ["deploys", bot.id, null],
+          ["spare", bot.id, null],
+        ]);
+        expect(JSON.stringify(listed)).not.toContain(made.token);
+
+        // Whoever is no admin does neither, and neither does an admin's token not made for it.
+        const ada = yield* Control.account("Ada");
+        expect((yield* Effect.flip(ada.api.accounts.tokensOf({ params: whose })))._tag).toBe(
+          "Forbidden",
+        );
+        const lesser = yield* root.api.accounts.createOwnToken({
+          payload: { name: "lesser", scopes: ["tokens:write"] },
+        });
+        const asLesser = yield* control.as(lesser.token);
+        expect((yield* Effect.flip(asLesser.accounts.tokensOf({ params: whose })))._tag).toBe(
+          "Forbidden",
+        );
+        expect(
+          (yield* Effect.flip(
+            asLesser.accounts.revokeTokenOf({ params: { ...whose, tokenId: made.id } }),
+          ))._tag,
+        ).toBe("Forbidden");
+
+        // A token is taken back of the account it is of, and of no other.
+        const elsewhere = yield* Effect.flip(
+          root.api.accounts.revokeTokenOf({ params: { id: ada.account.id, tokenId: made.id } }),
+        );
+        expect(elsewhere._tag).toBe("ApiTokenNotFound");
+        const nobody = "00000000-0000-7000-8000-000000000000";
+        expect(
+          (yield* Effect.flip(root.api.accounts.tokensOf({ params: { id: nobody } })))._tag,
+        ).toBe("AccountNotFound");
+        expect(
+          (yield* Effect.flip(
+            root.api.accounts.revokeTokenOf({ params: { id: nobody, tokenId: made.id } }),
+          ))._tag,
+        ).toBe("AccountNotFound");
+
+        const withIt = yield* control.as(made.token);
+        expect((yield* withIt.accounts.current()).name).toBe("Bot");
+        yield* root.api.accounts.revokeTokenOf({ params: { ...whose, tokenId: made.id } });
+        expect((yield* Effect.flip(withIt.accounts.current()))._tag).toBe("Unauthorized");
+        const after = yield* root.api.accounts.tokensOf({ params: whose });
+        expect(after.map((token) => [token.name, token.revokedAt !== null])).toEqual([
+          ["deploys", true],
+          ["spare", false],
+        ]);
+        expect((yield* (yield* control.as(spare.token)).accounts.current()).name).toBe("Bot");
+
+        const { events } = yield* root.api.events.list({
+          query: { resourceKind: "token", resourceId: made.id },
+        });
+        expect(events.map((event) => [event.kind, event.actor.id, event.resource?.label])).toEqual([
+          ["token.revoked", root.account.id, "deploys"],
+          ["token.created", root.account.id, "deploys"],
+        ]);
+      }),
+    );
+
     it.effect("the bootstrap token is an admin's and no account's", () =>
       Effect.gen(function* () {
         const control = yield* Control.Control;

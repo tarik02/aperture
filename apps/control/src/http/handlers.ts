@@ -149,6 +149,10 @@ const accounts = HttpApiBuilder.group(
       )
       .handle("revokeToken", ({ params }) =>
         Effect.flatMap(scoped("tokens:write"), (caller) => accounts.revokeToken(caller, params.id)),
+      )
+      .handle("tokensOf", ({ params }) => Effect.andThen(admin, accounts.tokensOf(params.id)))
+      .handle("revokeTokenOf", ({ params }) =>
+        Effect.andThen(admin, accounts.revokeTokenOf(params.id, params.tokenId)),
       );
   }),
 );

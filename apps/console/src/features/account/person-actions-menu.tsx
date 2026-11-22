@@ -70,14 +70,14 @@ export const personActions = (
 ];
 
 /** What is done with a service account: it has nothing to sign in with, so nothing of that. */
-export type ServiceDoing = Extract<PersonDoing, "disable" | "enable" | "delete"> | "token";
+export type ServiceDoing = Extract<PersonDoing, "disable" | "enable" | "delete"> | "tokens";
 
 /** What is done with one service account, for its menus. */
 export const serviceActions = (
   account: Account,
   own: boolean,
 ): ReadonlyArray<AccountAction<ServiceDoing>> => [
-  { key: "token", label: "New API token", icon: KeyRound },
+  { key: "tokens", label: "API tokens", icon: KeyRound },
   account.disabledAt === null
     ? { key: "disable", label: "Disable", icon: UserX, disabled: own, parted: true }
     : { key: "enable", label: "Enable", icon: UserCheck, parted: true },

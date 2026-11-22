@@ -35,7 +35,7 @@ import { SharesStore } from "../shares/store.ts";
 import { Settings } from "../settings/service.ts";
 import { after, now } from "../time.ts";
 import { accountOf, reaches } from "./caller.ts";
-import type { Account, AccountKind } from "./schemas.ts";
+import type { Account, AccountKind, ApiToken } from "./schemas.ts";
 import { Accounts } from "./service.ts";
 import { AccountsStore } from "./store.ts";
 import { WorkspacesStore } from "../workspaces/store.ts";
@@ -398,10 +398,9 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     return yield* store.listTokens(account.id);
   });
 
-  const revokeToken = Effect.fn("Accounts.revokeToken")(function* (caller: Caller, id: string) {
-    const token = Option.filter(yield* store.findToken(id), (found) =>
-      reaches(caller, { accountId: found.accountId, workspaceId: null }),
-    );
+  /** Takes a token back where it is one of those that may be, and notes it. */
+  const revoke = Effect.fn(function* (id: string, may: (token: ApiToken) => boolean) {
+    const token = Option.filter(yield* store.findToken(id), may);
     if (Option.isNone(token)) {
       return yield* new ApiTokenNotFound({ id });
     }
@@ -411,6 +410,29 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
       resource: { kind: "token", id, label: token.value.name },
       ownerId: token.value.accountId,
     });
+  });
+
+  const revokeToken = Effect.fn("Accounts.revokeToken")(function* (caller: Caller, id: string) {
+    yield* revoke(id, (token) =>
+      reaches(caller, { accountId: token.accountId, workspaceId: null }),
+    );
+  });
+
+  const tokensOf = Effect.fn("Accounts.tokensOf")(function* (accountId: string) {
+    if (Option.isNone(yield* store.find(accountId))) {
+      return yield* new AccountNotFound({ id: accountId });
+    }
+    return yield* store.listTokens(accountId);
+  });
+
+  const revokeTokenOf = Effect.fn("Accounts.revokeTokenOf")(function* (
+    accountId: string,
+    id: string,
+  ) {
+    if (Option.isNone(yield* store.find(accountId))) {
+      return yield* new AccountNotFound({ id: accountId });
+    }
+    yield* revoke(id, (token) => token.accountId === accountId);
   });
 
   return Accounts.of({
@@ -427,6 +449,8 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     createToken,
     tokens,
     revokeToken,
+    tokensOf,
+    revokeTokenOf,
     identify,
   });
 });

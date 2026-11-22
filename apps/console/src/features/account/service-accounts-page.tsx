@@ -9,11 +9,11 @@ import {
   TableRow,
 } from "@aperture-browser/ui/components/table";
 import { KeyRound, Plus } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { NameDialog } from "#/components/name-dialog.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
-import { SecretDialog } from "#/components/secret-dialog.tsx";
 import { TablePage } from "#/components/table-page.tsx";
 import { AccountCell } from "#/features/account/account-cell.tsx";
 import {
@@ -29,7 +29,6 @@ import {
   serviceActions,
 } from "#/features/account/person-actions-menu.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
-import { TokenCreateDialog } from "#/features/token/token-create-dialog.tsx";
 import { told } from "#/lib/api.ts";
 import { useLast } from "#/lib/use-last.ts";
 
@@ -55,8 +54,8 @@ const CONFIRM: Record<
 };
 
 /**
- * The accounts of what is not a person: each comes with API tokens alone, and is kept
- * out and removed as a person's is.
+ * The accounts of what is not a person: each comes with API tokens alone, which have a
+ * page of their own, and is kept out and removed as a person's is.
  */
 export function ServiceAccountsPage() {
   const accounts = useAccountsQuery();
@@ -68,14 +67,15 @@ export function ServiceAccountsPage() {
   const confirmed = useLast(confirming);
   const done = { onSettled: () => setConfirming(undefined) };
   const [creating, setCreating] = useState(false);
-  const [tokenFor, setTokenFor] = useState<Account>();
-  const tokenAccount = useLast(tokenFor);
-  const [secret, setSecret] = useState<string>();
+  const navigate = useNavigate();
   const services = accounts.data?.filter((account) => account.kind === "service");
 
   const select = (account: Account, doing: ServiceDoing) => {
-    if (doing === "token") {
-      setTokenFor(account);
+    if (doing === "tokens") {
+      void navigate({
+        to: "/-/service-accounts/$accountId/tokens",
+        params: { accountId: account.id },
+      });
     } else if (doing === "enable") {
       disable.mutate({ id: account.id, disabled: false });
     } else {
@@ -151,17 +151,17 @@ export function ServiceAccountsPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          data-console-service-token
+                          data-console-service-tokens
                           className="aperture:max-sm:hidden"
-                          onClick={() => onSelect("token")}
+                          onClick={() => onSelect("tokens")}
                         >
                           <KeyRound />
-                          New API token
+                          API tokens
                         </Button>
                         <PersonActionsMenu
                           label="Service account actions"
                           actions={actions}
-                          buttoned="token"
+                          buttoned="tokens"
                           onSelect={onSelect}
                         />
                       </div>
@@ -191,13 +191,6 @@ export function ServiceAccountsPage() {
         onOpenChange={setCreating}
         onSubmit={(name) => create.mutateAsync({ name })}
       />
-      <TokenCreateDialog
-        account={tokenAccount}
-        open={tokenFor !== undefined}
-        onOpenChange={(open) => (open ? undefined : setTokenFor(undefined))}
-        onCreated={setSecret}
-      />
-      <SecretDialog title="API token" secret={secret} onClose={() => setSecret(undefined)} />
     </TablePage>
   );
 }
