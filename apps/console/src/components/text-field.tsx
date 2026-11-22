@@ -30,7 +30,12 @@ export function TextField({
 
   return (
     <Field data-invalid={said === undefined ? undefined : true}>
-      <FieldLabel htmlFor={id} className={labelHidden ? "aperture:sr-only" : undefined}>
+      <FieldLabel
+        htmlFor={id}
+        // Narrow as well: a field makes what it holds as wide as itself, and a label that is
+        // only read out would reach as far past the edge of the dialog it stands in.
+        className={labelHidden ? "aperture:sr-only aperture:w-px!" : undefined}
+      >
         {label}
       </FieldLabel>
       <Input
