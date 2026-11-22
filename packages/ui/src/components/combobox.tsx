@@ -80,11 +80,12 @@ function ComboboxContent({
   align = "start",
   alignOffset = 0,
   anchor,
+  collisionPadding,
   ...props
 }: ComboboxPrimitive.Popup.Props &
   Pick<
     ComboboxPrimitive.Positioner.Props,
-    "side" | "align" | "sideOffset" | "alignOffset" | "anchor"
+    "side" | "align" | "sideOffset" | "alignOffset" | "anchor" | "collisionPadding"
   >) {
   return (
     <ComboboxPrimitive.Portal container={usePortalContainer()}>
@@ -94,6 +95,7 @@ function ComboboxContent({
         align={align}
         alignOffset={alignOffset}
         anchor={anchor}
+        collisionPadding={collisionPadding}
         className="aperture:isolate aperture:z-50"
       >
         <ComboboxPrimitive.Popup
@@ -149,11 +151,14 @@ function ComboboxItem({
         <span
           aria-hidden
           data-slot="combobox-item-checkbox"
-          className="aperture:flex aperture:size-4 aperture:shrink-0 aperture:items-center aperture:justify-center aperture:rounded-[4px] aperture:border aperture:border-input aperture:group-data-selected/combobox-item:border-primary aperture:group-data-selected/combobox-item:bg-primary aperture:dark:bg-input/30 aperture:dark:group-data-selected/combobox-item:bg-primary"
+          // Told apart from the item it is in, also where that is highlighted: its edge is
+          // of what the words are written in, and what fills it ticked is as the kit's
+          // checkbox has it.
+          className="aperture:flex aperture:size-4 aperture:shrink-0 aperture:items-center aperture:justify-center aperture:rounded-[4px] aperture:border aperture:border-foreground/40 aperture:bg-background aperture:group-data-selected/combobox-item:border-primary aperture:group-data-selected/combobox-item:bg-primary"
         >
           <ComboboxPrimitive.ItemIndicator>
-            {/* Over what a highlighted item says its own are coloured: it stands on the box. */}
-            <CheckIcon className="aperture:pointer-events-none aperture:size-3.5 aperture:text-primary-foreground!" />
+            {/* Drawn in its own colour, whatever a highlighted item says its own are written in. */}
+            <CheckIcon className="aperture:pointer-events-none aperture:size-3.5 aperture:stroke-primary-foreground aperture:stroke-[3]" />
           </ComboboxPrimitive.ItemIndicator>
         </span>
       )}

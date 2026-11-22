@@ -2553,7 +2553,10 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         yield* page.click("[data-console-provider-check]");
         yield* reached("reached");
         // Reached, it offers the scopes it says it gives; one it does not say is typed.
-        const picker = `${form} [data-slot="combobox-chip-input"]`;
+        // Nothing is typed into the field: pressed, it opens the list, whose own field is
+        // typed into.
+        const picker = `${form} [data-slot="scopes-picker"]`;
+        expect(yield* page.evaluate(`!!document.querySelector('${picker} input')`)).toBe(false);
         yield* page.evaluate(
           `void document.querySelector('${picker}').scrollIntoView({ block: "center" })`,
         );
@@ -2569,6 +2572,9 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
           page,
           `[data-scope-option="groups"]`,
           `document.querySelector('${form} [data-scope="groups"]')`,
+        );
+        yield* page.until(
+          `document.activeElement === document.querySelector('[data-slot="combobox-content"] input')`,
         );
         yield* page.type("federated:id");
         yield* page.until(
