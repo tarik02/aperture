@@ -25,6 +25,7 @@ import { totp } from "./src/totp.ts";
 const LONG = 300_000;
 const ENTER = 13;
 const ESCAPE = 27;
+const BACKSPACE = 8;
 
 const Shot = Schema.Struct({ data: Schema.String });
 
@@ -970,27 +971,57 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       alike(describing);
       yield* closed(page);
 
-      // Its routing is asked for and then edited in a dialog that is as tall all along.
-      yield* fromMenu(page, card, "Edit routing");
+      // Its proxy is asked for and then edited in a dialog that is as tall all along: a
+      // proxy for everything in the field at the top, the routes below it, and more
+      // upstreams for whoever asks for them.
+      yield* fromMenu(page, card, "Edit proxy");
       const routed = [yield* placed(page)];
       const proxied = "[data-console-session-proxy] [data-console-proxy]";
-      const routing = `${DIALOG} [data-console-proxy] > [data-slot="select-trigger"]`;
+      const routes = (within: string) =>
+        `document.querySelectorAll('${within} [data-console-proxy-route]').length`;
+      /** Adds an exception, a route and two upstreams to the proxy that is edited. */
+      const routesAdded = (within: string) =>
+        Effect.gen(function* () {
+          for (const pressed of [
+            "exception",
+            "route-add",
+            "advanced",
+            "upstream-add",
+            "upstream-add",
+          ]) {
+            yield* page.click(`${within} [data-console-proxy-${pressed}]`);
+          }
+          yield* page.until(
+            `${routes(within)} === 3 && document.querySelectorAll('${within} [data-console-proxy-upstream]').length === 2`,
+          );
+        });
       yield* page.until(`!!document.querySelector('${proxied}')`);
+      expect(yield* page.text(`${DIALOG} [data-slot="dialog-title"]`)).toBe("Proxy");
+      expect(yield* page.evaluate(routes(DIALOG))).toBe(0);
       yield* shot(page, fs, "console-routing");
       routed.push(yield* placed(page));
-      yield* pick(page, routing, "one proxy");
-      yield* page.until(`!!document.querySelector('${DIALOG} input[name="proxy-url"]')`);
+      // What is typed at the top is the proxy everything goes through: the one route says so.
+      yield* pressUntil(
+        page,
+        `${DIALOG} input[name="proxy-url"]`,
+        `document.activeElement === document.querySelector('${DIALOG} input[name="proxy-url"]')`,
+      );
+      yield* page.type("nowhere");
+      yield* page.until(`${routes(DIALOG)} === 1`);
+      expect(
+        yield* page.evaluate(
+          `document.querySelector('${DIALOG} [aria-label="Route 1 host"]').value`,
+        ),
+      ).toBe("*");
       routed.push(yield* placed(page));
+      // What is no proxy's address is not kept, which is said at the field.
       yield* page.click(`${DIALOG} button[type="submit"]`);
       yield* page.until(`!!document.querySelector('${proxied} [data-slot="field-error"]')`);
       yield* shot(page, fs, "console-routing-proxy-invalid");
       routed.push(yield* placed(page));
-      yield* pick(page, routing, "By rules");
-      for (const says of ["Upstream", "Upstream", "Rule", "Rule", "Rule"]) {
-        yield* choose(page, `${proxied} button`, says);
-      }
-      yield* page.until(`document.querySelectorAll('[aria-label="Rule match"]').length === 3`);
+      yield* routesAdded(DIALOG);
       yield* shot(page, fs, "console-routing-rules");
+      yield* shotDark(page, fs, "console-routing-rules-dark");
       routed.push(yield* placed(page));
       alike(routed);
       yield* closed(page);
@@ -1027,7 +1058,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* closed(page);
 
       // A new session is asked for in a dialog that is as tall, with its buttons where they
-      // were, whatever tab and routing it shows.
+      // were, whatever tab and proxy it shows.
       yield* page.click("[data-console-create-custom]");
       const create = "[data-console-session-create]";
       yield* page.until(`!!document.querySelector("${create} input")`);
@@ -1042,15 +1073,17 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* shot(page, fs, "console-create-routing");
       yield* shotDark(page, fs, "console-create-routing-dark");
       creating.push(yield* placed(page));
-      yield* pick(page, routing, "one proxy");
-      yield* page.until(`!!document.querySelector('${create} input[name="proxy-url"]')`);
+      // A press right after the tab changes is not always taken.
+      yield* pressUntil(
+        page,
+        `${create} input[name="proxy-url"]`,
+        `document.activeElement === document.querySelector('${create} input[name="proxy-url"]')`,
+      );
+      yield* page.type("socks5://proxy.example.test:1080");
+      yield* page.until(`${routes(create)} === 1`);
       yield* shot(page, fs, "console-create-routing-proxy");
       creating.push(yield* placed(page));
-      yield* pick(page, routing, "By rules");
-      for (const says of ["Upstream", "Upstream", "Rule", "Rule", "Rule"]) {
-        yield* choose(page, `${create} [data-console-proxy] button`, says);
-      }
-      yield* page.until(`document.querySelectorAll('[aria-label="Rule match"]').length === 3`);
+      yield* routesAdded(create);
       yield* shot(page, fs, "console-create-rules");
       yield* shotDark(page, fs, "console-create-rules-dark");
       creating.push(yield* placed(page));
@@ -1068,7 +1101,33 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       ).toBe(true);
       yield* shot(page, fs, "console-create-rules-invalid");
       creating.push(yield* placed(page));
-      yield* pick(page, routing, "Direct");
+      // Taken back row by row, and the proxy with what was typed of it: all goes direct again.
+      const removes = `${create} [aria-label="Remove route"], ${create} [aria-label="Remove upstream"]`;
+      yield* until(
+        "the routes and the upstreams being removed",
+        Effect.gen(function* () {
+          if (!(yield* page.evaluate(`!!document.querySelector('${removes}')`, Schema.Boolean))) {
+            return true;
+          }
+          yield* page.evaluate(`void document.querySelector('${removes}').click()`);
+          return false;
+        }),
+      );
+      yield* page.evaluate(
+        `void (document.querySelector('${create} input[name="proxy-url"]').scrollIntoView({ block: "nearest" }), document.querySelector('${create} input[name="proxy-url"]').select())`,
+      );
+      yield* pressUntil(
+        page,
+        `${create} input[name="proxy-url"]`,
+        `document.activeElement === document.querySelector('${create} input[name="proxy-url"]')`,
+      );
+      yield* page.evaluate(
+        `void document.querySelector('${create} input[name="proxy-url"]').select()`,
+      );
+      yield* page.key("Backspace", "Backspace", BACKSPACE);
+      yield* page.until(
+        `document.querySelector('${create} input[name="proxy-url"]').value === "" && ${routes(create)} === 0`,
+      );
       yield* tab(3);
       yield* page.until(`!!document.querySelector('[aria-label="Add tag"]')`);
       creating.push(yield* placed(page));

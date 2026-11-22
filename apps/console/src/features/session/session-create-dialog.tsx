@@ -17,7 +17,8 @@ import { useId, useState } from "react";
 import { Choice } from "#/components/choice.tsx";
 import { FreshDialog } from "#/components/fresh-dialog.tsx";
 import { TextField } from "#/components/text-field.tsx";
-import { emptyDraft, ProxyEditor, proxyOf, proxyRules } from "#/features/proxy/proxy-editor.tsx";
+import { emptyDraft, proxyOf, proxyRules } from "#/features/proxy/proxy-config.ts";
+import { ProxyEditor } from "#/features/proxy/proxy-editor.tsx";
 import { useOpenNewSession } from "#/features/session/session.mutations.ts";
 import { useSnapshotsQuery } from "#/features/snapshot/snapshot.queries.ts";
 import { useSelectedWorkspace } from "#/features/workspace/workspace.queries.ts";
@@ -104,7 +105,7 @@ function CreateForm({ onDone }: { onDone: () => void }) {
       >
         <TabsList className="aperture:shrink-0">
           <TabsTrigger value="general">General</TabsTrigger>
-          <TabsTrigger value="proxy">Routing</TabsTrigger>
+          <TabsTrigger value="proxy">Proxy</TabsTrigger>
           <TabsTrigger value="advanced">Advanced</TabsTrigger>
         </TabsList>
         {/* The tallest of its tabs: the one of tags, with three of them. */}
@@ -144,7 +145,7 @@ function CreateForm({ onDone }: { onDone: () => void }) {
               {(field) => (
                 <ProxyEditor
                   draft={field.state.value}
-                  error={
+                  errors={
                     field.state.meta.errors.length > 0 ? proxyRules(field.state.value) : undefined
                   }
                   onChange={field.handleChange}

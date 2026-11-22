@@ -1,296 +1,564 @@
-import type { ProxyConfig } from "@aperture-browser/control-api";
 import { Button } from "@aperture-browser/ui/components/button";
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from "@aperture-browser/ui/components/field";
 import { Input } from "@aperture-browser/ui/components/input";
-import { FieldError } from "@aperture-browser/ui/components/field";
-import { Plus, Trash2 } from "lucide-react";
-import { Choice } from "#/components/choice.tsx";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@aperture-browser/ui/components/select";
+import { ArrowDown, ArrowRight, ArrowUp, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { useId, useState } from "react";
+import {
+  DEFAULT_UPSTREAM_NAME,
+  isDraftEmpty,
+  isTunnelUrl,
+  newRule,
+  newUpstream,
+  type ProxyDraft,
+  type ProxyDraftErrors,
+  type ProxyDraftRule,
+  type ProxyDraftUpstream,
+} from "#/features/proxy/proxy-config.ts";
 import { reveal } from "#/lib/reveal.ts";
-
-/** A session's routing while it is edited: with rows that are not filled in yet. */
-export interface ProxyDraft {
-  readonly mode: "direct" | "quick" | "advanced";
-  /** One proxy for everything. */
-  readonly url: string;
-  readonly upstreams: ReadonlyArray<{ readonly name: string; readonly url: string }>;
-  readonly rules: ReadonlyArray<{
-    readonly match: string;
-    /** `direct`, `refuse`, `local`, an upstream's name, or a proxy's address. */
-    readonly via: string;
-    /** Whether `via` is a proxy's address typed in, and not one of the ways there are. */
-    readonly typed?: boolean;
-  }>;
-}
-
-export const emptyDraft: ProxyDraft = { mode: "direct", url: "", upstreams: [], rules: [] };
-
-/** The draft a routing is edited from; one proxy for everything is shown as just that. */
-export const draftOf = (proxy: ProxyConfig | null): ProxyDraft => {
-  if (proxy === null || proxy.rules.length === 0) {
-    return emptyDraft;
-  }
-  const upstreams = Object.entries(proxy.upstreams ?? {}).map(([name, upstream]) => ({
-    name,
-    url: upstream.url,
-  }));
-  const [only] = proxy.rules;
-  if (
-    proxy.rules.length === 1 &&
-    upstreams.length === 0 &&
-    only?.match === "*" &&
-    only.via.includes("://")
-  ) {
-    return { ...emptyDraft, mode: "quick", url: only.via };
-  }
-  return {
-    mode: "advanced",
-    url: "",
-    upstreams,
-    rules: proxy.rules.map((rule) => ({
-      match: rule.match,
-      via: rule.via,
-      typed: !WAYS.includes(rule.via) && !(rule.via in (proxy.upstreams ?? {})),
-    })),
-  };
-};
-
-/** The routing a draft comes to; none where everything goes direct. Rows left empty are dropped. */
-export const proxyOf = (draft: ProxyDraft): ProxyConfig | null => {
-  if (draft.mode === "quick") {
-    return draft.url.trim() === "" ? null : { rules: [{ match: "*", via: draft.url.trim() }] };
-  }
-  if (draft.mode === "advanced") {
-    const rules = draft.rules
-      .map((rule) => ({ match: rule.match.trim(), via: rule.via.trim() }))
-      .filter((rule) => rule.match !== "" && rule.via !== "");
-    const upstreams = Object.fromEntries(
-      draft.upstreams
-        .filter((upstream) => upstream.name.trim() !== "" && upstream.url.trim() !== "")
-        .map((upstream) => [upstream.name.trim(), { url: upstream.url.trim() }]),
-    );
-    return rules.length === 0 ? null : { upstreams, rules };
-  }
-  return null;
-};
-
-/** What is wrong with a draft, for whoever fills it in; nothing where it can be kept. */
-export const proxyRules = (draft: ProxyDraft) => {
-  if (draft.mode === "quick") {
-    return /^[a-z][a-z\d+.-]*:\/\/\S+$/iu.test(draft.url.trim())
-      ? undefined
-      : "Enter the proxy's address, like socks5://host:1080.";
-  }
-  if (draft.mode === "advanced") {
-    if (draft.upstreams.some((one) => (one.name.trim() === "") !== (one.url.trim() === ""))) {
-      return "An upstream needs both a name and an address.";
-    }
-    if (draft.rules.some((rule) => rule.match.trim() === "" || rule.via.trim() === "")) {
-      return "A rule needs both what it matches and where that goes.";
-    }
-    const upstreams = draft.upstreams.map((one) => one.name.trim());
-    const lost = draft.rules.find(
-      (rule) => rule.typed !== true && !WAYS.includes(rule.via) && !upstreams.includes(rule.via),
-    );
-    if (lost !== undefined) {
-      return `A rule goes through ${lost.via}, which is no upstream above.`;
-    }
-  }
-  return undefined;
-};
-
-/** The ways a rule sends connections that need no upstream. */
-const WAYS: ReadonlyArray<string> = ["direct", "refuse", "local"];
-const TYPED = "\u0000typed";
-
-const MODES = [
-  { value: "direct", label: "Direct, from the node" },
-  { value: "quick", label: "Everything through one proxy" },
-  { value: "advanced", label: "By rules" },
-] as const;
-
-const replaced = <A,>(all: ReadonlyArray<A>, at: number, one: A) =>
-  all.map((kept, index) => (index === at ? one : kept));
-const without = <A,>(all: ReadonlyArray<A>, at: number) => all.filter((_, index) => index !== at);
 
 type ProxyEditorProps = {
   draft: ProxyDraft;
-  /** What is wrong with the draft, where it was not kept for it. */
-  error?: string | undefined;
   onChange: (draft: ProxyDraft) => void;
+  /** What is wrong with the draft, where it was not kept for it. */
+  errors?: ProxyDraftErrors | undefined;
+  disabled?: boolean;
 };
 
-/** How a session's connections are routed: direct, through one proxy, or by rules. */
-export function ProxyEditor({ draft, error, onChange }: ProxyEditorProps) {
+const BUILTIN_VIAS = [
+  { value: "direct", label: "Direct" },
+  { value: "refuse", label: "Block" },
+  { value: "local", label: "Local tunnel" },
+];
+
+/** Whether a draft is what the field at the top makes by itself: one proxy for everything. */
+const isAutoShape = (draft: ProxyDraft) => {
+  const [rule] = draft.rules;
   return (
-    <div data-console-proxy className="aperture:grid aperture:min-w-0 aperture:gap-3">
-      <Choice
-        aria-label="Routing"
-        className="aperture:w-full"
-        value={draft.mode}
-        options={MODES}
-        onChange={(mode) => onChange({ ...draft, mode })}
-      />
-      {draft.mode === "quick" ? (
-        <Input
-          name="proxy-url"
-          aria-label="Proxy address"
-          aria-invalid={error !== undefined}
-          placeholder="socks5://user:password@host:1080"
-          value={draft.url}
-          onChange={(event) => onChange({ ...draft, url: event.target.value })}
+    draft.upstreams.length === 1 &&
+    draft.rules.length === 1 &&
+    rule?.match.trim() === "*" &&
+    rule.via === DEFAULT_UPSTREAM_NAME
+  );
+};
+
+/** Where a route is put so that it is asked before the one that takes everything. */
+const catchAllIndex = (rules: ReadonlyArray<ProxyDraftRule>) => {
+  const index = rules.findIndex((rule) => rule.match.trim() === "*");
+  return index === -1 ? rules.length : index;
+};
+
+/**
+ * How a session's connections are routed: a proxy for everything in the field at the top,
+ * the routes that say which connection goes where, and, for whoever needs more than one
+ * proxy, the other upstreams routes can name.
+ */
+export function ProxyEditor({ draft, onChange, errors, disabled = false }: ProxyEditorProps) {
+  const primary = draft.upstreams.find((upstream) => upstream.name === DEFAULT_UPSTREAM_NAME);
+  const others = draft.upstreams.filter((upstream) => upstream !== primary);
+  const showQuickField = primary !== undefined || draft.upstreams.length === 0;
+  const [advancedOpen, setAdvancedOpen] = useState(others.length > 0);
+  const upstreamsVisible = advancedOpen || others.length > 0 || !showQuickField;
+  const defaultVia = draft.upstreams[0]?.name.trim() || "direct";
+
+  const setUpstreams = (upstreams: ReadonlyArray<ProxyDraftUpstream>, rules = draft.rules) =>
+    onChange({ upstreams, rules });
+  const setRules = (rules: ReadonlyArray<ProxyDraftRule>) =>
+    onChange({ upstreams: draft.upstreams, rules });
+
+  const updateUpstream = (id: string, patch: Partial<ProxyDraftUpstream>) => {
+    const current = draft.upstreams.find((upstream) => upstream.id === id);
+    if (current === undefined) {
+      return;
+    }
+    let rules = draft.rules;
+    const next = patch.name;
+    if (next !== undefined && next !== current.name) {
+      const shared = draft.upstreams.some((one) => one.id !== id && one.name === current.name);
+      // Routes keep pointing at the upstream while it is named anew.
+      if (current.name !== "" && !shared) {
+        rules = rules.map((rule) => (rule.via === current.name ? { ...rule, via: next } : rule));
+      }
+    }
+    setUpstreams(
+      draft.upstreams.map((upstream) =>
+        upstream.id === id ? { ...upstream, ...patch } : upstream,
+      ),
+      rules,
+    );
+  };
+
+  const setQuickUrl = (url: string) => {
+    if (primary !== undefined) {
+      if (url === "" && isAutoShape(draft)) {
+        onChange({ upstreams: [], rules: [] });
+        return;
+      }
+      if (url === "" && !draft.rules.some((rule) => rule.via === DEFAULT_UPSTREAM_NAME)) {
+        setUpstreams(draft.upstreams.filter((upstream) => upstream.id !== primary.id));
+        return;
+      }
+      updateUpstream(primary.id, { url });
+      return;
+    }
+    if (url === "") {
+      return;
+    }
+    const upstream = newUpstream({ name: DEFAULT_UPSTREAM_NAME, url });
+    if (isDraftEmpty(draft)) {
+      onChange({
+        upstreams: [upstream],
+        rules: [newRule({ match: "*", via: DEFAULT_UPSTREAM_NAME })],
+      });
+      return;
+    }
+    setUpstreams([...draft.upstreams, upstream]);
+  };
+
+  const moveRule = (index: number, offset: number) => {
+    const target = index + offset;
+    const rule = draft.rules[index];
+    if (target < 0 || target >= draft.rules.length || rule === undefined) {
+      return;
+    }
+    const rules = draft.rules.filter((_, at) => at !== index);
+    setRules([...rules.slice(0, target), rule, ...rules.slice(target)]);
+  };
+
+  const insertRule = (index: number, rule: ProxyDraftRule) =>
+    setRules([...draft.rules.slice(0, index), rule, ...draft.rules.slice(index)]);
+
+  const addEverythingViaProxy = () => {
+    const via = draft.upstreams[0]?.name.trim() || DEFAULT_UPSTREAM_NAME;
+    const rule = newRule({ match: "*", via });
+    if (draft.upstreams.length === 0) {
+      onChange({
+        upstreams: [newUpstream({ name: DEFAULT_UPSTREAM_NAME })],
+        rules: [...draft.rules, rule],
+      });
+      return;
+    }
+    setRules([...draft.rules, rule]);
+  };
+
+  const hasCatchAll = draft.rules.some((rule) => rule.match.trim() === "*");
+  const upstreamNames = [
+    ...new Set(draft.upstreams.map((upstream) => upstream.name.trim()).filter(Boolean)),
+  ];
+
+  return (
+    <FieldGroup data-console-proxy className="aperture:min-w-0 aperture:gap-5">
+      {showQuickField ? (
+        <QuickProxyField
+          upstream={primary}
+          error={primary === undefined ? undefined : errors?.upstreams[primary.id]}
+          disabled={disabled}
+          onUrlChange={setQuickUrl}
+          onAuthChange={(auth) =>
+            primary === undefined ? undefined : updateUpstream(primary.id, { auth })
+          }
         />
       ) : null}
-      {draft.mode === "advanced" ? (
-        <>
-          <section className="aperture:grid aperture:gap-2">
-            <h3 className="aperture:text-xs aperture:font-medium aperture:text-muted-foreground">
-              Upstreams
-            </h3>
-            {draft.upstreams.map((upstream, at) => (
-              <div key={at} className="aperture:flex aperture:gap-2">
-                <Input
-                  aria-label="Upstream name"
-                  placeholder="name"
-                  className="aperture:w-32"
-                  value={upstream.name}
-                  onChange={(event) =>
-                    onChange({
-                      ...draft,
-                      upstreams: replaced(draft.upstreams, at, {
-                        ...upstream,
-                        name: event.target.value,
-                      }),
-                    })
-                  }
-                />
-                <Input
-                  aria-label="Upstream URL"
-                  placeholder="socks5://host:1080"
-                  value={upstream.url}
-                  onChange={(event) =>
-                    onChange({
-                      ...draft,
-                      upstreams: replaced(draft.upstreams, at, {
-                        ...upstream,
-                        url: event.target.value,
-                      }),
-                    })
-                  }
-                />
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  aria-label="Remove upstream"
-                  onClick={() => onChange({ ...draft, upstreams: without(draft.upstreams, at) })}
-                >
-                  <Trash2 />
-                </Button>
-              </div>
-            ))}
+
+      <FieldSet className="aperture:gap-3">
+        <div className="aperture:flex aperture:flex-wrap aperture:items-end aperture:justify-between aperture:gap-2">
+          <div className="aperture:flex aperture:flex-col aperture:gap-1">
+            <FieldLegend variant="label" className="aperture:mb-0">
+              Routes
+            </FieldLegend>
+            <FieldDescription>
+              Checked top to bottom; the first match wins. Unmatched traffic goes direct.
+            </FieldDescription>
+          </div>
+          <div className="aperture:flex aperture:flex-wrap aperture:gap-1">
             <Button
               type="button"
-              size="sm"
-              variant="outline"
-              className="aperture:justify-self-start"
-              onClick={() =>
-                onChange({ ...draft, upstreams: [...draft.upstreams, { name: "", url: "" }] })
-              }
+              variant="ghost"
+              size="xs"
+              data-console-proxy-everything
+              onClick={addEverythingViaProxy}
+              disabled={disabled || hasCatchAll}
             >
-              <Plus />
-              Upstream
+              Everything via proxy
             </Button>
-          </section>
-          <section className="aperture:grid aperture:gap-2">
-            <h3 className="aperture:text-xs aperture:font-medium aperture:text-muted-foreground">
-              Rules, the first that matches decides
-            </h3>
-            {draft.rules.map((rule, at) => (
-              <div key={at} className="aperture:flex aperture:gap-2">
-                <Input
-                  aria-label="Rule match"
-                  placeholder="*.example.com"
-                  value={rule.match}
-                  onChange={(event) =>
-                    onChange({
-                      ...draft,
-                      rules: replaced(draft.rules, at, { ...rule, match: event.target.value }),
-                    })
-                  }
-                />
-                <Choice
-                  aria-label="Rule route"
-                  className="aperture:w-44 aperture:shrink-0"
-                  value={rule.typed === true ? TYPED : rule.via}
-                  options={[
-                    { value: "direct", label: "Direct" },
-                    { value: "refuse", label: "Refuse" },
-                    { value: "local", label: "Local tunnel" },
-                    ...draft.upstreams
-                      .filter((one) => one.name.trim() !== "")
-                      .map((one) => ({ value: one.name.trim(), label: one.name.trim() })),
-                    // One that names an upstream which is gone still says which.
-                    ...(rule.typed !== true &&
-                    !WAYS.includes(rule.via) &&
-                    !draft.upstreams.some((one) => one.name.trim() === rule.via)
-                      ? [{ value: rule.via, label: `${rule.via} (missing)` }]
-                      : []),
-                    { value: TYPED, label: "Proxy address…" },
-                  ]}
-                  onChange={(via) =>
-                    onChange({
-                      ...draft,
-                      rules: replaced(
-                        draft.rules,
-                        at,
-                        via === TYPED
-                          ? { match: rule.match, via: "", typed: true }
-                          : { match: rule.match, via },
-                      ),
-                    })
-                  }
-                />
-                {rule.typed === true ? (
-                  <Input
-                    aria-label="Proxy address"
-                    placeholder="socks5://host:1080"
-                    value={rule.via}
-                    onChange={(event) =>
-                      onChange({
-                        ...draft,
-                        rules: replaced(draft.rules, at, { ...rule, via: event.target.value }),
-                      })
-                    }
-                  />
-                ) : null}
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  aria-label="Remove rule"
-                  onClick={() => onChange({ ...draft, rules: without(draft.rules, at) })}
-                >
-                  <Trash2 />
-                </Button>
-              </div>
-            ))}
             <Button
               type="button"
-              size="sm"
+              variant="ghost"
+              size="xs"
+              data-console-proxy-exception
+              onClick={() => insertRule(0, newRule({ via: "direct" }))}
+              disabled={disabled}
+            >
+              Add direct exception
+            </Button>
+          </div>
+        </div>
+
+        {draft.rules.length === 0 ? (
+          <p className="aperture:rounded-lg aperture:border aperture:border-dashed aperture:px-3 aperture:py-2 aperture:text-sm aperture:text-muted-foreground">
+            No routes. All traffic goes direct.
+          </p>
+        ) : (
+          <ol data-console-proxy-routes className="aperture:flex aperture:flex-col aperture:gap-2">
+            {draft.rules.map((rule, index) => (
+              <RuleRow
+                key={rule.id}
+                rule={rule}
+                index={index}
+                count={draft.rules.length}
+                upstreamNames={upstreamNames}
+                error={errors?.rules[rule.id]}
+                disabled={disabled}
+                onChange={(patch) =>
+                  setRules(
+                    draft.rules.map((one) => (one.id === rule.id ? { ...one, ...patch } : one)),
+                  )
+                }
+                onMove={(offset) => moveRule(index, offset)}
+                onRemove={() => setRules(draft.rules.filter((one) => one.id !== rule.id))}
+              />
+            ))}
+          </ol>
+        )}
+
+        <div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-console-proxy-route-add
+            onClick={() => insertRule(catchAllIndex(draft.rules), newRule({ via: defaultVia }))}
+            disabled={disabled}
+          >
+            <Plus />
+            Add route
+          </Button>
+        </div>
+      </FieldSet>
+
+      {upstreamsVisible ? (
+        <FieldSet className="aperture:gap-3">
+          <div className="aperture:flex aperture:flex-col aperture:gap-1">
+            <FieldLegend variant="label" className="aperture:mb-0">
+              {showQuickField ? "More upstreams" : "Upstreams"}
+            </FieldLegend>
+            <FieldDescription>
+              Named proxies or tunnels that routes can send traffic through.
+            </FieldDescription>
+          </div>
+          {others.length > 0 ? (
+            <ul
+              data-console-proxy-upstreams
+              className="aperture:flex aperture:flex-col aperture:gap-2"
+            >
+              {others.map((upstream) => (
+                <UpstreamRow
+                  key={upstream.id}
+                  upstream={upstream}
+                  error={errors?.upstreams[upstream.id]}
+                  disabled={disabled}
+                  onChange={(patch) => updateUpstream(upstream.id, patch)}
+                  onRemove={() =>
+                    setUpstreams(draft.upstreams.filter((one) => one.id !== upstream.id))
+                  }
+                />
+              ))}
+            </ul>
+          ) : null}
+          <div>
+            <Button
+              type="button"
               variant="outline"
-              className="aperture:justify-self-start"
-              onClick={() =>
-                onChange({ ...draft, rules: [...draft.rules, { match: "", via: "direct" }] })
-              }
+              size="sm"
+              data-console-proxy-upstream-add
+              onClick={() => setUpstreams([...draft.upstreams, newUpstream()])}
+              disabled={disabled}
             >
               <Plus />
-              Rule
+              Add upstream
             </Button>
-          </section>
-        </>
+          </div>
+        </FieldSet>
+      ) : (
+        <div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            data-console-proxy-advanced
+            className="aperture:text-muted-foreground"
+            onClick={() => setAdvancedOpen(true)}
+            disabled={disabled}
+          >
+            <ChevronRight />
+            Advanced: more upstreams
+          </Button>
+        </div>
+      )}
+
+      {errors?.form === undefined ? null : <FieldError ref={reveal}>{errors.form}</FieldError>}
+    </FieldGroup>
+  );
+}
+
+function QuickProxyField({
+  upstream,
+  error,
+  disabled,
+  onUrlChange,
+  onAuthChange,
+}: {
+  upstream: ProxyDraftUpstream | undefined;
+  error: string | undefined;
+  disabled: boolean;
+  onUrlChange: (url: string) => void;
+  onAuthChange: (auth: string) => void;
+}) {
+  const id = useId();
+  const url = upstream?.url ?? "";
+
+  return (
+    <Field data-invalid={error === undefined ? undefined : true}>
+      <FieldLabel htmlFor={id}>Proxy URL</FieldLabel>
+      <Input
+        id={id}
+        name="proxy-url"
+        value={url}
+        onChange={(event) => onUrlChange(event.target.value)}
+        placeholder="socks5://user:pass@proxy.example.com:1080"
+        autoComplete="off"
+        autoCapitalize="none"
+        spellCheck={false}
+        aria-invalid={error !== undefined}
+        disabled={disabled}
+      />
+      {isTunnelUrl(url) && upstream !== undefined ? (
+        <Input
+          type="password"
+          value={upstream.auth}
+          onChange={(event) => onAuthChange(event.target.value)}
+          placeholder="Auth secret"
+          aria-label="Auth secret"
+          autoComplete="new-password"
+          disabled={disabled}
+        />
       ) : null}
-      <FieldError ref={reveal} reserved>
-        {error}
-      </FieldError>
-    </div>
+      {/* What is wrong with it is said where the hint was: nothing below it moves. */}
+      {error === undefined ? (
+        <FieldDescription>
+          http, https, socks5 or socks5h. Leave empty to connect directly.
+        </FieldDescription>
+      ) : (
+        <FieldError ref={reveal}>{error}</FieldError>
+      )}
+    </Field>
+  );
+}
+
+function RuleRow({
+  rule,
+  index,
+  count,
+  upstreamNames,
+  error,
+  disabled,
+  onChange,
+  onMove,
+  onRemove,
+}: {
+  rule: ProxyDraftRule;
+  index: number;
+  count: number;
+  upstreamNames: ReadonlyArray<string>;
+  error: string | undefined;
+  disabled: boolean;
+  onChange: (patch: Partial<ProxyDraftRule>) => void;
+  onMove: (offset: number) => void;
+  onRemove: () => void;
+}) {
+  const known = new Set([...upstreamNames, ...BUILTIN_VIAS.map((item) => item.value)]);
+  const builtin = [
+    ...BUILTIN_VIAS,
+    // One that names what is no upstream, or a proxy by its URL, still says which.
+    ...(rule.via !== "" && !known.has(rule.via) ? [{ value: rule.via, label: rule.via }] : []),
+  ];
+
+  return (
+    <li data-console-proxy-route className="aperture:flex aperture:flex-col aperture:gap-1">
+      {/* On a phone the host has a line of its own, and where it goes the next. */}
+      <div className="aperture:flex aperture:items-center aperture:gap-1.5 aperture:max-sm:flex-wrap">
+        <span className="aperture:w-5 aperture:shrink-0 aperture:text-right aperture:text-xs aperture:text-muted-foreground aperture:tabular-nums">
+          {index + 1}
+        </span>
+        <Input
+          value={rule.match}
+          onChange={(event) => onChange({ match: event.target.value })}
+          placeholder="*.example.com"
+          aria-label={`Route ${index + 1} host`}
+          aria-invalid={error !== undefined}
+          autoComplete="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          disabled={disabled}
+          className="aperture:min-w-0 aperture:flex-1 aperture:max-sm:basis-[calc(100%-1.625rem)]"
+        />
+        <ArrowRight className="aperture:size-3.5 aperture:shrink-0 aperture:text-muted-foreground aperture:max-sm:ml-6.5" />
+        <Select
+          items={[...upstreamNames.map((name) => ({ value: name, label: name })), ...builtin]}
+          value={rule.via}
+          onValueChange={(via) => onChange({ via: via ?? "direct" })}
+          disabled={disabled}
+        >
+          <SelectTrigger
+            aria-label={`Route ${index + 1} destination`}
+            className="aperture:w-36 aperture:shrink-0 aperture:max-sm:w-auto aperture:max-sm:min-w-0 aperture:max-sm:flex-1"
+          >
+            <SelectValue placeholder="Send to" />
+          </SelectTrigger>
+          <SelectContent>
+            {upstreamNames.length > 0 ? (
+              <>
+                <SelectGroup>
+                  {upstreamNames.map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+                <SelectSeparator />
+              </>
+            ) : null}
+            <SelectGroup>
+              {builtin.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+        <div className="aperture:flex aperture:shrink-0">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Move route up"
+            onClick={() => onMove(-1)}
+            disabled={disabled || index === 0}
+          >
+            <ArrowUp />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Move route down"
+            onClick={() => onMove(1)}
+            disabled={disabled || index === count - 1}
+          >
+            <ArrowDown />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Remove route"
+            onClick={onRemove}
+            disabled={disabled}
+          >
+            <Trash2 />
+          </Button>
+        </div>
+      </div>
+      {error === undefined ? null : (
+        <FieldError ref={reveal} className="aperture:pl-6.5">
+          {error}
+        </FieldError>
+      )}
+    </li>
+  );
+}
+
+function UpstreamRow({
+  upstream,
+  error,
+  disabled,
+  onChange,
+  onRemove,
+}: {
+  upstream: ProxyDraftUpstream;
+  error: string | undefined;
+  disabled: boolean;
+  onChange: (patch: Partial<ProxyDraftUpstream>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <li data-console-proxy-upstream className="aperture:flex aperture:flex-col aperture:gap-1">
+      <div className="aperture:flex aperture:items-start aperture:gap-1.5">
+        <Input
+          value={upstream.name}
+          onChange={(event) => onChange({ name: event.target.value })}
+          placeholder="name"
+          aria-label="Upstream name"
+          aria-invalid={error !== undefined}
+          autoComplete="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          disabled={disabled}
+          className="aperture:w-32 aperture:shrink-0 aperture:max-sm:w-24"
+        />
+        <div className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:gap-1.5">
+          <Input
+            value={upstream.url}
+            onChange={(event) => onChange({ url: event.target.value })}
+            placeholder="socks5://user:pass@host:1080"
+            aria-label="Upstream URL"
+            aria-invalid={error !== undefined}
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            disabled={disabled}
+          />
+          {isTunnelUrl(upstream.url) ? (
+            <Input
+              type="password"
+              value={upstream.auth}
+              onChange={(event) => onChange({ auth: event.target.value })}
+              placeholder="Auth secret"
+              aria-label="Upstream auth secret"
+              autoComplete="new-password"
+              disabled={disabled}
+            />
+          ) : null}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Remove upstream"
+          onClick={onRemove}
+          disabled={disabled}
+        >
+          <Trash2 />
+        </Button>
+      </div>
+      {error === undefined ? null : <FieldError ref={reveal}>{error}</FieldError>}
+    </li>
   );
 }

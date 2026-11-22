@@ -1,6 +1,7 @@
 import { Button } from "@aperture-browser/ui/components/button";
 import {
   DialogBody,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -9,11 +10,12 @@ import { useForm, useStore } from "@tanstack/react-form";
 import { FreshDialog } from "#/components/fresh-dialog.tsx";
 import {
   draftOf,
+  isDraftEmpty,
   type ProxyDraft,
-  ProxyEditor,
   proxyOf,
   proxyRules,
-} from "#/features/proxy/proxy-editor.tsx";
+} from "#/features/proxy/proxy-config.ts";
+import { ProxyEditor } from "#/features/proxy/proxy-editor.tsx";
 import {
   useSessionProxyQuery,
   useSetSessionProxyMutation,
@@ -51,7 +53,7 @@ export function SessionProxyDialog({ sessionId, open, onOpenChange }: SessionPro
               Cancel
             </Button>
             <Button type="button" disabled>
-              Save
+              Apply
             </Button>
           </DialogFooter>
         </>
@@ -66,13 +68,17 @@ export function SessionProxyDialog({ sessionId, open, onOpenChange }: SessionPro
   );
 }
 
-/** As in a new session's dialog: the rules, with none yet. */
-const HEIGHT = "calc(0.75rem + 6 * var(--control-height))";
+/** On a phone: the proxy's field, and the routes with two of them. */
+const HEIGHT = "calc(11rem + 5 * var(--control-height))";
 
 function ProxyHeader() {
   return (
     <DialogHeader>
-      <DialogTitle>Routing</DialogTitle>
+      <DialogTitle>Proxy</DialogTitle>
+      <DialogDescription>
+        Route this session's browser traffic through an upstream proxy. Changes apply to new
+        connections.
+      </DialogDescription>
     </DialogHeader>
   );
 }
@@ -89,9 +95,10 @@ function ProxyForm({
   const save = useSetSessionProxyMutation(sessionId);
   const form = useForm({
     defaultValues: { proxy: initial },
-    onSubmit: async ({ value }) => {
+    onSubmitMeta: { off: false },
+    onSubmit: async ({ value, meta }) => {
       try {
-        await save.mutateAsync(proxyOf(value.proxy));
+        await save.mutateAsync(meta.off ? null : proxyOf(value.proxy));
       } catch {
         // The mutation tells of it.
         return;
@@ -100,14 +107,17 @@ function ProxyForm({
     },
   });
   const submitting = useStore(form.store, (state) => state.isSubmitting);
+  const submitted = useStore(form.store, (state) => state.submissionAttempts > 0);
+  const turningOff = submitting && save.variables === null;
 
   return (
     <form
       data-console-session-proxy
+      noValidate
       className="aperture:contents"
       onSubmit={(event) => {
         event.preventDefault();
-        void form.handleSubmit();
+        void form.handleSubmit({ off: false });
       }}
     >
       <ProxyHeader />
@@ -116,18 +126,36 @@ function ProxyForm({
           {(field) => (
             <ProxyEditor
               draft={field.state.value}
-              error={field.state.meta.errors.length > 0 ? proxyRules(field.state.value) : undefined}
+              errors={submitted ? proxyRules(field.state.value) : undefined}
+              disabled={submitting}
               onChange={field.handleChange}
             />
           )}
         </form.Field>
       </DialogBody>
       <DialogFooter>
-        <Button type="button" variant="outline" onClick={onDone}>
+        {isDraftEmpty(initial) ? null : (
+          <Button
+            type="button"
+            variant="ghost"
+            data-console-proxy-off
+            className="aperture:text-destructive aperture:hover:text-destructive aperture:sm:mr-auto"
+            pending={turningOff}
+            disabled={submitting}
+            onClick={() => {
+              // What is typed is not asked about: none of it is kept.
+              form.setFieldValue("proxy", { upstreams: [], rules: [] });
+              void form.handleSubmit({ off: true });
+            }}
+          >
+            Turn off proxy
+          </Button>
+        )}
+        <Button type="button" variant="outline" disabled={submitting} onClick={onDone}>
           Cancel
         </Button>
-        <Button type="submit" pending={submitting}>
-          Save
+        <Button type="submit" pending={submitting && !turningOff}>
+          Apply
         </Button>
       </DialogFooter>
     </form>

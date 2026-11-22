@@ -20,8 +20,8 @@ export function useSetSessionProxyMutation(sessionId: string) {
   return useMutation({
     mutationFn: (proxy: ProxyConfig | null) =>
       call((api) => api.sessions.setProxy({ params: { id: sessionId }, payload: { proxy } })),
-    onSuccess: () => toast.success("Routing changed"),
-    onError: (error) => toastMutationError(error, "The routing was not changed"),
+    onSuccess: (_, proxy) => toast.success(proxy === null ? "Proxy turned off" : "Proxy applied"),
+    onError: (error) => toastMutationError(error, "The proxy was not changed"),
     onSettled: () => queries.invalidateQueries({ queryKey: queryKeys.proxy(sessionId) }),
   });
 }

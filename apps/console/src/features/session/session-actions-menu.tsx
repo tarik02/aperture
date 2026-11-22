@@ -108,7 +108,7 @@ export function useSessionActions(session: Session, onDeleted?: () => void) {
     },
     {
       key: "proxy",
-      label: "Edit routing",
+      label: "Edit proxy",
       icon: Waypoints,
       needs: "sessions:write",
       disabled: !placed,
