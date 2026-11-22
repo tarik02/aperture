@@ -31,8 +31,8 @@ export interface RoutingShape {
    * Lets a request pass that carries a ticket of its own, as its bearer token or as `token`
    * in its query: a link someone was given to a session or to one file of it, or what a
    * program was handed to reach one part of a session with. The ticket itself, where it was
-   * signed here, is still good and is into the session the request asks for on the node it
-   * asks at; what it gives there is the node's to say. Nothing, for any other request.
+   * signed here for an account that is in use, is still good and is into the session the
+   * request asks for on the node it asks at; what it gives there is the node's to say. Nothing, for any other request.
    */
   readonly admitTicket: (
     uri: string,

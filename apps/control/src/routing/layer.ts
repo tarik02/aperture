@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { accountOf } from "../accounts/caller.ts";
+import { AccountsStore } from "../accounts/store.ts";
 import { Forbidden, SessionElsewhere, SessionNotFound } from "../errors.ts";
 import { Nodes } from "../nodes/service.ts";
 import { Sessions } from "../sessions/service.ts";
@@ -44,6 +45,7 @@ export const makeRouting = Effect.fn("Routing.make")(function* () {
   const tickets = yield* Tickets;
   const settings = yield* Settings;
   const store = yield* SessionsStore;
+  const accounts = yield* AccountsStore;
 
   const admitTicket = Effect.fn("Routing.admitTicket")(function* (
     uri: string,
@@ -57,8 +59,14 @@ export const makeRouting = Effect.fn("Routing.make")(function* () {
     if (at === undefined || given === null || given.split(".").length !== 3) {
       return Option.none<string>();
     }
-    const into = yield* tickets.sessionOf(given);
-    if (Option.isNone(into) || into.value !== at.sessionId) {
+    const into = yield* tickets.read(given);
+    if (Option.isNone(into) || into.value.sessionId !== at.sessionId) {
+      return Option.none<string>();
+    }
+    // A ticket is its account's way in for as long as the account is in use: one that
+    // was disabled or removed since is let through no more, good as the ticket still is.
+    const account = yield* accounts.find(into.value.subject);
+    if (Option.isNone(account) || account.value.disabledAt !== null) {
       return Option.none<string>();
     }
     // The session is where the request asks for it, or the ticket is into nothing there.

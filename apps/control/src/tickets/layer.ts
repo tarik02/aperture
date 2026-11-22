@@ -57,7 +57,9 @@ const readKey = Effect.fn("Tickets.readKey")(function* () {
 });
 
 /** What of a ticket's claims this program reads again. */
-const Claims = Schema.fromJsonString(Schema.Struct({ sid: Schema.String, exp: Schema.Number }));
+const Claims = Schema.fromJsonString(
+  Schema.Struct({ sub: Schema.String, sid: Schema.String, exp: Schema.Number }),
+);
 const decodeClaims = Schema.decodeUnknownOption(Claims);
 
 export const makeTickets = Effect.fn("Tickets.make")(function* () {
@@ -95,7 +97,7 @@ export const makeTickets = Effect.fn("Tickets.make")(function* () {
     };
   });
 
-  const sessionOf = Effect.fn("Tickets.sessionOf")(function* (ticket: string) {
+  const read = Effect.fn("Tickets.read")(function* (ticket: string) {
     const [header, claims, signature, ...more] = ticket.split(".");
     if (
       header === undefined ||
@@ -103,14 +105,14 @@ export const makeTickets = Effect.fn("Tickets.make")(function* () {
       signature === undefined ||
       more.length > 0
     ) {
-      return Option.none<string>();
+      return Option.none();
     }
     const signed = Base64Url.decode(signature);
     const said = Result.flatMap(Base64Url.decodeString(claims), (json) =>
       Result.fromOption(decodeClaims(json), () => undefined),
     );
     if (Result.isFailure(signed) || Result.isFailure(said)) {
-      return Option.none<string>();
+      return Option.none();
     }
     const good = yield* Effect.promise(() =>
       crypto.subtle.verify(
@@ -121,10 +123,12 @@ export const makeTickets = Effect.fn("Tickets.make")(function* () {
       ),
     );
     const now = yield* Clock.currentTimeMillis;
-    return good && said.success.exp * 1000 > now ? Option.some(said.success.sid) : Option.none();
+    return good && said.success.exp * 1000 > now
+      ? Option.some({ subject: said.success.sub, sessionId: said.success.sid })
+      : Option.none();
   });
 
-  return Tickets.of({ issue, sessionOf });
+  return Tickets.of({ issue, read });
 });
 
 export const layer = Layer.effect(Tickets, makeTickets());
