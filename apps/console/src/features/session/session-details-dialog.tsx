@@ -54,7 +54,7 @@ export function SessionDetailsDialog({ session, open, onOpenChange }: SessionDet
                   <span className="aperture:font-mono aperture:text-xs">{session.id}</span>
                 </Fact>
                 <Fact name="Snapshot">{session.snapshotId ?? "None"}</Fact>
-                <Fact name="Node">{session.nodeId ?? "None"}</Fact>
+                <Fact name="Node">{session.nodeName ?? session.nodeId ?? "None"}</Fact>
                 <Fact name="Created">
                   {when.format(new Date(session.createdAt.epochMilliseconds))}
                 </Fact>

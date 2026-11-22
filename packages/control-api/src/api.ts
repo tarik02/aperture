@@ -181,6 +181,8 @@ export const Session = Schema.Struct({
   accountId: Schema.String,
   workspaceId: Schema.NullOr(Schema.String),
   nodeId: Schema.NullOr(Schema.String),
+  /** What the node it is on is called; none for a session on no node. */
+  nodeName: Schema.NullOr(Schema.String),
   desiredState: DesiredState,
   observedState: ObservedState,
   failure: Schema.NullOr(Schema.String),

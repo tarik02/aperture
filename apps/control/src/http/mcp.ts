@@ -22,7 +22,7 @@ import { Snapshots } from "../snapshots/service.ts";
 import { actorOf, Doer } from "../events/doer.ts";
 import { callerOf } from "./caller.ts";
 import { doing } from "./doer.ts";
-import { told } from "./handlers.ts";
+import { telling } from "./handlers.ts";
 import { anyOrigin, originOf } from "./origin.ts";
 
 /** Where agents reach every session their token does, over MCP. */
@@ -60,15 +60,17 @@ const handlers = ControlTools.toLayer(
   Effect.gen(function* () {
     const sessions = yield* Sessions;
     const snapshots = yield* Snapshots;
+    const tell = yield* telling;
     return {
       "sessions.list": () =>
         calling("sessions:read").pipe(
           Effect.flatMap(sessions.list),
-          Effect.map((all) => ({ sessions: all.map(told) })),
+          Effect.flatMap(tell.all),
+          Effect.map((all) => ({ sessions: all })),
         ),
       "sessions.get": ({ session_id }) =>
         Effect.flatMap(calling("sessions:read"), (caller) => sessions.get(caller, session_id)).pipe(
-          Effect.map(told),
+          Effect.flatMap(tell.one),
         ),
       "sessions.create": (asked) =>
         Effect.flatMap(calling("sessions:write"), (caller) =>
@@ -80,19 +82,19 @@ const handlers = ControlTools.toLayer(
             proxy: asked.proxy,
             tags: asked.tags ?? {},
           }),
-        ).pipe(Effect.map(told)),
+        ).pipe(Effect.flatMap(tell.one)),
       "sessions.update": ({ session_id, label, tags }) =>
         Effect.flatMap(calling("sessions:write"), (caller) =>
           sessions.describe(caller, session_id, { label, tags }),
-        ).pipe(Effect.map(told)),
+        ).pipe(Effect.flatMap(tell.one)),
       "sessions.suspend": ({ session_id }) =>
         Effect.flatMap(calling("sessions:write"), (caller) =>
           sessions.suspend(caller, session_id),
-        ).pipe(Effect.map(told)),
+        ).pipe(Effect.flatMap(tell.one)),
       "sessions.resume": ({ session_id }) =>
         Effect.flatMap(calling("sessions:write"), (caller) =>
           sessions.resume(caller, session_id),
-        ).pipe(Effect.map(told)),
+        ).pipe(Effect.flatMap(tell.one)),
       "sessions.delete": ({ session_id }) =>
         Effect.flatMap(calling("sessions:write"), (caller) =>
           sessions.delete(caller, session_id),

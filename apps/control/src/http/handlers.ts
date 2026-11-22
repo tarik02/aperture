@@ -297,10 +297,33 @@ const nodes = HttpApiBuilder.group(
   }),
 );
 
-/** A session as the API tells it: with where a proxy before the nodes has it. */
-export const told = (session: Session) => ({
+/**
+ * A session as the API tells it: with what its node is called, and where a proxy before
+ * the nodes has it.
+ */
+const told = (session: Session, nodeName: string | null) => ({
   ...session,
+  nodeName,
   path: session.nodeId === null ? null : sessionPath(session.nodeId, session.id),
+});
+
+/**
+ * Tells sessions as the API does. Whoever has a session learns what its node is called,
+ * and nothing else of the node.
+ */
+export const telling = Effect.gen(function* () {
+  const nodes = yield* Nodes;
+  const all = Effect.fn(function* (sessions: ReadonlyArray<Session>) {
+    const names = new Map((yield* nodes.list()).map(({ node }) => [node.id, node.name]));
+    return sessions.map((session) =>
+      told(session, session.nodeId === null ? null : (names.get(session.nodeId) ?? null)),
+    );
+  });
+  const one = Effect.fn(function* (session: Session) {
+    const node = session.nodeId === null ? Option.none() : yield* nodes.find(session.nodeId);
+    return told(session, Option.isSome(node) ? node.value.name : null);
+  });
+  return { one, all };
 });
 
 const sessions = HttpApiBuilder.group(
@@ -308,12 +331,10 @@ const sessions = HttpApiBuilder.group(
   "sessions",
   Effect.fn(function* (handlers) {
     const sessions = yield* Sessions;
+    const tell = yield* telling;
     return handlers
       .handle("list", () =>
-        scoped("sessions:read").pipe(
-          Effect.flatMap(sessions.list),
-          Effect.map((all) => all.map(told)),
-        ),
+        scoped("sessions:read").pipe(Effect.flatMap(sessions.list), Effect.flatMap(tell.all)),
       )
       .handle("create", ({ payload }) =>
         Effect.flatMap(scoped("sessions:write"), (caller) =>
@@ -325,17 +346,17 @@ const sessions = HttpApiBuilder.group(
             proxy: payload.proxy,
             tags: payload.tags ?? {},
           }),
-        ).pipe(Effect.map(told)),
+        ).pipe(Effect.flatMap(tell.one)),
       )
       .handle("get", ({ params }) =>
         Effect.flatMap(scoped("sessions:read"), (caller) => sessions.get(caller, params.id)).pipe(
-          Effect.map(told),
+          Effect.flatMap(tell.one),
         ),
       )
       .handle("describe", ({ params, payload }) =>
         Effect.flatMap(scoped("sessions:write"), (caller) =>
           sessions.describe(caller, params.id, payload),
-        ).pipe(Effect.map(told)),
+        ).pipe(Effect.flatMap(tell.one)),
       )
       .handle("proxy", ({ params }) =>
         Effect.flatMap(scoped("sessions:read"), (caller) => sessions.proxy(caller, params.id)).pipe(
@@ -350,12 +371,12 @@ const sessions = HttpApiBuilder.group(
       .handle("suspend", ({ params }) =>
         Effect.flatMap(scoped("sessions:write"), (caller) =>
           sessions.suspend(caller, params.id),
-        ).pipe(Effect.map(told)),
+        ).pipe(Effect.flatMap(tell.one)),
       )
       .handle("resume", ({ params }) =>
         Effect.flatMap(scoped("sessions:write"), (caller) =>
           sessions.resume(caller, params.id),
-        ).pipe(Effect.map(told)),
+        ).pipe(Effect.flatMap(tell.one)),
       )
       .handle("delete", ({ params }) =>
         Effect.flatMap(scoped("sessions:write"), (caller) => sessions.delete(caller, params.id)),
