@@ -203,7 +203,11 @@ suite(node)("the targets of a session on a node", (it) => {
           "the tab's page being a phone's",
           opened.page
             .evaluate(SAYS, Schema.String)
-            .pipe(Effect.map((said) => said.startsWith(`{"agent":true,"touches":true,"coarse":true`) && said)),
+            .pipe(
+              Effect.map(
+                (said) => said.startsWith(`{"agent":true,"touches":true,"coarse":true`) && said,
+              ),
+            ),
         );
 
         yield* executor.client.sessions.suspend(session);
