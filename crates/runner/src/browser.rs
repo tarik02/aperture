@@ -54,7 +54,6 @@ fn policy() -> serde_json::Value {
         "PromotionalTabsEnabled": false,
         "PrivacySandboxPromptEnabled": false,
         "MetricsReportingEnabled": false,
-        "BackgroundModeEnabled": false,
     })
 }
 
