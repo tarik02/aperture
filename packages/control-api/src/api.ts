@@ -70,8 +70,7 @@ export const Account = Schema.Struct({
 
 /**
  * The account a caller is, with what the caller itself may do as it: what the token it came
- * with is held to. Whoever signed in with cookies is held to nothing, and neither is a
- * token that does whatever its account does.
+ * with is held to. Whoever signed in with cookies is held to nothing.
  */
 export const CurrentAccount = Schema.Struct({
   ...Account.fields,
@@ -136,8 +135,8 @@ export const ApiToken = Schema.Struct({
   createdAt: Schema.DateTimeUtcFromString,
   expiresAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   revokedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
-  /** What it is held to; none for a token that does whatever its account does. */
-  scopes: Schema.NullOr(Schema.Array(Scope)),
+  /** What it is held to. */
+  scopes: Schema.Array(Scope),
   /** The resources it is held to; none for a token that reaches all its account does. */
   resources: Schema.NullOr(TokenResources),
 });

@@ -78,9 +78,9 @@ export interface AccountsShape {
     accountId: string,
     name: string,
     /** How long the token is good for; for as long as it is not taken back, without. */
-    lasts?: Duration.Duration,
-    /** What the token is held to; whatever its account does, without. */
-    scopes?: ReadonlyArray<Scope>,
+    lasts: Duration.Duration | undefined,
+    /** What the token is held to. */
+    scopes: ReadonlyArray<Scope>,
     /** The resources the token is held to; all that its account reaches, without. */
     resources?: TokenResources,
   ) => Effect.Effect<{ readonly token: ApiToken; readonly secret: string }, AccountNotFound>;

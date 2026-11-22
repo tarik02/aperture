@@ -21,7 +21,7 @@ export interface NewApiToken {
   readonly tokenHash: string;
   readonly createdAt: Date;
   readonly expiresAt: Date | null;
-  readonly scopes: ReadonlyArray<Scope> | null;
+  readonly scopes: ReadonlyArray<Scope>;
   readonly resources: TokenResources | null;
 }
 
@@ -61,7 +61,7 @@ export interface AccountsStoreShape {
   ) => Effect.Effect<
     Option.Option<{
       readonly account: Account;
-      readonly scopes: ReadonlyArray<Scope> | null;
+      readonly scopes: ReadonlyArray<Scope>;
       readonly resources: TokenResources | null;
     }>
   >;

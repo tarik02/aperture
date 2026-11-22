@@ -330,8 +330,8 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
   const createToken = Effect.fn("Accounts.createToken")(function* (
     accountId: string,
     name: string,
-    lasts?: Duration.Duration,
-    scopes?: ReadonlyArray<Scope>,
+    lasts: Duration.Duration | undefined,
+    scopes: ReadonlyArray<Scope>,
     resources?: TokenResources,
   ) {
     const account = yield* store.find(accountId);
@@ -346,7 +346,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
       tokenHash: yield* Secrets.hash(secret),
       createdAt: yield* now,
       expiresAt: lasts === undefined ? null : yield* after(lasts),
-      scopes: scopes ?? null,
+      scopes,
       resources: resources ?? null,
     });
     yield* events.record({

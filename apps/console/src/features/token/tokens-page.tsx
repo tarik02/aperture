@@ -186,11 +186,7 @@ export function TokensPage({ account, waiting = false }: TokensPageProps) {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {token.scopes === null ? (
-                        <span className="aperture:text-muted-foreground">Everything</span>
-                      ) : (
-                        <ScopeList scopes={token.scopes} mark="data-console-token-scope" />
-                      )}
+                      <ScopeList scopes={token.scopes} mark="data-console-token-scope" />
                     </TableCell>
                     <TableCell>
                       <TokenReach resources={token.resources} />

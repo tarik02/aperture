@@ -31,8 +31,8 @@ export const ApiToken = Schema.Struct({
   expiresAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
   /** When it was taken back; it is kept so that its account sees it was. */
   revokedAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
-  /** What it is held to; none for a token that does whatever its account does. */
-  scopes: Schema.NullOr(Schema.Array(Scope)),
+  /** What it is held to. */
+  scopes: Schema.Array(Scope),
   /** The resources it is held to; none for a token that reaches all its account does. */
   resources: Schema.NullOr(TokenResources),
 });

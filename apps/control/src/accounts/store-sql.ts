@@ -10,7 +10,7 @@ import { AccountsStore, type NewAccount, type NewApiToken } from "./store.ts";
 
 const Held = Schema.Struct({
   ...Account.fields,
-  scopes: Schema.NullOr(Schema.Array(Scope)),
+  scopes: Schema.Array(Scope),
   resources: Schema.NullOr(TokenResources),
 });
 
@@ -92,7 +92,7 @@ export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
       )
       VALUES (
         ${given.id}, ${given.accountId}, ${given.name}, ${given.tokenHash}, ${given.createdAt},
-        ${given.expiresAt}, ${given.scopes === null ? null : JSON.stringify(given.scopes)}::jsonb,
+        ${given.expiresAt}, ${JSON.stringify(given.scopes)}::jsonb,
         ${given.resources === null ? null : JSON.stringify(given.resources)}::jsonb
       )
       RETURNING ${token}

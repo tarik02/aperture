@@ -50,7 +50,7 @@ const initial = statements([
     created_at timestamptz NOT NULL,
     expires_at timestamptz,
     revoked_at timestamptz,
-    scopes jsonb,
+    scopes jsonb NOT NULL,
     resources jsonb
   )`,
   `CREATE INDEX api_tokens_account_id ON api_tokens (account_id)`,
@@ -202,7 +202,7 @@ const initial = statements([
     enabled boolean NOT NULL,
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL,
-    kind text NOT NULL DEFAULT 'oidc',
+    kind text NOT NULL,
     -- A provider that speaks OAuth 2.0 alone has no issuer to say how it is reached:
     -- where it is asked is kept with it.
     endpoints jsonb,
