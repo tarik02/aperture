@@ -7,6 +7,7 @@ import {
   Building2,
   KeyRound,
   Layers,
+  LogIn,
   ScrollText,
   Server,
   Ticket,
@@ -25,6 +26,7 @@ export type NavItem = {
     | "/-/registration-tokens"
     | "/-/people"
     | "/-/service-accounts"
+    | "/-/sign-in-providers"
     | "/-/events";
   icon: LucideIcon;
   group: "workspace" | "account" | "admin";
@@ -71,6 +73,13 @@ export const primaryNavItems: NavItem[] = [
     title: "Service accounts",
     to: "/-/service-accounts",
     icon: Bot,
+    group: "admin",
+    needs: "admin",
+  },
+  {
+    title: "Sign-in providers",
+    to: "/-/sign-in-providers",
+    icon: LogIn,
     group: "admin",
     needs: "admin",
   },

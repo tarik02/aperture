@@ -19,6 +19,7 @@ import {
   REGISTRATION_TOKENS_SEARCH,
   RegistrationTokensPage,
 } from "#/features/node/registration-tokens-page.tsx";
+import { ProvidersPage } from "#/features/provider/providers-page.tsx";
 import { isNewSession } from "#/features/session/new-sessions.ts";
 import { NewSessionWorkbench, SessionWorkbench } from "#/features/session/session-workbench.tsx";
 import { SESSIONS_SEARCH, SessionsPage } from "#/features/session/sessions-page.tsx";
@@ -203,6 +204,16 @@ const serviceAccountTokens = createRoute({
   },
 });
 
+const providers = createRoute({
+  getParentRoute: () => pages,
+  path: "/-/sign-in-providers",
+  component: () => (
+    <Only needs="admin">
+      <ProvidersPage />
+    </Only>
+  ),
+});
+
 const events = createRoute({
   getParentRoute: () => pages,
   path: "/-/events",
@@ -250,6 +261,7 @@ export const router = createRouter({
         people,
         serviceAccounts,
         serviceAccountTokens,
+        providers,
         events,
       ]),
       session,

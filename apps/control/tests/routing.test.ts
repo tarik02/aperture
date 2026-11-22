@@ -2277,6 +2277,195 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
     }),
   );
 
+  it.effect(
+    "an admin adds a sign-in provider in the console, checks it, disables it and removes it",
+    () =>
+      Effect.gen(function* () {
+        const proxy = yield* Proxy.Proxy;
+        const control = yield* Control.Control;
+        const viewer = yield* Viewer.Viewer;
+        const fs = yield* FileSystem.FileSystem;
+        const dex = yield* Dex.Address;
+        const root = yield* Control.account("Provider admin", true);
+        const [added] = Dex.ADDED;
+        const offered = Effect.map(
+          request(control.url, "", "GET", "/api/control/sign-in/providers"),
+          (answer) => JSON.stringify(answer.body),
+        );
+
+        const page = yield* viewer.open(`${proxy.url}/api/control/openapi.json`);
+        yield* until(
+          "the page being there to sign out from",
+          page.evaluate(
+            `(localStorage.clear(), Promise.all([fetch("/api/auth/sign-out", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }), fetch("/api/control/route/cookie", { method: "DELETE" })]).then(() => true))`,
+            Schema.Boolean,
+          ),
+        );
+        yield* page.evaluate(`void (location.href = "/")`);
+        yield* page.until(`!!document.querySelector("[data-console-sign-in-way]")`);
+        yield* page.click("[data-console-sign-in-way]");
+        yield* page.until(`!!document.querySelector('[data-console-sign-in="token"] input')`);
+        yield* page.click("[data-console-sign-in] input");
+        yield* page.type(root.token);
+        yield* page.key("Enter", "Enter", ENTER);
+
+        // The provider the settings name is told among them, and nothing is done with it here.
+        yield* page.until(`!!document.querySelector('a[href="/-/sign-in-providers"]')`);
+        yield* page.click(`a[href="/-/sign-in-providers"]`);
+        const configured = `[data-console-provider="${Dex.PROVIDER}"]`;
+        yield* page.until(`!!document.querySelector('${configured}')`);
+        expect(yield* page.text(configured)).toContain("from configuration");
+        expect(yield* page.evaluate(`!!document.querySelector('${configured} button')`)).toBe(
+          false,
+        );
+
+        const form = "[data-console-provider-form]";
+        const reached = (state: string) =>
+          page.until(`!!document.querySelector('[data-console-provider-reached="${state}"]')`);
+        /** Types into a field of the form, and sees it there before anything else is done. */
+        const fill = (name: string, text: string) =>
+          Effect.gen(function* () {
+            const field = `document.querySelector('${form} input[name="${name}"]')`;
+            yield* page.evaluate(`void ${field}.scrollIntoView({ block: "nearest" })`);
+            yield* rested(page);
+            yield* page.click(`${form} input[name="${name}"]`);
+            yield* page.until(`document.activeElement === ${field}`);
+            yield* page.type(text);
+            yield* page.until(`${field}.value === ${JSON.stringify(text)}`);
+          });
+        const opened = Effect.gen(function* () {
+          yield* page.click("[data-console-provider-new]");
+          yield* page.until(`!!document.querySelector('${form} input[name="name"]')`);
+          yield* rested(page);
+          return yield* placed(page);
+        });
+
+        // What is no provider is said to be none, on the lines kept for it: nothing moves.
+        const states = [yield* opened];
+        yield* fill("issuer", `${control.url}/nowhere`);
+        yield* page.click("[data-console-provider-check]");
+        yield* reached("refused");
+        expect(yield* page.text("[data-console-provider-reached]")).toContain("/nowhere");
+        states.push(yield* placed(page));
+        yield* shot(page, fs, "console-provider-check-refused");
+        yield* closed(page);
+
+        // Begun anew, the form is empty; the address to register follows the id as typed.
+        states.push(yield* opened);
+        expect(
+          yield* page.evaluate(`document.querySelector('${form} input[name="issuer"]').value`),
+        ).toBe("");
+        yield* fill("name", "Company");
+        yield* fill("id", added);
+        expect(
+          yield* page.evaluate(
+            `document.querySelector("[data-console-provider-callback]").textContent`,
+          ),
+        ).toBe(`${proxy.url}/api/auth/callback/${added}`);
+        yield* fill("issuer", dex.issuer);
+        yield* page.click("[data-console-provider-check]");
+        yield* reached("reached");
+        states.push(yield* placed(page));
+        yield* shot(page, fs, "console-provider-new");
+        yield* shotDark(page, fs, "console-provider-new-dark");
+        // Without a client, it is not sent, and is told what it lacks where it stays.
+        yield* page.click(`${BUTTONS} button[type="submit"]`);
+        yield* page.until(`!!document.querySelector('${form} [data-slot="field-error"]')`);
+        states.push(yield* placed(page));
+        alike(states);
+        yield* fill("clientId", dex.clientId);
+        yield* fill("clientSecret", dex.clientSecret);
+        yield* page.key("Enter", "Enter", ENTER);
+        const row = `[data-console-provider="${added}"]`;
+        yield* page.until(
+          `!document.querySelector('${DIALOG}') && !!document.querySelector('${row}')`,
+        );
+        expect(yield* offered).toContain(`"id":"${added}"`);
+        // The secret is nowhere on the page once it was given.
+        expect(
+          yield* page.evaluate(
+            `document.body.innerHTML.includes(${JSON.stringify(dex.clientSecret)})`,
+          ),
+        ).toBe(false);
+        yield* rested(page);
+        yield* shot(page, fs, "console-providers");
+        yield* shotDark(page, fs, "console-providers-dark");
+
+        // Its row's menu disables it, and a right click on the row enables it again.
+        const does = (says: string) =>
+          Effect.gen(function* () {
+            yield* rested(page);
+            yield* page.click(`${row} [aria-label="Provider actions"]`);
+            yield* choose(page, `[data-slot="dropdown-menu-item"]`, says);
+          });
+        const state = (is: string) =>
+          page.until(`!!document.querySelector('${row} [data-console-provider-state="${is}"]')`);
+        yield* does("Disable");
+        yield* state("disabled");
+        expect(yield* offered).not.toContain(`"id":"${added}"`);
+        yield* rested(page);
+        const at = yield* page.box(row);
+        yield* page.clickAt(at.x, at.y, "right");
+        yield* page.until(
+          `[...document.querySelectorAll('[data-slot="context-menu-item"]')].some((item) => item.textContent.includes("Enable"))`,
+        );
+        yield* shot(page, fs, "console-provider-context");
+        yield* choose(page, `[data-slot="context-menu-item"]`, "Enable");
+        yield* state("enabled");
+        expect(yield* offered).toContain(`"id":"${added}"`);
+
+        // Changed, it keeps what it is known by and its secret, which is not shown.
+        yield* does("Edit");
+        yield* page.until(`!!document.querySelector('${form} input[name="id"]')`);
+        yield* rested(page);
+        expect(
+          yield* page.evaluate(
+            `(() => { const form = document.querySelector('${form}'); return [form.querySelector('input[name="id"]').disabled, form.querySelector('input[name="id"]').value, form.querySelector('input[name="clientSecret"]').value, form.querySelector('input[name="clientSecret"]').placeholder].join("|"); })()`,
+          ),
+        ).toBe(`true|${added}||Unchanged`);
+        alike([states[0], yield* placed(page)]);
+        yield* shot(page, fs, "console-provider-edit");
+        yield* shotDark(page, fs, "console-provider-edit-dark");
+        yield* closed(page);
+
+        // On a phone a provider is a block of its own, and its form fits the screen.
+        const phone = yield* viewer.open(`${proxy.url}/-/sign-in-providers`, {
+          width: 390,
+          height: 844,
+          mobile: true,
+        });
+        yield* phone.until(`!!document.querySelector('${row}')`);
+        yield* rested(phone);
+        yield* shot(phone, fs, "console-phone-providers");
+        yield* shotDark(phone, fs, "console-phone-providers-dark");
+        expect(yield* phone.evaluate(`document.documentElement.scrollWidth <= innerWidth`)).toBe(
+          true,
+        );
+        yield* phone.click(`${row} [aria-label="Provider actions"]`);
+        yield* choose(phone, `[data-slot="dropdown-menu-item"]`, "Edit");
+        yield* phone.until(`!!document.querySelector('${form} input[name="id"]')`);
+        yield* rested(phone);
+        yield* shot(phone, fs, "console-phone-provider-edit");
+        yield* shotDark(phone, fs, "console-phone-provider-edit-dark");
+        expect(yield* phone.evaluate(`document.documentElement.scrollWidth <= innerWidth`)).toBe(
+          true,
+        );
+        yield* phone.close;
+
+        // Removed once that is said again, it is gone from the page and from who is offered.
+        yield* does("Remove");
+        yield* page.until(`!!document.querySelector('${BUTTONS} button:last-child')`);
+        yield* placed(page);
+        yield* shot(page, fs, "console-provider-remove");
+        yield* page.click(`${BUTTONS} button:last-child`);
+        yield* page.until(`!document.querySelector('${row}')`);
+        expect(yield* offered).not.toContain(`"id":"${added}"`);
+        expect(yield* page.evaluate(`!!document.querySelector('${configured}')`)).toBe(true);
+        expect(page.errors()).toEqual([]);
+      }),
+    LONG,
+  );
+
   it.effect("the console offers a token what it is for, and nothing the API would refuse it", () =>
     Effect.gen(function* () {
       const proxy = yield* Proxy.Proxy;
