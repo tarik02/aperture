@@ -2127,8 +2127,11 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.click("[data-console-token-new]");
       yield* page.until(`!!document.querySelector("[data-console-token-create] input")`);
       expect(yield* page.text(DIALOG)).toContain("Deploy bot");
-      yield* page.click(`[data-console-scope="sessions:write"]`);
-      yield* page.until(
+      // The dialog is still coming to rest when its field is there: a press beside the
+      // box ticks nothing, so it is pressed until it is ticked.
+      yield* pressUntil(
+        page,
+        `[data-console-scope="sessions:write"]`,
         `document.querySelector('[data-console-scope="sessions:write"]').hasAttribute("data-checked")`,
       );
       yield* shot(page, fs, "console-service-token");
