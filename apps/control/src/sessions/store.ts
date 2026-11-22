@@ -6,7 +6,8 @@ import type { Observation, Session } from "./schemas.ts";
 
 export interface NewSession {
   readonly id: string;
-  readonly accountId: string;
+  /** Who made it: always said of what is of no workspace, which is that account's own. */
+  readonly accountId: string | null;
   readonly workspaceId: string | null;
   readonly nodeId: string;
   readonly desiredState: DesiredState;

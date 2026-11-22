@@ -119,6 +119,16 @@ export const makeAccountsStoreMemory = Effect.fn("AccountsStore.makeMemory")(fun
       for (const members of memory.workspaceMembers.values()) {
         members.delete(id);
       }
+      for (const session of memory.sessions.values()) {
+        if (session.accountId === id && session.workspaceId !== null) {
+          memory.sessions.set(session.id, { ...session, accountId: null });
+        }
+      }
+      for (const snapshot of memory.snapshots.values()) {
+        if (snapshot.accountId === id && snapshot.workspaceId !== null) {
+          memory.snapshots.set(snapshot.id, { ...snapshot, accountId: null });
+        }
+      }
       for (const grant of memory.oauthGrants.values()) {
         if (grant.accountId !== id) {
           continue;

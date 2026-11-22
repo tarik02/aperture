@@ -14,8 +14,11 @@ const statements = (all: ReadonlyArray<string>) =>
   });
 
 /**
- * A session or a snapshot names the account that made it as `account_id`, and beside it
- * the workspace it is of, where it is of one: without, it is that account's own.
+ * A session or a snapshot names the workspace it is of, where it is of one, and as
+ * `account_id` the account that made it. Of no workspace it is that account's own, and
+ * always names it. A workspace's is the workspace's whoever made it: the account is told
+ * and decides nothing, is none where nobody is known to have made it, and is none again
+ * once that account is removed.
  */
 const initial = statements([
   `CREATE TABLE accounts (
@@ -83,8 +86,9 @@ const initial = statements([
   // and the snapshot stays.
   `CREATE TABLE snapshots (
     id text PRIMARY KEY,
-    account_id uuid NOT NULL REFERENCES accounts (id),
+    account_id uuid REFERENCES accounts (id) ON DELETE SET NULL,
     workspace_id uuid REFERENCES workspaces (id),
+    CHECK (account_id IS NOT NULL OR workspace_id IS NOT NULL),
     name text,
     description text,
     tags jsonb NOT NULL DEFAULT '{}',
@@ -98,8 +102,9 @@ const initial = statements([
   // control plane was never told of.
   `CREATE TABLE sessions (
     id text PRIMARY KEY,
-    account_id uuid NOT NULL REFERENCES accounts (id),
+    account_id uuid REFERENCES accounts (id) ON DELETE SET NULL,
     workspace_id uuid REFERENCES workspaces (id),
+    CHECK (account_id IS NOT NULL OR workspace_id IS NOT NULL),
     node_id uuid REFERENCES nodes (id) ON DELETE SET NULL,
     desired_state text NOT NULL CHECK (desired_state IN ('running', 'suspended')),
     observed_state text NOT NULL CHECK (

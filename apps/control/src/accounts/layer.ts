@@ -36,7 +36,7 @@ import { Settings } from "../settings/service.ts";
 import { after, now } from "../time.ts";
 import { accountOf, reaches } from "./caller.ts";
 import type { Account, AccountKind, ApiToken } from "./schemas.ts";
-import { Accounts } from "./service.ts";
+import { Accounts, type Brought } from "./service.ts";
 import { AccountsStore } from "./store.ts";
 import { WorkspacesStore } from "../workspaces/store.ts";
 
@@ -74,6 +74,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     readonly admin: boolean;
     readonly kind: AccountKind;
     readonly email: string | undefined;
+    readonly from?: Brought | undefined;
   }) {
     if ((account.kind === "person") !== (account.email !== undefined)) {
       return yield* new AccountInvalid({
@@ -85,12 +86,12 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
         ? null
         : yield* identity.create({ email: account.email, name: account.name });
     const made = yield* store.insert({
-      id: yield* Secrets.id,
+      id: account.from?.id ?? (yield* Secrets.id),
       name: account.name,
       admin: account.admin,
       kind: account.kind,
       person,
-      createdAt: yield* now,
+      createdAt: account.from?.createdAt ?? (yield* now),
     });
     yield* events.record({
       kind: "account.created",
@@ -354,13 +355,13 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
 
   const remove = Effect.fn("Accounts.remove")(function* (caller: Caller, id: string) {
     const account = yield* dispensable(caller, id);
-    // Whatever names the account, a workspace's as well: it says who made it.
-    const itsSessions = (yield* sessions.list()).filter((session) => session.accountId === id);
-    const itsSnapshots = (yield* snapshots.list()).filter((snapshot) => snapshot.accountId === id);
-    if (itsSessions.length + itsSnapshots.length > 0) {
+    // What is its own: what it made in a workspace is the workspace's, and stays there.
+    const itsSessions = (yield* sessions.listOf(id, [])).length;
+    const itsSnapshots = (yield* snapshots.listOf(id, [])).length;
+    if (itsSessions + itsSnapshots > 0) {
       return yield* new AccountInUse({
         id,
-        message: `it still has ${counted(itsSessions.length, "session")} and ${counted(itsSnapshots.length, "snapshot")}: remove them first, or disable the account`,
+        message: `it still has ${counted(itsSessions, "session")} and ${counted(itsSnapshots, "snapshot")} of its own: remove them first, or disable the account`,
       });
     }
     if (account.email !== null) {
@@ -384,6 +385,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     lasts: Duration.Duration | undefined,
     scopes: ReadonlyArray<Scope>,
     resources?: TokenResources,
+    from?: Brought,
   ) {
     const account = yield* store.find(accountId);
     if (Option.isNone(account)) {
@@ -391,11 +393,11 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     }
     const secret = yield* Secrets.make("apc");
     const token = yield* store.insertToken({
-      id: yield* Secrets.id,
+      id: from?.id ?? (yield* Secrets.id),
       accountId,
       name,
       tokenHash: yield* Secrets.hash(secret),
-      createdAt: yield* now,
+      createdAt: from?.createdAt ?? (yield* now),
       expiresAt: lasts === undefined ? null : yield* after(lasts),
       scopes,
       resources: resources ?? null,

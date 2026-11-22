@@ -50,7 +50,8 @@ export interface AccountsStoreShape {
   readonly setDisabled: (id: string, at: Date | null) => Effect.Effect<Option.Option<Account>>;
   /**
    * Removes an account with its API tokens, its grants, the share links it made and its
-   * places in workspaces. Not one that sessions or snapshots still name.
+   * places in workspaces. What it made in workspaces stays theirs, with nobody said to have
+   * made it. Not one that has sessions or snapshots of its own.
    */
   readonly delete: (id: string) => Effect.Effect<void>;
   readonly insertToken: (token: NewApiToken) => Effect.Effect<ApiToken>;

@@ -184,7 +184,12 @@ export const Node = Schema.Struct({
 
 export const Session = Schema.Struct({
   id: Schema.String,
-  accountId: Schema.String,
+  /**
+   * The account that made it. A session of no workspace is that account's own; one of a
+   * workspace is the workspace's, and names none where nobody is known to have made it
+   * or the account was removed since.
+   */
+  accountId: Schema.NullOr(Schema.String),
   workspaceId: Schema.NullOr(Schema.String),
   nodeId: Schema.NullOr(Schema.String),
   /** What the node it is on is called; none for a session on no node. */
@@ -207,7 +212,8 @@ export const Session = Schema.Struct({
 
 export const Snapshot = Schema.Struct({
   id: Schema.String,
-  accountId: Schema.String,
+  /** The account that made it, as a session's is. */
+  accountId: Schema.NullOr(Schema.String),
   workspaceId: Schema.NullOr(Schema.String),
   name: Schema.NullOr(Schema.String),
   description: Schema.NullOr(Schema.String),

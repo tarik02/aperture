@@ -13,6 +13,10 @@ export const makeSnapshotsStoreMemory = Effect.fn("SnapshotsStore.makeMemory")(f
 
   const insert = Effect.fn("SnapshotsStore.insert")((snapshot: NewSnapshot) =>
     Effect.sync(() => {
+      // What a database refuses by itself is refused here by hand.
+      if (snapshot.accountId === null && snapshot.workspaceId === null) {
+        throw new Error(`snapshot ${snapshot.id} is of no workspace and of no account`);
+      }
       const kept: Snapshot = { ...snapshot, createdAt: moment(snapshot.createdAt) };
       memory.snapshots.set(kept.id, kept);
       return kept;

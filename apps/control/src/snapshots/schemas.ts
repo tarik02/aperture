@@ -3,7 +3,12 @@ import * as Schema from "effect/Schema";
 /** A snapshot as the control plane knows it: whose it is, and where it is found. */
 export const Snapshot = Schema.Struct({
   id: Schema.String,
-  accountId: Schema.String,
+  /**
+   * The account that made it. Of no workspace, the snapshot is that account's own; of one,
+   * it is the workspace's, and this is none where nobody is known to have made it or the
+   * account was removed since.
+   */
+  accountId: Schema.NullOr(Schema.String),
   /** The workspace it is of: the one its session was of when it was taken. */
   workspaceId: Schema.NullOr(Schema.String),
   name: Schema.NullOr(Schema.String),

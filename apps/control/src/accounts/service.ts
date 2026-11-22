@@ -15,6 +15,15 @@ import type {
 import type { SignInMethods } from "../identity/service.ts";
 import type { Account, AccountKind, ApiToken } from "./schemas.ts";
 
+/**
+ * What something that was kept elsewhere before is made with here, in place of an id and
+ * a moment of its own: it is the same thing, and as old as it was.
+ */
+export interface Brought {
+  readonly id: string;
+  readonly createdAt: Date;
+}
+
 /** Accounts, their API tokens, and whose a token is. */
 export interface AccountsShape {
   readonly create: (account: {
@@ -23,6 +32,8 @@ export interface AccountsShape {
     readonly kind: AccountKind;
     /** The address a person signs in with; a person's account has one, and a service's none. */
     readonly email: string | undefined;
+    /** For an account that was kept elsewhere before. */
+    readonly from?: Brought | undefined;
   }) => Effect.Effect<Account, EmailTaken | AccountInvalid>;
   /** A token with which the person of an account sets a password: a first one, or another. */
   readonly setupToken: (
@@ -79,8 +90,10 @@ export interface AccountsShape {
   readonly enable: (id: string) => Effect.Effect<Account, AccountNotFound>;
   /**
    * Removes an account with its person, its API tokens, its grants, the share links it
-   * made, whose guests are put out, and its places in workspaces. Not while a session or
-   * a snapshot names it: those are removed first. Nobody removes their own account, and the last admin stays.
+   * made, whose guests are put out, and its places in workspaces. What it made in
+   * workspaces stays theirs, with nobody said to have made it. Not while it has a session
+   * or a snapshot of its own: those are removed first. Nobody removes their own account,
+   * and the last admin stays.
    */
   readonly remove: (
     caller: Caller,
@@ -96,6 +109,8 @@ export interface AccountsShape {
     scopes: ReadonlyArray<Scope>,
     /** The resources the token is held to; all that its account reaches, without. */
     resources?: TokenResources,
+    /** For a token made in place of one that was kept elsewhere before. */
+    from?: Brought,
   ) => Effect.Effect<{ readonly token: ApiToken; readonly secret: string }, AccountNotFound>;
   /** The tokens of the caller's own account, those taken back among them. */
   readonly tokens: (caller: Caller) => Effect.Effect<ReadonlyArray<ApiToken>, Forbidden>;

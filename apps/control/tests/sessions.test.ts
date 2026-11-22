@@ -461,6 +461,87 @@ for (const stores of Control.STORES) {
       }),
     );
 
+    it.effect(
+      "what an account made in a workspace is the workspace's, and stays once the account is removed",
+      () =>
+        Effect.gen(function* () {
+          const control = yield* Control.Control;
+          const bootstrap = yield* control.as(control.bootstrapToken);
+          const team = yield* ada.api.workspaces.create({ payload: { name: "Makers" } });
+          const cy = yield* Control.account("Cy");
+          const at = { params: { id: cy.account.id } };
+          yield* ada.api.workspaces.admit({
+            params: { id: team.id, accountId: cy.account.id },
+            payload: { role: "member" },
+          });
+          const asCy = yield* control.as(cy.token);
+          const made = yield* asCy.sessions.create({
+            payload: { workspaceId: team.id, suspended: true, label: "Cy's work" },
+          });
+          const taken = yield* asCy.snapshots.take({
+            params: { id: made.id },
+            payload: { name: "cys-work" },
+          });
+          // Who made them is told, and decides nothing: they are every member's.
+          expect([made.accountId, taken.accountId]).toEqual([cy.account.id, cy.account.id]);
+          expect((yield* ada.api.sessions.get({ params: { id: made.id } })).label).toBe(
+            "Cy's work",
+          );
+
+          // What is an account's own names it, and keeps it from being removed.
+          const own = yield* asCy.sessions.create({ payload: { suspended: true } });
+          expect(own).toMatchObject({ accountId: cy.account.id, workspaceId: null });
+          expect(yield* Effect.flip(bootstrap.accounts.remove(at))).toMatchObject({
+            _tag: "AccountInUse",
+            message: expect.stringContaining("1 session and 0 snapshots of its own"),
+          });
+          // Nothing is of no workspace and of no account: the bootstrap token is no account's.
+          expect(
+            (yield* Effect.flip(bootstrap.sessions.create({ payload: { suspended: true } })))._tag,
+          ).toBe("Forbidden");
+          yield* asCy.sessions.delete({ params: { id: own.id } });
+
+          // What it made in the workspace does not keep it, and stays with nobody named.
+          yield* bootstrap.accounts.remove(at);
+          expect((yield* Effect.flip(asCy.sessions.list({ query: {} })))._tag).toBe("Unauthorized");
+          const kept = yield* ada.api.sessions.get({ params: { id: made.id } });
+          expect(kept).toMatchObject({ accountId: null, workspaceId: team.id, label: "Cy's work" });
+          expect(
+            (yield* ada.api.snapshots.list({ query: { workspaceId: team.id } })).map((snapshot) => [
+              snapshot.id,
+              snapshot.accountId,
+              snapshot.workspaceId,
+            ]),
+          ).toEqual([[taken.id, null, team.id]]);
+          expect(
+            (yield* ada.api.sessions.list({ query: { workspaceId: team.id } })).map(
+              (listed) => listed.id,
+            ),
+          ).toEqual([made.id]);
+          // It is as any other of the workspace's: a member runs it, describes it, removes it.
+          const described = yield* ada.api.sessions.describe({
+            params: { id: made.id },
+            payload: { label: "The team's work" },
+          });
+          expect(described).toMatchObject({ label: "The team's work", accountId: null });
+          const again = yield* ada.api.snapshots.take({
+            params: { id: made.id },
+            payload: { name: "the-teams-work" },
+          });
+          // A snapshot names whoever took it, whoever made the session.
+          expect(again).toMatchObject({ accountId: ada.account.id, workspaceId: team.id });
+          const outsider = yield* Control.account("Dee");
+          expect(
+            (yield* Effect.flip(outsider.api.sessions.get({ params: { id: made.id } })))._tag,
+          ).toBe("SessionNotFound");
+
+          yield* ada.api.snapshots.delete({ params: { id: taken.id } });
+          yield* ada.api.snapshots.delete({ params: { id: again.id } });
+          yield* ada.api.sessions.delete({ params: { id: made.id } });
+          yield* ada.api.workspaces.delete({ params: { id: team.id } });
+        }),
+    );
+
     it.effect("suspending and resuming go through to the node", () =>
       Effect.gen(function* () {
         const executor = yield* Executor.Executor;

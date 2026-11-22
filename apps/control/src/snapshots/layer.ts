@@ -86,8 +86,12 @@ export const makeSnapshots = Effect.fn("Snapshots.make")(function* () {
     const created = taken.createdAt;
     const kept = yield* store.insert({
       id: taken.id,
-      // A snapshot is whose the session is, also when an admin takes it.
-      accountId: session.accountId,
+      // Of no workspace, a snapshot is whose the session is, also when an admin takes it.
+      // A workspace's names whoever took it, which is none for a token of no account.
+      accountId:
+        session.workspaceId === null
+          ? session.accountId
+          : Option.getOrNull(Option.map(caller.account, (account) => account.id)),
       workspaceId: session.workspaceId,
       name: taken.name ?? null,
       description: options.description ?? replaced?.description ?? null,

@@ -95,7 +95,7 @@ const SAID: Readonly<Record<string, string>> = {
   EmailTaken: "Someone has this email address already.",
   PersonNotFound: "There is no such person.",
   AccountInvalid: "The account cannot be as asked.",
-  AccountInUse: "The account still has sessions or snapshots.",
+  AccountInUse: "The account still has sessions or snapshots of its own.",
   OAuthClientNotFound: "There is no such app.",
   RedirectRefused: "The app may not be sent back to that address.",
   GrantNotFound: "This app is not connected any more.",

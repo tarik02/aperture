@@ -59,7 +59,7 @@ A machine with an executor on it, as the control plane knows it: its name, where
 What lets an executor tell a control plane it is a node of it. An admin makes it; several can be good at once. An admin takes one back as well: no new node registers with it then, and the nodes that registered with it stay for as long as they say of themselves what they said before.
 
 **Workspace**:
-Where accounts keep sessions and snapshots together: what is a workspace's is all its members', and stays the workspace's when a member leaves. A session or a snapshot is of one workspace or of none, and of none it is its account's own. A member who is an admin of the workspace says who its members are. Whoever does finds a person to let in by the whole email address they sign in with, and is told of nobody they did not name.
+Where accounts keep sessions and snapshots together: what is a workspace's is all its members', and stays the workspace's when a member leaves. A session or a snapshot is of one workspace or of none, and of none it is its account's own. A workspace's names the account that made it where one is known to have: that is told and decides nothing, and it names none once that account is removed. A member who is an admin of the workspace says who its members are. Whoever does finds a person to let in by the whole email address they sign in with, and is told of nobody they did not name.
 
 **Service account**:
 An account for something that is not a person: it comes with API tokens alone. It holds sessions and snapshots and is let into workspaces as a person's account is.
@@ -85,7 +85,7 @@ Where a session is reached through a proxy that stands before the nodes, below t
 The one secret a control plane is given beside its database: what it has to read again, such as a node's operator token, is kept sealed with a key made of it. It is not in the database, and stays the same for as long as what was sealed is to be read.
 
 **Account**:
-Whose sessions, snapshots and API tokens are, in the control plane. An admin account also makes accounts and registration tokens, disables accounts and removes them. An account is removed once no session and no snapshot names it, and its API tokens, its grants, the share links it made and its places in workspaces go with it, and the guests of those links are put out.
+Whose sessions, snapshots and API tokens are, in the control plane. An admin account also makes accounts and registration tokens, disables accounts and removes them. An account is removed once it has no session and no snapshot of its own, and its API tokens, its grants, the share links it made and its places in workspaces go with it, and the guests of those links are put out; what it made in workspaces stays theirs.
 _Avoid_: Tenant, user
 
 **Disabled**:

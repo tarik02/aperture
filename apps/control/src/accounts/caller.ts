@@ -14,9 +14,12 @@ export const accountOf = (caller: Caller): Effect.Effect<Account, Forbidden> =>
     onSome: Effect.succeed,
   });
 
-/** Whose something is: a workspace's where it names one, and the account's own otherwise. */
+/**
+ * Whose something is: a workspace's where it names one, whoever made it, and otherwise the
+ * own of the account that did.
+ */
 export interface Owned {
-  readonly accountId: string;
+  readonly accountId: string | null;
   readonly workspaceId: string | null;
 }
 

@@ -24,6 +24,10 @@ export const makeSessionsStoreMemory = Effect.fn("SessionsStore.makeMemory")(fun
 
   const insert = Effect.fn("SessionsStore.insert")((session: NewSession) =>
     Effect.sync(() => {
+      // What a database refuses by itself is refused here by hand.
+      if (session.accountId === null && session.workspaceId === null) {
+        throw new Error(`session ${session.id} is of no workspace and of no account`);
+      }
       const kept: Session = {
         id: session.id,
         accountId: session.accountId,
