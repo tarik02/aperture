@@ -31,17 +31,12 @@ export function SessionProxyDialog({ sessionId, open, onOpenChange }: SessionPro
   const kept = useSessionProxyQuery(sessionId, open);
 
   return (
-    <FreshDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      className="aperture:sm:max-w-xl"
-      height="26rem"
-    >
+    <FreshDialog open={open} onOpenChange={onOpenChange} className="aperture:sm:max-w-xl">
       {/* What was kept when the dialog last opened is not what is edited from. */}
       {kept.data === undefined || (open && kept.isFetching) ? (
         <>
           <ProxyHeader />
-          <DialogBody>
+          <DialogBody height={HEIGHT}>
             <p className="aperture:text-sm aperture:text-muted-foreground">
               {kept.isError ? told(kept.error) : "Asking how it is routed now…"}
             </p>
@@ -65,6 +60,9 @@ export function SessionProxyDialog({ sessionId, open, onOpenChange }: SessionPro
     </FreshDialog>
   );
 }
+
+/** As in a new session's dialog: the rules, with none yet. */
+const HEIGHT = "calc(0.75rem + 6 * var(--control-height))";
 
 function ProxyHeader() {
   return (
@@ -108,7 +106,7 @@ function ProxyForm({
       }}
     >
       <ProxyHeader />
-      <DialogBody>
+      <DialogBody height={HEIGHT}>
         <form.Field name="proxy" validators={{ onSubmit: ({ value }) => proxyRules(value) }}>
           {(field) => (
             <ProxyEditor

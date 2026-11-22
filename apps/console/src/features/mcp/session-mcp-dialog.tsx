@@ -32,12 +32,7 @@ type SessionMcpDialogProps = {
 /** How an MCP client is pointed at one session's own server, which drives that session alone. */
 export function SessionMcpDialog({ session, open, onOpenChange }: SessionMcpDialogProps) {
   return (
-    <FreshDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      className="aperture:sm:max-w-xl"
-      height="36rem"
-    >
+    <FreshDialog open={open} onOpenChange={onOpenChange} className="aperture:sm:max-w-xl">
       <DialogHeader>
         <DialogTitle>Connect MCP</DialogTitle>
         <DialogDescription>
@@ -90,7 +85,8 @@ function SessionMcpSteps({ session }: Pick<SessionMcpDialogProps, "session">) {
           ) : null}
         </div>
       </div>
-      <DialogBody>
+      {/* What most clients are set up with fits; the longest of them scrolls. */}
+      <DialogBody height="24.75rem">
         {client === undefined ? null : (
           <McpSteps
             client={client}

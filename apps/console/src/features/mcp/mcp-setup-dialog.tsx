@@ -32,12 +32,7 @@ type McpSetupDialogProps = {
 /** How an MCP client is pointed at the account's sessions, all of them through one server. */
 export function McpSetupDialog({ open, onOpenChange }: McpSetupDialogProps) {
   return (
-    <FreshDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      className="aperture:sm:max-w-3xl"
-      height="42rem"
-    >
+    <FreshDialog open={open} onOpenChange={onOpenChange} className="aperture:sm:max-w-3xl">
       <DialogHeader>
         <DialogTitle>Connect an MCP client</DialogTitle>
       </DialogHeader>
@@ -138,7 +133,14 @@ function McpSetupSteps() {
           ) : null}
         </div>
 
-        <ScrollArea className="aperture:min-h-0 aperture:flex-1" viewportClassName="aperture:pr-3">
+        {/*
+          What most clients are set up with fits; the ones with a file to write are several
+          times as long, and scroll.
+        */}
+        <ScrollArea
+          className="aperture:flex aperture:min-h-0 aperture:shrink aperture:grow-0 aperture:basis-[23rem] aperture:flex-col"
+          viewportClassName="aperture:h-auto aperture:min-h-0 aperture:flex-1 aperture:pr-3"
+        >
           {mcpClients.map((client) => (
             <TabsContent key={client.id} value={client.id} className="aperture:min-w-0">
               <McpSteps client={client} setup={setup} />

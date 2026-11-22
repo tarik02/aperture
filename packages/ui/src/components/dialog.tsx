@@ -102,18 +102,9 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
-  height,
-  style,
   ...props
-}: Omit<DialogPrimitive.Popup.Props, "style"> & {
+}: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean;
-  /**
-   * How tall it is whatever it holds, as a CSS length, where what it holds changes while it is
-   * open: the window's height still bounds it. Its header and footer stay, and a `DialogBody`
-   * between them scrolls.
-   */
-  height?: string;
-  style?: React.CSSProperties;
 }) {
   return (
     <DialogPortal>
@@ -121,18 +112,13 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "aperture:group/dialog aperture:fixed aperture:inset-x-0 aperture:bottom-(--keyboard-inset,0px) aperture:z-50 aperture:grid aperture:max-h-[calc(100dvh-0.75rem-env(safe-area-inset-top)-var(--keyboard-inset,0px))] aperture:w-full aperture:max-w-none aperture:gap-4 aperture:overflow-y-auto aperture:rounded-t-xl aperture:bg-popover aperture:p-4 aperture:pb-(--dialog-pad-bottom) aperture:text-sm aperture:[--dialog-pad-bottom:max(1rem,env(safe-area-inset-bottom))] aperture:sm:[--dialog-pad-bottom:1rem] aperture:text-popover-foreground aperture:ring-1 aperture:ring-foreground/10 aperture:duration-100 aperture:outline-none aperture:data-closed:animate-out aperture:data-closed:fade-out-0 aperture:data-closed:slide-out-to-bottom-2 aperture:data-open:animate-in aperture:data-open:fade-in-0 aperture:data-open:slide-in-from-bottom-2 aperture:sm:top-1/2 aperture:sm:left-1/2 aperture:sm:bottom-auto aperture:sm:max-h-[calc(100svh-2rem)] aperture:sm:max-w-md aperture:sm:-translate-x-1/2 aperture:sm:-translate-y-1/2 aperture:sm:rounded-xl aperture:sm:data-closed:zoom-out-95 aperture:sm:data-open:zoom-in-95",
-          height === undefined
-            ? undefined
-            : // A phone's controls are taller than the ones the height was chosen for.
-              "aperture:flex aperture:h-[calc(var(--dialog-height)+3rem)] aperture:flex-col aperture:overflow-hidden aperture:sm:h-(--dialog-height)",
+          // A column no taller than what is seen of the window: its header, its footer and
+          // what else stands in it take the room they need, whatever the size of what is
+          // pressed, and a `DialogBody` among them gives way and scrolls. With no body the
+          // whole of it scrolls. On a phone it is a sheet at the foot, above the keyboard.
+          "aperture:group/dialog aperture:fixed aperture:inset-x-0 aperture:bottom-(--keyboard-inset,0px) aperture:z-50 aperture:flex aperture:max-h-[calc(100dvh-0.75rem-env(safe-area-inset-top)-var(--keyboard-inset,0px)-var(--keyboard-top,0px))] aperture:w-full aperture:max-w-none aperture:flex-col aperture:gap-4 aperture:overflow-x-hidden aperture:overflow-y-auto aperture:rounded-t-xl aperture:bg-popover aperture:p-4 aperture:pb-(--dialog-pad-bottom) aperture:text-sm aperture:[--dialog-pad-bottom:max(1rem,env(safe-area-inset-bottom))] aperture:sm:[--dialog-pad-bottom:1rem] aperture:text-popover-foreground aperture:ring-1 aperture:ring-foreground/10 aperture:duration-100 aperture:outline-none aperture:data-closed:animate-out aperture:data-closed:fade-out-0 aperture:data-closed:slide-out-to-bottom-2 aperture:data-open:animate-in aperture:data-open:fade-in-0 aperture:data-open:slide-in-from-bottom-2 aperture:sm:top-[calc(var(--keyboard-top,0px)+(100svh-var(--keyboard-top,0px)-var(--keyboard-inset,0px))/2)] aperture:sm:left-1/2 aperture:sm:bottom-auto aperture:sm:max-h-[calc(100svh-2rem-var(--keyboard-top,0px)-var(--keyboard-inset,0px))] aperture:sm:max-w-md aperture:sm:-translate-x-1/2 aperture:sm:-translate-y-1/2 aperture:sm:rounded-xl aperture:sm:data-closed:zoom-out-95 aperture:sm:data-open:zoom-in-95",
           className,
         )}
-        style={
-          height === undefined
-            ? style
-            : ({ "--dialog-height": height, ...style } as React.CSSProperties)
-        }
         {...props}
       >
         {children}
@@ -171,17 +157,52 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 /**
- * What a dialog of a set height holds between its header and footer, scrolling where it is
- * more. Its class is for how what it holds is laid out.
+ * What a dialog holds between its header and footer: the part of it that gives way where
+ * the window is short, and scrolls then. Its class is for how what it holds is laid out.
  */
-function DialogBody({ className, ...props }: React.ComponentProps<typeof ScrollArea>) {
+function DialogBody({
+  className,
+  height,
+  phoneHeight,
+  style,
+  ...props
+}: Omit<React.ComponentProps<typeof ScrollArea>, "style"> & {
+  /**
+   * How tall it is whatever it holds, as a CSS length, where what it holds changes while the
+   * dialog is open: tabs, a list that loads or grows. The room for the tallest of what it
+   * shows, so that the dialog is as tall for each. Where what it holds is what is pressed,
+   * the length counts those in `--control-height`, which is more where a finger presses.
+   * Left out, it is as tall as what it holds.
+   */
+  height?: string;
+  /** The same on a phone, where it is another: what it holds is in more lines there. */
+  phoneHeight?: string;
+  style?: React.CSSProperties;
+}) {
   return (
     <ScrollArea
       data-slot="dialog-body"
-      // Out to the dialog's edges, so the rings of what has the focus are not cut off.
-      className="aperture:-mx-4 aperture:-my-1 aperture:min-h-0 aperture:flex-1"
+      className={cn(
+        // Out to the dialog's edges, so the rings of what has the focus are not cut off; and
+        // further at its foot, where what stands out of the last thing it holds would
+        // have it scroll: the line kept for what a field's rules say, the room a finger
+        // has around a switch.
+        "aperture:-mx-4 aperture:-mt-1 aperture:-mb-2 aperture:flex aperture:min-h-0 aperture:flex-col",
+        height === undefined
+          ? "aperture:shrink aperture:grow-0 aperture:basis-auto"
+          : "aperture:shrink aperture:grow-0 aperture:basis-(--dialog-body-height) aperture:max-sm:basis-(--dialog-body-phone-height)",
+      )}
+      style={
+        height === undefined
+          ? style
+          : ({
+              "--dialog-body-height": height,
+              "--dialog-body-phone-height": phoneHeight ?? height,
+              ...style,
+            } as React.CSSProperties)
+      }
       viewportClassName={cn(
-        "aperture:flex aperture:flex-col aperture:gap-4 aperture:px-4 aperture:py-1",
+        "aperture:flex aperture:h-auto aperture:min-h-0 aperture:flex-1 aperture:flex-col aperture:gap-4 aperture:px-4 aperture:pt-1 aperture:pb-2",
         className,
       )}
       {...props}

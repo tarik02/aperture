@@ -3,7 +3,16 @@
    What stands small among other things says so with `data-touch-dense`, and is pressed
    around it by its own means. */
 @layer components {
+  /* How tall what is pressed is, for what is sized to hold a number of them. */
+  .aperture-root {
+    --control-height: 2rem;
+  }
+
   @media (pointer: coarse) {
+    .aperture-root {
+      --control-height: 2.5rem;
+    }
+
     [data-button]:not([data-touch-dense]),
     [data-slot="toggle"],
     [data-slot="input"],

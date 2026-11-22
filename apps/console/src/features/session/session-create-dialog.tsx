@@ -33,12 +33,7 @@ type SessionCreateDialogProps = {
 /** A session made as it is asked for: named, from a snapshot, routed, tagged. */
 export function SessionCreateDialog({ open, onOpenChange }: SessionCreateDialogProps) {
   return (
-    <FreshDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      className="aperture:sm:max-w-xl"
-      height="27rem"
-    >
+    <FreshDialog open={open} onOpenChange={onOpenChange} className="aperture:sm:max-w-xl">
       <CreateForm onDone={() => onOpenChange(false)} />
     </FreshDialog>
   );
@@ -107,7 +102,8 @@ function CreateForm({ onDone }: { onDone: () => void }) {
           <TabsTrigger value="proxy">Routing</TabsTrigger>
           <TabsTrigger value="advanced">Advanced</TabsTrigger>
         </TabsList>
-        <DialogBody>
+        {/* The tallest of its tabs: the one of tags, with three of them. */}
+        <DialogBody height="calc(0.75rem + 6 * var(--control-height))">
           <TabsContent
             value="general"
             className="aperture:grid aperture:content-start aperture:gap-4"

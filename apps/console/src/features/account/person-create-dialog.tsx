@@ -24,7 +24,7 @@ type PersonCreateDialogProps = {
 /** A new account of a person's, who signs in with their address. */
 export function PersonCreateDialog({ open, onOpenChange, onCreated }: PersonCreateDialogProps) {
   return (
-    <FreshDialog open={open} onOpenChange={onOpenChange} height="23rem">
+    <FreshDialog open={open} onOpenChange={onOpenChange}>
       <CreateForm onCreated={onCreated} onDone={() => onOpenChange(false)} />
     </FreshDialog>
   );

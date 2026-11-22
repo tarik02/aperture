@@ -65,7 +65,9 @@ export function AccountSecurityDialog({ person, open, onOpenChange }: AccountSec
   const shown = open ? step : "none";
 
   return (
-    // What was typed and told is gone with the dialog: the codes are shown once.
+    // What was typed and told is gone with the dialog: the codes are shown once. Each step
+    // is as tall as what it holds: a step is another thing to do, not the same form with
+    // more in it.
     <FreshDialog
       open={open}
       onOpenChange={(next) => {
@@ -74,11 +76,6 @@ export function AccountSecurityDialog({ person, open, onOpenChange }: AccountSec
         }
         onOpenChange(next);
       }}
-      // Each step has the height it needs, and the dialog moves from one to the next: a
-      // step is another thing to do, not the same form with more in it.
-      // Not `duration-200`: that would also slow the dialog's leaving, past its backdrop's.
-      className="aperture:transition-[height] aperture:[transition-duration:200ms] aperture:ease-out"
-      height={HEIGHTS[shown]}
       // The backup codes are shown once: Done closes them, and nothing done in passing.
       dismissible={shown !== "backup-codes"}
     >
@@ -86,15 +83,6 @@ export function AccountSecurityDialog({ person, open, onOpenChange }: AccountSec
     </FreshDialog>
   );
 }
-
-/** The code to scan is as wide as the dialog and fits whole; the other steps hold little. */
-const HEIGHTS: Record<Enrolling["step"], string> = {
-  none: "24rem",
-  "passkey-name": "24rem",
-  "passkey-remove": "24rem",
-  confirm: "42rem",
-  "backup-codes": "25rem",
-};
 
 function Security({
   person,
@@ -175,6 +163,9 @@ function Security({
 
 type Tab = "second-factor" | "passkeys";
 
+/** What either tab holds: the password and what it is for, or three passkeys. */
+const TAB_HEIGHT = "calc(4.5rem + 2 * var(--control-height))";
+
 const added = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 
 /** The passkeys a person has, each with the ways to name it anew and to remove it. */
@@ -189,7 +180,7 @@ function Passkeys({
 
   return (
     <>
-      <DialogBody data-console-security-dialog="passkeys">
+      <DialogBody data-console-security-dialog="passkeys" height={TAB_HEIGHT}>
         {passkeys.isError ? (
           <p role="alert" className="aperture:text-sm aperture:text-destructive">
             {told(passkeys.error)}
@@ -396,7 +387,7 @@ function WithPassword({
         void form.handleSubmit({ renew: false });
       }}
     >
-      <DialogBody>
+      <DialogBody height={TAB_HEIGHT}>
         <div className="aperture:flex aperture:items-center aperture:justify-between aperture:gap-2 aperture:text-sm">
           Two-factor sign-in
           <Badge
@@ -487,21 +478,29 @@ function Confirm({
       }}
     >
       <DialogBody>
-        {manual ? (
-          <>
-            <div data-console-totp-uri>
-              <CopyField label="Setup address" value={enrolling.uri} />
-            </div>
-            <CopyField label="Secret" value={enrolling.secret} />
-          </>
-        ) : (
-          <QrCode
-            data-console-totp-qr
-            value={enrolling.uri}
-            label="Setup address for an authenticator"
-            className="aperture:size-auto aperture:w-full aperture:shrink-0"
-          />
-        )}
+        {/*
+          As tall as the picture, which is as tall as it is wide, whichever of the two it
+          shows; and no taller than leaves the whole of the step in a window that is short.
+        */}
+        <div className="aperture:@container aperture:w-full aperture:shrink-0">
+          <div className="aperture:flex aperture:h-[max(11rem,min(100cqw,calc(100svh-21rem)))] aperture:flex-col aperture:gap-4 aperture:overflow-y-auto">
+            {manual ? (
+              <>
+                <div data-console-totp-uri>
+                  <CopyField label="Setup address" value={enrolling.uri} />
+                </div>
+                <CopyField label="Secret" value={enrolling.secret} />
+              </>
+            ) : (
+              <QrCode
+                data-console-totp-qr
+                value={enrolling.uri}
+                label="Setup address for an authenticator"
+                className="aperture:aspect-square aperture:size-auto aperture:h-full aperture:self-center"
+              />
+            )}
+          </div>
+        </div>
         <Button
           type="button"
           variant="link"

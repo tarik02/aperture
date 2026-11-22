@@ -35,17 +35,12 @@ type SaveSnapshotDialogProps = {
 export function SaveSnapshotDialog({ session, open, onOpenChange }: SaveSnapshotDialogProps) {
   const snapshots = useSnapshotsQuery();
   return (
-    <FreshDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      className="aperture:sm:max-w-lg"
-      height="40rem"
-    >
+    <FreshDialog open={open} onOpenChange={onOpenChange} className="aperture:sm:max-w-lg">
       {/* What may be replaced decides how the form starts, so the form waits for it. */}
       {snapshots.isPending ? (
         <>
           <SaveHeader />
-          <DialogBody />
+          <DialogBody height={HEIGHT} />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
@@ -70,6 +65,9 @@ export function SaveSnapshotDialog({ session, open, onOpenChange }: SaveSnapshot
     </FreshDialog>
   );
 }
+
+/** The taller of the two it asks for, which is the one that replaces, and three tags. */
+const HEIGHT = "calc(16.75rem + 7 * var(--control-height))";
 
 function SaveHeader() {
   return (
@@ -138,7 +136,7 @@ function SaveForm({ session, replaceable, onDone }: SaveFormProps) {
       }}
     >
       <SaveHeader />
-      <DialogBody>
+      <DialogBody height={HEIGHT}>
         {replaceable.length === 0 ? null : (
           <form.Field name="mode">
             {(field) => (

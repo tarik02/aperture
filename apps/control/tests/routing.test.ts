@@ -246,6 +246,46 @@ const placed = (page: Viewer.Page, part = BUTTONS) =>
 const alike = (states: ReadonlyArray<unknown>) =>
   expect(states).toEqual(states.map(() => states[0]));
 
+/**
+ * Whether the open dialog is as tall as what it holds, where it is given no height: none of
+ * it is scrolled to, and there is no room in it that nothing stands in.
+ */
+const snug = (page: Viewer.Page) =>
+  page.evaluate(
+    `(() => {
+      const body = document.querySelector('${BODY}');
+      const last = body.lastElementChild.getBoundingClientRect();
+      const room = body.getBoundingClientRect().bottom - parseFloat(getComputedStyle(body).paddingBottom) - last.bottom;
+      return { scrolls: body.scrollHeight > body.clientHeight, room: Math.round(room) };
+    })()`,
+  );
+
+/**
+ * What of the open dialog is on screen: the whole of it, its title, all its buttons, and
+ * what is typed into, which is seen in what scrolls between them.
+ */
+const onScreen = (page: Viewer.Page) =>
+  page.evaluate(
+    `(() => {
+      const box = (one) => one.getBoundingClientRect();
+      const within = (one) => {
+        const at = box(one);
+        return at.top >= 0 && at.bottom <= innerHeight && at.left >= 0 && at.right <= innerWidth;
+      };
+      const dialog = document.querySelector('${DIALOG}');
+      const body = box(document.querySelector('${BODY}'));
+      const typed = document.activeElement;
+      return {
+        dialog: within(dialog),
+        title: within(dialog.querySelector('[data-slot="dialog-title"]')),
+        buttons: [...document.querySelectorAll('${BUTTONS} button')].every(within),
+        typed: dialog.contains(typed) && typed.matches("input") && box(typed).top >= body.top - 1 && box(typed).bottom <= body.bottom + 1,
+      };
+    })()`,
+  );
+
+const ALL_ON_SCREEN = { dialog: true, title: true, buttons: true, typed: true };
+
 /** Opens what a session's menu offers, by what it says. */
 const fromMenu = (page: Viewer.Page, card: string, says: string) =>
   Effect.gen(function* () {
@@ -1032,6 +1072,8 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* shot(page, fs, "console-name-invalid");
       naming.push(yield* placed(page));
       alike(naming);
+      // It holds one field and is as tall as that: no taller, and with nothing to scroll to.
+      expect(yield* snug(page)).toEqual({ scrolls: false, room: 0 });
       yield* closed(page);
       // A workspace's members come and go under the way to add one, which stays where it is.
       yield* choose(page, `[data-console-workspace="Shop team"] button`, "Members");
@@ -1110,6 +1152,21 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* shot(page, fs, "console-token-create-full");
       yield* shotDark(page, fs, "console-token-create-full-dark");
       token.push(yield* placed(page));
+      // And what each scope does: it is as tall as holds the most it shows, so none of that
+      // is scrolled to where the window has the room.
+      yield* page.click("[data-console-scopes-explain]");
+      yield* page.until(
+        `document.querySelector("[data-console-scopes-explain]").getAttribute("aria-expanded") === "true"`,
+      );
+      token.push(yield* placed(page));
+      expect(
+        yield* page.evaluate(
+          `(() => {
+            const body = document.querySelector('${BODY}');
+            return body.scrollHeight <= body.clientHeight;
+          })()`,
+        ),
+      ).toBe(true);
       alike(token);
       yield* closed(page);
 
@@ -1220,6 +1277,40 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
           ),
         ).toBe(true);
         yield* closed(page);
+
+        // With the keyboard up the window is short. A dialog of tabs, whose body has a set
+        // height, is then no taller than what is left: its title and its buttons stay, and
+        // what is typed into is seen between them. So is one that is as tall as what it
+        // holds, which is all seen where there is room for it.
+        for (const height of [480, 360]) {
+          const short = yield* viewer.open(`${proxy.url}/-/sessions`, {
+            width: 390,
+            height,
+            mobile: true,
+          });
+          yield* short.until(`!!document.querySelector("[data-console-create-custom]")`);
+          yield* short.click("[data-console-create-custom]");
+          yield* short.until(
+            `document.activeElement === document.querySelector("[data-console-session-create] input")`,
+          );
+          yield* placed(short);
+          yield* shot(short, fs, `console-phone-dialog-keyboard-${height}`);
+          expect(yield* onScreen(short)).toEqual(ALL_ON_SCREEN);
+          yield* closed(short);
+
+          yield* short.evaluate(`void (location.href = "/-/workspaces")`);
+          yield* short.until(`!!document.querySelector("[data-console-workspace-new]")`);
+          yield* short.click("[data-console-workspace-new]");
+          yield* short.until(
+            `document.activeElement === document.querySelector("[data-console-name-dialog] input")`,
+          );
+          yield* placed(short);
+          yield* shot(short, fs, `console-phone-name-dialog-keyboard-${height}`);
+          expect(yield* onScreen(short)).toEqual(ALL_ON_SCREEN);
+          expect(yield* snug(short)).toEqual({ scrolls: false, room: 0 });
+          expect(short.errors()).toEqual([]);
+          yield* short.close;
+        }
 
         // A finger that moves over the session's picture scrolls its page: it is no mouse
         // with its button held, which would select what it passes over.
@@ -1867,7 +1958,8 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* page.type(password);
       yield* page.key("Enter", "Enter", ENTER);
 
-      // The passkeys are beside the second factor, in a dialog that keeps its height.
+      // The passkeys are beside the second factor, in a dialog that is as tall for either;
+      // naming one is a step of its own, as tall as the one field it asks for.
       const dialog = (step: string) => `[data-console-security-dialog="${step}"]`;
       const passkey = (name: string) => `[data-console-passkey="${name}"]`;
       const open = Effect.gen(function* () {
@@ -1898,11 +1990,14 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       // One is not added without a name.
       yield* page.click("[data-console-passkey-add]");
       yield* page.until(`!!document.querySelector('${dialog("passkey-name")} input')`);
+      const naming = [yield* placed(page)];
+      expect(yield* snug(page)).toEqual({ scrolls: false, room: 0 });
       yield* page.key("Enter", "Enter", ENTER);
       yield* page.until(
         `!!document.querySelector('${dialog("passkey-name")} [data-slot="field-error"]')`,
       );
-      states.push(yield* placed(page));
+      naming.push(yield* placed(page));
+      alike(naming);
       yield* page.click(`${dialog("passkey-name")} input`);
       yield* page.type("Laptop");
       yield* shot(page, fs, "console-passkey-name");

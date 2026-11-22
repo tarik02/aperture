@@ -105,7 +105,7 @@ export function WorkspaceMembersDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="aperture:sm:max-w-lg" height="28rem">
+      <DialogContent className="aperture:sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{workspace.name}</DialogTitle>
         </DialogHeader>
@@ -170,7 +170,8 @@ export function WorkspaceMembersDialog({
             </Button>
           </form>
         ) : null}
-        <DialogBody>
+        {/* Five members: a name and an address each, or as tall as what is pressed. */}
+        <DialogBody height="calc(2.75rem + 5 * max(2.25rem, var(--control-height)))">
           {members.isPending ? <LinesSkeleton /> : null}
           <ul data-console-members className="aperture:grid aperture:gap-2">
             {members.data?.map((member) => (

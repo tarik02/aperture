@@ -65,12 +65,7 @@ type SessionShareDialogProps = {
  */
 export function SessionShareDialog({ session, open, onOpenChange }: SessionShareDialogProps) {
   return (
-    <FreshDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      className="aperture:sm:max-w-xl"
-      height="30rem"
-    >
+    <FreshDialog open={open} onOpenChange={onOpenChange} className="aperture:sm:max-w-xl">
       <Links session={session} open={open} />
     </FreshDialog>
   );
@@ -159,7 +154,8 @@ function Links({ session, open }: { session: Session; open: boolean }) {
           New link
         </Button>
       </form>
-      <DialogBody>
+      {/* Four links: a name and a line under it each, or as tall as what is pressed. */}
+      <DialogBody height="calc(3rem + 4 * max(2.25rem, var(--control-height)))">
         {shares.data?.length === 0 ? (
           <p className="aperture:text-sm aperture:text-muted-foreground">
             Nobody is let in by a link.

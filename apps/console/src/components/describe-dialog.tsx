@@ -43,12 +43,7 @@ type DescribeDialogProps = {
 /** Changes what something is called, said to be and tagged with. */
 export function DescribeDialog({ open, onOpenChange, ...form }: DescribeDialogProps) {
   return (
-    <FreshDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      className="aperture:sm:max-w-lg"
-      height={form.withDescription === true ? "32rem" : "26rem"}
-    >
+    <FreshDialog open={open} onOpenChange={onOpenChange} className="aperture:sm:max-w-lg">
       <DescribeForm {...form} onDone={() => onOpenChange(false)} />
     </FreshDialog>
   );
@@ -97,7 +92,10 @@ function DescribeForm({
       <DialogHeader>
         <DialogTitle>{title}</DialogTitle>
       </DialogHeader>
-      <DialogBody>
+      {/* The name and three tags; and a description, its label and its three lines. */}
+      <DialogBody
+        height={`calc(${withDescription ? "11.25rem" : "4.5rem"} + 7 * var(--control-height))`}
+      >
         <form.Field name="name">
           {(field) => <TextField field={field} label={nameLabel} autoFocus autoComplete="off" />}
         </form.Field>

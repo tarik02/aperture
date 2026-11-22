@@ -73,7 +73,6 @@ export function TokenCreateDialog({
       onOpenChange={onOpenChange}
       finalFocus={finalFocus}
       className="aperture:sm:max-w-xl"
-      height="44rem"
     >
       <CreateForm {...form} onDone={() => onOpenChange(false)} />
     </FreshDialog>
@@ -151,7 +150,8 @@ function CreateForm({
           <DialogDescription>For the service account {account.name}.</DialogDescription>
         )}
       </DialogHeader>
-      <DialogBody>
+      {/* All it ever asks and says: what each scope does, and held to chosen resources. */}
+      <DialogBody height="calc(26.25rem + 5.5 * var(--control-height))">
         <form.Field name="name" validators={{ onSubmit: required("A name") }}>
           {(field) => <TextField field={field} label="Name" autoFocus autoComplete="off" />}
         </form.Field>

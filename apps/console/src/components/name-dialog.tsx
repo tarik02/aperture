@@ -27,11 +27,7 @@ type NameDialogProps = {
 /** Makes something that needs nothing but a name. */
 export function NameDialog({ open, onOpenChange, ...form }: NameDialogProps) {
   return (
-    <FreshDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      height={form.description === undefined ? "14rem" : "17rem"}
-    >
+    <FreshDialog open={open} onOpenChange={onOpenChange}>
       <NameForm {...form} onDone={() => onOpenChange(false)} />
     </FreshDialog>
   );
