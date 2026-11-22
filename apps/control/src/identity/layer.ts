@@ -617,7 +617,15 @@ const make = Effect.fn("Identity.make")(function* (
 export const makeIdentity = Effect.fn("Identity.makeSql")(function* () {
   const settings = yield* Settings;
   const pool = yield* Effect.acquireRelease(
-    Effect.sync(() => new Pool({ connectionString: Redacted.value(settings.databaseUrl) })),
+    Effect.sync(() => {
+      const made = new Pool({ connectionString: Redacted.value(settings.databaseUrl) });
+      // The database ends the connections that rest when it restarts: the pool drops such
+      // a one and makes another when it is asked for. Unheard, Node ends the program for it.
+      made.on("error", (error) => {
+        Effect.runFork(Effect.logWarning("a database connection at rest was lost", error));
+      });
+      return made;
+    }),
     (pool) => Effect.promise(() => pool.end()),
   );
   return yield* make(pool, true);
