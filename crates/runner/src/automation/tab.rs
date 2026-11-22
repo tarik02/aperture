@@ -45,8 +45,9 @@ pub(super) struct TabSession {
     target: String,
     session: String,
     presence: Arc<Presence>,
-    /// The member the automation acts as in the tab: whoever called a tool on it last.
-    actor: Mutex<MemberId>,
+    /// The member the automation acts as in the tab: whoever called a tool on it last,
+    /// and nobody until a tool is.
+    actor: Mutex<Option<MemberId>>,
     /// Where the tab's events go; none once the session ended, which closes the streams of
     /// those who listen.
     events: Mutex<Option<broadcast::Sender<CdpEvent>>>,
@@ -59,7 +60,6 @@ impl TabSession {
         recordings: Recordings,
         target: String,
         presence: Arc<Presence>,
-        actor: MemberId,
     ) -> anyhow::Result<Arc<Self>> {
         // Before attaching, so no event of the session is missed.
         let mut browser_events = browser.events();
@@ -81,7 +81,7 @@ impl TabSession {
             target,
             session,
             presence,
-            actor: Mutex::new(actor),
+            actor: Mutex::new(None),
             events: Mutex::new(Some(events.clone())),
         });
 
@@ -130,10 +130,10 @@ impl TabSession {
 
     /// What the automation does in the tab from now on is this member's.
     pub fn acts_as(&self, actor: MemberId) {
-        *self.actor.lock().expect("not poisoned") = actor;
+        *self.actor.lock().expect("not poisoned") = Some(actor);
     }
 
-    fn actor(&self) -> MemberId {
+    fn actor(&self) -> Option<MemberId> {
         *self.actor.lock().expect("not poisoned")
     }
 
@@ -252,7 +252,7 @@ impl TabSession {
             _ => {}
         }
         let travelled = matches!(input, Input::PointerMotion { .. });
-        self.presence.input(self.actor(), self.tab()?, input);
+        self.presence.input(self.actor()?, self.tab()?, input);
         // A slow pace takes each step of the pointer's way about twice as long.
         if travelled && self.recordings.pace(&self.target) == Some(Pace::Slow) {
             sleep(SLOW_STEP).await;
@@ -300,10 +300,13 @@ impl Cdp for TabSession {
             && session_id.is_none()
             && let Some(tab) = self.tab()
         {
+            let Some(actor) = self.actor() else {
+                return Err(CdpError::Protocol(format!("nobody acts in tab {tab}")));
+            };
             let waited = Instant::now();
-            while !self.presence.hold(self.actor(), tab, true) {
+            while !self.presence.hold(actor, tab, true) {
                 if waited.elapsed() >= TAB_FREE_WITHIN {
-                    let holder = self.presence.held_by_another(self.actor(), tab);
+                    let holder = self.presence.held_by_another(actor, tab);
                     let holder = holder.unwrap_or_else(|| "someone".to_owned());
                     return Err(CdpError::Protocol(format!(
                         "tab {tab} is driven by {holder} right now; try again when they are done"

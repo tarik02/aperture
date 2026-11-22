@@ -104,18 +104,12 @@ impl Automation {
         files: PathBuf,
         presence: &Arc<Presence>,
     ) -> Self {
-        let agent = Identity {
-            subject: "agent".to_owned(),
-            name: "Agent".to_owned(),
-            access: acting(),
-        };
         let session = Arc::new(Session {
             browser,
             targets,
             recordings: recordings.clone(),
             tabs: Mutex::default(),
             presence: presence.clone(),
-            agent: Arc::new(presence.join(agent, true)),
         });
         let mut tools: Vec<Arc<dyn Tool>> = vec![
             Arc::new(TabsTool),
@@ -141,11 +135,18 @@ impl Automation {
     }
 
     /// The member a call is made as: the automation itself for the operator, and for
-    /// anyone else a member of their own, who joins with their first call.
+    /// anyone else a member of their own. Either joins with their first call, and leaves
+    /// once they have called nothing for a while: nobody is shown in a session that no
+    /// automation uses.
     fn member(&self, caller: Option<&Identity>) -> Arc<Membership> {
-        let Some(caller) = caller.filter(|caller| !caller.is_operator()) else {
-            return self.session.agent.clone();
+        let itself = Identity {
+            subject: "agent".to_owned(),
+            name: "Agent".to_owned(),
+            access: acting(),
         };
+        let caller = caller
+            .filter(|caller| !caller.is_operator())
+            .unwrap_or(&itself);
         let mut callers = self.callers.lock().expect("not poisoned");
         let known = callers
             .get_mut(&caller.subject)
@@ -311,9 +312,6 @@ struct Session {
     recordings: Recordings,
     tabs: Mutex<Tabs>,
     presence: Arc<Presence>,
-    /// The automation as one of those in the session: its input takes turns with theirs.
-    /// What it does for nobody in particular is this member's.
-    agent: Arc<Membership>,
 }
 
 /// The session as one of the automation's callers has it: what they do in a tab is theirs
@@ -391,7 +389,6 @@ impl Session {
             self.recordings.clone(),
             target.id,
             self.presence.clone(),
-            self.agent.id,
         )
         .await?;
         if let Some(tab) = self.tabs.lock().expect("not poisoned").by_id.get_mut(&tab) {
