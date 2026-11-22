@@ -11,12 +11,15 @@ type TableContextValue = {
   stacks: boolean;
 };
 
-const TableContext = React.createContext<TableContextValue>({
+/** A table that scrolls nowhere and stays a table on a phone. */
+const PLAIN: TableContextValue = {
   stickyHeader: false,
   stickyFirstColumn: false,
   stickyLastColumn: false,
   stacks: false,
-});
+};
+
+const TableContext = React.createContext<TableContextValue>(PLAIN);
 
 type TableProps = React.ComponentProps<"table"> & {
   /** Classes for the scroll shell. Give it a height or max-height to scroll vertically. */
@@ -133,16 +136,20 @@ function Table({ scrollable = true, ...props }: TableProps) {
     ...tableProps
   } = props;
   return (
-    <div
-      data-slot="table-container"
-      className={cn("aperture:relative aperture:w-full", containerClassName)}
-    >
-      <table
-        data-slot="table"
-        className={cn("aperture:w-full aperture:caption-bottom aperture:text-sm", className)}
-        {...tableProps}
-      />
-    </div>
+    // Its own, and not that of a table it stands within: a dialog opened from a row is in
+    // that row's table as React has it, and is no row of it.
+    <TableContext.Provider value={PLAIN}>
+      <div
+        data-slot="table-container"
+        className={cn("aperture:relative aperture:w-full", containerClassName)}
+      >
+        <table
+          data-slot="table"
+          className={cn("aperture:w-full aperture:caption-bottom aperture:text-sm", className)}
+          {...tableProps}
+        />
+      </div>
+    </TableContext.Provider>
   );
 }
 
