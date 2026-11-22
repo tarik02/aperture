@@ -6,6 +6,7 @@ import { getMigrations } from "better-auth/db/migration";
 import { genericOAuth } from "better-auth/plugins/generic-oauth";
 import { twoFactor } from "better-auth/plugins/two-factor";
 import * as Arr from "effect/Array";
+import * as Clock from "effect/Clock";
 import type * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -55,6 +56,8 @@ const THROUGH_PROVIDER = /\/(sign-in\/social|link-social|callback\/[^/]+)$/u;
  * signed in without the ones that did not: what signs people in asks them all first.
  */
 const PROVIDERS_WITHIN = "10 seconds";
+/** How long they are left alone once they did not: nobody waits on them again meanwhile. */
+const ASKED_AGAIN_AFTER_MILLIS = 30_000;
 /** What the providers an admin added are asked how they are reached with. */
 const DISCOVERY_HEADERS = { accept: "application/json" };
 const REDIRECTS_FROM = 300;
@@ -254,6 +257,7 @@ const make = Effect.fn("Identity.make")(function* (
     ),
   );
   const turn = yield* Semaphore.make(1);
+  let askedAgainAt = 0;
 
   /**
    * What signs people in, for the providers as any program on this database last changed
@@ -265,13 +269,15 @@ const make = Effect.fn("Identity.make")(function* (
     }
     return yield* turn.withPermit(
       Effect.gen(function* () {
-        if ((yield* providers.revision()) !== current.revision) {
+        const moment = yield* Clock.currentTimeMillis;
+        if ((yield* providers.revision()) !== current.revision && moment >= askedAgainAt) {
           const next = yield* read();
           if (Option.isSome(next)) {
             current = next.value;
           } else {
+            askedAgainAt = moment + ASKED_AGAIN_AFTER_MILLIS;
             yield* Effect.logWarning(
-              "the providers did not answer in time: they stay as they were",
+              "the providers did not answer in time: they stay as they were for a while",
             );
           }
         }
@@ -394,7 +400,12 @@ const make = Effect.fn("Identity.make")(function* (
   });
 
   const offered = Effect.fn("Identity.providers")(function* () {
-    return (yield* providers.active()).map(({ id, name }) => ({ id, name }));
+    // Those of the settings come first, and one of them stands for any other by its id.
+    const enabled = (yield* providers.list()).filter((provider) => provider.enabled);
+    return Arr.dedupeWith(enabled, (one, other) => one.id === other.id).map(({ id, name }) => ({
+      id,
+      name,
+    }));
   });
 
   const personOf = Effect.fn("Identity.personOf")(function* (headers: Headers) {
