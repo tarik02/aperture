@@ -1730,11 +1730,14 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* signIn;
 
       yield* page.until(`!!document.querySelector("[data-console-security]")`);
-      yield* page.click("[data-console-security]");
       const dialog = (step: string) => `[data-console-security-dialog="${step}"]`;
-      yield* page.until(`!!document.querySelector('${dialog("none")} input')`);
-      // Each step has a height of its own, which nothing within the step changes; the
-      // dialog moves from one to the next, and is measured once it is there.
+      yield* pressUntil(
+        page,
+        "[data-console-security]",
+        `document.querySelector('${dialog("none")} input')`,
+      );
+      // Nothing within a step moves its buttons; the dialog goes from one step to the
+      // next, and is measured once it is there.
       const still = page.until(
         `document.querySelector('[data-slot="dialog-content"]').getAnimations().length === 0`,
       );
@@ -1964,8 +1967,12 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       const passkey = (name: string) => `[data-console-passkey="${name}"]`;
       const open = Effect.gen(function* () {
         yield* page.until(`!!document.querySelector("[data-console-security]")`);
-        yield* page.click("[data-console-security]");
-        yield* page.until(`!!document.querySelector('${dialog("none")} input')`);
+        // The page may still be coming to rest when its menu is there to press.
+        yield* pressUntil(
+          page,
+          "[data-console-security]",
+          `document.querySelector('${dialog("none")} input')`,
+        );
         const first = yield* placed(page);
         yield* page.click(`[data-console-security-tab="passkeys"]`);
         yield* page.until(`!!document.querySelector('${dialog("passkeys")}')`);
@@ -2997,8 +3004,12 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
             yield* page.click(`[data-console-sso="${Dex.PROVIDER}"]`);
             // The provider has more ways than one, and asks which.
             yield* page.until(`!!document.querySelector('a[href*="/dex/auth/local"]')`);
-            yield* page.click(`a[href*="/dex/auth/local"]`);
-            yield* page.until(`!!document.querySelector('input[name="login"]')`);
+            // The provider's page is there before it takes a press, on a busy machine.
+            yield* pressUntil(
+              page,
+              `a[href*="/dex/auth/local"]`,
+              `document.querySelector('input[name="login"]')`,
+            );
             yield* page.click(`input[name="login"]`);
             yield* page.type(email);
             yield* page.click(`input[name="password"]`);
