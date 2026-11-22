@@ -631,6 +631,22 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       ).toBe(true);
       yield* small.key("Escape", "Escape", ESCAPE);
       yield* small.until(`!document.querySelector('[data-slot="dropdown-menu-content"]')`);
+      // A line parts the groups of the menu that show something, in the console as anywhere.
+      yield* page.click("[data-workbench-menu]");
+      yield* page.until(`!!document.querySelector('[data-slot="dropdown-menu-content"]')`);
+      expect(
+        yield* page.evaluate(
+          `(() => {
+            const shown = [...document.querySelectorAll('[data-slot="dropdown-menu-content"] > [data-workbench-menu-group]')].filter((group) => group.childElementCount > 0);
+            const parted = shown.filter((group) => getComputedStyle(group, "::before").height === "1px");
+            return shown.length > 2 && parted.length === shown.length - 1 && parted[0] !== shown[0];
+          })()`,
+        ),
+      ).toBe(true);
+      yield* shot(page, fs, "console-session-browser-menu");
+      yield* shotDark(page, fs, "console-session-browser-menu-dark");
+      yield* page.key("Escape", "Escape", ESCAPE);
+      yield* page.until(`!document.querySelector('[data-slot="dropdown-menu-content"]')`);
 
       // With another there to draw for, the pencil is taken up, and Escape puts it down.
       const draws = `document.querySelector("[data-member-marks]")?.dataset.memberMarks === "drawing"`;

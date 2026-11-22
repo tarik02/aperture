@@ -23,12 +23,18 @@ export function WorkbenchSlot({ name, ...props }: SlotProps) {
 const MENU_GROUPS = {
   dropdown: DropdownMenuGroup,
   context: ContextMenuGroup,
-} satisfies Record<string, ComponentType<{ children?: ReactNode }>>;
+} satisfies Record<string, ComponentType<{ children?: ReactNode; className?: string }>>;
 
 /**
- * What is contributed to a menu, group by group. A line parts the groups that show
- * something; it is drawn by the stylesheet, which alone knows which do.
+ * A line before a group that shows something and comes after another that does: a group
+ * whose contributions render nothing is empty, and takes no line. It is the group's own
+ * classes, so that every page that has the menu has its lines, whichever stylesheet it is
+ * built with.
  */
+const PARTED =
+  "aperture:[[data-workbench-menu-group]:not(:empty)~&:not(:empty)]:before:-mx-1 aperture:[[data-workbench-menu-group]:not(:empty)~&:not(:empty)]:before:my-1 aperture:[[data-workbench-menu-group]:not(:empty)~&:not(:empty)]:before:block aperture:[[data-workbench-menu-group]:not(:empty)~&:not(:empty)]:before:h-px aperture:[[data-workbench-menu-group]:not(:empty)~&:not(:empty)]:before:bg-border";
+
+/** What is contributed to a menu, group by group, with a line between the groups. */
 export function WorkbenchMenuSlot({
   name,
   kind = "dropdown",
@@ -37,7 +43,7 @@ export function WorkbenchMenuSlot({
   const { contributions } = useWorkbench();
   const Group = MENU_GROUPS[kind];
   return groupContributions(contributions, name).map(([group, items]) => (
-    <Group key={group} data-workbench-menu-group={group}>
+    <Group key={group} data-workbench-menu-group={group} className={PARTED}>
       {items.map((one) => (
         <one.component key={one.id} {...props} />
       ))}
