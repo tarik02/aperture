@@ -63,7 +63,8 @@ const WORLD: &str = "aperture";
 
 /// Tells of a right click the page made nothing of: pages with a menu of their own keep
 /// theirs. What was under the pointer is looked at when the click comes, and whether the
-/// page took it once the page has had it.
+/// page took it once the page has had it. The browser has a menu of its own for a field,
+/// kiosk or not, which is kept from opening where the page left the click alone.
 const SCRIPT: &str = r#"(() => {
   if (globalThis.apertureListens) return;
   globalThis.apertureListens = true;
@@ -73,8 +74,14 @@ const SCRIPT: &str = r#"(() => {
     const image = under.find((node) => node.matches("img"));
     const editable = under.some((node) => node.isContentEditable || node.matches("input, textarea"));
     const text = String(getSelection()).slice(0, 4096);
+    let kept = false;
+    addEventListener("contextmenu", (after) => {
+      if (after !== event || !editable || event.defaultPrevented) return;
+      event.preventDefault();
+      kept = true;
+    }, { once: true });
     setTimeout(() => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented && !kept) return;
       apertureMenu(JSON.stringify({ link: link?.href, image: image?.currentSrc || image?.src, text: text || undefined, editable }));
     });
   }, true);
