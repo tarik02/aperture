@@ -32,6 +32,9 @@ export const ADMIT_PATH = `${PREFIX}/route/admit`;
 const ADMIT = "aperture-admit";
 const FORGET = "aperture-forget";
 const CONTROL = "aperture-control";
+const WHOLE = "aperture-whole";
+/** How much of what is asked of a session's automation the proxy keeps in memory. */
+const WHOLE_IN_MEMORY = 1024 * 1024;
 
 export const makeRouting = Effect.fn("Routing.make")(function* () {
   const nodes = yield* Nodes;
@@ -86,6 +89,22 @@ export const makeRouting = Effect.fn("Routing.make")(function* () {
               },
             ]),
           ),
+          // The longer rule, so it is tried before the node's other one. What is asked of
+          // a session's automation is taken whole before it is sent on, and so is the
+          // answer: it is a stream that may start at once, and the proxy cuts short one
+          // that starts while it is still reading what was asked from whoever asked.
+          ...Object.fromEntries(
+            named.map(({ node, name }) => [
+              `${name}-mcp`,
+              {
+                // Asked with POST alone: what is listened to with GET never ends, and
+                // would be kept from whoever listens for as long.
+                rule: `PathRegexp(\`^${nodePath(node.id)}/sessions/[^/]+/mcp$\`) && Method(\`POST\`)`,
+                service: name,
+                middlewares: [ADMIT, FORGET, name, WHOLE],
+              },
+            ]),
+          ),
         },
         middlewares: {
           [ADMIT]: {
@@ -95,6 +114,7 @@ export const makeRouting = Effect.fn("Routing.make")(function* () {
             },
           },
           [FORGET]: { headers: { customRequestHeaders: { Cookie: "" } } },
+          [WHOLE]: { buffering: { memRequestBodyBytes: WHOLE_IN_MEMORY } },
           ...Object.fromEntries(
             named.map(({ node, name }) => [
               name,
