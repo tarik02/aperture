@@ -698,8 +698,13 @@ function PeopleButton({ rail, onOpen }: { rail: boolean; onOpen: () => void }) {
       aria-label={`${others.length + 1} people in the session`}
       className={cn(
         "aperture:relative aperture:flex aperture:shrink-0 aperture:items-center aperture:justify-center aperture:gap-0.5 aperture:rounded-full aperture:outline-none aperture:focus-visible:ring-3 aperture:focus-visible:ring-ring/50",
+        // Under the rail and not in it: the rail's buttons stay where they are as people
+        // come and go, so a finger on its way to one does not land on another.
         rail
-          ? "aperture:min-h-10 aperture:w-10 aperture:flex-col aperture:py-1"
+          ? cn(
+              "aperture:absolute aperture:top-full aperture:left-1/2 aperture:mt-1 aperture:min-h-12 aperture:w-12 aperture:-translate-x-1/2 aperture:flex-col aperture:py-1",
+              GLASS,
+            )
           : "aperture:h-10 aperture:min-w-10 aperture:px-1",
       )}
       onClick={onOpen}
