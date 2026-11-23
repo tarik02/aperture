@@ -5,7 +5,7 @@ import { Executor } from "../src/executor.ts";
 import * as Node from "../src/node.ts";
 import { cookiesLeft, leaveCookie } from "../src/profile.ts";
 import { suite } from "../src/suite.ts";
-import { happens } from "../src/wait.ts";
+import { happens, until } from "../src/wait.ts";
 
 const node = Node.layer({ features: ["cdp"] });
 
@@ -87,6 +87,47 @@ suite(node)("snapshots, and the sessions of a node over its executor's restart",
       yield* executor.client.sessions.resume(original);
       expect(yield* cookiesLeft(executor, original)).toEqual(["from_original"]);
     }),
+  );
+
+  it.effect(
+    "a session nobody uses for longer than it may is suspended, and whoever reaches it has it run again",
+    () =>
+      Effect.gen(function* () {
+        const executor = yield* Executor;
+        const created = yield* executor.client.sessions.create({
+          limits: { suspendIdleAfter: { seconds: 1n } },
+        });
+        const idle = created.id;
+        yield* leaveCookie(executor, idle, "before_it_sat_idle");
+        // The executor looks for idle sessions once in a while.
+        yield* until(
+          "the session being suspended for sitting idle",
+          executor.client.sessions
+            .get(idle)
+            .pipe(
+              Effect.map(
+                (session) => session.state === Node.SessionState.SUSPENDED && session.asleep,
+              ),
+            ),
+          "40 seconds",
+        );
+
+        // The first request for it is answered by the session, once it runs: none is
+        // turned away for coming while it rests.
+        const reached = yield* executor.session(idle, "GET", "/targets");
+        expect(reached.status).toBe(200);
+        expect(reached.body).toHaveLength(1);
+        const woken = yield* executor.client.sessions.get(idle);
+        expect([woken.state, woken.asleep]).toEqual([Node.SessionState.RUNNING, false]);
+        expect(yield* cookiesLeft(executor, idle)).toEqual(["before_it_sat_idle"]);
+
+        // One that was suspended because someone asked stays so, whoever reaches it.
+        yield* executor.client.sessions.suspend(idle);
+        expect((yield* executor.session(idle, "GET", "/targets")).status).not.toBe(200);
+        const asked = yield* executor.client.sessions.get(idle);
+        expect([asked.state, asked.asleep]).toEqual([Node.SessionState.SUSPENDED, false]);
+        yield* executor.client.sessions.delete(idle);
+      }),
   );
 
   it.effect("a layer outlives its snapshot while sessions use it", () =>

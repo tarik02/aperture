@@ -117,6 +117,7 @@ export const start = Effect.fn("Executor.start")(function* (options: ExecutorOpt
     | ChildProcessSpawner.ChildProcessSpawner
     | Socket.WebSocketConstructor
   >();
+  const webSockets = yield* Socket.WebSocketConstructor;
   const dir = options.dir ?? (yield* directory);
   const port = yield* freePort;
   const scope = yield* Effect.scope;
@@ -237,8 +238,10 @@ export const start = Effect.fn("Executor.start")(function* (options: ExecutorOpt
     session: (id, method, path, body) =>
       ask(method, UrlPath.make`/sessions/${id}${UrlPath.raw(path)}`, body),
     cdp: (id) =>
+      // With the constructor alone: all that was there when the executor started has its
+      // scope as well, and a connection given that one stays until the executor is gone.
       Cdp.connect(UrlPath.make`ws://127.0.0.1:${port}/sessions/${id}/cdp?token=${token}`).pipe(
-        Effect.provide(platform),
+        Effect.provideService(Socket.WebSocketConstructor, webSockets),
       ),
     restart: (as = options) =>
       Effect.gen(function* () {
