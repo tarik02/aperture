@@ -22,4 +22,16 @@ export const hash = Effect.fn("Secrets.hash")(function* (secret: string) {
   return Hex.encode(digest);
 });
 
+/**
+ * Whether two digests are one, in a time that says nothing of where they part. Digests
+ * of one kind are of one length, which is no secret.
+ */
+export const same = (one: string, other: string) => {
+  let parted = one.length ^ other.length;
+  for (let at = 0; at < one.length; at += 1) {
+    parted |= one.charCodeAt(at) ^ other.charCodeAt(at % (other.length || 1));
+  }
+  return parted === 0;
+};
+
 export const id = Crypto.Crypto.use((crypto) => Effect.orDie(crypto.randomUUIDv7));

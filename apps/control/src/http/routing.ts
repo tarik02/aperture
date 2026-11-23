@@ -1,4 +1,5 @@
 import { PREFIX } from "@aperture-browser/control-api";
+import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as HttpRouter from "effect/http/HttpRouter";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
@@ -13,6 +14,7 @@ import { guestOf, SHARE_COOKIE } from "./guest.ts";
 import { nodePath } from "../routing/paths.ts";
 import { ADMIT_PATH } from "../routing/layer.ts";
 import { Routing } from "../routing/service.ts";
+import * as Secrets from "../secrets.ts";
 import { Settings } from "../settings/service.ts";
 import { Shares } from "../shares/service.ts";
 
@@ -39,6 +41,11 @@ export const layer = HttpRouter.use(
     const routing = yield* Routing;
     const settings = yield* Settings;
     const shares = yield* Shares;
+    const crypto = yield* Effect.context<Crypto.Crypto>();
+    // Kept as the other tokens are: what a request brings is compared by its digest.
+    const proxy = Option.isNone(settings.proxyToken)
+      ? Option.none()
+      : Option.some(yield* Secrets.hash(Redacted.value(settings.proxyToken.value)));
 
     const admit = Effect.fn("Routing.http.admit")(function* (
       request: HttpServerRequest.HttpServerRequest,
@@ -103,19 +110,23 @@ export const layer = HttpRouter.use(
         Effect.orDie,
       );
 
-    const proxyConfig = Effect.fn("Routing.http.proxyConfig")(function* (
-      request: HttpServerRequest.HttpServerRequest,
-    ) {
-      const asProxy = Option.match(bearerOf(request), {
-        onNone: () => false,
-        onSome: (bearer) =>
-          Option.exists(settings.proxyToken, (token) => Redacted.value(token) === bearer),
-      });
-      if (!asProxy && !(yield* callerOf(accounts, request)).admin) {
-        return yield* new Forbidden({ message: "the routes are a proxy's or an admin's to read" });
-      }
-      return HttpServerResponse.jsonUnsafe(yield* routing.proxyConfig());
-    }, Effect.catch(refused));
+    const proxyConfig = Effect.fn("Routing.http.proxyConfig")(
+      function* (request: HttpServerRequest.HttpServerRequest) {
+        const bearer = bearerOf(request);
+        const asProxy =
+          Option.isSome(proxy) &&
+          Option.isSome(bearer) &&
+          Secrets.same(proxy.value, yield* Secrets.hash(bearer.value));
+        if (!asProxy && !(yield* callerOf(accounts, request)).admin) {
+          return yield* new Forbidden({
+            message: "the routes are a proxy's or an admin's to read",
+          });
+        }
+        return HttpServerResponse.jsonUnsafe(yield* routing.proxyConfig());
+      },
+      Effect.catch(refused),
+      Effect.provide(crypto),
+    );
 
     yield* router.add("GET", ADMIT_PATH, admit);
     yield* router.add("POST", COOKIE_PATH, keep);
