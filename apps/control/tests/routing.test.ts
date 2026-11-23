@@ -610,8 +610,14 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
           expect(yield* asked("GET", `${session}${socket}`, from(proxy.url))).not.toBe(403);
         }
       }
-      // Whoever carries a token or a ticket is let in by that, from wherever.
+      // Whoever carries nothing is let in by nothing, and is told that, whatever they say else.
       const foreignly = { origin: elsewhere.url };
+      for (const route of ["/targets", "/ws", "/cdp"]) {
+        expect(yield* asked("GET", `${path}${route}`, {})).toBe(401);
+        expect(yield* asked("GET", `${path}${route}`, foreignly)).toBe(401);
+      }
+      expect(yield* asked("PUT", `${path}/proxy`, {})).toBe(401);
+      // Whoever carries a token or a ticket is let in by that, from wherever.
       expect(yield* asked("GET", `${path}/targets`, foreignly, ada.token)).toBe(200);
       expect(yield* asked("GET", `${path}/ws`, {}, ada.token)).not.toBe(403);
       const { ticket } = yield* ada.api.sessions.createTicket({

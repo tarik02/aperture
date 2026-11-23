@@ -71,8 +71,10 @@ export const layer = HttpRouter.use(
       // would open a session's socket as whoever looks at it. So they are taken from the
       // pages of this program alone, as the MCP endpoint takes them. A browser says where
       // a socket is opened from and where anything but a read is asked from; a read that
-      // says nothing is one no page of elsewhere gets the answer of.
-      if (Option.isNone(bearerOf(request))) {
+      // says nothing is one no page of elsewhere gets the answer of. A request that
+      // carries no cookie either is let in by nothing, and is told so as before.
+      const cookies = Object.keys(request.cookies).length > 0;
+      if (cookies && Option.isNone(bearerOf(request))) {
         const origin = request.headers["origin"];
         const reads = /^(?:GET|HEAD)$/iu.test(request.headers["x-forwarded-method"] ?? "GET");
         const own =

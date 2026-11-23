@@ -50,7 +50,8 @@ suite(needs)("share links into a session", (it) => {
     const http = yield* HttpClient.HttpClient;
     const answer = yield* http.execute(
       HttpClientRequest.make(method)(`${proxy.url}${at}`).pipe(
-        HttpClientRequest.setHeader("cookie", cookie),
+        // A page says where it is of, which is where its cookies are taken from.
+        HttpClientRequest.setHeaders({ cookie, origin: proxy.url }),
         body === undefined ? (bare) => bare : HttpClientRequest.bodyJsonUnsafe(body),
       ),
     );
@@ -73,12 +74,17 @@ suite(needs)("share links into a session", (it) => {
   });
 
   /** The ticket the proxy is given for a guest's request to a path, as it asks for one. */
-  const ticketFor = Effect.fn(function* (cookie: string, uri: string) {
+  const ticketFor = Effect.fn(function* (cookie: string, uri: string, from?: string) {
     const control = yield* Control.Control;
     const http = yield* HttpClient.HttpClient;
     const answer = yield* http.execute(
       HttpClientRequest.get(`${control.url}/api/control/route/admit`).pipe(
-        HttpClientRequest.setHeaders({ cookie, "x-forwarded-uri": uri }),
+        // A browser says where a socket is opened from: the page the guest has open.
+        HttpClientRequest.setHeaders({
+          cookie,
+          origin: from ?? control.url,
+          "x-forwarded-uri": uri,
+        }),
       ),
     );
     return {
@@ -238,6 +244,11 @@ suite(needs)("share links into a session", (it) => {
           expect(answer.status, `${method} ${rest}`).toBe(403);
         }
 
+        // A guest's cookie is taken from the guest's own page, and from no page of elsewhere;
+        // whoever carries none is let in by nothing, wherever they say they are.
+        const foreign = yield* ticketFor(guest.cookie, `${path}/ws`, "https://elsewhere.example");
+        expect([foreign.status, foreign.ticket]).toEqual([403, ""]);
+        expect((yield* ticketFor("", `${path}/ws`, "https://elsewhere.example")).status).toBe(401);
         const { ticket } = yield* ticketFor(guest.cookie, `${path}/ws`);
         const member = yield* Tickets.join({ url: `${executor.url}/sessions/${session}` }, ticket);
         expect(yield* member.self).toMatchObject({ name: "Grace", role: "ROLE_VIEW" });
