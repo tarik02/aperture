@@ -42,7 +42,6 @@ const PROXY_SCHEMES = ["http", "https", "socks", "socks5", "socks5h"];
 const TUNNEL_SCHEMES = ["ws+yamux+socks5", "wss+yamux+socks5"];
 const UPSTREAM_NAME = /^[a-z][a-z0-9-]{0,62}$/u;
 const HOSTNAME = /^[a-z0-9_-]+(?:\.[a-z0-9_-]+)*$/u;
-const IP = /^(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-f:.]*:[0-9a-f:.]*)$/u;
 const MOST_UPSTREAMS = 32;
 const MOST_RULES = 256;
 
@@ -138,29 +137,51 @@ const urlRule = (url: string) => {
     : undefined;
 };
 
-/** As the session reads it: `host`, `host:port` or `[ipv6]:port`. */
+const isIpv4 = (host: string) =>
+  /^\d{1,3}(?:\.\d{1,3}){3}$/u.test(host) && host.split(".").every((part) => Number(part) <= 255);
+const isIpv6 = (host: string) => /^[0-9a-f:.]+$/u.test(host) && URL.canParse(`http://[${host}]/`);
+
+/** An address, or a network as `address/length`. */
+const isAddress = (host: string) => {
+  const [address = "", length, ...more] = host.split("/");
+  if (more.length > 0 || (length !== undefined && !/^\d{1,3}$/u.test(length))) {
+    return false;
+  }
+  const most = isIpv4(address) ? 32 : isIpv6(address) ? 128 : -1;
+  return Number(length ?? 0) <= most;
+};
+
+/**
+ * As the session reads it: `host` or `host:port`, where the host is a name, `*.suffix`,
+ * `*`, an address or a network. What is IPv6 has colons of its own, and takes a port in
+ * brackets alone.
+ */
 const matchRule = (match: string) => {
   if (match === "") {
     return "Enter a host, like *.example.com or *";
   }
-  let host = match;
-  if (match.startsWith("[") || match.split(":").length === 2) {
-    const parts = /^(?:\[([^\]]+)\]|([^:]+)):(\d+)$/u.exec(match);
-    if (parts === null) {
-      return "Use host:port, or [IPv6]:port";
+  const unknown = "Use a host, *.suffix, *, an address or a network, optionally with :port";
+  let host = match.toLowerCase();
+  let port: string | undefined;
+  if (host.startsWith("[")) {
+    const parts = /^\[([^\]]*)\](?::(.*))?$/u.exec(host);
+    if (parts === null || !isAddress(parts[1] ?? "") || !(parts[1] ?? "").includes(":")) {
+      return "Use [IPv6]:port for an IPv6 address with a port";
     }
-    const port = Number(parts[3]);
-    if (port < 1 || port > 65535) {
-      return "Port must be between 1 and 65535";
-    }
-    host = parts[1] ?? parts[2] ?? "";
+    host = parts[1] ?? "";
+    port = parts[2];
+  } else if (host.split(":").length === 2) {
+    [host = "", port] = host.split(":");
   }
-  host = host.toLowerCase().replace(/\.$/u, "");
+  if (port !== undefined && (!/^\d{1,5}$/u.test(port) || Number(port) > 65535)) {
+    return "Port must be a number up to 65535";
+  }
+  if (host.includes(":") || host.includes("/") || isIpv4(host)) {
+    return isAddress(host) ? undefined : unknown;
+  }
+  host = host.replace(/\.$/u, "");
   const name = host.replace(/^\*\./u, "");
-  const wildcard = !host.includes("*") || host === "*" || !name.includes("*");
-  return host === "" || !wildcard || (host !== "*" && !IP.test(name) && !HOSTNAME.test(name))
-    ? "Use an exact host, *.suffix or *, optionally with :port"
-    : undefined;
+  return host === "*" || HOSTNAME.test(name) ? undefined : unknown;
 };
 
 /** What is wrong with a draft, row by row; nothing where it can be kept. */

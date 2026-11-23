@@ -443,7 +443,7 @@ export const DnsSchema: GenMessage<Dns> = /*@__PURE__*/
  */
 export type DnsRecord = Message<"aperture.executor.v1.DnsRecord"> & {
   /**
-   * A host as in a rule's match: exact, `*.suffix` or `*`.
+   * A name as in a rule's match: exact, `*.suffix` or `*`.
    *
    * @generated from field: string name = 1;
    */
@@ -494,8 +494,9 @@ export const ProxyUpstreamSchema: GenMessage<ProxyUpstream> = /*@__PURE__*/
  */
 export type ProxyRule = Message<"aperture.executor.v1.ProxyRule"> & {
   /**
-   * `host` or `host:port`; the host is exact, `*.suffix` for subdomains, or `*` for any
-   * host but localhost.
+   * `host` or `host:port`; the host is exact, `*.suffix` for subdomains, `*` for any host
+   * but localhost, an address, or a network (`10.0.0.0/8`) for the addresses in it. What
+   * is IPv6 takes a port in brackets: `[::1]:443`.
    *
    * @generated from field: string match = 1;
    */

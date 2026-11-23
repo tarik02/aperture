@@ -223,7 +223,7 @@ message Dns {
 }
 
 message DnsRecord {
-  // A host as in a rule's match: exact, `*.suffix` or `*`.
+  // A name as in a rule's match: exact, `*.suffix` or `*`.
   string name = 1;
   repeated string addresses = 2;
 }
@@ -237,8 +237,9 @@ message ProxyUpstream {
 }
 
 message ProxyRule {
-  // `host` or `host:port`; the host is exact, `*.suffix` for subdomains, or `*` for any
-  // host but localhost.
+  // `host` or `host:port`; the host is exact, `*.suffix` for subdomains, `*` for any host
+  // but localhost, an address, or a network (`10.0.0.0/8`) for the addresses in it. What
+  // is IPv6 takes a port in brackets: `[::1]:443`.
   string match = 1;
   // `direct`, `refuse`, `local` (the tunnel a client attached), an upstream's name, or a
   // proxy's URL.

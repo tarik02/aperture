@@ -23,10 +23,14 @@
 //! ```
 //!
 //! A match is `host` or `host:port`, where the host is exact, `*.suffix` for subdomains or
-//! `*` for any host. `*` never matches localhost: a catch-all would otherwise send what a
-//! page means for its own machine to a remote one. A rule's `via` is `direct`, `refuse`,
-//! `local` (the tunnel a client attached to the session), the name of an upstream, or a
-//! proxy's URL.
+//! `*` for any host. `*` never matches localhost, by its name or by a loopback address: a
+//! catch-all would otherwise send what a page means for its own machine to a remote one.
+//! An exact host may be an address, and a network, `10.0.0.0/8` or `fd00::/8`, covers the
+//! addresses in it: both are for connections the browser names by address, as what a name
+//! resolves to is not known where rules are gone by. An IPv6 address or network has colons
+//! of its own, so it takes a port in brackets alone: `[::1]:443`, and `::1` or `[::1]` for
+//! any port. A rule's `via` is `direct`, `refuse`, `local` (the tunnel a client attached to
+//! the session), the name of an upstream, or a proxy's URL.
 //!
 //! A rule's `to`, `host` or `host:port`, is where its connections are made instead of where
 //! the browser named. With `tls` the session answers the browser's TLS itself, with a
@@ -42,6 +46,7 @@
 
 use std::{collections::BTreeMap, net::IpAddr};
 
+use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -163,7 +168,9 @@ enum Host {
     Any,
     /// `.suffix`, with its dot.
     Subdomains(String),
+    /// A name, or an address as [`IpAddr`] writes it.
     Exact(String),
+    Network(IpNet),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -173,12 +180,43 @@ struct Pattern {
 }
 
 impl Host {
-    fn covers(&self, name: &str) -> bool {
+    fn covers(&self, named: &Named) -> bool {
+        let Named { name, address } = named;
         match self {
-            Self::Any => name != "localhost" && !name.ends_with(".localhost"),
-            Self::Subdomains(suffix) => name.ends_with(suffix.as_str()),
+            Self::Any => {
+                name != "localhost"
+                    && !name.ends_with(".localhost")
+                    && !address.is_some_and(|address| address.is_loopback())
+            }
+            Self::Subdomains(suffix) => address.is_none() && name.ends_with(suffix.as_str()),
             Self::Exact(exact) => name == exact,
+            Self::Network(network) => address.is_some_and(|address| network.contains(&address)),
         }
+    }
+}
+
+/// What a connection or a question names, as patterns have it: without the dot a name may
+/// end with, in lowercase, and an address as [`IpAddr`] writes it, whatever way it came.
+struct Named {
+    name: String,
+    address: Option<IpAddr>,
+}
+
+impl Named {
+    fn new(name: &str) -> Self {
+        let name = name.trim_end_matches('.').to_ascii_lowercase();
+        let bare = name
+            .strip_prefix('[')
+            .and_then(|name| name.strip_suffix(']'));
+        let address = bare.unwrap_or(&name).parse::<IpAddr>().ok().map(|address| {
+            // An IPv4 address in IPv6's clothes is the IPv4 address.
+            match address {
+                IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(address, IpAddr::V4),
+                v4 => v4,
+            }
+        });
+        let name = address.map_or(name, |address| address.to_string());
+        Self { name, address }
     }
 }
 
@@ -200,10 +238,10 @@ pub struct Names {
 impl Names {
     /// The addresses a record gives the name, when one covers it.
     pub fn recorded(&self, name: &str) -> Option<&[IpAddr]> {
-        let name = name.trim_end_matches('.').to_ascii_lowercase();
+        let named = Named::new(name);
         self.records
             .iter()
-            .find(|(host, _)| host.covers(&name))
+            .find(|(host, _)| host.covers(&named))
             .map(|(_, addresses)| addresses.as_slice())
     }
 }
@@ -322,6 +360,10 @@ impl Dns {
         for (index, record) in self.records.iter().enumerate() {
             let said = |reason: String| format!("dns record {}: {reason}", index + 1);
             let host = match pattern(&record.name).map_err(said)? {
+                Pattern {
+                    host: Host::Network(_),
+                    ..
+                } => return Err(said("a network is not a name".into())),
                 Pattern { host, port: None } => host,
                 _ => return Err(said("a name has no port".into())),
             };
@@ -342,11 +384,11 @@ impl Dns {
 
 impl Routes {
     pub fn route(&self, host: &str, port: u16) -> &Way {
-        let host = host.trim_end_matches('.').to_ascii_lowercase();
+        let named = Named::new(host);
         self.rules
             .iter()
             .find(|(pattern, _)| {
-                pattern.port.is_none_or(|wanted| wanted == port) && pattern.host.covers(&host)
+                pattern.port.is_none_or(|wanted| wanted == port) && pattern.host.covers(&named)
             })
             .map_or(&DIRECT, |(_, way)| way)
     }
@@ -354,25 +396,47 @@ impl Routes {
 
 fn pattern(text: &str) -> Result<Pattern, String> {
     let text = text.trim().to_ascii_lowercase();
-    let (host, port) = match text.rsplit_once(':') {
-        Some((host, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => {
-            let port = port
-                .parse()
-                .map_err(|_| format!("{text:?} has no valid port"))?;
-            (host, Some(port))
-        }
-        _ => (text.as_str(), None),
+    let port = |port: &str| {
+        port.parse::<u16>()
+            .map_err(|_| format!("{text:?} has no valid port"))
     };
-    let host = match host {
-        "" => return Err("a match needs a host".into()),
-        "*" => Host::Any,
-        host => match host.strip_prefix("*.") {
-            Some(suffix) if !suffix.is_empty() && !suffix.contains('*') => {
-                Host::Subdomains(format!(".{suffix}"))
-            }
-            None if !host.contains('*') => Host::Exact(host.trim_end_matches('.').to_owned()),
-            _ => return Err(format!("{text:?} is not a host, *.suffix or *")),
-        },
+    let unknown = || format!("{text:?} is not a host, *.suffix, *, an address or a network");
+    let (host, port) = if let Some(bracketed) = text.strip_prefix('[') {
+        let (host, after) = bracketed.split_once(']').ok_or_else(unknown)?;
+        // Brackets are for what has colons of its own.
+        if !host.contains(':') {
+            return Err(unknown());
+        }
+        match after.strip_prefix(':') {
+            Some(after) => (host, Some(port(after)?)),
+            None if after.is_empty() => (host, None),
+            None => return Err(format!("{text:?} has no valid port")),
+        }
+    } else {
+        match text.rsplit_once(':') {
+            // More colons than one are an IPv6 address's own.
+            Some((host, after)) if !host.contains(':') => (host, Some(port(after)?)),
+            _ => (text.as_str(), None),
+        }
+    };
+    let host = if let Ok(address) = host.parse::<IpAddr>() {
+        Host::Exact(Named::new(&address.to_string()).name)
+    } else if let Ok(network) = host.parse::<IpNet>() {
+        Host::Network(network.trunc())
+    } else if host.contains([':', '/', '[', ']']) {
+        return Err(unknown());
+    } else {
+        match host {
+            "" => return Err("a match needs a host".into()),
+            "*" => Host::Any,
+            host => match host.strip_prefix("*.") {
+                Some(suffix) if !suffix.is_empty() && !suffix.contains('*') => {
+                    Host::Subdomains(format!(".{suffix}"))
+                }
+                None if !host.contains('*') => Host::Exact(host.trim_end_matches('.').to_owned()),
+                _ => return Err(unknown()),
+            },
+        }
     };
     Ok(Pattern { host, port })
 }
@@ -438,4 +502,249 @@ fn upstream_route(name: &str, upstream: &Upstream) -> Result<Route, String> {
         port: url.port().unwrap_or(default_port),
         credentials,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rule(matches: &str, via: &str) -> Rule {
+        Rule {
+            matches: matches.to_owned(),
+            via: via.to_owned(),
+            to: None,
+            tls: false,
+        }
+    }
+
+    fn routes(rules: &[Rule]) -> Routes {
+        let config = Config {
+            rules: rules.to_vec(),
+            ..Config::default()
+        };
+        config.compile().unwrap()
+    }
+
+    /// Whether a rule with this match covers the connection: it refuses, and what no rule
+    /// covers goes direct.
+    fn covers(matches: &str, host: &str, port: u16) -> bool {
+        routes(&[rule(matches, "refuse")]).route(host, port).route == Route::Refuse
+    }
+
+    #[test]
+    fn a_match_covers_the_connections_it_names() {
+        let table = [
+            ("example.test", "example.test", 443, true),
+            ("example.test", "example.test", 8080, true),
+            ("example.test", "www.example.test", 443, false),
+            ("example.test", "badexample.test", 443, false),
+            ("example.test", "example.test.other", 443, false),
+            // However it is written, and however the browser names it.
+            ("Example.TEST", "example.test", 443, true),
+            ("example.test", "EXAMPLE.test", 443, true),
+            ("example.test.", "example.test", 443, true),
+            ("example.test", "example.test.", 443, true),
+            ("  example.test  ", "example.test", 443, true),
+            ("example.test:8080", "example.test", 8080, true),
+            ("example.test:8080", "example.test", 443, false),
+            ("*.example.test", "www.example.test", 443, true),
+            ("*.example.test", "a.b.example.test", 443, true),
+            ("*.example.test", "example.test", 443, false),
+            ("*.example.test", "badexample.test", 443, false),
+            ("*.example.test:8080", "www.example.test", 8080, true),
+            ("*.example.test:8080", "www.example.test", 443, false),
+            ("*", "example.test", 443, true),
+            ("*", "203.0.113.7", 443, true),
+            ("*", "2001:db8::1", 443, true),
+            ("*:8080", "example.test", 8080, true),
+            ("*:8080", "example.test", 443, false),
+            // What a page means for its own machine is no catch-all's.
+            ("*", "localhost", 3000, false),
+            ("*", "LOCALHOST.", 3000, false),
+            ("*", "app.localhost", 3000, false),
+            ("*", "127.0.0.1", 3000, false),
+            ("*", "127.8.9.10", 3000, false),
+            ("*", "::1", 3000, false),
+            ("*", "::ffff:127.0.0.1", 3000, false),
+            ("*", "notlocalhost", 3000, true),
+            ("*", "localhost.example.test", 3000, true),
+            ("localhost", "localhost", 3000, true),
+            ("localhost:3000", "localhost", 3000, true),
+            ("localhost:3000", "localhost", 3001, false),
+            ("*.localhost", "app.localhost", 3000, true),
+            ("127.0.0.1", "127.0.0.1", 3000, true),
+            // An address, with a port and without.
+            ("203.0.113.7", "203.0.113.7", 443, true),
+            ("203.0.113.7", "203.0.113.8", 443, false),
+            ("203.0.113.7:8080", "203.0.113.7", 8080, true),
+            ("203.0.113.7:8080", "203.0.113.7", 443, false),
+            ("*.7", "203.0.113.7", 443, false),
+            ("::1", "::1", 443, true),
+            ("::1", "::1", 8080, true),
+            ("[::1]", "::1", 8080, true),
+            ("[::1]:443", "::1", 443, true),
+            ("[::1]:443", "::1", 8080, false),
+            ("[::1]:443", "::2", 443, false),
+            ("2001:db8::1", "2001:db8::1", 443, true),
+            ("2001:DB8:0:0:0:0:0:1", "2001:db8::1", 443, true),
+            ("2001:db8::1", "2001:db8:0:0::1", 443, true),
+            ("2001:db8::1", "[2001:db8::1]", 443, true),
+            ("[2001:db8::1]:8443", "2001:db8::1", 8443, true),
+            ("[2001:db8::1]:8443", "2001:db8::1", 443, false),
+            // Colons that are an address's own name no port.
+            ("2001:db8::443", "2001:db8::443", 80, true),
+            ("2001:db8::443", "2001:db8::", 443, false),
+            ("::ffff:203.0.113.7", "203.0.113.7", 443, true),
+            ("203.0.113.7", "::ffff:203.0.113.7", 443, true),
+            // A network covers the addresses in it, and no name.
+            ("10.0.0.0/8", "10.1.2.3", 443, true),
+            ("10.0.0.0/8", "11.0.0.1", 443, false),
+            ("10.1.2.3/8", "10.200.0.1", 443, true),
+            ("10.0.0.0/8:8080", "10.1.2.3", 8080, true),
+            ("10.0.0.0/8:8080", "10.1.2.3", 443, false),
+            ("10.0.0.0/8", "::ffff:10.1.2.3", 443, true),
+            ("10.0.0.0/8", "10.example.test", 443, false),
+            ("0.0.0.0/0", "203.0.113.7", 443, true),
+            ("0.0.0.0/0", "2001:db8::1", 443, false),
+            ("0.0.0.0/0", "example.test", 443, false),
+            ("fd00::/8", "fd12:3456::1", 443, true),
+            ("fd00::/8", "fe80::1", 443, false),
+            ("[fd00::/8]", "fd12:3456::1", 443, true),
+            ("[fd00::/8]:8443", "fd12:3456::1", 8443, true),
+            ("[fd00::/8]:8443", "fd12:3456::1", 443, false),
+            ("::/0", "2001:db8::1", 443, true),
+            ("::/0", "203.0.113.7", 443, false),
+        ];
+        for (matches, host, port, covered) in table {
+            assert_eq!(
+                covers(matches, host, port),
+                covered,
+                "{matches:?} and {host}:{port}"
+            );
+        }
+    }
+
+    #[test]
+    fn what_is_no_match_is_said_to_be_none() {
+        let refused = [
+            "",
+            "  ",
+            ":443",
+            "*.",
+            "*.*.test",
+            "a*.test",
+            "*test",
+            "example.test:",
+            "example.test:https",
+            "example.test:65536",
+            "example.test:-1",
+            "example:test:443",
+            "a:b:c",
+            "[::1",
+            "[::1]443",
+            "[::1]:",
+            "[::1]:https",
+            "[::1]:65536",
+            "[example.test]:443",
+            "[203.0.113.7]:443",
+            "[]",
+            "::1]:443",
+            "2001:db8::g",
+            "10.0.0.0/33",
+            "fd00::/129",
+            "example.test/24",
+            "http://example.test",
+        ];
+        for matches in refused {
+            let config = Config {
+                rules: vec![rule(matches, "direct")],
+                ..Config::default()
+            };
+            assert!(config.compile().is_err(), "{matches:?}");
+        }
+    }
+
+    #[test]
+    fn the_first_rule_that_covers_a_connection_decides() {
+        let routes = routes(&[
+            rule("api.example.test:8443", "refuse"),
+            rule("api.example.test", "direct"),
+            rule("*.example.test", "local"),
+            rule("192.0.2.0/24", "local"),
+            rule("*", "refuse"),
+            rule("late.test", "local"),
+        ]);
+        let table = [
+            ("api.example.test", 8443, Route::Refuse),
+            ("api.example.test", 443, Route::Direct),
+            ("www.example.test", 443, Route::Local),
+            ("192.0.2.9", 443, Route::Local),
+            ("other.test", 443, Route::Refuse),
+            // A rule after one that covers everything is never reached.
+            ("late.test", 443, Route::Refuse),
+            // What no rule covers is made from the node.
+            ("localhost", 3000, Route::Direct),
+            ("127.0.0.1", 3000, Route::Direct),
+        ];
+        for (host, port, route) in table {
+            assert_eq!(routes.route(host, port).route, route, "{host}:{port}");
+        }
+    }
+
+    #[test]
+    fn a_rule_that_answers_tls_is_for_the_port_https_has_unless_it_names_another() {
+        let answered = |matches: &str, to: &str| Rule {
+            to: Some(to.to_owned()),
+            tls: true,
+            ..rule(matches, "local")
+        };
+        let routes = routes(&[
+            answered("app.test", "localhost:3000"),
+            answered("other.test:8443", "[::1]:3000"),
+            answered("bare.test", "::1"),
+        ]);
+        let to = |host: &str, port| {
+            let way = routes.route(host, port);
+            (way.tls, way.to.clone().map(|to| (to.host, to.port)))
+        };
+        assert_eq!(
+            to("app.test", 443),
+            (true, Some(("localhost".into(), Some(3000))))
+        );
+        assert_eq!(to("app.test", 80), (false, None));
+        assert_eq!(
+            to("other.test", 8443),
+            (true, Some(("::1".into(), Some(3000))))
+        );
+        assert_eq!(to("other.test", 443), (false, None));
+        assert_eq!(to("bare.test", 443), (true, Some(("::1".into(), None))));
+
+        for to in ["*.test", "*", "10.0.0.0/8", "[fd00::/8]:443"] {
+            let config = Config {
+                rules: vec![answered("app.test", to)],
+                ..Config::default()
+            };
+            assert!(config.compile().is_err(), "{to:?}");
+        }
+    }
+
+    #[test]
+    fn a_record_is_for_a_name_and_no_network() {
+        let recorded = |name: &str| Config {
+            dns: Dns {
+                servers: Vec::new(),
+                records: vec![Record {
+                    name: name.to_owned(),
+                    addresses: vec!["203.0.113.7".to_owned()],
+                }],
+            },
+            ..Config::default()
+        };
+        let names = recorded("*.internal.test").compile().unwrap().names;
+        assert!(names.recorded("a.Internal.test.").is_some());
+        assert!(names.recorded("internal.test").is_none());
+        for name in ["10.0.0.0/8", "internal.test:53", "[::1]:53"] {
+            assert!(recorded(name).compile().is_err(), "{name:?}");
+        }
+    }
 }

@@ -83,7 +83,10 @@ export const ProxyConfig = Schema.Struct({
   ),
   rules: Schema.Array(
     Schema.Struct({
-      /** `host` or `host:port`; the host is exact, `*.suffix`, or `*` for any. */
+      /**
+       * `host` or `host:port`; the host is a name, `*.suffix`, `*` for any, an address or
+       * a network (`10.0.0.0/8`). What is IPv6 takes a port in brackets: `[::1]:443`.
+       */
       match: Schema.NonEmptyString,
       /** `direct`, `refuse`, `local`, an upstream's name, or a proxy's URL. */
       via: Schema.NonEmptyString,
