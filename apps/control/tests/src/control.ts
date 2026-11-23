@@ -25,12 +25,7 @@ import * as Settings from "../../src/settings/layer.ts";
 import * as Dex from "./dex.ts";
 import * as Postgres from "./postgres.ts";
 
-/** Where a control plane keeps what it knows: a database of its own, or nothing but memory. */
-export const STORES = ["postgres", "memory"] as const;
-
 export interface ControlOptions {
-  /** A PostgreSQL database of its own, unless it says memory. */
-  readonly stores?: (typeof STORES)[number];
   /** How long a node may be silent before it is not used; the program's own choice without. */
   readonly nodeSilentAfter?: string;
   /** Serve the console as it was built, beside the API. */
@@ -80,8 +75,8 @@ export interface ControlService {
   readonly settings: Readonly<Record<string, string>>;
   /** The public key its tickets are checked against, as PEM: what an executor is given. */
   readonly ticketKey: string;
-  /** Its database, for what a check looks up there itself; none for one that keeps to memory. */
-  readonly sql: Option.Option<SqlClient.SqlClient>;
+  /** Its database, for what a check looks up there itself. */
+  readonly sql: SqlClient.SqlClient;
   /** Its API for whoever holds the token. */
   readonly as: (token: string) => Effect.Effect<Client>;
   /** A request whose answer is told whatever its status. */
@@ -110,7 +105,7 @@ export const KEEPALIVE = "/aperture.control.v1.NodeService/Keepalive";
 export const start = Effect.fn("Control.start")(function* (options: ControlOptions = {}) {
   const fs = yield* FileSystem.FileSystem;
   const http = yield* Effect.context<HttpClient.HttpClient>();
-  const postgres = options.stores === "memory" ? undefined : yield* Postgres.start;
+  const postgres = yield* Postgres.start;
   const dir = yield* directory;
 
   // Effect signs nothing: the keys are the platform's own, which makes them or throws.
@@ -142,7 +137,7 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
     APERTURE_CONTROL_MASTER_KEY: masterKey,
     // Checks sign in more often from one address than anyone is let.
     APERTURE_CONTROL_RATE_LIMIT: String(options.rateLimit ?? false),
-    APERTURE_CONTROL_DATABASE_URL: postgres?.url ?? "postgres://nowhere",
+    APERTURE_CONTROL_DATABASE_URL: postgres.url,
     APERTURE_CONTROL_BOOTSTRAP_TOKEN: BOOTSTRAP,
     APERTURE_CONTROL_TICKET_KEY: signingKey,
     ...(options.console === true ? { APERTURE_CONTROL_CONSOLE_DIR: CONSOLE } : {}),
@@ -169,7 +164,7 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
   };
   const environment = ConfigProvider.fromEnvRecord(settings);
   const running = yield* Layer.build(
-    (postgres === undefined ? App.layerTest : App.layer).pipe(
+    App.layer.pipe(
       Layer.provideMerge(Server.listen({ host: "127.0.0.1", port })),
       Layer.provide(Settings.layer),
       Layer.provide(ConfigProvider.layer(environment)),
@@ -180,15 +175,10 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
   const address = Context.get(running, HttpServer.HttpServer).address;
   const url = address._tag === "UnixPathAddress" ? "" : `http://127.0.0.1:${address.port}`;
 
-  const sql =
-    postgres === undefined
-      ? Option.none()
-      : Option.some(
-          Context.get(
-            yield* Layer.build(PgClient.layer({ url: Redacted.make(postgres.url) })),
-            PgClient.PgClient,
-          ),
-        );
+  const sql = Context.get(
+    yield* Layer.build(PgClient.layer({ url: Redacted.make(postgres.url) })),
+    PgClient.PgClient,
+  );
 
   return {
     url,

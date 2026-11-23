@@ -1,25 +1,18 @@
 import type { Caller } from "@aperture-browser/control-api";
 import { suite } from "@aperture-browser/e2e/src/suite.ts";
-import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as PgClient from "@effect/sql-pg/PgClient";
-import { expect, it } from "@effect/vitest";
+import { expect } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Base64Url from "effect/encoding/Base64Url";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Redacted from "effect/Redacted";
 import * as SqlClient from "effect/sql/SqlClient";
-import * as Str from "effect/String";
 import * as TestClock from "effect/testing/TestClock";
-import * as App from "../src/app.ts";
-import * as Database from "../src/database.ts";
 import { Events } from "../src/events/service.ts";
 import * as Forgetting from "../src/grants/forgetting.ts";
 import * as GrantsLive from "../src/grants/layer.ts";
 import { Grants } from "../src/grants/service.ts";
-import * as GrantsStoreSql from "../src/grants/store-sql.ts";
-import * as Postgres from "./src/postgres.ts";
+import * as Stores from "./src/stores.ts";
 
 const REDIRECT = "http://127.0.0.1:9/callback";
 const ADA = "00000000-0000-7000-8000-000000000001";
@@ -138,89 +131,52 @@ const reused = <E, R>(later: Effect.Effect<unknown, E, R>) =>
     expect((yield* Effect.flip(grants.revoke(ada, id)))._tag).toBe("GrantNotFound");
   });
 
-const memory = Forgetting.layer.pipe(
-  Layer.provideMerge(GrantsLive.layer),
+const needs = GrantsLive.layer.pipe(
   Layer.provide(events),
-  Layer.provide(App.storesTest),
-  Layer.provide(NodeServices.layer),
-);
-
-it.effect("an app nobody gave a grant is forgotten a day after it registered", () =>
-  Effect.gen(function* () {
-    const { ungranted, granted } = yield* apps;
-    yield* TestClock.adjust("23 hours");
-    expect(yield* known(ungranted)).toBe(true);
-    const late = yield* registered("Registered later");
-
-    yield* TestClock.adjust("2 hours");
-    expect(yield* known(ungranted)).toBe(false);
-    // One that was given a grant asks again as what it registered as, whenever.
-    expect(yield* known(granted)).toBe(true);
-    expect(yield* known(late.id)).toBe(true);
-  }).pipe(Effect.provide(memory)),
-);
-
-it.effect("a refresh token that comes again after a while ends its grant", () =>
-  reused(TestClock.adjust("61 seconds")).pipe(Effect.provide(memory)),
-);
-
-const database = GrantsLive.layer.pipe(
-  Layer.provide(events),
-  Layer.provideMerge(GrantsStoreSql.layer),
   Layer.provideMerge(
-    Layer.effectDiscard(Database.migrate).pipe(
-      Layer.provideMerge(
-        Layer.unwrap(
-          Effect.gen(function* () {
-            const postgres = yield* Postgres.Postgres;
-            return PgClient.layer({
-              url: Redacted.make(postgres.url),
-              transformResultNames: Str.snakeToCamel,
-            });
-          }),
-        ),
-      ),
+    Layer.effectDiscard(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`INSERT INTO accounts (id, name, admin, created_at)
+          VALUES (${ADA}, 'Ada', false, ${new Date(0)})`;
+      }),
     ),
   ),
-  Layer.provide(Postgres.layer),
+  Layer.provideMerge(Stores.layer()),
 );
 
-suite(database)("what apps left, kept in postgres", (it) => {
+suite(needs)("what apps left", (it) => {
   it.effect("an app nobody gave a grant is forgotten a day after it registered", () =>
     Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      const grants = yield* Grants;
-      yield* sql`INSERT INTO accounts (id, name, admin, created_at)
-        VALUES (${ADA}, 'Ada', false, now())`;
       const { ungranted, granted } = yield* apps;
-      const late = yield* registered("Registered later");
-      yield* grants.forget();
+      yield* Stores.hours(23);
       expect(yield* known(ungranted)).toBe(true);
+      const late = yield* registered("Registered later");
 
-      yield* sql`UPDATE oauth_clients SET created_at = created_at - interval '25 hours'
-        WHERE id IN (${ungranted}, ${granted})`;
-      yield* grants.forget();
+      yield* Stores.hours(2);
       expect(yield* known(ungranted)).toBe(false);
+      // One that was given a grant asks again as what it registered as, whenever.
       expect(yield* known(granted)).toBe(true);
       expect(yield* known(late.id)).toBe(true);
-    }),
+    }).pipe(Effect.provide(Stores.forgetting(Grants, Forgetting.layer))),
   );
 
   it.effect("a refresh token that comes again after a while ends its grant", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* reused(sql`UPDATE oauth_tokens SET spent_at = spent_at - interval '61 seconds'`);
+      yield* reused(TestClock.adjust("61 seconds"));
       // What was spent goes with what ran out.
       const grants = yield* Grants;
       const { tokens, clientId } = yield* granted("Refreshes on");
       yield* grants.refresh({ clientId, refreshToken: tokens.refreshToken });
       const spent = sql`SELECT 1 FROM oauth_tokens WHERE spent_at IS NOT NULL`;
       expect(yield* spent).toHaveLength(1);
-      yield* sql`UPDATE oauth_tokens SET expires_at = now() - interval '1 second'
-        WHERE spent_at IS NOT NULL`;
+      yield* grants.forget();
+      expect(yield* spent).toHaveLength(1);
+      yield* TestClock.adjust("61 days");
       yield* grants.forget();
       expect(yield* spent).toHaveLength(0);
-    }),
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
   it.effect("grants given to one app at once leave one, and none of them fails", () =>

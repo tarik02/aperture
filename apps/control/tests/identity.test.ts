@@ -14,7 +14,7 @@ const TRIES = 8;
 /** As many share links that are none as one address is let try in a while. */
 const SHARE_TRIES = 30;
 
-suite(Control.layer({ stores: "memory", rateLimit: true }))(
+suite(Control.layer({ rateLimit: true }))(
   "signing in, held to so many tries from one address",
   (it) => {
     it.effect("tries are counted by where a trusted proxy says they came from", () =>

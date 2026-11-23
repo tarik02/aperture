@@ -363,7 +363,7 @@ const node = Layer.effect(
 const needs = Dex.layer.pipe(
   Layer.provideMerge(Layer.mergeAll(Proxy.layer, Viewer.layer)),
   Layer.provideMerge(node),
-  Layer.provideMerge(Control.layer({ stores: "memory", console: true, sso: {} })),
+  Layer.provideMerge(Control.layer({ console: true, sso: {} })),
   Layer.provideMerge(Dex.address),
 );
 
@@ -1531,17 +1531,10 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
           "20 seconds",
         );
         const stage = yield* page.rests(`document.querySelector("[data-aperture-stage]")`);
-        const finger = (type: string, y?: number) =>
-          page.cdp.call("Input.dispatchTouchEvent", {
-            type,
-            touchPoints: y === undefined ? [] : [{ x: stage.x, y }],
-          });
-        yield* finger("touchStart", stage.y + 200);
-        for (let moved = 20; moved <= 300; moved += 20) {
-          yield* finger("touchMove", stage.y + 200 - moved);
-          yield* Effect.sleep("16 millis");
-        }
-        yield* finger("touchEnd");
+        // Lifted as it moves: the page goes on under where the finger was.
+        yield* page.finger(
+          Viewer.along({ x: stage.x, y: stage.y + 200 }, { x: stage.x, y: stage.y - 100 }, 15),
+        );
         yield* page.until(`${title} !== "tall"`);
         expect(yield* page.evaluate(title, Schema.String)).toBe("scrolled");
         yield* shot(page, fs, "console-phone-workbench");
@@ -1568,39 +1561,14 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
           page.until(
             `document.querySelector(${JSON.stringify(selector)}).getAnimations({ subtree: true }).every((one) => one.playState === "finished")`,
           );
+        /** How long a finger rests before it is lifted, which flings nothing on. */
+        const RESTS = "150 millis";
         /** A finger put down, moved from one place to another, and lifted after a rest. */
         const drawn = (x: number, from: number, to: number) =>
-          Effect.gen(function* () {
-            const touch = (type: string, y?: number) =>
-              page.cdp.call("Input.dispatchTouchEvent", {
-                type,
-                touchPoints: y === undefined ? [] : [{ x, y }],
-              });
-            yield* touch("touchStart", from);
-            for (let step = 1; step <= 10; step += 1) {
-              yield* touch("touchMove", from + ((to - from) * step) / 10);
-              yield* Effect.sleep("16 millis");
-            }
-            // A finger that rests before it is lifted flings nothing on.
-            yield* Effect.sleep("150 millis");
-            yield* touch("touchEnd");
-          });
+          page.finger(Viewer.along({ x, y: from }, { x, y: to }), RESTS);
         /** A finger moved along the window's width, as `drawn` moves one along its height. */
         const drawnAcross = (from: number, to: number, y: number) =>
-          Effect.gen(function* () {
-            const touch = (type: string, x?: number) =>
-              page.cdp.call("Input.dispatchTouchEvent", {
-                type,
-                touchPoints: x === undefined ? [] : [{ x, y }],
-              });
-            yield* touch("touchStart", from);
-            for (let step = 1; step <= 10; step += 1) {
-              yield* touch("touchMove", from + ((to - from) * step) / 10);
-              yield* Effect.sleep("16 millis");
-            }
-            yield* Effect.sleep("150 millis");
-            yield* touch("touchEnd");
-          });
+          page.finger(Viewer.along({ x: from, y }, { x: to, y }), RESTS);
         const tapAt = page.tapAt;
         // The finger that scrolled holds the tab, from a phone: its pages are a phone's.
         const watched = `apertureSession.getSnapshot().targets.find((target) => target.tab === apertureSession.getSnapshot().selected)`;

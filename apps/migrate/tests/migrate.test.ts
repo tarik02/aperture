@@ -644,7 +644,7 @@ suite(needs)("a v1 installation moved into v2", (it) => {
       );
       expect(bare.steps).toEqual([]);
       // The database holds what the control plane keeps, and no table of the migrator's.
-      const sql = yield* Effect.fromOption(control.sql);
+      const { sql } = control;
       const tables = yield* sql`
         SELECT table_name AS name FROM information_schema.tables WHERE table_schema = 'public'
       `.pipe(
