@@ -528,21 +528,32 @@ impl Pages {
     }
 
     /// The icon of the target's page, as the session's own browser fetches it: its bytes,
-    /// and what kind of picture they are. The page's site is asked by the session, as for
-    /// anything else the page shows, and is told nothing of who watches.
-    pub async fn icon(&self, target: &str) -> anyhow::Result<(&'static str, Vec<u8>)> {
+    /// and what kind of picture they are; none where the page has none, or its icon does
+    /// not come. The page's site is asked by the session, as for anything else the page
+    /// shows, and is told nothing of who watches. It fails where the page could not be
+    /// asked, as one that is gone, or goes elsewhere while it is: that says nothing of
+    /// the page there is after.
+    pub async fn icon(&self, target: &str) -> anyhow::Result<Option<(&'static str, Vec<u8>)>> {
+        let asked = json!({
+            "expression": ICON_OF_PAGE,
+            "returnByValue": true,
+            "awaitPromise": true,
+        });
+        let named = self.call(target, "Runtime.evaluate", asked).await?;
+        ensure!(
+            named["exceptionDetails"].is_null(),
+            "the page went elsewhere while it was asked"
+        );
+        let Some(url) = named["result"]["value"].as_str() else {
+            return Ok(None);
+        };
+        Ok(self.fetched(target, url).await.ok())
+    }
+
+    /// The icon at an address, fetched as the target's page would fetch it.
+    async fn fetched(&self, target: &str, url: &str) -> anyhow::Result<(&'static str, Vec<u8>)> {
         use base64::Engine;
         let decode = |text: &str| base64::engine::general_purpose::STANDARD.decode(text);
-        let named = self
-            .call(
-                target,
-                "Runtime.evaluate",
-                json!({ "expression": ICON_OF_PAGE, "returnByValue": true }),
-            )
-            .await?;
-        let url = named["result"]["value"]
-            .as_str()
-            .context("the page names no icon")?;
         let bytes = if let Some(told) = url.strip_prefix("data:") {
             let (how, data) = told.split_once(',').context("not an icon")?;
             match how.ends_with(";base64") {
@@ -601,8 +612,16 @@ const ICON_MOST: usize = 1024 * 1024;
 
 /// Which icon a page names for itself: one that is drawn at any size, else one of a size a
 /// list of tabs shows well, else the first, and where it names none, the one its site has
-/// where sites have theirs. A page that is not of the web has none.
-const ICON_OF_PAGE: &str = r#"(() => {
+/// where sites have theirs. A page that is not of the web has none. A page that is still
+/// read has not said all of its head: it is asked once it has, or after a while, as it
+/// would name none until then and be taken for one whose site has its icon.
+const ICON_OF_PAGE: &str = r#"(async () => {
+  if (document.readyState === "loading") {
+    await new Promise((read) => {
+      addEventListener("DOMContentLoaded", read, { once: true });
+      setTimeout(read, 5000);
+    });
+  }
   const links = [...document.querySelectorAll('link[rel~="icon" i][href]')];
   const sized = (link) => /(^|\s)(32x32|48x48|64x64|96x96)(\s|$)/u.test(link.getAttribute("sizes") ?? "");
   const link = links.find((one) => one.type === "image/svg+xml") ?? links.find(sized) ?? links[0];

@@ -1,7 +1,6 @@
 //! The icons of the targets' pages, each asked of its page once in a while.
 
 use std::{
-    convert::Infallible,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -39,20 +38,18 @@ impl Icons {
     pub async fn of(&self, pages: &Pages, target: &Target, known: &[String]) -> Option<Arc<Icon>> {
         let site = site(&target.url);
         let fresh = |found: &Found| found.site == site && found.at.elapsed() < FRESH_FOR;
-        // A page that has none, or whose icon does not come, is not asked each time.
+        // A page that has none, or whose icon does not come, is not asked each time. One
+        // that could not be asked is, the next time: nothing is known of it.
         let asked = async {
-            let icon = match pages.icon(&target.id).await {
-                Ok((kind, bytes)) => Some(Arc::new(Icon { kind, bytes })),
-                Err(_) => None,
-            };
-            Ok::<_, Infallible>(Found {
+            let icon = pages.icon(&target.id).await?;
+            anyhow::Ok(Found {
                 site: site.clone(),
-                icon,
+                icon: icon.map(|(kind, bytes)| Arc::new(Icon { kind, bytes })),
                 at: Instant::now(),
             })
         };
-        let Ok(found) = self.found.of(&target.id, known, fresh, asked).await;
-        found.icon
+        let found = self.found.of(&target.id, known, fresh, asked).await;
+        found.ok()?.icon
     }
 }
 
