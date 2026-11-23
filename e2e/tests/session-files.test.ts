@@ -151,6 +151,37 @@ suite(session)("what a session's files are served as", (it) => {
     }),
   );
 
+  it.effect("an upload is put and removed by its name, and what names a path does neither", () =>
+    Effect.gen(function* () {
+      const runner = yield* Runner.Runner;
+      const fs = yield* FileSystem.FileSystem;
+      const outside = `${runner.files}/..`;
+      for (const name of [
+        "..%2Fplanted.txt",
+        "..%2F..%2Fplanted.txt",
+        "..%2F..%2Ftoken",
+        "%2Ftmp%2Fplanted.txt",
+        "inner%2Fplanted.txt",
+        "..",
+        ".planted.txt",
+      ]) {
+        const answer = yield* put(runner, name, "planted\n");
+        expect([name, answer.status === 200]).toEqual([name, false]);
+        const removed = yield* runner.request("DELETE", `/uploads/${name}`);
+        expect([name, removed.status === 204]).toEqual([name, false]);
+      }
+      for (const planted of [
+        `${runner.files}/planted.txt`,
+        `${outside}/planted.txt`,
+        `${runner.files}/uploads/inner`,
+        `${runner.files}/uploads/.planted.txt`,
+      ]) {
+        expect(yield* fs.exists(planted), planted).toBe(false);
+      }
+      expect(yield* fs.readFileString(`${outside}/token`)).toBe(runner.token);
+    }),
+  );
+
   it.effect(
     "a link in place of the uploads takes no upload, and nothing is removed through it",
     () =>
