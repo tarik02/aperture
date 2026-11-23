@@ -60,7 +60,7 @@
             call(bootstrap, "POST", "/accounts", '{"name":"ops"}') + " | jq -er .id"
         ).strip()
         token = machine.succeed(
-            call(bootstrap, "POST", f"/accounts/{account}/tokens", '{"name":"check"}') + " | jq -er .token"
+            call(bootstrap, "POST", f"/accounts/{account}/tokens", '{"name":"check","scopes":["sessions:write"]}') + " | jq -er .token"
         ).strip()
         path = machine.succeed(call(token, "POST", "/sessions", "{}") + " | jq -er .path").strip()
         machine.wait_until_succeeds(
