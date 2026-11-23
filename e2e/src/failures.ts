@@ -52,19 +52,45 @@ const fileName = (said: string) =>
     .replaceAll(/^-|-$/gu, "")
     .slice(0, 100);
 
-/**
- * Keeps what there is to tell of a check that failed, for looking into it without running
- * it again: what its programs logged last and what its pages showed.
- */
-export const keep = Effect.fn("Failures.keep")(function* (file: string, check: string) {
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const told = yield* Effect.forEach([...witnesses], (tells) =>
+/** All there is to tell right now. */
+const tell = Effect.suspend(() =>
+  Effect.forEach([...witnesses], (tells) =>
     tells.pipe(
       Effect.timeoutOrElse({ duration: TOLD_WITHIN, orElse: () => Effect.succeed([]) }),
       Effect.catchCause(() => Effect.succeed<ReadonlyArray<Kept>>([])),
     ),
-  );
+  ),
+).pipe(Effect.map((told) => told.flat()));
+
+// What was told when a check last gave up waiting, until the check is over.
+let seen: ReadonlyArray<Kept> | undefined;
+
+/**
+ * Has all there is to tell told now, for `keep` to keep if the check fails. A check that
+ * gives up waiting ends what it started, a session or a page's place, before anything is
+ * kept of it: what its pages show by then is that, not what it waited for in vain.
+ */
+export const look = tell.pipe(
+  Effect.map((told) => {
+    seen = told;
+  }),
+);
+
+/** The check is over: what was told while it ran is of no other. */
+export const forget = () => {
+  seen = undefined;
+};
+
+/**
+ * Keeps what there is to tell of a check that failed, for looking into it without running
+ * it again: what its programs logged last and what its pages showed, as they were when it
+ * gave up waiting where it did.
+ */
+export const keep = Effect.fn("Failures.keep")(function* (file: string, check: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const told = seen ?? (yield* tell);
+  forget();
   const directory = path.join(
     yield* failuresDirectory,
     fileName(path.basename(file).replace(/\.test\.ts$/u, "")),
@@ -72,7 +98,7 @@ export const keep = Effect.fn("Failures.keep")(function* (file: string, check: s
   );
   yield* fs.makeDirectory(directory, { recursive: true });
   yield* Effect.forEach(
-    told.flat(),
+    told,
     (kept) =>
       typeof kept.content === "string"
         ? fs.writeFileString(path.join(directory, fileName(kept.name)), kept.content)

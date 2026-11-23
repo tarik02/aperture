@@ -33,6 +33,7 @@ export const suite = <R, E>(needs: Layer.Layer<R, E, Platform>) => {
     within(name, (it) => {
       afterEach(async ({ task }) => {
         if (task.result?.state !== "fail") {
+          Failures.forget();
           return;
         }
         const kept = await Effect.runPromise(
