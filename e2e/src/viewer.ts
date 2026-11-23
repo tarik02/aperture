@@ -393,26 +393,36 @@ export const start = Effect.gen(function* () {
           });
           yield* mouse("mouseReleased", x, y, { button, clickCount: 1 });
         });
-      // The browser is told all a finger does without waiting for what it answers to each:
-      // how long a finger rests in a place is how long it is told to, not how long an
-      // answer takes to come back. One that rests half a second is a long press to what
-      // it touches, and an answer takes as long on a machine that is busy.
-      const finger: Page["finger"] = (path, rests = Duration.zero) => {
-        const told = (type: string, at: Place | undefined, after: Duration.Duration) =>
-          page
-            .call("Input.dispatchTouchEvent", { type, touchPoints: at === undefined ? [] : [at] })
-            .pipe(Effect.delay(after));
-        const [began, ...moves] = path;
-        const moved = Duration.times(FRAME, moves.length);
-        return Effect.all(
-          [
-            told("touchStart", began, Duration.zero),
-            ...moves.map((at, index) => told("touchMove", at, Duration.times(FRAME, index + 1))),
-            told("touchEnd", undefined, Duration.sum(moved, Duration.fromInputUnsafe(rests))),
-          ],
-          { concurrency: "unbounded", discard: true },
-        );
-      };
+      // What a finger does next after it is put down is told to the browser a frame later,
+      // whatever the browser has answered by then: how long the finger rests where it
+      // went down is then how long it is told to, not how long an answer takes to come
+      // back. One that rests half a second is a long press to what it touches, and an
+      // answer takes as long on a machine that is busy. The moves after the first are
+      // each told once the one before is answered, as the browser makes one move of
+      // those it has not answered yet.
+      const finger: Page["finger"] = (path, rests = Duration.zero) =>
+        Effect.gen(function* () {
+          const told = (type: string, at?: Place) =>
+            page.call("Input.dispatchTouchEvent", {
+              type,
+              touchPoints: at === undefined ? [] : [at],
+            });
+          const [began, first, ...moves] = path;
+          const lifted = Effect.sleep(rests).pipe(Effect.andThen(told("touchEnd")));
+          const next = first === undefined ? lifted : told("touchMove", first);
+          yield* Effect.all([told("touchStart", began), next.pipe(Effect.delay(FRAME))], {
+            concurrency: "unbounded",
+            discard: true,
+          });
+          if (first === undefined) {
+            return;
+          }
+          for (const at of moves) {
+            yield* Effect.sleep(FRAME);
+            yield* told("touchMove", at);
+          }
+          yield* lifted;
+        });
       const tapAt: Page["tapAt"] = (x, y) => finger([{ x, y }]);
       const press: Page["key"] = (key, code = key, virtualKey = 0) =>
         Effect.gen(function* () {
