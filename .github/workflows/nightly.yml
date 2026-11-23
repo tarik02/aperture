@@ -1,0 +1,70 @@
+name: nightly
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  nightly:
+    name: nightly release
+    # Not the commit a release is made of, which is published as the release.
+    if: >-
+      github.ref == 'refs/heads/master' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          !startsWith(github.event.head_commit.message, 'chore: release') &&
+          !startsWith(github.event.head_commit.message, 'chore(master): release')
+        )
+      )
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      short_sha: ${{ steps.version.outputs.short_sha }}
+    steps:
+      - name: Create the nightly release
+        id: version
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          short_sha="${GITHUB_SHA::12}"
+          version="0.0.0-nightly.${GITHUB_RUN_NUMBER}.${short_sha}"
+          gh release create "v$version" \
+            --target "$GITHUB_SHA" \
+            --title "v$version" \
+            --notes "Built from $GITHUB_SHA." \
+            --prerelease \
+            --latest=false
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: publish
+    needs: nightly
+    permissions:
+      actions: write
+      attestations: write
+      contents: write
+      id-token: write
+      packages: write
+    uses: ./.github/workflows/publish.yml
+    secrets:
+      CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+    with:
+      version: ${{ needs.nightly.outputs.version }}
+      tag: v${{ needs.nightly.outputs.version }}
+      image-tags: |
+        nightly
+        nightly-${{ needs.nightly.outputs.short_sha }}

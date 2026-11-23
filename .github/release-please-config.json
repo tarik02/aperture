@@ -1,0 +1,41 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "9c93661f6ecfe77a5d5921df9acc7eb9a7ba1cba",
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "package-name": "aperture",
+      "changelog-path": "CHANGELOG.md",
+      "include-v-in-tag": true,
+      "include-component-in-tag": false,
+      "versioning": "prerelease",
+      "prerelease": true,
+      "prerelease-type": "beta",
+      "initial-version": "1.0.0-beta.1",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.package.version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.lock",
+          "jsonpath": "$.package[?(!@.source)].version"
+        },
+        {
+          "type": "json",
+          "path": "packages/*/package.json",
+          "glob": true,
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "apps/*/package.json",
+          "glob": true,
+          "jsonpath": "$.version"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,88 @@
+name: release please
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: release PR / release
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.channel.outputs.version }}
+      channel: ${{ steps.channel.outputs.channel }}
+    steps:
+      # What GITHUB_TOKEN opens starts no workflows; the app's token lets the release's
+      # pull request have its checks.
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Run Release Please
+        id: release
+        uses: googleapis/release-please-action@v5.0.0
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: .github/release-please-config.json
+          manifest-file: .github/.release-please-manifest.json
+
+      # A prerelease moves the tag named as it is, `beta` for 1.0.0-beta.2; `latest` is
+      # a stable release's alone.
+      - name: Name the channel
+        id: channel
+        if: steps.release.outputs.release_created == 'true'
+        env:
+          TAG: ${{ steps.release.outputs.tag_name }}
+        run: |
+          version="${TAG#v}"
+          channel=latest
+          if [[ "$version" == *-* ]]; then
+            channel="${version#*-}"
+            channel="${channel%%.*}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
+  # Nothing of a release is published from a tree whose sessions do not run.
+  e2e:
+    name: e2e
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    uses: ./.github/workflows/e2e.yml
+
+  publish:
+    name: publish
+    needs:
+      - release-please
+      - e2e
+    permissions:
+      actions: write
+      attestations: write
+      contents: write
+      id-token: write
+      packages: write
+    uses: ./.github/workflows/publish.yml
+    secrets:
+      CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+    with:
+      version: ${{ needs.release-please.outputs.version }}
+      tag: ${{ needs.release-please.outputs.tag_name }}
+      image-tags: |
+        ${{ needs.release-please.outputs.version }}
+        ${{ needs.release-please.outputs.channel }}
+      release: true
