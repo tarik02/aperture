@@ -120,10 +120,17 @@ export function SessionViewport({ className, style, children }: SessionViewportP
   const shown = watched === undefined ? undefined : way;
   // The picture of another tab, or of this one at another size, comes a moment after the
   // session says which tab is watched and how large it is. Until what is drawn has the
-  // shape of what is watched, the picture keeps the place it had: the place and the
-  // picture change together.
+  // shape of what is watched, the picture has the place of what is drawn: a window that
+  // is dragged larger is some sizes ahead of its picture all the while, and a place kept
+  // from before the drag would hold each picture that comes to the shape of the first.
+  const agrees = watched !== undefined && drawn.width > 0 && sameShape(drawn, watched);
+  /** The picture's pixels to a logical pixel of its target, when the two last agreed. */
+  const density = useRef(1);
+  if (agrees) {
+    density.current = drawn.width / watched.width;
+  }
   const awaited =
-    watched !== undefined && drawn.width > 0 && !sameShape(drawn, watched)
+    watched !== undefined && drawn.width > 0 && !agrees
       ? `${watched.id} ${watched.width}x${watched.height}`
       : undefined;
   // A picture that does not come is not waited for longer than this.
@@ -136,11 +143,18 @@ export function SessionViewport({ className, style, children }: SessionViewportP
     return () => clearTimeout(waiting);
   }, [awaited]);
   const settled = awaited === undefined || awaited === overdue;
-  const placed = useRef<Size | undefined>(undefined);
-  if (settled) {
-    placed.current = watched === undefined ? undefined : pictureBox(stage, watched);
-  }
-  const box = placed.current ?? (watched === undefined ? undefined : pictureBox(stage, watched));
+  const box =
+    watched === undefined
+      ? undefined
+      : pictureBox(
+          stage,
+          settled
+            ? watched
+            : {
+                width: drawn.width / density.current,
+                height: drawn.height / density.current,
+              },
+        );
 
   const picture = (visible: boolean): CSSProperties => ({
     display: visible ? "block" : "none",
