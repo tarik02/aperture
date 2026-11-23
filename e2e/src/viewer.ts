@@ -1,12 +1,14 @@
 import * as Context from "effect/Context";
 import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Base64 from "effect/encoding/Base64";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as Cdp from "./cdp.ts";
+import * as Failures from "./failures.ts";
 import { directory, run } from "./process.ts";
 import { chromium } from "./programs.ts";
 import { type TimedOut, until } from "./wait.ts";
@@ -45,6 +47,45 @@ export class NoElement extends Schema.TaggedError<NoElement>()("NoElement", {
   }
 }
 
+/** What keeps an element from being pressed, as the page tells it. */
+const Aim = Schema.Union([Box, Schema.Struct({ not: Schema.String })]);
+
+/**
+ * Where an element is pressed: its middle, once the element is there, neither it nor what
+ * it stands in is on its way somewhere, and a press at its middle is one of it. Something
+ * that slides or grows into place is elsewhere by the time a press aimed at where it was
+ * lands, and how long it takes to come to rest is the machine's to say: on a busy one a
+ * transition of 300 ms was seen to take 850. What moves for as long as it is there, as what
+ * pulses does, is not waited for.
+ */
+const aimAt = (element: string, pressed: boolean) => `(() => {
+  const element = ${element};
+  if (!element) return { not: "there" };
+  const moving = document.getAnimations().find((one) => {
+    const target = one.effect?.target;
+    return (
+      one.playState === "running" &&
+      Number.isFinite(Number(one.effect?.getComputedTiming().endTime)) &&
+      target != null &&
+      target.contains(element)
+    );
+  });
+  if (moving) return { not: "at rest" };
+  const rect = element.getBoundingClientRect();
+  const x = rect.left + rect.width / 2;
+  const y = rect.top + rect.height / 2;
+  const root = element.getRootNode();
+  const hit = (typeof root.elementFromPoint === "function" ? root : document).elementFromPoint(x, y);
+  // What takes no presses itself is pressed for what is under it.
+  const pressed = ${pressed} && getComputedStyle(element).pointerEvents !== "none";
+  if (pressed && hit === null) return { not: "in the window" };
+  if (pressed && !element.contains(hit) && !(hit.shadowRoot?.contains(element) ?? false)) {
+    const named = [hit.tagName.toLowerCase(), ...[...hit.attributes].slice(0, 4).map((one) => "[" + one.name + (one.value === "" ? "" : '="' + one.value.slice(0, 40) + '"') + "]")].join("");
+    return { not: "under nothing else: " + named + " is over it" };
+  }
+  return { x, y, width: rect.width, height: rect.height, left: rect.left, top: rect.top };
+})()`;
+
 /** A page a person has open, driven as a person drives it. */
 export interface Page {
   /** Evaluates in the page; a promise is waited for. */
@@ -65,10 +106,27 @@ export interface Page {
     y: number,
     button?: "left" | "right",
   ) => Effect.Effect<void, Cdp.CdpError>;
+  /**
+   * Where the element an expression gives in the page is pressed, once it can be: it is
+   * there, at rest, and nothing else is over its middle.
+   */
+  readonly aim: (element: string) => Effect.Effect<Box, NoElement>;
+  /**
+   * Where the element an expression gives in the page is, once it is there and at rest:
+   * for what is looked at or measured where it stays, and may take no press.
+   */
+  readonly rests: (element: string) => Effect.Effect<Box, NoElement>;
+  /** Clicks the element a selector names, once it can be pressed. */
   readonly click: (
     selector: string,
     button?: "left" | "right",
   ) => Effect.Effect<void, Cdp.CdpError | NoElement>;
+  /** Clicks the element an expression gives in the page, once it can be pressed. */
+  readonly clickOn: (element: string) => Effect.Effect<void, Cdp.CdpError | NoElement>;
+  /** Puts a finger down and lifts it where it went down. */
+  readonly tapAt: (x: number, y: number) => Effect.Effect<void, Cdp.CdpError>;
+  /** Taps the element a selector names with a finger, once it can be pressed. */
+  readonly tap: (selector: string) => Effect.Effect<void, Cdp.CdpError | NoElement>;
   readonly hover: (selector: string) => Effect.Effect<void, Cdp.CdpError | NoElement>;
   /** Presses and lets go of a key, by what it is called, its code and its virtual key. */
   readonly key: (
@@ -89,6 +147,9 @@ export interface ViewerService {
   readonly open: (url: string, options?: OpenOptions) => Effect.Effect<Page, Cdp.CdpError>;
 }
 
+/** How long something that is to be pressed gets to be there and at rest. */
+const PRESSED_WITHIN = "15 seconds";
+
 const CODES: Record<string, string> = {
   " ": "Space",
   ".": "Period",
@@ -107,6 +168,24 @@ const virtualOf = (letter: string) =>
   /[a-z0-9 ]/iu.test(letter) ? letter.toUpperCase().charCodeAt(0) : (VIRTUAL[letter] ?? 0);
 
 const Created = Schema.Struct({ targetId: Schema.String });
+const Shot = Schema.Struct({ data: Schema.String });
+
+/** Where a page is, how large, what has the keyboard, and what it knows of its session. */
+const TOLD_OF_A_PAGE = `(() => {
+  const focused = document.activeElement;
+  let session = "none";
+  try {
+    session = JSON.stringify(window.apertureSession?.getSnapshot() ?? "none", null, 2);
+  } catch (error) {
+    session = String(error);
+  }
+  return [
+    "at: " + location.href,
+    "window: " + innerWidth + "x" + innerHeight,
+    "focused: " + (focused === null ? "nothing" : focused.outerHTML.slice(0, 300)),
+    "session: " + session,
+  ].join("\\n");
+})()`;
 
 const Thrown = Schema.Struct({ exceptionDetails: Cdp.ExceptionDetails });
 const thrownOf = Schema.decodeUnknownOption(Thrown);
@@ -132,6 +211,46 @@ export const start = Effect.gen(function* () {
   );
   const cdp = yield* Cdp.connect(endpoint);
 
+  // The pages that are open, in the order they were opened, for telling of a check that fails.
+  const pages = new Map<number, { readonly page: Cdp.Attached; readonly errors: string[] }>();
+  let opened = 0;
+  const told = <E>(tells: Effect.Effect<Failures.Kept, E>) =>
+    tells.pipe(
+      Effect.map((kept) => [kept]),
+      Effect.timeoutOrElse({ duration: "5 seconds", orElse: () => Effect.succeed([]) }),
+      Effect.orElseSucceed((): ReadonlyArray<Failures.Kept> => []),
+    );
+  yield* Failures.witness(
+    Effect.suspend(() =>
+      Effect.forEach([...pages], ([number, { page, errors }]) =>
+        Effect.all(
+          [
+            told(
+              page.call("Page.captureScreenshot", { format: "png" }, Shot).pipe(
+                Effect.flatMap((shot) => Effect.fromResult(Base64.decode(shot.data))),
+                Effect.map((content) => ({ name: `page-${number}.png`, content })),
+              ),
+            ),
+            told(
+              page
+                .evaluate("document.documentElement.outerHTML", Schema.String)
+                .pipe(Effect.map((content) => ({ name: `page-${number}.html`, content }))),
+            ),
+            told(
+              page.evaluate(TOLD_OF_A_PAGE, Schema.String).pipe(
+                Effect.map((content) => ({
+                  name: `page-${number}.txt`,
+                  content: `${content}\n\nthrown:\n${errors.join("\n")}\n`,
+                })),
+              ),
+            ),
+          ],
+          { concurrency: "unbounded" },
+        ).pipe(Effect.map((kept) => kept.flat())),
+      ),
+    ).pipe(Effect.map((kept) => kept.flat())),
+  );
+
   const open: ViewerService["open"] = (url, options = {}) =>
     Effect.gen(function* () {
       const { width = 1280, height = 800, mobile = false, scheme } = options;
@@ -142,6 +261,9 @@ export const start = Effect.gen(function* () {
       );
       const page = yield* cdp.attach(targetId);
       const errors: string[] = [];
+      opened += 1;
+      const number = opened;
+      pages.set(number, { page, errors });
       // The page is heard for as long as the browser is there, as it is used: by the
       // checks after the one that opened it.
       const heard = yield* cdp.events.pipe(Effect.provideService(Scope.Scope, lasting));
@@ -206,6 +328,32 @@ export const start = Effect.gen(function* () {
                 : Effect.succeed(found),
             ),
           );
+      const placed = (element: string, pressed: boolean) =>
+        Effect.suspend(() => {
+          let not = "there";
+          return until(
+            `${element} being where it is pressed`,
+            page.evaluate(aimAt(element, pressed), Aim).pipe(
+              Effect.map((seen) => {
+                if ("not" in seen) {
+                  not = seen.not;
+                  return undefined;
+                }
+                return seen;
+              }),
+            ),
+            PRESSED_WITHIN,
+          ).pipe(
+            Effect.mapError(
+              () =>
+                new NoElement({
+                  sought: `${pressed ? "to press" : "at rest"} is ${element}: it is not ${not}`,
+                }),
+            ),
+          );
+        });
+      const aim: Page["aim"] = (element) => placed(element, true);
+      const named = (selector: string) => `document.querySelector(${JSON.stringify(selector)})`;
       const mouse: Page["mouse"] = (type, x, y, more = {}) =>
         page.call("Input.dispatchMouseEvent", { type, x, y, button: "none", ...more });
       const clickAt: Page["clickAt"] = (x, y, button = "left") =>
@@ -218,6 +366,14 @@ export const start = Effect.gen(function* () {
           });
           yield* mouse("mouseReleased", x, y, { button, clickCount: 1 });
         });
+      const tapAt: Page["tapAt"] = (x, y) =>
+        page
+          .call("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] })
+          .pipe(
+            Effect.andThen(
+              page.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] }),
+            ),
+          );
       const press: Page["key"] = (key, code = key, virtualKey = 0) =>
         Effect.gen(function* () {
           const named = { key, code, windowsVirtualKeyCode: virtualKey };
@@ -243,10 +399,15 @@ export const start = Effect.gen(function* () {
           ),
         mouse,
         clickAt,
+        aim,
+        rests: (element) => placed(element, false),
         click: (selector, button) =>
-          box(selector).pipe(Effect.flatMap((at) => clickAt(at.x, at.y, button))),
+          aim(named(selector)).pipe(Effect.flatMap((at) => clickAt(at.x, at.y, button))),
+        clickOn: (element) => aim(element).pipe(Effect.flatMap((at) => clickAt(at.x, at.y))),
+        tapAt,
+        tap: (selector) => aim(named(selector)).pipe(Effect.flatMap((at) => tapAt(at.x, at.y))),
         hover: (selector) =>
-          box(selector).pipe(Effect.flatMap((at) => mouse("mouseMoved", at.x, at.y))),
+          aim(named(selector)).pipe(Effect.flatMap((at) => mouse("mouseMoved", at.x, at.y))),
         key: press,
         type: (text) =>
           Effect.forEach(
@@ -266,7 +427,10 @@ export const start = Effect.gen(function* () {
             { discard: true },
           ),
         errors: () => errors,
-        close: cdp.call("Target.closeTarget", { targetId }),
+        close: Effect.suspend(() => {
+          pages.delete(number);
+          return cdp.call("Target.closeTarget", { targetId });
+        }),
         cdp: page,
       } satisfies Page;
     });

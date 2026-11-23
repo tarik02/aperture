@@ -15,6 +15,7 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Socket from "effect/socket/Socket";
 import * as Cdp from "./cdp.ts";
+import * as Failures from "./failures.ts";
 import { type Answer, request } from "./http.ts";
 import {
   DidNotStart,
@@ -96,6 +97,9 @@ const environment = (
   ...options.env,
 });
 
+/** How much of what a session's runner logged is kept of a check that failed. */
+const RUNNER_LOGGED_MOST = 256 * 1024;
+
 /** What a runner says of itself in its runtime directory. */
 export const RunnerStatus = Schema.fromJsonString(Schema.Struct({ pid: Schema.Number }));
 
@@ -134,15 +138,27 @@ export const start = Effect.fn("Executor.start")(function* (options: ExecutorOpt
     ).pipe(Scope.provide(scope));
     token = yield* until(
       "the executor writing its token",
-      fs.readFileString(`${data}/token`).pipe(Effect.map((written) => written.trim())),
+      fs.readFileString(`${data}/token`).pipe(Effect.map((written) => written.trim() || undefined)),
       "30 seconds",
     );
+    let answered = "nothing";
     yield* until(
       "the executor answering",
-      rpc("GetExecutor").pipe(Effect.map((answer) => answer.status === 200)),
+      rpc("GetExecutor").pipe(
+        Effect.map((answer) => {
+          answered = String(answer.status);
+          return answer.status === 200;
+        }),
+      ),
       "30 seconds",
     ).pipe(
-      Effect.mapError((error) => new DidNotStart({ reason: error.message, said: executor.said() })),
+      Effect.mapError(
+        (error) =>
+          new DidNotStart({
+            reason: `${error.message}: it answered ${answered}`,
+            said: executor.said(),
+          }),
+      ),
     );
     return executor;
   }, Effect.provide(platform));
@@ -163,16 +179,19 @@ export const start = Effect.fn("Executor.start")(function* (options: ExecutorOpt
       yield* fs.copyFile(from, `${logs}/runner-${session}-on-${port}.log`);
     }
   }).pipe(Effect.ignore);
-  yield* Effect.addFinalizer(() =>
-    keepLogs.pipe(Effect.andThen(client.sessions.list)).pipe(
-      Effect.flatMap((sessions) =>
-        Effect.forEach(sessions, (session) => Effect.ignore(client.sessions.delete(session.id)), {
-          discard: true,
-        }),
-      ),
-      Effect.ignore,
-      Effect.andThen(stop),
-    ),
+  // The sessions' runners log to the sessions' own directories, which go with the sessions.
+  yield* Failures.witness(
+    Effect.gen(function* () {
+      const sessions = yield* fs.readDirectory(`${data}/sessions`);
+      return yield* Effect.forEach(sessions, (session) =>
+        fs.readFileString(`${data}/sessions/${session}/logs/runner.log`).pipe(
+          Effect.map((logged) => ({
+            name: `runner-${session}-on-${port}.log`,
+            content: logged.slice(-RUNNER_LOGGED_MOST),
+          })),
+        ),
+      );
+    }).pipe(Effect.orElseSucceed(() => [])),
   );
 
   // A runner is started as a group of its own, which its browser is in. A session that is
@@ -190,6 +209,23 @@ export const start = Effect.fn("Executor.start")(function* (options: ExecutorOpt
       Effect.ignore,
       Effect.provide(platform),
     );
+
+  // An executor that was started in this one's place ends before this is come to, as what
+  // the scope was given last, and takes no more calls: its sessions' runners, which it
+  // leaves running as any executor that ends does, are then killed where they stand. A
+  // runner left behind outlives the checks, with its browser, for as long as the machine is up.
+  yield* Effect.addFinalizer(() =>
+    keepLogs.pipe(Effect.andThen(client.sessions.list)).pipe(
+      Effect.flatMap((sessions) =>
+        Effect.forEach(sessions, (session) => Effect.ignore(client.sessions.delete(session.id)), {
+          discard: true,
+        }),
+      ),
+      Effect.ignore,
+      Effect.andThen(stop),
+      Effect.andThen(killRunners),
+    ),
+  );
 
   return {
     url,

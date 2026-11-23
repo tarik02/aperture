@@ -8,6 +8,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as Failures from "./failures.ts";
 
 /** How long a program gets to end by itself once asked to. */
 const ENDS_WITHIN = Duration.seconds(10);
@@ -72,6 +73,9 @@ export const run = Effect.fn("run")(function* (
     ),
     Effect.ignore,
     Effect.forkScoped,
+  );
+  yield* Failures.witness(
+    Effect.sync(() => [{ name: `${name}-${handle.pid}.log`, content: said }]),
   );
   const ends: Program["ends"] = (signal) =>
     handle.isRunning.pipe(

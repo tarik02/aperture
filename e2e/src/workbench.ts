@@ -75,13 +75,8 @@ export const boxOf = (page: Page, element: string) =>
       ),
     );
 
-/** Clicks the element an expression gives in the page, once it is there. */
-export const clickElement = (page: Page, element: string) =>
-  Effect.gen(function* () {
-    yield* page.until(`!!(${element})`);
-    const at = yield* boxOf(page, element);
-    yield* page.clickAt(at.x, at.y);
-  });
+/** Clicks the element an expression gives in the page, once it can be pressed. */
+export const clickElement = (page: Page, element: string) => page.clickOn(element);
 
 /** Clicks the item of an open menu whose text starts with `label`, once it is there. */
 export const clickItem = (page: Page, label: string) => clickElement(page, menuItem(label));
@@ -94,9 +89,8 @@ export const hasItem = (page: Page, label: string) =>
 export const openMenu = (page: Page, button: string, item: string) =>
   Effect.gen(function* () {
     yield* page.click(button);
-    yield* page.until(`!!(${menuItem(item)})`);
-    // The menu moves into place as it opens; a click meant for an item waits that out.
-    yield* Effect.sleep("300 millis");
+    // The menu moves into place as it opens; it is open once what it offers is at rest.
+    yield* page.rests(menuItem(item));
   });
 
 export const escape = (page: Page) => page.key("Escape", "Escape", 27);
@@ -106,12 +100,18 @@ export const enter = (page: Page) => page.key("Enter", "Enter", 13);
 /** Closes the menus that are open, submenus first. */
 export const closeMenus = (page: Page) =>
   Effect.gen(function* () {
+    const open = page.evaluate(
+      `document.querySelectorAll("[data-slot=dropdown-menu-content]").length`,
+      Schema.Number,
+    );
     for (let left = 3; left > 0; left -= 1) {
-      if (!(yield* has(page, "[data-slot=dropdown-menu-content]"))) {
+      const before = yield* open;
+      if (before === 0) {
         return;
       }
       yield* escape(page);
-      yield* Effect.sleep("200 millis");
+      // A menu that closes is there until it has gone from sight.
+      yield* happens(open.pipe(Effect.map((now) => now < before)), "5 seconds");
     }
   });
 

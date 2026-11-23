@@ -4,3 +4,4 @@
 node_modules/
 apps/*/dist/
 packages/*/dist/
+/test-failures

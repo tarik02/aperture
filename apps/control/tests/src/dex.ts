@@ -1,4 +1,4 @@
-import { directory, freePort, run } from "@aperture-browser/e2e/src/process.ts";
+import { DidNotStart, directory, freePort, run } from "@aperture-browser/e2e/src/process.ts";
 import { until } from "@aperture-browser/e2e/src/wait.ts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -90,7 +90,9 @@ const serve = Effect.fn("Dex.serve")(function* (dir: string, name: string, confi
       .get(`${issuer}/.well-known/openid-configuration`)
       .pipe(Effect.map((answer) => answer.status === 200)),
     "30 seconds",
-  );
+    // What it said tells why: a port another program took since it was found free, or a
+    // configuration it does not read.
+  ).pipe(Effect.mapError((error) => new DidNotStart({ reason: error.message, said: dex.said() })));
 });
 
 /**

@@ -87,7 +87,9 @@ export const start = Effect.fn("Runner.start")(function* (options: RunnerOptions
   ]);
   const token = yield* until(
     "the runner writing its token",
-    fs.readFileString(`${dir}/session/token`).pipe(Effect.map((written) => written.trim())),
+    fs
+      .readFileString(`${dir}/session/token`)
+      .pipe(Effect.map((written) => written.trim() || undefined)),
     "30 seconds",
   );
   const url = `http://127.0.0.1:${port}`;
