@@ -7,6 +7,7 @@ import { suite } from "../src/suite.ts";
 import { type Page, snapshot, Viewer } from "../src/viewer.ts";
 import * as ViewerLive from "../src/viewer.ts";
 import { happens } from "../src/wait.ts";
+import { comes } from "../src/workbench.ts";
 
 // The viewer is a person's browser: one outside any session, with a network of its own.
 const node = Layer.mergeAll(Node.layer({ features: ["cdp"] }), ViewerLive.layer);
@@ -109,6 +110,9 @@ suite(node)("watching a session of a node", (it) => {
         yield* opened.page.evaluate("document.title = 'waiting'");
         // Whoever gave the tab input last holds it, and an equal would have to ask for it.
         yield* watcher.evaluate("apertureSession.lease('release')");
+        // Let go on another socket than the click comes on: the click is the one viewer's
+        // once the other's letting go is known where it is made.
+        expect(yield* comes(other, "s.presence.held.length === 0")).toBe(true);
         yield* Node.clickInPicture(other, "canvas", BUTTON);
         yield* titleBecomes("clicked");
         expect(yield* title()).toBe("clicked");

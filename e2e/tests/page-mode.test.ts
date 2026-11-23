@@ -13,7 +13,7 @@ import { suite } from "../src/suite.ts";
 import { type Page, ready, snapshot, Viewer } from "../src/viewer.ts";
 import * as ViewerLive from "../src/viewer.ts";
 import { happens, until } from "../src/wait.ts";
-import { clickPicture, comes } from "../src/workbench.ts";
+import { clickPicture, comes, pictureKeepsUp } from "../src/workbench.ts";
 
 /** A site that tells each page what the page was asked for with. */
 class Echo extends Context.Service<Echo, Site.Site>()("@aperture-browser/e2e/page-mode/Echo") {}
@@ -305,6 +305,9 @@ suite(session)("how a tab's pages are shown, with a desktop, a phone and the aut
       );
       expect(again.asked["sec-ch-ua-mobile"]).toBe("?0");
 
+      // The tab is a desktop's size again, and is pressed where its picture shows it so.
+      expect(yield* comes(ada, "!watched.mobile")).toBe(true);
+      yield* pictureKeepsUp(ada);
       yield* clickPicture(ada, 40, 40);
       expect(
         yield* comes(ada, "s.presence.held.some((h) => h.holder === s.presence.you)", "20 seconds"),

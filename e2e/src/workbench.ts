@@ -133,6 +133,27 @@ export const pictureAt = (page: Page, x: number, y: number) =>
     Schema.Struct({ x: Schema.Number, y: Schema.Number }),
   );
 
+/**
+ * Waits until the picture is the watched tab's as it now is: a tab that changes size, as
+ * one that becomes a phone's or a desktop's does, is shown at its old shape until a picture
+ * of the new one has come, and a point of the tab is elsewhere in the window meanwhile.
+ */
+export const pictureKeepsUp = (page: Page) =>
+  page.until(
+    `(() => {
+      const session = apertureSession.getSnapshot();
+      const watched = session.targets.find((target) => target.tab === session.selected);
+      const surface = ${SHOWN_SURFACE};
+      if (!watched || !surface) return false;
+      const drawn = { width: surface.videoWidth ?? surface.width, height: surface.videoHeight ?? surface.height };
+      const rect = surface.getBoundingClientRect();
+      const tab = watched.width / watched.height;
+      const near = (shape) => Math.abs(shape / tab - 1) < 0.02;
+      return drawn.height > 0 && near(drawn.width / drawn.height) && near(rect.width / rect.height);
+    })()`,
+    "20 seconds",
+  );
+
 /** Clicks a point of the watched tab, given in the tab's logical pixels. */
 export const clickPicture = (page: Page, x: number, y: number, button?: "left" | "right") =>
   Effect.gen(function* () {
