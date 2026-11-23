@@ -65,9 +65,15 @@ async fn dismiss(
 }
 
 /// The workbench: the page that shows a session, which finds the session where the page
-/// itself is.
-pub fn viewer() -> Html<&'static str> {
-    Html(include_str!(concat!(env!("OUT_DIR"), "/workbench.html")))
+/// itself is. It tells nobody where it came from: its address may carry what let its
+/// holder in.
+pub fn viewer() -> Response {
+    let told = [
+        (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        (header::REFERRER_POLICY, "no-referrer"),
+    ];
+    let page = Html(include_str!(concat!(env!("OUT_DIR"), "/workbench.html")));
+    (told, page).into_response()
 }
 
 /// Whatever else is asked of a session is the session's own to answer.

@@ -138,6 +138,10 @@ pub async fn inert(mut response: Response) -> Response {
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
     // One that says more of itself, as an icon that is drawn with styles of its own, is
     // left to: the session's runner is as trusted as this is.
     headers

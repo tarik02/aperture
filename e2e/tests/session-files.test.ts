@@ -110,11 +110,15 @@ suite(session)("what a session's files are served as", (it) => {
         expect(answer.status).toBe(200);
         expect(answer.headers["x-content-type-options"]).toBe("nosniff");
         expect(answer.headers["content-security-policy"]).toContain("sandbox");
+        expect(answer.headers["referrer-policy"]).toBe("no-referrer");
       }
       // The page that shows the session is a page, and is not held so.
       const shown = yield* served(runner, "/");
       expect(shown.headers["content-type"]).toContain("text/html");
       expect(shown.headers["content-security-policy"] ?? "").not.toContain("sandbox");
+      // Its address may carry what let its holder in, and is told to nobody.
+      expect(shown.headers["referrer-policy"]).toBe("no-referrer");
+      expect(shown.headers["x-content-type-options"]).toBe("nosniff");
     }),
   );
 

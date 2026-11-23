@@ -18,6 +18,7 @@ import * as Grants from "./grants/layer.ts";
 import * as GrantsStoreSql from "./grants/store-sql.ts";
 import * as Authorization from "./http/authorization.ts";
 import * as Handlers from "./http/handlers.ts";
+import * as Headers from "./http/headers.ts";
 import * as IdentityRoutes from "./http/identity.ts";
 import * as McpRoutes from "./http/mcp.ts";
 import * as OAuthRoutes from "./http/oauth.ts";
@@ -101,6 +102,7 @@ const serving = Layer.mergeAll(
       McpRoutes.layer,
       OAuthRoutes.layer,
       consolePages,
+      Headers.layer,
     ),
   ),
   Following.layer,
