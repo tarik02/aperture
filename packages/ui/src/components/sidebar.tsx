@@ -75,6 +75,9 @@ function Sidebar({
             onPointerEnter={(event) =>
               event.pointerType === "mouse" ? peek.handlers.onPointerEnter() : undefined
             }
+            onPointerMove={(event) =>
+              event.pointerType === "mouse" ? peek.handlers.onPointerMove() : undefined
+            }
             onPointerLeave={peek.handlers.onPointerLeave}
           />
         ) : null}
@@ -170,6 +173,8 @@ function Sidebar({
 function useSidebarPeek(enabled: boolean) {
   const [open, setOpen] = React.useState(false);
   const timer = React.useRef<number | null>(null);
+  /** Whether it is out, or on its way out. */
+  const wanted = React.useRef(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   const clear = () => {
@@ -180,6 +185,7 @@ function useSidebarPeek(enabled: boolean) {
   };
   const schedule = (next: boolean) => {
     clear();
+    wanted.current = next;
     timer.current = window.setTimeout(
       () => {
         timer.current = null;
@@ -197,6 +203,7 @@ function useSidebarPeek(enabled: boolean) {
   React.useEffect(() => {
     if (!enabled) {
       clear();
+      wanted.current = false;
       setOpen(false);
     }
   }, [enabled]);
@@ -208,6 +215,13 @@ function useSidebarPeek(enabled: boolean) {
     containerRef,
     handlers: {
       onPointerEnter: () => schedule(true),
+      // React tells of no entering where what the pointer was over before is gone from
+      // the page, as what a page shows while it loads is: a pointer that moves here is here.
+      onPointerMove: () => {
+        if (!wanted.current) {
+          schedule(true);
+        }
+      },
       onPointerLeave: () => schedule(false),
     },
   };
