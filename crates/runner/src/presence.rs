@@ -141,8 +141,11 @@ struct Held {
 }
 
 impl Held {
+    /// A tab that is asked for is its holder's until they answer or their time to answer is
+    /// up: whoever asked is told they wait for an answer, and the holder how long there is
+    /// to give one, which a hold that ran out meanwhile would take from both.
     fn lasts(&self, now: Instant) -> bool {
-        now - self.used < HELD_FOR
+        self.asked.is_some() || now - self.used < HELD_FOR
     }
 }
 
@@ -530,11 +533,15 @@ impl Presence {
     /// The holder of `tab` answers whoever asked for it.
     pub fn answer(&self, id: MemberId, tab: u32, allow: bool) {
         let mut state = self.state.lock().expect("not poisoned");
-        let asked = state
-            .leases
-            .get_mut(&tab)
-            .filter(|held| held.holder == id)
-            .and_then(|held| held.asked.take());
+        let held = state.leases.get_mut(&tab).filter(|held| held.holder == id);
+        let asked = held.and_then(|held| {
+            let asked = held.asked.take();
+            // Keeping the tab is using it: it is not free the moment its holder said so.
+            if asked.is_some() {
+                held.used = Instant::now();
+            }
+            asked
+        });
         if let (Some((asker, _)), true) = (asked, allow) {
             self.hand_over(&mut state, tab, asker);
         }
