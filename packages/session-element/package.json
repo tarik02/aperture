@@ -22,6 +22,8 @@
     }
   },
   "publishConfig": {
+    "main": "./dist/aperture-session.js",
+    "types": "./dist/index.d.ts",
     "access": "public"
   },
   "scripts": {
