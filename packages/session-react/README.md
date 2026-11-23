@@ -3,8 +3,10 @@
 React components for watching and controlling one [Aperture](https://github.com/tarik02/aperture) session: the workbench with its tab strip, toolbar and menus, or the picture alone.
 
 ```sh
-npm install @aperture-browser/session-react react react-dom effect
+npm install @aperture-browser/session-react@beta react react-dom effect
 ```
+
+While Aperture is in beta its packages are under the dist-tag `beta`; a package has the version of the server it speaks to.
 
 ```tsx
 import { ApertureSession } from "@aperture-browser/session-react";

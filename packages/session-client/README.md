@@ -3,8 +3,10 @@
 A framework-free client for one [Aperture](https://github.com/tarik02/aperture) session in a browser: the live protocol, the session's picture and sound, input, and its HTTP routes. For a ready-made workbench use `@aperture-browser/session-react` or `@aperture-browser/session-element`.
 
 ```sh
-npm install @aperture-browser/session-client effect
+npm install @aperture-browser/session-client@beta effect
 ```
+
+While Aperture is in beta its packages are under the dist-tag `beta`; a package has the version of the server it speaks to.
 
 ```ts
 import { connect } from "@aperture-browser/session-client";

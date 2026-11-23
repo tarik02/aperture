@@ -3,8 +3,10 @@
 The API of an [Aperture](https://github.com/tarik02/aperture) control plane, as an [Effect](https://effect.website) `HttpApi`: every route, what goes over it and how it fails. The control plane serves from this definition, so a client made of it cannot disagree with the server.
 
 ```sh
-npm install @aperture-browser/control-api effect
+npm install @aperture-browser/control-api@beta effect
 ```
+
+While Aperture is in beta its packages are under the dist-tag `beta`; a package has the version of the server it speaks to.
 
 ```ts
 import * as Client from "@aperture-browser/control-api/client";

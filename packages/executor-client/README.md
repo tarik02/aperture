@@ -3,8 +3,10 @@
 An [Effect](https://effect.website) client for one [Aperture](https://github.com/tarik02/aperture) executor: the sessions of one node and the snapshots taken of them. It is for whoever runs nodes without a control plane, or writes one; it takes the executor's operator token.
 
 ```sh
-npm install @aperture-browser/executor-client effect
+npm install @aperture-browser/executor-client@beta effect
 ```
+
+While Aperture is in beta its packages are under the dist-tag `beta`; a package has the version of the server it speaks to.
 
 ```ts
 import { make } from "@aperture-browser/executor-client";

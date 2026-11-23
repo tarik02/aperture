@@ -3,8 +3,10 @@
 `<aperture-session>`: one [Aperture](https://github.com/tarik02/aperture) session in any page, as a custom element with the workbench's tab strip, toolbar and menus in a shadow tree. It brings React with it and asks nothing of the page.
 
 ```sh
-npm install @aperture-browser/session-element
+npm install @aperture-browser/session-element@beta
 ```
+
+While Aperture is in beta its packages are under the dist-tag `beta`; a package has the version of the server it speaks to.
 
 ```html
 <script type="module">
