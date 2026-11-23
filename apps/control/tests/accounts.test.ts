@@ -547,6 +547,40 @@ suite(Control.layer())("accounts and their tokens", (it) => {
     }),
   );
 
+  it.effect("a token that runs out makes none that outlives it", () =>
+    Effect.gen(function* () {
+      const control = yield* Control.Control;
+      const kay = yield* Control.account("Kay", true);
+      const brief = yield* kay.api.accounts.createOwnToken({
+        payload: { name: "for a day", expiresInDays: 1, scopes: Control.ALL_SCOPES },
+      });
+      const ends = DateTime.toEpochMillis(brief.expiresAt ?? DateTime.makeUnsafe(0));
+      const withIt = yield* control.as(brief.token);
+      const outlasts = (made: { readonly expiresAt: DateTime.Utc | null }) =>
+        made.expiresAt === null || DateTime.toEpochMillis(made.expiresAt) > ends;
+
+      // One that is asked to last for ever, or longer, lasts as long as its maker.
+      for (const expiresInDays of [undefined, 3650]) {
+        const made = yield* withIt.accounts.createOwnToken({
+          payload: { name: "of a token", scopes: ["sessions:read"], expiresInDays },
+        });
+        expect(outlasts(made)).toBe(false);
+      }
+      // For another account as for its own.
+      const bot = yield* withIt.accounts.create({ payload: { name: "Bot of a day" } });
+      const theirs = yield* withIt.accounts.createToken({
+        params: { id: bot.id },
+        payload: { name: "of a token", scopes: ["sessions:read"] },
+      });
+      expect(outlasts(theirs)).toBe(false);
+      // What does not run out makes what it is asked for, as before.
+      const lasting = yield* kay.api.accounts.createOwnToken({
+        payload: { name: "of one that lasts", scopes: ["sessions:read"] },
+      });
+      expect(lasting.expiresAt).toBeNull();
+    }),
+  );
+
   it.effect("an admin sees the tokens of an account, and takes one of them back", () =>
     Effect.gen(function* () {
       const control = yield* Control.Control;

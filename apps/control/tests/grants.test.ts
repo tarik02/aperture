@@ -30,6 +30,7 @@ const ada: Caller = {
   admin: false,
   scopes: null,
   resources: null,
+  expiresAt: null,
   workspaces: [],
 };
 

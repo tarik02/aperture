@@ -1,5 +1,6 @@
 import type { Scope, TokenResources } from "@aperture-browser/control-api";
 import * as Context from "effect/Context";
+import type * as DateTime from "effect/DateTime";
 import type * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
 import type { Client, Grant } from "./schemas.ts";
@@ -76,7 +77,10 @@ export interface GrantsStoreShape {
     now: Date,
   ) => Effect.Effect<Option.Option<Presented>>;
   /** The grant of an access token that is still good. */
-  readonly findByAccessToken: (tokenHash: string, now: Date) => Effect.Effect<Option.Option<Grant>>;
+  readonly findByAccessToken: (
+    tokenHash: string,
+    now: Date,
+  ) => Effect.Effect<Option.Option<Grant & { readonly expiresAt: DateTime.Utc }>>;
   /** The grant of a token of either kind that is still good: not run out, and not spent. */
   readonly findByToken: (tokenHash: string, now: Date) => Effect.Effect<Option.Option<Grant>>;
   /** Removes the codes and tokens that ran out: they are good for nothing. */

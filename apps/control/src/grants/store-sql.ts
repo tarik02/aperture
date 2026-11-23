@@ -20,6 +20,9 @@ const Code = Schema.Struct({
   codeChallenge: Schema.String,
 });
 
+/** A grant with the end of the access token it was found by. */
+const Held = Schema.Struct({ ...Grant.fields, expiresAt: Schema.DateTimeUtcFromDate });
+
 const Spent = Schema.Struct({ id: Schema.String, spentAt: Schema.NullOr(Schema.Date) });
 
 /** Grants in the SQL database. */
@@ -155,12 +158,14 @@ export const makeGrantsStore = Effect.fn("GrantsStore.make")(function* () {
     now: Date,
   ) {
     return yield* sql`
-      ${grants}
+      SELECT oauth_grants.*, oauth_clients.name AS client_name, oauth_tokens.expires_at
+      FROM oauth_grants
+      JOIN oauth_clients ON oauth_clients.id = oauth_grants.client_id
       JOIN oauth_tokens ON oauth_tokens.grant_id = oauth_grants.id
       WHERE oauth_tokens.token_hash = ${tokenHash}
         AND oauth_tokens.kind = 'access'
         AND oauth_tokens.expires_at > ${now}
-    `.pipe(first(Grant));
+    `.pipe(first(Held));
   });
 
   const findByToken = Effect.fn("GrantsStore.findByToken")(function* (

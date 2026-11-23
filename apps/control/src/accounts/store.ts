@@ -1,5 +1,6 @@
 import type { Scope, TokenResources } from "@aperture-browser/control-api";
 import * as Context from "effect/Context";
+import type * as DateTime from "effect/DateTime";
 import type * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
 import type { Account, AccountKind, ApiToken } from "./schemas.ts";
@@ -69,6 +70,7 @@ export interface AccountsStoreShape {
       readonly account: Account;
       readonly scopes: ReadonlyArray<Scope>;
       readonly resources: TokenResources | null;
+      readonly expiresAt: DateTime.Utc | null;
     }>
   >;
 }

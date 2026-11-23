@@ -21,6 +21,11 @@ export interface Caller {
   readonly scopes: ReadonlyArray<Scope> | null;
   /** The resources the token it came with is held to; nothing, for one held to none. */
   readonly resources: TokenResources | null;
+  /**
+   * Until when the token it came with is good; never, for one that does not run out and
+   * for whoever came without a token. What a caller makes outlasts it no further.
+   */
+  readonly expiresAt: DateTime.Utc | null;
   /** The workspaces the account is in, and what it does in each. */
   readonly workspaces: ReadonlyArray<{ readonly id: string; readonly role: "member" | "admin" }>;
 }

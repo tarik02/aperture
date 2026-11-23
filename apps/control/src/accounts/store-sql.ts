@@ -12,6 +12,7 @@ const Held = Schema.Struct({
   ...Account.fields,
   scopes: Schema.Array(Scope),
   resources: Schema.NullOr(TokenResources),
+  expiresAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
 });
 
 /** Accounts in the SQL database. */
@@ -132,17 +133,18 @@ export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
     now: Date,
   ) {
     const found = yield* sql`
-      SELECT accounts.*, api_tokens.scopes, api_tokens.resources
+      SELECT accounts.*, api_tokens.scopes, api_tokens.resources, api_tokens.expires_at
       FROM accounts
       JOIN api_tokens ON api_tokens.account_id = accounts.id
       WHERE api_tokens.token_hash = ${tokenHash}
         AND api_tokens.revoked_at IS NULL
         AND (api_tokens.expires_at IS NULL OR api_tokens.expires_at > ${now})
     `.pipe(first(Held));
-    return Option.map(found, ({ scopes, resources, ...account }) => ({
+    return Option.map(found, ({ scopes, resources, expiresAt, ...account }) => ({
       account,
       scopes,
       resources,
+      expiresAt,
     }));
   });
 

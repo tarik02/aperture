@@ -40,6 +40,12 @@ import { Accounts, type Brought } from "./service.ts";
 import { AccountsStore } from "./store.ts";
 import { WorkspacesStore } from "../workspaces/store.ts";
 
+/** When a token ends that is to end at one moment and no later than another; never, where neither is. */
+const ends = (at: Date | null, latest: DateTime.Utc | null) => {
+  const last = latest === null ? null : DateTime.toDate(latest);
+  return at === null || (last !== null && last < at) ? last : at;
+};
+
 /** How long a node gets to put someone out of a session before it is left to their ticket running out. */
 const DISMISSED_WITHIN = Duration.seconds(5);
 /** How many sessions' nodes are asked at a time to put someone out. */
@@ -143,6 +149,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     account: Account,
     scopes: ReadonlyArray<Scope> | null = null,
     resources: TokenResources | null = null,
+    expiresAt: DateTime.Utc | null = null,
   ) {
     const joined = yield* workspaces.of(account.id);
     return {
@@ -151,6 +158,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
       admin: account.admin && covers(scopes, "admin"),
       scopes,
       resources,
+      expiresAt,
       workspaces: joined.map(({ workspace, role }) => ({ id: workspace.id, role })),
     } satisfies Caller;
   });
@@ -160,11 +168,12 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     account: Account,
     scopes: ReadonlyArray<Scope> | null = null,
     resources: TokenResources | null = null,
+    expiresAt: DateTime.Utc | null = null,
   ) {
     if (account.disabledAt !== null) {
       return yield* new Unauthorized({ message: "this account is disabled" });
     }
-    return yield* callerOf(account, scopes, resources);
+    return yield* callerOf(account, scopes, resources, expiresAt);
   });
 
   const ofPerson = Effect.fn("Accounts.ofPerson")(function* (headers: Headers) {
@@ -386,6 +395,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     scopes: ReadonlyArray<Scope>,
     resources?: TokenResources,
     from?: Brought,
+    until?: DateTime.Utc | null,
   ) {
     const account = yield* store.find(accountId);
     if (Option.isNone(account)) {
@@ -398,7 +408,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
       name,
       tokenHash: yield* Secrets.hash(secret),
       createdAt: from?.createdAt ?? (yield* now),
-      expiresAt: lasts === undefined ? null : yield* after(lasts),
+      expiresAt: ends(lasts === undefined ? null : yield* after(lasts), until ?? null),
       scopes,
       resources: resources ?? null,
     });
@@ -425,12 +435,14 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
         admin: true,
         scopes: null,
         resources: null,
+        expiresAt: null,
         workspaces: [],
       } satisfies Caller;
     }
     const held = yield* store.findByTokenHash(hashed, yield* now);
     if (Option.isSome(held)) {
-      return yield* inUse(held.value.account, held.value.scopes, held.value.resources);
+      const { account, scopes, resources, expiresAt } = held.value;
+      return yield* inUse(account, scopes, resources, expiresAt);
     }
     // A token an app has of a grant is its account's as an API token is, held to what
     // the grant says.
@@ -441,7 +453,8 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     if (Option.isNone(granted) || Option.isNone(account)) {
       return yield* new Unauthorized({ message: "that is no token of an account" });
     }
-    return yield* inUse(account.value, granted.value.scopes, granted.value.resources);
+    const { scopes, resources, expiresAt } = granted.value;
+    return yield* inUse(account.value, scopes, resources, expiresAt);
   }, Effect.provide(crypto));
 
   const tokens = Effect.fn("Accounts.tokens")(function* (caller: Caller) {

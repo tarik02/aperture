@@ -368,6 +368,7 @@ const admin: Caller = {
   admin: true,
   scopes: null,
   resources: null,
+  expiresAt: null,
   workspaces: [],
 };
 

@@ -94,13 +94,16 @@ const accounts = HttpApiBuilder.group(
       .handle(
         "createToken",
         Effect.fn(function* ({ params, payload }) {
-          yield* admin;
+          const caller = yield* admin;
           const { token, secret } = yield* accounts.createToken(
             params.id,
             payload.name,
             lasting(payload.expiresInDays),
             payload.scopes,
             payload.resources,
+            undefined,
+            // A token that runs out makes none that outlives it.
+            caller.expiresAt,
           );
           return { ...token, token: secret };
         }),
@@ -156,6 +159,9 @@ const accounts = HttpApiBuilder.group(
               lasting(payload.expiresInDays),
               payload.scopes,
               payload.resources,
+              undefined,
+              // Nor one that outlives it.
+              caller.expiresAt,
             )
             .pipe(Effect.orDie);
           return { ...token, token: secret };

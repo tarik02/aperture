@@ -1,6 +1,7 @@
 import type { Caller, Scope, TokenResources } from "@aperture-browser/control-api";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
+import type * as DateTime from "effect/DateTime";
 import type * as Duration from "effect/Duration";
 import type {
   AccountInUse,
@@ -111,6 +112,8 @@ export interface AccountsShape {
     resources?: TokenResources,
     /** For a token made in place of one that was kept elsewhere before. */
     from?: Brought,
+    /** When the token ends at the latest, however long it is to last: where what makes it does. */
+    until?: DateTime.Utc | null,
   ) => Effect.Effect<{ readonly token: ApiToken; readonly secret: string }, AccountNotFound>;
   /** The tokens of the caller's own account, those taken back among them. */
   readonly tokens: (caller: Caller) => Effect.Effect<ReadonlyArray<ApiToken>, Forbidden>;
