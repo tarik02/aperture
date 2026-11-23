@@ -12,7 +12,7 @@ import * as Site from "../src/site.ts";
 import { suite } from "../src/suite.ts";
 import { type Page, ready, snapshot, Viewer } from "../src/viewer.ts";
 import * as ViewerLive from "../src/viewer.ts";
-import { happens, until } from "../src/wait.ts";
+import { until } from "../src/wait.ts";
 import { clickPicture, comes, pictureKeepsUp } from "../src/workbench.ts";
 
 /** A site that tells each page what the page was asked for with. */
@@ -26,10 +26,21 @@ const ICON = Uint8Array.from(
   (letter) => letter.charCodeAt(0),
 );
 
+/** A page whose head waits on a script the site is slow to give, before it names its icon. */
+const LATE = `<!doctype html><title>late</title><script src="/slow.js"></script><link rel="icon" href="/icon.png">`;
+const SLOW = "1500 millis";
+
 const echo = Site.by((request) =>
   request.url === "/icon.png"
     ? Effect.succeed(HttpServerResponse.uint8Array(ICON, { contentType: "image/png" }))
-    : Site.html(`<!doctype html>
+    : request.url === "/slow.js"
+      ? Effect.as(
+          Effect.sleep(SLOW),
+          HttpServerResponse.text("", { contentType: "text/javascript" }),
+        )
+      : request.url === "/late"
+        ? Site.html(LATE)
+        : Site.html(`<!doctype html>
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <link rel="icon" href="/icon.png">
     <title>seen</title>
@@ -129,24 +140,36 @@ suite(session)("how a tab's pages are shown, with a desktop, a phone and the aut
       return { status: answered.status, tag: answered.headers["etag"], picture };
     });
 
+  /**
+   * Whether a tab that became a desktop's has the size of the window of the desktop that
+   * holds it. It is a desktop's at once and of that size a moment later: until then it is
+   * as wide as a phone's tab is in a window that is none, and its picture is elsewhere.
+   */
+  const aDesktops = (holder: Page) =>
+    Effect.gen(function* () {
+      const stage = yield* holder.box("[data-aperture-stage]");
+      return yield* comes(
+        holder,
+        `!watched.mobile && watched.width === ${stage.width} && watched.height === ${stage.height}`,
+      );
+    });
+
   /** Lets go of the tab one holds, and has the other take it with a click. */
   const handOver = (from: Page, to: Page) =>
     Effect.gen(function* () {
       yield* from.evaluate("apertureSession.lease('release')");
       yield* comes(from, "s.presence.held.length === 0");
-      // The picture is put in another place while its tab changes size: a click that
-      // misses it then is made again.
-      return yield* happens(
-        clickPicture(to, 40, 40).pipe(
-          Effect.andThen(
-            comes(
-              to,
-              `s.presence.held.some((h) => h.tab === ${tab} && h.holder === s.presence.you)`,
-              "2 seconds",
-            ),
-          ),
-        ),
-        "20 seconds",
+      // The picture is put in another place while its tab changes size, and a click beside
+      // it is on no page: it is clicked once it is the tab's as the tab now is, which is
+      // as whoever let go of it has it.
+      const sized = "[watched.width, watched.height, watched.mobile].join()";
+      const now = yield* snapshot(from, sized, Schema.String);
+      yield* comes(to, `${sized} === ${JSON.stringify(now)}`);
+      yield* pictureKeepsUp(to);
+      yield* clickPicture(to, 40, 40);
+      return yield* comes(
+        to,
+        `s.presence.held.some((h) => h.tab === ${tab} && h.holder === s.presence.you)`,
       );
     });
 
@@ -266,7 +289,7 @@ suite(session)("how a tab's pages are shown, with a desktop, a phone and the aut
       yield* Effect.sleep("1 second");
       expect(yield* snapshot(bob, "watched.mobile")).toBe(true);
       expect(yield* handOver(ada, bob)).toBe(true);
-      expect(yield* comes(bob, "!watched.mobile && watched.width >= 500")).toBe(true);
+      expect(yield* aDesktops(bob)).toBe(true);
       const back = yield* until(
         "the page being a desktop's",
         says(tab).pipe(Effect.map((said) => said.touches === 0 && said)),
@@ -348,8 +371,9 @@ suite(session)("how a tab's pages are shown, with a desktop, a phone and the aut
       expect(yield* snapshot(bob, "watched.mode")).toBe("mobile");
 
       yield* bob.evaluate("apertureSession.setMode('auto')");
-      // As on what its holder uses, which is a desktop.
-      expect(yield* comes(bob, "watched.mode === 'auto' && !watched.mobile")).toBe(true);
+      // As on what its holder uses, which is a desktop, and of the size of its window.
+      expect(yield* comes(bob, "watched.mode === 'auto'")).toBe(true);
+      expect(yield* aDesktops(bob)).toBe(true);
     }),
   );
 
@@ -540,6 +564,34 @@ suite(session)("how a tab's pages are shown, with a desktop, a phone and the aut
         expect(eve.errors()).toEqual([]);
         yield* eve.close;
       }),
+  );
+
+  it.effect("a tab's icon is the one its page names, though asked for before the page has", () =>
+    Effect.gen(function* () {
+      const runner = yield* Runner.Runner;
+      const site = yield* Echo;
+      const client = yield* HttpClient.HttpClient;
+      yield* bob.evaluate(
+        `apertureSession.go({ url: ${JSON.stringify(`${site.url}/late`)} }, { newTab: true })`,
+      );
+      // The tab is there once its page has come, which is before the page has said all
+      // of its head: whoever lists the tabs asks for its icon then.
+      const late = yield* until(
+        "the tab of the page that is slow to say its head",
+        runner.targets.pipe(Effect.map((all) => all.find((one) => one.url.endsWith("/late"))?.tab)),
+      );
+      const icon = yield* client.execute(
+        HttpClientRequest.get(`${runner.url}/targets/${late}/favicon`).pipe(
+          HttpClientRequest.bearerToken(runner.token),
+        ),
+      );
+      expect(icon.status).toBe(200);
+      expect(new Uint8Array(yield* icon.arrayBuffer)).toEqual(ICON);
+      // The site's own, which a page that names none has, was not asked for in its place.
+      expect(site.asked()).not.toContain("/favicon.ico");
+      yield* bob.evaluate(`apertureSession.closeTab(${late})`);
+      expect(yield* comes(bob, `!s.targets.some((target) => target.tab === ${late})`)).toBe(true);
+    }),
   );
 
   it.effect("the pages threw nothing", () =>
