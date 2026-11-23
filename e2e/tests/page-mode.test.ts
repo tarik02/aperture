@@ -430,11 +430,11 @@ suite(session)("how a tab's pages are shown, with a desktop, a phone and the aut
           eve.until(
             `${sheet} !== null && ${sheet}.hasAttribute("data-open") && !${sheet}.hasAttribute("data-starting-style") && ${sheet}.getAnimations().every((one) => one.playState === "finished")`,
           );
-        /** The menu, pressed again where the rail was still on its way as it was pressed. */
+        /** The menu, by its button once the rail the button is in has come to rest. */
         const opened = Effect.gen(function* () {
           yield* eve.click("[data-workbench-menu]");
-          yield* eve.until(`${menu} !== null`, "3 seconds");
-        }).pipe(Effect.retry({ times: 4 }), Effect.andThen(landed(menu)));
+          yield* eve.until(`${menu} !== null`);
+        }).pipe(Effect.andThen(landed(menu)));
         const touch = (type: string, x?: number, y?: number) =>
           eve.cdp.call("Input.dispatchTouchEvent", {
             type,

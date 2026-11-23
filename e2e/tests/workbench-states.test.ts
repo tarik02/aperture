@@ -14,6 +14,7 @@ import {
   appears,
   buttonWithin,
   clickElement,
+  clickItem,
   closeMenus,
   comes,
   dataPage,
@@ -40,6 +41,9 @@ const CLOSED = "[data-session-closed]";
 const EMPTY = "[data-session-empty]";
 
 const SUSPENDED = "the session was suspended";
+
+/** Longer than a tab is held after its holder's last input, and shorter than a request waits. */
+const OUTLASTS_A_HOLD = "6 seconds";
 
 /** A page for automation to give input to. */
 const PRESSED = dataPage("<title>Automation's</title><button>press</button>");
@@ -179,6 +183,26 @@ suite(session)("the states the workbench shows", (it) => {
       return yield* viewer.open(runner.page({ token: ticket, fit: "0" }));
     });
 
+  /**
+   * Ada gives the tab input, and holds it from then: a tab is its holder's for a few seconds
+   * after their last input, so each check that needs it held has her hold it anew, and none
+   * stands on how long the checks before it took.
+   */
+  const adaHolds = Effect.gen(function* () {
+    const picture = yield* pictureBox(ada);
+    yield* ada.clickAt(picture.x, picture.y);
+    expect(yield* holds(ada, tab)).toBe(true);
+    expect(yield* leaseShown(bob, "theirs")).toBe("theirs");
+  });
+
+  /** Bob asks Ada for the tab she holds, and she is shown that he does. */
+  const bobAsks = Effect.gen(function* () {
+    yield* adaHolds;
+    yield* bob.click(`${LEASE} button`);
+    expect(yield* leaseShown(bob, "you-asked")).toBe("you-asked");
+    expect(yield* leaseShown(ada, "asked-of-you")).toBe("asked-of-you");
+  });
+
   it.effect("whoever may not take a tab is told who holds it, and offered to ask", () =>
     Effect.gen(function* () {
       ada = yield* asThe(GIVES_INPUT, "Ada");
@@ -188,11 +212,7 @@ suite(session)("the states the workbench shows", (it) => {
       tab = yield* snapshot(ada, "s.selected", Schema.Number);
       expect(yield* snapshot(bob, "s.selected")).toBe(tab);
 
-      const picture = yield* pictureBox(ada);
-      yield* ada.clickAt(picture.x, picture.y);
-      expect(yield* holds(ada, tab)).toBe(true);
-
-      expect(yield* leaseShown(bob, "theirs")).toBe("theirs");
+      yield* adaHolds;
       expect(yield* bob.text(LEASE)).toContain("Ada holds this tab");
       expect(yield* bob.text(LEASE)).toContain("Ask for the lease");
     }),
@@ -200,11 +220,26 @@ suite(session)("the states the workbench shows", (it) => {
 
   it.effect("asking tells the asker that it asked, and shows the holder a request", () =>
     Effect.gen(function* () {
-      yield* bob.click(`${LEASE} button`);
-      expect(yield* leaseShown(bob, "you-asked")).toBe("you-asked");
+      yield* bobAsks;
       expect(yield* bob.text(LEASE)).toContain("Asked");
-      expect(yield* leaseShown(ada, "asked-of-you")).toBe("asked-of-you");
       expect(yield* ada.text(LEASE)).toContain("Bob asks for this tab");
+    }),
+  );
+
+  // A hold lasts a few seconds from the holder's last input, and whoever is asked has longer
+  // than that to answer: the request is not gone, nor the tab free, before they did.
+  it.effect("a request stays until it is answered, though the holder gives no more input", () =>
+    Effect.gen(function* () {
+      yield* Effect.sleep(OUTLASTS_A_HOLD);
+      expect(yield* snapshot(ada, "s.presence.held")).toEqual([
+        {
+          tab,
+          holder: yield* snapshot(ada, "s.presence.you"),
+          askedBy: yield* snapshot(bob, "s.presence.you"),
+        },
+      ]);
+      expect(yield* has(ada, lease("asked-of-you"))).toBe(true);
+      expect(yield* has(bob, lease("you-asked"))).toBe(true);
     }),
   );
 
@@ -219,8 +254,7 @@ suite(session)("the states the workbench shows", (it) => {
 
   it.effect("a request fits a narrow window, and the browser menu offers the same answers", () =>
     Effect.gen(function* () {
-      yield* bob.click(`${LEASE} button`);
-      expect(yield* leaseShown(ada, "asked-of-you")).toBe("asked-of-you");
+      yield* bobAsks;
 
       yield* resize(ada, 390, 700);
       yield* ada.until("innerWidth === 390");
@@ -230,12 +264,17 @@ suite(session)("the states the workbench shows", (it) => {
 
       yield* openMenu(ada, "[data-workbench-menu]", "Keep the lease");
       expect(yield* hasItem(ada, "Allow Bob the lease")).toBe(true);
+      // The menu's answer is the request's: the tab stays with its holder.
+      yield* clickItem(ada, "Keep the lease");
+      expect(yield* leaves(ada, LEASE)).toBe(true);
+      expect(yield* leaseShown(bob, "theirs")).toBe("theirs");
       yield* closeMenus(ada);
     }),
   );
 
   it.effect("'Allow' gives the tab to whoever asked", () =>
     Effect.gen(function* () {
+      yield* bobAsks;
       yield* clickElement(ada, buttonWithin(LEASE, "Allow"));
       expect(yield* holds(bob, tab)).toBe(true);
       expect(yield* leaves(bob, LEASE)).toBe(true);

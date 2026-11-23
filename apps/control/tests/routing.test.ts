@@ -172,24 +172,20 @@ const rested = (page: Viewer.Page) =>
   });
 
 /**
- * Presses something until what the press is for has come of it. A press is not always
- * taken: what is pressed may still be settling into place.
+ * Presses something for what is to come of it, unless that is there already: what is
+ * pressed is pressed once it is at rest, and what comes of the press is waited for.
  */
 const pressUntil = (page: Viewer.Page, selector: string, done: string) =>
-  until(
-    `a press of ${selector} being taken`,
-    Effect.gen(function* () {
-      if (yield* page.evaluate(`!!(${done})`, Schema.Boolean)) {
-        return true;
-      }
-      // From elsewhere: a press where the pointer already rests is one it did not move for.
-      yield* page.mouse("mouseMoved", 1, 1);
-      yield* page.click(selector);
-      yield* page.until(done, "2 seconds");
-      return true;
-    }),
-    "30 seconds",
-  );
+  Effect.gen(function* () {
+    if (yield* page.evaluate(`!!(${done})`, Schema.Boolean)) {
+      return;
+    }
+    // From elsewhere: a press where the pointer already rests is one it did not move for.
+    yield* page.mouse("mouseMoved", 1, 1);
+    yield* page.click(selector);
+    // What is asked may be an element, which the page hands over as nothing.
+    yield* page.until(`!!(${done})`, "30 seconds");
+  });
 
 /**
  * How long a select's list takes no press of what it offers after it opened: the press
@@ -226,6 +222,12 @@ const pick = (page: Viewer.Page, trigger: string, says: string) =>
       "30 seconds",
     );
   });
+
+/**
+ * The edge of the window a sidebar that is out of the way comes from when the pointer
+ * rests there. It is there once the sidebar is out of the way, and not before.
+ */
+const EDGE = `[data-slot="sidebar-peek-zone"]`;
 
 const DIALOG = `[data-slot="dialog-content"]`;
 const BODY = `${DIALOG} [data-slot="dialog-body"] [data-slot="scroll-area-viewport"]`;
@@ -838,16 +840,11 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
           "30 seconds",
         );
         yield* shot(page, fs, "console-session");
-        // The sidebar is out of the way there, and comes when the pointer rests at the edge.
-        // The edge is felt once the workbench has laid itself out, so it is come to again.
-        yield* Effect.gen(function* () {
-          yield* page.mouse("mouseMoved", 400, 300);
-          yield* page.mouse("mouseMoved", 2, 300);
-          yield* page.until(
-            `!!document.querySelector('[data-slot="sidebar-container"][data-peek]')`,
-            "3 seconds",
-          );
-        }).pipe(Effect.retry({ times: 5 }));
+        // The sidebar is out of the way there, and comes when the pointer rests at the edge,
+        // which is felt once the workbench has laid itself out.
+        yield* page.mouse("mouseMoved", 400, 300);
+        yield* page.hover(EDGE);
+        yield* page.until(`!!document.querySelector('[data-slot="sidebar-container"][data-peek]')`);
         yield* shot(page, fs, "console-session-sidebar");
         yield* page.mouse("mouseMoved", 600, 300);
         yield* page.until(`!document.querySelector('[data-slot="sidebar-container"][data-peek]')`);
@@ -868,17 +865,9 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         ).toBe(true);
         // What it holds stays while it is closed, for the dialogs that are opened from it.
         const sheet = `!!document.querySelector('[data-slot="sidebar"][data-mobile="true"][data-open]')`;
-        // The pointer comes to the edge again where its first coming was too early to be seen.
-        yield* until(
-          "the sidebar of a small window",
-          small
-            .mouse("mouseMoved", 300, 200)
-            .pipe(
-              Effect.andThen(small.mouse("mouseMoved", 2, 200)),
-              Effect.andThen(Effect.sleep("400 millis")),
-              Effect.andThen(small.evaluate(sheet)),
-            ),
-        );
+        yield* small.mouse("mouseMoved", 300, 200);
+        yield* small.hover(EDGE);
+        yield* small.until(sheet);
         yield* shot(small, fs, "console-session-small-sidebar");
         // Beside it, on what it lies over.
         yield* small.clickAt(600, 150);
@@ -1442,12 +1431,8 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
 
         // The menu is a drawer, which is gone once what was pressed in it led elsewhere.
         const drawer = `[data-mobile="true"][data-open]`;
-        yield* page
-          .click(`[data-slot="sidebar-trigger"]`)
-          .pipe(
-            Effect.andThen(page.until(`!!document.querySelector('${drawer}')`, "2 seconds")),
-            Effect.retry({ times: 5 }),
-          );
+        yield* page.click(`[data-slot="sidebar-trigger"]`);
+        yield* page.until(`!!document.querySelector('${drawer}')`);
         yield* page.until(
           `document.querySelector('${drawer}').getAnimations().every((one) => one.playState === "finished")`,
         );
@@ -1522,23 +1507,40 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         yield* page.evaluate(`void apertureSession.select(${opened}.tab)`);
         yield* page.until(`${title} === "tall"`, "30 seconds");
         yield* page.until(`!!document.querySelector("[data-aperture-drawn]")`, "30 seconds");
-        const stage = yield* page.box("[data-aperture-stage]");
+        // A tab is made as large as the window of whoever watches it from a phone, and its
+        // picture is another's until then: the finger is put on it once it is that large
+        // and at rest, as it is by the time anyone has seen it.
+        // It is sized more than once as the window's bar comes over it, and what turns
+        // under a finger while it is sized turns nothing: it has the size of what shows it,
+        // and had it when last looked at.
+        const fitted = `(() => {
+          const stage = document.querySelector("[data-aperture-stage]").getBoundingClientRect();
+          const tab = ${opened};
+          return tab.width === Math.round(stage.width) && tab.height === Math.round(stage.height) ? tab.width + "x" + tab.height : null;
+        })()`;
+        let fittedBefore: string | null = null;
+        yield* until(
+          "the tab keeping the size of what shows it",
+          Effect.map(page.evaluate(fitted, Schema.NullOr(Schema.String)), (now) => {
+            const kept = now !== null && now === fittedBefore;
+            fittedBefore = now;
+            return kept;
+          }),
+          "20 seconds",
+        );
+        const stage = yield* page.rests(`document.querySelector("[data-aperture-stage]")`);
         const finger = (type: string, y?: number) =>
           page.cdp.call("Input.dispatchTouchEvent", {
             type,
             touchPoints: y === undefined ? [] : [{ x: stage.x, y }],
           });
-        // The picture may still be on its way when the page says it is there: the finger
-        // is drawn over it again until the page has moved.
-        yield* Effect.gen(function* () {
-          yield* finger("touchStart", stage.y + 200);
-          for (let moved = 20; moved <= 300; moved += 20) {
-            yield* finger("touchMove", stage.y + 200 - moved);
-            yield* Effect.sleep("16 millis");
-          }
-          yield* finger("touchEnd");
-          yield* page.until(`${title} !== "tall"`, "3 seconds");
-        }).pipe(Effect.retry({ times: 5 }));
+        yield* finger("touchStart", stage.y + 200);
+        for (let moved = 20; moved <= 300; moved += 20) {
+          yield* finger("touchMove", stage.y + 200 - moved);
+          yield* Effect.sleep("16 millis");
+        }
+        yield* finger("touchEnd");
+        yield* page.until(`${title} !== "tall"`);
         expect(yield* page.evaluate(title, Schema.String)).toBe("scrolled");
         yield* shot(page, fs, "console-phone-workbench");
 
@@ -1597,14 +1599,7 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
             yield* Effect.sleep("150 millis");
             yield* touch("touchEnd");
           });
-        const tapAt = (x: number, y: number) =>
-          Effect.gen(function* () {
-            yield* page.cdp.call("Input.dispatchTouchEvent", {
-              type: "touchStart",
-              touchPoints: [{ x, y }],
-            });
-            yield* page.cdp.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-          });
+        const tapAt = page.tapAt;
         // The finger that scrolled holds the tab, from a phone: its pages are a phone's.
         const watched = `apertureSession.getSnapshot().targets.find((target) => target.tab === apertureSession.getSnapshot().selected)`;
         yield* page.until(`${watched}.mobile && ${watched}.width === innerWidth`, "20 seconds");
@@ -1784,15 +1779,13 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         const settled = landed("[data-menu-sheet]");
         const pageOf = (title: string) => `[data-menu-sheet-page="${title}"]`;
         /**
-         * Presses what is in the menu by a finger. A mouse left over the menu is over
+         * Presses what is in the menu by a finger, once it is at rest where it is pressed:
+         * a page of the menu slides in with all it holds, and a finger put where its way
+         * back was a moment ago is put beside the menu. A mouse left over the menu is over
          * another row once the rows move, as when a page of it comes or goes or the phone
          * is turned, and a menu takes that for leaving the page that is open.
          */
-        const tap = (selector: string) =>
-          Effect.gen(function* () {
-            const at = yield* page.box(selector);
-            yield* tapAt(at.x, at.y);
-          });
+        const tap = page.tap;
         /** Presses a row of the menu, which may be below what the sheet shows of it at rest. */
         const pressRow = (row: string) =>
           Effect.gen(function* () {
@@ -1801,32 +1794,18 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
             );
             yield* tap(`${menu} ${row}`);
           });
-        /**
-         * Opens the page a row of the menu leads to. A page that was just left may still
-         * take the press: the row is pressed again where it did not take.
-         */
+        /** Opens the page a row of the menu leads to. */
         const openPage = (row: string, title: string, within?: string) =>
           Effect.gen(function* () {
-            if (
-              !(yield* page.evaluate(
-                `!!document.querySelector('${pageOf(title)}')`,
-                Schema.Boolean,
-              ))
-            ) {
-              yield* within === undefined ? pressRow(row) : tap(`${within} ${row}`);
-            }
-            yield* page.until(`!!document.querySelector('${pageOf(title)}')`, "3 seconds");
-          }).pipe(Effect.retry({ times: 4 }));
-        /** Leaves a page of the menu by its way back, pressed again where it did not take. */
+            yield* within === undefined ? pressRow(row) : tap(`${within} ${row}`);
+            yield* page.until(`!!document.querySelector('${pageOf(title)}')`);
+          });
+        /** Leaves a page of the menu by its way back. */
         const leavePage = (title: string) =>
           Effect.gen(function* () {
-            if (
-              yield* page.evaluate(`!!document.querySelector('${pageOf(title)}')`, Schema.Boolean)
-            ) {
-              yield* tap(`${pageOf(title)} [data-menu-sheet-back]`);
-            }
-            yield* page.until(`!document.querySelector('${pageOf(title)}')`, "3 seconds");
-          }).pipe(Effect.retry({ times: 4 }));
+            yield* tap(`${pageOf(title)} [data-menu-sheet-back]`);
+            yield* page.until(`!document.querySelector('${pageOf(title)}')`);
+          });
         yield* page.click("[data-workbench-menu]");
         yield* page.until(`!!document.querySelector('${menu} [data-workbench-page-mode]')`);
         yield* settled;
@@ -2354,14 +2333,9 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
       yield* shot(page, fs, "console-wco-right-session");
       yield* shotDark(page, fs, "console-wco-right-session-dark");
       // The sidebar comes over the workbench from the edge, its head a title bar as well.
-      yield* Effect.gen(function* () {
-        yield* page.mouse("mouseMoved", 400, 300);
-        yield* page.mouse("mouseMoved", 2, 300);
-        yield* page.until(
-          `!!document.querySelector('[data-slot="sidebar-container"][data-peek]')`,
-          "3 seconds",
-        );
-      }).pipe(Effect.retry({ times: 5 }));
+      yield* page.mouse("mouseMoved", 400, 300);
+      yield* page.hover(EDGE);
+      yield* page.until(`!!document.querySelector('[data-slot="sidebar-container"][data-peek]')`);
       yield* settled;
       yield* shot(page, fs, "console-wco-right-session-sidebar");
       yield* page.mouse("mouseMoved", 600, 300);

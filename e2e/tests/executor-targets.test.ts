@@ -6,7 +6,7 @@ import { Executor } from "../src/executor.ts";
 import * as Node from "../src/node.ts";
 import type { Target } from "../src/runner.ts";
 import { suite } from "../src/suite.ts";
-import { until } from "../src/wait.ts";
+import { happens, until } from "../src/wait.ts";
 
 const node = Node.layer({ features: ["cdp"] });
 
@@ -94,11 +94,17 @@ suite(node)("the targets of a session on a node", (it) => {
     }),
   );
 
+  // A page that has loaded has not drawn yet, and a window nothing was drawn in is as
+  // blank as another: the two are told apart once the opened page shows in its own.
   it.effect("each target has a window of its own", () =>
     Effect.gen(function* () {
       const firstPicture = yield* screenshot(firstTab.id);
       expect(isPng(firstPicture)).toBe(true);
-      expect(same(firstPicture, openedPicture)).toBe(false);
+      const apart = yield* happens(
+        screenshot(opened.id).pipe(Effect.map((picture) => !same(firstPicture, picture))),
+        "30 seconds",
+      );
+      expect(apart).toBe(true);
     }),
   );
 
