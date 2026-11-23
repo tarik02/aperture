@@ -100,6 +100,16 @@ jobs:
           nix build .#container --print-build-logs
           ./result | gzip > "aperture-session-$VERSION-linux-$ARCH.tar.gz"
 
+      # An image that does not start is not pushed. The session's sandbox is made of user
+      # namespaces, which this runner's AppArmor keeps from whoever is not root.
+      - name: Start the image and load a page in it
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          .github/scripts/smoke-image.sh "aperture-session-$VERSION-linux-$ARCH.tar.gz"
+
       - name: Build what the modules install
         if: inputs.release
         run: nix build .#aperture .#aperture-control .#aperture-migrate --no-link --print-build-logs

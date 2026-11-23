@@ -130,3 +130,18 @@ jobs:
           .#aperture-migrate
           .#checks.x86_64-linux.aperture-ffmpeg-features
           --no-link --print-build-logs
+
+      # The image is the package above and little more; it is started here as its users
+      # start it, which nothing else does.
+      - name: Build the image
+        run: |
+          nix build .#container --print-build-logs
+          ./result | gzip > aperture-session.tar.gz
+
+      # The session's sandbox is made of user namespaces, which this runner's AppArmor
+      # keeps from whoever is not root.
+      - name: Let the sandbox make its namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Start the image and load a page in it
+        run: .github/scripts/smoke-image.sh aperture-session.tar.gz
