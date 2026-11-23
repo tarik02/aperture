@@ -26,16 +26,64 @@ use crate::{ACCESS_HEADER, NAME_HEADER, SUBJECT_HEADER, Sessions, Which, auth::C
 /// A caller the operator dismissed from a session: the session's id, and the subject.
 type Dismissed = (String, String);
 
-/// Tells the session sockets that are open which callers are dismissed.
+/// Tells the sockets that are open into sessions which callers are dismissed.
 #[derive(Clone)]
-struct Dismissals(broadcast::Sender<Dismissed>);
+pub(crate) struct Dismissals(broadcast::Sender<Dismissed>);
+
+impl Dismissals {
+    pub(crate) fn new() -> Self {
+        Self(broadcast::channel(DISMISSALS).0)
+    }
+
+    /// Ends when a caller's socket into a session is to be closed whatever it does, and
+    /// says why: what let them in has run out, or was taken back. Dismissals are heard
+    /// from when this is asked for, which is before the client is answered: one dismissed
+    /// while it comes in is dismissed. Whoever nobody vouched for is not put out.
+    pub(crate) fn out(
+        &self,
+        id: String,
+        caller: Option<Caller>,
+    ) -> impl Future<Output = &'static str> + Send + 'static {
+        let mut dismissed = self.0.subscribe();
+        async move {
+            let Some(caller) = caller else {
+                return std::future::pending().await;
+            };
+            let lapsed = async {
+                match caller.until {
+                    Some(until) => {
+                        let left = until.duration_since(SystemTime::now()).unwrap_or_default();
+                        tokio::time::sleep(left).await;
+                    }
+                    None => std::future::pending().await,
+                }
+            };
+            let dismissed = async {
+                loop {
+                    match dismissed.recv().await {
+                        Ok((session, subject)) if session == id && subject == caller.subject => {
+                            break;
+                        }
+                        Ok(_) => {}
+                        Err(broadcast::error::RecvError::Lagged(_)) => break,
+                        Err(broadcast::error::RecvError::Closed) => std::future::pending().await,
+                    }
+                }
+            };
+            tokio::select! {
+                () = lapsed => "what let you in has run out",
+                () = dismissed => "what let you in was taken back",
+            }
+        }
+    }
+}
 
 /// Dismissals waiting for a socket that is slow to hear of them. One that falls further
 /// behind ends, as if it were dismissed: it cannot tell that it was not.
 const DISMISSALS: usize = 64;
 
 /// What a client is told its socket was closed for: nothing of the protocol is wrong.
-const CLOSED_BY_POLICY: u16 = 1008;
+pub(crate) const CLOSED_BY_POLICY: u16 = 1008;
 
 pub fn router(sessions: Arc<dyn Sessions>) -> Router {
     Router::new()
@@ -43,7 +91,6 @@ pub fn router(sessions: Arc<dyn Sessions>) -> Router {
         .route("/tunnel", get(tunnel))
         .route("/callers/{subject}", delete(dismiss))
         .fallback(forward)
-        .layer(Extension(Dismissals(broadcast::channel(DISMISSALS).0)))
         .with_state(sessions)
 }
 
@@ -174,33 +221,7 @@ async fn session_socket(
         Err(err) => return (StatusCode::BAD_GATEWAY, format!("{err:#}")).into_response(),
     };
     let here = sessions.present(&id);
-    // Before the client is answered: one dismissed while it comes in is dismissed.
-    let mut dismissed = dismissals.0.subscribe();
-    let out = async move {
-        let lapsed = async {
-            match caller.until {
-                Some(until) => {
-                    let left = until.duration_since(SystemTime::now()).unwrap_or_default();
-                    tokio::time::sleep(left).await;
-                }
-                None => std::future::pending().await,
-            }
-        };
-        let dismissed = async {
-            loop {
-                match dismissed.recv().await {
-                    Ok((session, subject)) if session == id && subject == caller.subject => break,
-                    Ok(_) => {}
-                    Err(broadcast::error::RecvError::Lagged(_)) => break,
-                    Err(broadcast::error::RecvError::Closed) => std::future::pending().await,
-                }
-            }
-        };
-        tokio::select! {
-            () = lapsed => "what let you in has run out",
-            () = dismissed => "what let you in was taken back",
-        }
-    };
+    let out = dismissals.out(id, Some(caller));
     upgrade.on_upgrade(move |client| async move {
         let _here = here;
         // A side that fails is done, as one that closes is.
@@ -268,6 +289,8 @@ async fn session_socket(
 async fn tunnel(
     State(sessions): State<Arc<dyn Sessions>>,
     Which(id): Which,
+    caller: Option<Extension<Caller>>,
+    Extension(dismissals): Extension<Dismissals>,
     upgrade: WebSocketUpgrade,
 ) -> Response {
     let live = match sessions.live(&id).await {
@@ -286,6 +309,7 @@ async fn tunnel(
         }
     };
     let here = sessions.present(&id);
+    let out = dismissals.out(id, caller.map(|Extension(caller)| caller));
     upgrade
         .protocols([aperture_tunnel::SUBPROTOCOL])
         .on_upgrade(move |client| async move {
@@ -314,10 +338,11 @@ async fn tunnel(
                     }
                 }
             };
-            // Either side ending ends the tunnel.
+            // Either side ending ends the tunnel, and so does its caller being put out.
             tokio::select! {
                 () = up => {}
                 () = down => {}
+                _ = out => {}
             }
         })
 }

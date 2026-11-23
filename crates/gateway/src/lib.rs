@@ -116,6 +116,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Which {
 pub fn router(sessions: Arc<dyn Sessions>, viewer: bool) -> Router {
     let routes = cdp::router(sessions.clone())
         .merge(live::router(sessions))
+        .layer(axum::Extension(live::Dismissals::new()))
         .layer(middleware::map_response(inert));
     if viewer {
         routes.route("/", axum::routing::get(async || live::viewer()))

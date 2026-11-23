@@ -62,7 +62,7 @@ pub struct Caller {
     pub subject: String,
     pub name: String,
     pub access: Access,
-    /// When the caller's session socket is closed whatever it does; never, without.
+    /// When the caller's sockets into the session are closed whatever they do; never, without.
     pub until: Option<SystemTime>,
 }
 

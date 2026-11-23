@@ -2,6 +2,7 @@ import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import type { HttpMethod } from "effect/http/HttpMethod";
 import * as Schema from "effect/Schema";
+import * as Cdp from "../src/cdp.ts";
 import { request } from "../src/http.ts";
 import * as Runner from "../src/runner.ts";
 import { suite } from "../src/suite.ts";
@@ -205,11 +206,27 @@ suite(session)("tickets into a session served on its own", (it) => {
         ["DELETE", "/callers/share%3Aone", 403],
       ]);
       expect(guest.closed()).toBe(false);
+      // DevTools reads all the browser has: whoever is put out is put out of it as well.
+      const devtools = (subject: string) =>
+        Effect.gen(function* () {
+          const ticket = yield* tickets.ticket({ cdp: "rw" }, { sub: subject });
+          const cdp = yield* Cdp.connect(`${runner.url.replace("http", "ws")}/cdp?token=${ticket}`);
+          yield* cdp.call("Browser.getVersion");
+          return cdp;
+        });
+      const guestTools = yield* devtools("share:one");
+      const otherTools = yield* devtools("share:two");
+
       yield* answers(runner.token, [["DELETE", "/callers/share%3Aone", 204]]);
       yield* until(
         "the dismissed one's socket ending",
         Effect.sync(() => guest.closed()),
       );
+      yield* until(
+        "the dismissed one's DevTools ending",
+        Effect.isFailure(guestTools.call("Browser.getVersion")),
+      );
+      yield* otherTools.call("Browser.getVersion");
       expect(
         yield* happens(
           Effect.sync(() => other.closed()),

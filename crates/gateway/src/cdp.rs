@@ -6,7 +6,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use axum::{
-    Router,
+    Extension, Router,
     body::{Body, Bytes},
     extract::{
         OriginalUri, State, WebSocketUpgrade,
@@ -22,7 +22,11 @@ use hyper_util::rt::TokioIo;
 use tokio::net::UnixStream;
 use tokio_tungstenite::tungstenite::{Message as BrowserMessage, protocol::WebSocketConfig};
 
-use crate::{DEVTOOLS_AUTHORITY, Sessions, Which};
+use crate::{
+    DEVTOOLS_AUTHORITY, Sessions, Which,
+    auth::Caller,
+    live::{CLOSED_BY_POLICY, Dismissals},
+};
 
 pub fn router(sessions: Arc<dyn Sessions>) -> Router {
     Router::new()
@@ -36,10 +40,16 @@ pub fn router(sessions: Arc<dyn Sessions>) -> Router {
 async fn browser(
     State(sessions): State<Arc<dyn Sessions>>,
     Which(id): Which,
+    caller: Option<Extension<Caller>>,
+    Extension(dismissals): Extension<Dismissals>,
     upgrade: WebSocketUpgrade,
 ) -> Response {
+    let out = dismissals.out(id.clone(), caller.map(|Extension(caller)| caller));
     match sessions.cdp(&id).await {
-        Ok(cdp) => connect(upgrade, cdp.socket, cdp.browser_path, sessions.present(&id)).await,
+        Ok(cdp) => {
+            let here = sessions.present(&id);
+            connect(upgrade, cdp.socket, cdp.browser_path, here, out).await
+        }
         Err(refused) => refused.into_response(),
     }
 }
@@ -47,13 +57,19 @@ async fn browser(
 async fn target(
     State(sessions): State<Arc<dyn Sessions>>,
     Which(id): Which,
+    caller: Option<Extension<Caller>>,
+    Extension(dismissals): Extension<Dismissals>,
     uri: Uri,
     upgrade: WebSocketUpgrade,
 ) -> Response {
     // `/cdp/devtools/...`, which is `/devtools/...` to the browser.
     let path = uri.path().strip_prefix("/cdp").unwrap_or_default();
+    let out = dismissals.out(id.clone(), caller.map(|Extension(caller)| caller));
     match sessions.cdp(&id).await {
-        Ok(cdp) => connect(upgrade, cdp.socket, path.to_owned(), sessions.present(&id)).await,
+        Ok(cdp) => {
+            let here = sessions.present(&id);
+            connect(upgrade, cdp.socket, path.to_owned(), here, out).await
+        }
         Err(refused) => refused.into_response(),
     }
 }
@@ -67,6 +83,7 @@ async fn connect(
     socket: PathBuf,
     path: String,
     here: Box<dyn Send>,
+    out: impl Future<Output = &'static str> + Send + 'static,
 ) -> Response {
     let config = WebSocketConfig::default()
         .max_message_size(None)
@@ -90,17 +107,25 @@ async fn connect(
         .max_frame_size(usize::MAX)
         .on_upgrade(move |client| async move {
             let _here = here;
-            relay(client, browser).await;
+            relay(client, browser, out).await;
         })
 }
 
-/// Passes messages both ways until either side closes or fails, which ends both.
-async fn relay<S>(client: WebSocket, browser: tokio_tungstenite::WebSocketStream<S>)
-where
+/// Passes messages both ways until either side closes or fails, which ends both, or until
+/// the client is put out: DevTools reads all the browser has, and is not left to whoever
+/// was let in once.
+async fn relay<S>(
+    client: WebSocket,
+    browser: tokio_tungstenite::WebSocketStream<S>,
+    out: impl Future<Output = &'static str>,
+) where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    let (mut to_client, mut from_client) = client.split();
-    let (mut to_browser, mut from_browser) = browser.split();
+    let (to_client, mut from_client) = client.split();
+    let (to_browser, mut from_browser) = browser.split();
+    // Two tell each side things: what the other says, and that it is over.
+    let to_client = tokio::sync::Mutex::new(to_client);
+    let to_browser = tokio::sync::Mutex::new(to_browser);
     let up = async {
         while let Some(Ok(message)) = from_client.next().await {
             let message = match message {
@@ -110,11 +135,11 @@ where
                 ClientMessage::Pong(bytes) => BrowserMessage::Pong(bytes),
                 ClientMessage::Close(_) => break,
             };
-            if to_browser.send(message).await.is_err() {
+            if to_browser.lock().await.send(message).await.is_err() {
                 break;
             }
         }
-        let _ = to_browser.close().await;
+        let _ = to_browser.lock().await.close().await;
     };
     let down = async {
         while let Some(Ok(message)) = from_browser.next().await {
@@ -125,16 +150,24 @@ where
                 BrowserMessage::Pong(bytes) => ClientMessage::Pong(bytes),
                 BrowserMessage::Close(_) | BrowserMessage::Frame(_) => break,
             };
-            if to_client.send(message).await.is_err() {
+            if to_client.lock().await.send(message).await.is_err() {
                 break;
             }
         }
-        let _ = to_client.close().await;
+        let _ = to_client.lock().await.close().await;
     };
     // Either side closing ends the other.
     tokio::select! {
         () = up => {}
         () = down => {}
+        reason = out => {
+            let frame = axum::extract::ws::CloseFrame {
+                code: CLOSED_BY_POLICY,
+                reason: reason.into(),
+            };
+            let _ = to_client.lock().await.send(ClientMessage::Close(Some(frame))).await;
+            let _ = to_browser.lock().await.close().await;
+        }
     }
 }
 
