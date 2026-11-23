@@ -37,6 +37,7 @@ const echo = Site.by((request) =>
     <script>
       window.asked = ${JSON.stringify({ ...request.headers })};
       window.got = [];
+      window.first = navigator.platform;
       for (const kind of ["touchstart", "click"]) addEventListener(kind, () => got.push(kind), true);
     </script>
     </body>`),
@@ -51,6 +52,8 @@ const session = Layer.mergeAll(
 /** What a page says of what it is shown on. */
 const Said = Schema.Struct({
   agent: Schema.String,
+  /** As the page's own script read it when the page came. */
+  first: Schema.String,
   platform: Schema.String,
   mobile: Schema.Boolean,
   system: Schema.String,
@@ -69,6 +72,7 @@ const SAYS = `(async () => {
   const told = await navigator.userAgentData.getHighEntropyValues(["fullVersionList", "formFactors"]);
   return {
     agent: navigator.userAgent,
+    first: window.first ?? "",
     platform: navigator.platform,
     mobile: navigator.userAgentData.mobile,
     system: navigator.userAgentData.platform,
@@ -236,7 +240,11 @@ suite(session)("how a tab's pages are shown, with a desktop, a phone and the aut
       expect(phone.mobile).toBe(true);
       expect(phone.system).toBe("Android");
       expect(phone.forms).toBe('["Mobile"]');
+      // To the page's first script as well, with this check's own DevTools session beside
+      // the session's, and after one of those is gone.
       expect(phone.platform).toBe("Linux armv81");
+      expect(phone.first).toBe("Linux armv81");
+      expect((yield* says(tab)).platform).toBe("Linux armv81");
       expect(phone.width).toBe(390);
 
       // A page takes no input for a moment after it has come: it is tapped until it is.
@@ -264,6 +272,7 @@ suite(session)("how a tab's pages are shown, with a desktop, a phone and the aut
         says(tab).pipe(Effect.map((said) => said.touches === 0 && said)),
       );
       expect(back.agent).toBe(desk.agent);
+      expect(back.platform).toBe(desk.platform);
       expect(yield* snapshot(ada, "[watched.mode, watched.mobile].join()")).toBe("auto,false");
     }),
   );

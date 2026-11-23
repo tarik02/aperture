@@ -145,6 +145,25 @@ fn phone(agent: &str) -> Value {
     })
 }
 
+/// Has a page's scripts told a phone's platform, in the page there is and in every one to
+/// come, before anything of the page's own runs. The browser keeps what it is told to say
+/// its platform is only until another DevTools session of the page ends, an automation's
+/// or anyone's, and with one attached a new document's first scripts read the platform
+/// the browser is on beside a phone's user agent.
+const SAYS_PHONE: &str = r#"(() => {
+  const own = Object.getOwnPropertyDescriptor(Navigator.prototype, "platform");
+  if (!own?.get || own.get.browsers) return;
+  const { get } = Object.getOwnPropertyDescriptor({ get platform() { return "Linux armv81"; } }, "platform");
+  get.browsers = own.get;
+  Object.defineProperty(Navigator.prototype, "platform", { ...own, get });
+})()"#;
+
+/// Has the page there is told the browser's own platform again.
+const SAYS_BROWSER: &str = r#"(() => {
+  const own = Object.getOwnPropertyDescriptor(Navigator.prototype, "platform");
+  if (own?.get?.browsers) Object.defineProperty(Navigator.prototype, "platform", { ...own, get: own.get.browsers });
+})()"#;
+
 /// Has a page shown as on a phone, or as the browser shows it. A phone's page gets a
 /// phone's user agent with the client hints that go with it, touch in place of a mouse,
 /// and a viewport the page lays itself out for as for a phone's.
@@ -153,9 +172,18 @@ async fn show(
     session: &str,
     agent: &str,
     shown: Shown,
+    says: &mut Option<String>,
 ) -> Result<(), cdp::Error> {
     let call = |method: &'static str, params: Value| browser.call_in(Some(session), method, params);
     if !shown.mobile {
+        if let Some(identifier) = says.take() {
+            call(
+                "Page.removeScriptToEvaluateOnNewDocument",
+                json!({ "identifier": identifier }),
+            )
+            .await?;
+            call("Runtime.evaluate", json!({ "expression": SAYS_BROWSER })).await?;
+        }
         call("Emulation.setUserAgentOverride", json!({ "userAgent": "" })).await?;
         call("Emulation.clearDeviceMetricsOverride", json!({})).await?;
         call(
@@ -171,6 +199,14 @@ async fn show(
         return Ok(());
     }
     call("Emulation.setUserAgentOverride", phone(agent)).await?;
+    if says.is_none() {
+        let added = call(
+            "Page.addScriptToEvaluateOnNewDocument",
+            json!({ "source": SAYS_PHONE, "runImmediately": true }),
+        )
+        .await?;
+        *says = added["identifier"].as_str().map(str::to_owned);
+    }
     let upright = shown.height >= shown.width;
     // No size of its own: the page has the window's, less by what it is drawn larger.
     call(
@@ -258,6 +294,7 @@ impl Pages {
             frames: Vec::new(),
             agent: None,
             shown: HashMap::new(),
+            says: HashMap::new(),
         };
         // The pages there are by now are looked at first.
         targets.mark_changed();
@@ -619,6 +656,8 @@ struct Follower {
     agent: Option<String>,
     /// How each target's page is shown, and how many times it was told to load again.
     shown: HashMap<String, (Shown, u32)>,
+    /// The script that tells a phone's platform, of each page that has it.
+    says: HashMap<String, Option<String>>,
 }
 
 impl Follower {
@@ -626,6 +665,7 @@ impl Follower {
     async fn keep(&mut self, targets: Vec<Target>) {
         let pages: Vec<String> = targets.iter().map(|target| target.id.clone()).collect();
         self.shown.retain(|target, _| pages.contains(target));
+        self.says.retain(|target, _| pages.contains(target));
         for target in &targets {
             let session = {
                 let attached = self.pages.attached.borrow();
@@ -689,8 +729,9 @@ impl Follower {
             warn!("the browser does not say what it is: no page is shown as on a phone");
             return;
         };
+        let says = self.says.entry(target.id.clone()).or_default();
         if before.map(|(shown, _)| shown) != Some(now.0)
-            && let Err(err) = show(browser, session, agent, now.0).await
+            && let Err(err) = show(browser, session, agent, now.0, says).await
         {
             warn!(
                 page = target.id,
