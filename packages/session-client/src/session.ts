@@ -324,34 +324,6 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
   const updatePicture = (change: Partial<Picture>) => {
     update({ picture: { ...snapshot.picture, ...change } });
   };
-  const subscribe = (listener: () => void) => {
-    listeners.add(listener);
-    return () => {
-      listeners.delete(listener);
-    };
-  };
-  const onClipboard = (listener: (event: ClipboardEvent) => void) => {
-    clipboardListeners.add(listener);
-    return () => {
-      clipboardListeners.delete(listener);
-    };
-  };
-  const draggedListeners = new Set<(by: { readonly x: number; readonly y: number }) => void>();
-  const onDragged: SessionService["onDragged"] = (listener) => {
-    draggedListeners.add(listener);
-    return () => {
-      draggedListeners.delete(listener);
-    };
-  };
-  const failureListeners = new Set<(failure: Failure) => void>();
-  const onFailure = (listener: (failure: Failure) => void) => {
-    failureListeners.add(listener);
-    return () => {
-      failureListeners.delete(listener);
-    };
-  };
-  const pointerListeners = new Set<(pointer: PointerMark) => void>();
-  const strokeListeners = new Set<(point: StrokePoint) => void>();
   const listening =
     <A>(listeners: Set<(value: A) => void>) =>
     (listener: (value: A) => void) => {
@@ -360,6 +332,14 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
         listeners.delete(listener);
       };
     };
+  const subscribe = listening(listeners);
+  const onClipboard = listening(clipboardListeners);
+  const draggedListeners = new Set<(by: { readonly x: number; readonly y: number }) => void>();
+  const onDragged = listening(draggedListeners);
+  const failureListeners = new Set<(failure: Failure) => void>();
+  const onFailure = listening(failureListeners);
+  const pointerListeners = new Set<(pointer: PointerMark) => void>();
+  const strokeListeners = new Set<(point: StrokePoint) => void>();
   const watched = () => snapshot.targets.find((target) => target.tab === snapshot.selected);
 
   const socket = yield* Socket.open(socketUrl(address), {

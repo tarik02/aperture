@@ -23,8 +23,7 @@ import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
 import { useLast } from "#/lib/use-last.ts";
 import { ListEmpty } from "#/components/list-empty.tsx";
-
-const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+import { when } from "#/lib/when.ts";
 
 const HELD_TO = [
   ["workspaces", "workspace"],

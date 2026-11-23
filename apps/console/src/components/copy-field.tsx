@@ -1,12 +1,14 @@
 import { Button } from "@aperture-browser/ui/components/button";
 import { Copy } from "lucide-react";
 import { toast } from "sonner";
+import { copyText } from "#/lib/copy.ts";
 
 /** Something to copy, shown as it is. */
 export function CopyField({ label, value }: { label: string; value: string }) {
   const copy = async () => {
-    await navigator.clipboard.writeText(value);
-    toast.success("Copied");
+    if (await copyText(value)) {
+      toast.success("Copied");
+    }
   };
   return (
     <div className="aperture:grid aperture:gap-1.5 aperture:text-sm">

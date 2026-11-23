@@ -28,6 +28,7 @@ import {
 } from "#/features/share/share.queries.ts";
 import { useLast } from "#/lib/use-last.ts";
 import { required } from "#/lib/validation.ts";
+import { when } from "#/lib/when.ts";
 
 const ROLES = [
   { value: "watch", label: "Watch" },
@@ -44,8 +45,6 @@ const LASTS = [
   { value: "never", label: "No expiry" },
 ] as const;
 type Lasts = (typeof LASTS)[number]["value"];
-
-const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
 /** When a link stops, was made and was last used, in one line. */
 const story = (share: Share) => {

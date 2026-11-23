@@ -48,6 +48,7 @@ import {
   useSessionActionMutation,
 } from "#/features/session/session.mutations.ts";
 import { SaveSnapshotDialog } from "#/features/snapshot/save-snapshot-dialog.tsx";
+import { copyText } from "#/lib/copy.ts";
 
 /** One thing done with a session, as a menu of either kind offers it. */
 export interface SessionAction extends Guarded {
@@ -78,8 +79,9 @@ export function useSessionActions(session: Session, onDeleted?: () => void) {
   const placed = session.nodeId !== null;
 
   const copyLink = async () => {
-    await navigator.clipboard.writeText(`${location.origin}/-/sessions/${session.id}`);
-    toast.success("Link copied");
+    if (await copyText(`${location.origin}/-/sessions/${session.id}`)) {
+      toast.success("Link copied");
+    }
   };
 
   const all: ReadonlyArray<SessionAction> = [

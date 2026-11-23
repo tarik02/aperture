@@ -1,7 +1,7 @@
 import { Button } from "@aperture-browser/ui/components/button";
 import { Check, Copy } from "lucide-react";
 import { type ComponentProps, useEffect, useState } from "react";
-import { toast } from "sonner";
+import { copyText } from "#/lib/copy.ts";
 
 const SHOWN_COPIED_MS = 2400;
 
@@ -29,11 +29,8 @@ export function CopyButton({
   }, [copied]);
 
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(value);
+    if (await copyText(value)) {
       setCopied(true);
-    } catch {
-      toast.error("The browser did not let this page copy.");
     }
   };
 

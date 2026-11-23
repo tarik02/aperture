@@ -31,8 +31,7 @@ import { told } from "#/lib/api.ts";
 import { useListSearch } from "#/lib/list-search.ts";
 import { useLast } from "#/lib/use-last.ts";
 import { ListEmpty, ListNoMatch } from "#/components/list-empty.tsx";
-
-const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+import { when } from "#/lib/when.ts";
 
 /** Which tokens are listed, as the page's address keeps it. */
 export const REGISTRATION_TOKENS_SEARCH = { show: ["active", "revoked", "all"] } as const;

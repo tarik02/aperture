@@ -22,8 +22,7 @@ import { TextField } from "#/components/text-field.tsx";
 import type { Session } from "#/features/session/session.queries.ts";
 import { useTakeSnapshotMutation } from "#/features/snapshot/snapshot.mutations.ts";
 import { type Snapshot, useSnapshotsQuery } from "#/features/snapshot/snapshot.queries.ts";
-
-const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+import { when } from "#/lib/when.ts";
 
 type SaveSnapshotDialogProps = {
   session: Session;

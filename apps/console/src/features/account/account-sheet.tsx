@@ -46,8 +46,7 @@ import { reveal } from "#/lib/reveal.ts";
 import { useLast } from "#/lib/use-last.ts";
 import { required } from "#/lib/validation.ts";
 import { WORKSPACE_ROLES, type WorkspaceRole } from "#/lib/words.ts";
-
-const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+import { when } from "#/lib/when.ts";
 
 function Fact({ name, children }: { name: string; children: React.ReactNode }) {
   return (

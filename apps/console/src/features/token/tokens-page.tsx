@@ -28,8 +28,7 @@ import { useListSearch } from "#/lib/list-search.ts";
 import { useLast } from "#/lib/use-last.ts";
 import { worded } from "#/lib/words.ts";
 import { ListEmpty, ListNoMatch } from "#/components/list-empty.tsx";
-
-const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+import { when } from "#/lib/when.ts";
 
 /** Which tokens are listed, as the page's address keeps it. */
 export const TOKENS_SEARCH = { show: ["active", "revoked", "all"] } as const;

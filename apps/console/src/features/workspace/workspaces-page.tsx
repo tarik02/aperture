@@ -29,8 +29,7 @@ import {
 } from "#/features/workspace/workspace.queries.ts";
 import { ListEmpty } from "#/components/list-empty.tsx";
 import { worded } from "#/lib/words.ts";
-
-const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+import { when } from "#/lib/when.ts";
 
 function WorkspaceRow({ workspace }: { workspace: Workspace }) {
   const access = useAccess();

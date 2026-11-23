@@ -10,10 +10,9 @@ import { useOpenSession } from "#/features/session/use-open-session.ts";
 import { SessionPicture, useSessionPicture } from "#/features/session/session-picture.tsx";
 import type { Session } from "#/features/session/session.queries.ts";
 import { SessionStatusBadge } from "#/features/session/session-status-badge.tsx";
+import { when } from "#/lib/when.ts";
 
 const THUMBNAIL_WIDTH = 480;
-
-const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
 /** A session as one of many: what it shows now, what it is, and what is done with it. */
 type SessionCardProps = {

@@ -29,8 +29,7 @@ import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
 import { type ListSearchShape, useListSearch, useSearchText } from "#/lib/list-search.ts";
 import { ListEmpty, ListNoMatch } from "#/components/list-empty.tsx";
-
-const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
+import { whenExact } from "#/lib/when.ts";
 
 const ALL = "all";
 const EVERY_KIND = [{ value: ALL, label: "All events" }] as const;
@@ -241,7 +240,7 @@ export function AuditPage() {
               <TableRow key={event.id} data-console-event={event.kind}>
                 {/* On a phone what happened leads the row's block, and when ends it. */}
                 <TableCell className="aperture:whitespace-nowrap aperture:text-muted-foreground aperture:max-sm:order-last aperture:max-sm:text-xs">
-                  {when.format(new Date(event.at.epochMilliseconds))}
+                  {whenExact.format(new Date(event.at.epochMilliseconds))}
                 </TableCell>
                 <TableCell label="By" className="aperture:max-sm:basis-full">
                   <div className="aperture:grid aperture:content-center aperture:gap-0.5 aperture:sm:min-h-[2.625rem] aperture:max-sm:inline-flex aperture:max-sm:flex-wrap aperture:max-sm:items-baseline aperture:max-sm:gap-x-2">

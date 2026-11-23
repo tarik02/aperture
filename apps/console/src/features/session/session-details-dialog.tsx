@@ -10,8 +10,7 @@ import { CopyField } from "#/components/copy-field.tsx";
 import { TagList } from "#/components/tag-list.tsx";
 import type { Session } from "#/features/session/session.queries.ts";
 import { SessionStatusBadge } from "#/features/session/session-status-badge.tsx";
-
-const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
+import { whenExact } from "#/lib/when.ts";
 
 function Fact({ name, children }: { name: string; children: React.ReactNode }) {
   return (
@@ -57,10 +56,10 @@ export function SessionDetailsDialog({ session, open, onOpenChange }: SessionDet
                 <Fact name="Snapshot">{session.snapshotId ?? "None"}</Fact>
                 <Fact name="Node">{session.nodeName ?? session.nodeId ?? "None"}</Fact>
                 <Fact name="Created">
-                  {when.format(new Date(session.createdAt.epochMilliseconds))}
+                  {whenExact.format(new Date(session.createdAt.epochMilliseconds))}
                 </Fact>
                 <Fact name="Last heard of">
-                  {when.format(new Date(session.observedAt.epochMilliseconds))}
+                  {whenExact.format(new Date(session.observedAt.epochMilliseconds))}
                 </Fact>
                 {session.failure === null ? null : <Fact name="Failure">{session.failure}</Fact>}
                 <Fact name="Tags">
