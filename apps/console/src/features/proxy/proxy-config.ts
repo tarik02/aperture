@@ -179,8 +179,7 @@ const matchRule = (match: string) => {
   if (host.includes(":") || host.includes("/") || isIpv4(host)) {
     return isAddress(host) ? undefined : unknown;
   }
-  host = host.replace(/\.$/u, "");
-  const name = host.replace(/^\*\./u, "");
+  const name = host.replace(/^\*\./u, "").replace(/\.$/u, "");
   return host === "*" || HOSTNAME.test(name) ? undefined : unknown;
 };
 

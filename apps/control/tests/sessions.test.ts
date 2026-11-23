@@ -341,7 +341,14 @@ suite(needs)("sessions on a node that registered", (it) => {
       const routed = {
         proxy: {
           upstreams: { office: { url: "socks5://user:secret@127.0.0.1:9" } },
-          rules: [{ match: "*.internal.test", via: "office" }],
+          // By a name, by an address, which has colons of its own where it is IPv6, and by
+          // a network: the node reads each as the control plane passes it on.
+          rules: [
+            { match: "*.internal.test", via: "office" },
+            { match: "[2001:db8::1]:443", via: "refuse" },
+            { match: "fd00::/8", via: "refuse" },
+            { match: "10.0.0.0/8:8080", via: "office" },
+          ],
         },
       };
       expect(yield* ada.api.sessions.proxy({ params: { id: session } })).toEqual({ proxy: null });
@@ -356,6 +363,13 @@ suite(needs)("sessions on a node that registered", (it) => {
         }),
       );
       expect(refusedRoute._tag).toBe("NodeRefused");
+      const refusedMatch = yield* Effect.flip(
+        ada.api.sessions.setProxy({
+          params: { id: session },
+          payload: { proxy: { rules: [{ match: "2001:db8::1:443:x", via: "refuse" }] } },
+        }),
+      );
+      expect(refusedMatch._tag).toBe("NodeRefused");
 
       // A snapshot taken in another's place keeps what that one was called and tagged with.
       const again = yield* ada.api.snapshots.take({

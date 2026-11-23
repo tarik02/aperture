@@ -430,7 +430,11 @@ fn pattern(text: &str) -> Result<Pattern, String> {
             "" => return Err("a match needs a host".into()),
             "*" => Host::Any,
             host => match host.strip_prefix("*.") {
-                Some(suffix) if !suffix.is_empty() && !suffix.contains('*') => {
+                Some(suffix) if !suffix.contains('*') => {
+                    let suffix = suffix.trim_end_matches('.');
+                    if suffix.is_empty() {
+                        return Err(unknown());
+                    }
                     Host::Subdomains(format!(".{suffix}"))
                 }
                 None if !host.contains('*') => Host::Exact(host.trim_end_matches('.').to_owned()),
@@ -549,6 +553,7 @@ mod tests {
             ("example.test:8080", "example.test", 443, false),
             ("*.example.test", "www.example.test", 443, true),
             ("*.example.test", "a.b.example.test", 443, true),
+            ("*.Example.TEST.", "www.example.test", 443, true),
             ("*.example.test", "example.test", 443, false),
             ("*.example.test", "badexample.test", 443, false),
             ("*.example.test:8080", "www.example.test", 8080, true),
@@ -631,6 +636,7 @@ mod tests {
             "  ",
             ":443",
             "*.",
+            "*..",
             "*.*.test",
             "a*.test",
             "*test",
