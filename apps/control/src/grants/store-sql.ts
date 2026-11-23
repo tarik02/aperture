@@ -20,6 +20,8 @@ const Code = Schema.Struct({
   codeChallenge: Schema.String,
 });
 
+const Spent = Schema.Struct({ id: Schema.String, spentAt: Schema.NullOr(Schema.Date) });
+
 /** Grants in the SQL database. */
 export const makeGrantsStore = Effect.fn("GrantsStore.make")(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -52,24 +54,39 @@ export const makeGrantsStore = Effect.fn("GrantsStore.make")(function* () {
     `.pipe(done);
   });
 
-  const insertGrant = Effect.fn("GrantsStore.insertGrant")(function* (grant: NewGrant) {
-    yield* sql`
-      DELETE FROM oauth_grants
-      WHERE account_id = ${grant.accountId} AND client_id = ${grant.clientId}
-    `.pipe(done);
-    yield* sql`
-      INSERT INTO oauth_grants (id, account_id, client_id, scopes, resources, created_at)
-      VALUES (
-        ${grant.id}, ${grant.accountId}, ${grant.clientId},
-        ${JSON.stringify(grant.scopes)}::jsonb,
-        ${grant.resources === null ? null : JSON.stringify(grant.resources)}::jsonb,
-        ${grant.createdAt}
-      )
-    `.pipe(done);
-    yield* sql`
-      UPDATE oauth_clients SET granted_at = ${grant.createdAt}
-      WHERE id = ${grant.clientId} AND granted_at IS NULL
-    `.pipe(done);
+  const insertGrant = Effect.fn("GrantsStore.insertGrant")(function* (
+    grant: NewGrant,
+    code: NewCode,
+  ) {
+    yield* Effect.gen(function* () {
+      // First, and whether or not it was granted before: this holds the app's row, so of
+      // two grants given at once the second waits here and replaces the first, where it
+      // would have found none to replace and been refused as a second of the pair.
+      yield* sql`
+        UPDATE oauth_clients SET granted_at = COALESCE(granted_at, ${grant.createdAt})
+        WHERE id = ${grant.clientId}
+      `.pipe(done);
+      yield* sql`
+        DELETE FROM oauth_grants
+        WHERE account_id = ${grant.accountId} AND client_id = ${grant.clientId}
+      `.pipe(done);
+      yield* sql`
+        INSERT INTO oauth_grants (id, account_id, client_id, scopes, resources, created_at)
+        VALUES (
+          ${grant.id}, ${grant.accountId}, ${grant.clientId},
+          ${JSON.stringify(grant.scopes)}::jsonb,
+          ${grant.resources === null ? null : JSON.stringify(grant.resources)}::jsonb,
+          ${grant.createdAt}
+        )
+      `.pipe(done);
+      yield* sql`
+        INSERT INTO oauth_codes (code_hash, grant_id, redirect_uri, code_challenge, expires_at)
+        VALUES (
+          ${code.codeHash}, ${code.grantId}, ${code.redirectUri}, ${code.codeChallenge},
+          ${code.expiresAt}
+        )
+      `.pipe(done);
+    }).pipe(sql.withTransaction, Effect.orDie);
   });
 
   const listGrants = Effect.fn("GrantsStore.listGrants")(function* (accountId: string) {
@@ -85,16 +102,6 @@ export const makeGrantsStore = Effect.fn("GrantsStore.make")(function* () {
 
   const deleteGrant = Effect.fn("GrantsStore.deleteGrant")(function* (id: string) {
     yield* sql`DELETE FROM oauth_grants WHERE id = ${id}`.pipe(done);
-  });
-
-  const insertCode = Effect.fn("GrantsStore.insertCode")(function* (code: NewCode) {
-    yield* sql`
-      INSERT INTO oauth_codes (code_hash, grant_id, redirect_uri, code_challenge, expires_at)
-      VALUES (
-        ${code.codeHash}, ${code.grantId}, ${code.redirectUri}, ${code.codeChallenge},
-        ${code.expiresAt}
-      )
-    `.pipe(done);
   });
 
   const takeCode = Effect.fn("GrantsStore.takeCode")(function* (codeHash: string, now: Date) {
@@ -121,12 +128,26 @@ export const makeGrantsStore = Effect.fn("GrantsStore.make")(function* () {
     tokenHash: string,
     now: Date,
   ) {
+    // One statement: the second half reads the table as it was before the first half
+    // wrote, so a token answers as fresh or as spent, and never as both.
     const taken = yield* sql`
-      DELETE FROM oauth_tokens
+      WITH fresh AS (
+        UPDATE oauth_tokens SET spent_at = ${now}
+        WHERE token_hash = ${tokenHash} AND kind = 'refresh' AND expires_at > ${now}
+          AND spent_at IS NULL
+        RETURNING grant_id
+      )
+      SELECT grant_id AS id, NULL::timestamptz AS spent_at FROM fresh
+      UNION ALL
+      SELECT grant_id, spent_at FROM oauth_tokens
       WHERE token_hash = ${tokenHash} AND kind = 'refresh' AND expires_at > ${now}
-      RETURNING grant_id AS id
-    `.pipe(first(Schema.Struct({ id: Schema.String })));
-    return Option.isNone(taken) ? Option.none() : yield* findGrant(taken.value.id);
+        AND spent_at IS NOT NULL
+    `.pipe(first(Spent));
+    if (Option.isNone(taken)) {
+      return Option.none();
+    }
+    const { spentAt } = taken.value;
+    return Option.map(yield* findGrant(taken.value.id), (grant) => ({ grant, spentAt }));
   });
 
   const findByAccessToken = Effect.fn("GrantsStore.findByAccessToken")(function* (
@@ -149,7 +170,9 @@ export const makeGrantsStore = Effect.fn("GrantsStore.make")(function* () {
     return yield* sql`
       ${grants}
       JOIN oauth_tokens ON oauth_tokens.grant_id = oauth_grants.id
-      WHERE oauth_tokens.token_hash = ${tokenHash} AND oauth_tokens.expires_at > ${now}
+      WHERE oauth_tokens.token_hash = ${tokenHash}
+        AND oauth_tokens.expires_at > ${now}
+        AND oauth_tokens.spent_at IS NULL
     `.pipe(first(Grant));
   });
 
@@ -166,7 +189,6 @@ export const makeGrantsStore = Effect.fn("GrantsStore.make")(function* () {
     listGrants,
     findGrant,
     deleteGrant,
-    insertCode,
     takeCode,
     insertToken,
     takeRefreshToken,

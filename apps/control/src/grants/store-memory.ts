@@ -56,7 +56,7 @@ export const makeGrantsStoreMemory = Effect.fn("GrantsStore.makeMemory")(functio
       }),
   );
 
-  const insertGrant = Effect.fn("GrantsStore.insertGrant")((grant: NewGrant) =>
+  const insertGrant = Effect.fn("GrantsStore.insertGrant")((grant: NewGrant, code: NewCode) =>
     Effect.sync(() => {
       memory.oauthClientsGranted.add(grant.clientId);
       for (const before of memory.oauthGrants.values()) {
@@ -69,6 +69,7 @@ export const makeGrantsStoreMemory = Effect.fn("GrantsStore.makeMemory")(functio
         clientName: memory.oauthClients.get(grant.clientId)?.name ?? "",
         createdAt: moment(grant.createdAt),
       });
+      memory.oauthCodes.set(code.codeHash, code);
     }),
   );
 
@@ -86,12 +87,6 @@ export const makeGrantsStoreMemory = Effect.fn("GrantsStore.makeMemory")(functio
 
   const deleteGrant = Effect.fn("GrantsStore.deleteGrant")((id: string) =>
     Effect.sync(() => drop(id)),
-  );
-
-  const insertCode = Effect.fn("GrantsStore.insertCode")((code: NewCode) =>
-    Effect.sync(() => {
-      memory.oauthCodes.set(code.codeHash, code);
-    }),
   );
 
   const takeCode = Effect.fn("GrantsStore.takeCode")((codeHash: string, now: Date) =>
@@ -113,14 +108,17 @@ export const makeGrantsStoreMemory = Effect.fn("GrantsStore.makeMemory")(functio
 
   const insertToken = Effect.fn("GrantsStore.insertToken")((token: NewToken) =>
     Effect.sync(() => {
-      memory.oauthTokens.set(token.tokenHash, token);
+      memory.oauthTokens.set(token.tokenHash, { ...token, spentAt: null });
     }),
   );
 
   const good = (tokenHash: string, kind: NewToken["kind"] | undefined, now: Date) =>
     Option.fromUndefinedOr(memory.oauthTokens.get(tokenHash)).pipe(
       Option.filter(
-        (token) => (kind === undefined || token.kind === kind) && token.expiresAt > now,
+        (token) =>
+          (kind === undefined || token.kind === kind) &&
+          token.expiresAt > now &&
+          token.spentAt === null,
       ),
       Option.flatMap((token) => Option.fromUndefinedOr(memory.oauthGrants.get(token.grantId))),
     );
@@ -128,11 +126,21 @@ export const makeGrantsStoreMemory = Effect.fn("GrantsStore.makeMemory")(functio
   const takeRefreshToken = Effect.fn("GrantsStore.takeRefreshToken")(
     (tokenHash: string, now: Date) =>
       Effect.sync(() => {
-        const grant = good(tokenHash, "refresh", now);
-        if (Option.isSome(grant)) {
-          memory.oauthTokens.delete(tokenHash);
+        const token = memory.oauthTokens.get(tokenHash);
+        const grant = token === undefined ? undefined : memory.oauthGrants.get(token.grantId);
+        if (
+          token === undefined ||
+          grant === undefined ||
+          token.kind !== "refresh" ||
+          token.expiresAt <= now
+        ) {
+          return Option.none();
         }
-        return grant;
+        const { spentAt } = token;
+        if (spentAt === null) {
+          memory.oauthTokens.set(tokenHash, { ...token, spentAt: now });
+        }
+        return Option.some({ grant, spentAt });
       }),
   );
 
@@ -164,7 +172,6 @@ export const makeGrantsStoreMemory = Effect.fn("GrantsStore.makeMemory")(functio
     listGrants,
     findGrant,
     deleteGrant,
-    insertCode,
     takeCode,
     insertToken,
     takeRefreshToken,

@@ -31,6 +31,12 @@ const ACCESS_LASTS = Duration.hours(1);
 /** How long an app may stay away before the person is asked again. */
 const REFRESH_LASTS = Duration.days(60);
 /**
+ * How long after a refresh token was used its coming again is taken for the app's own
+ * doing: two of its processes that share what it keeps refresh at once, and one that lost
+ * its answer asks again. Later than that, someone else has it.
+ */
+const REUSE_GRACE = Duration.seconds(60);
+/**
  * How long an app that registered is kept before anyone gave it a grant: a person decides
  * within the sitting they were asked in, and an app that is forgotten registers again.
  */
@@ -124,22 +130,24 @@ export const makeGrants = Effect.fn("Grants.make")(function* () {
     }
     const client = yield* asking(asked);
     const grantId = yield* Secrets.id;
-    yield* store.insertGrant({
-      id: grantId,
-      accountId: account.id,
-      clientId: client.id,
-      scopes: asked.scopes,
-      resources: asked.resources ?? null,
-      createdAt: yield* now,
-    });
     const code = yield* Secrets.make("apoc");
-    yield* store.insertCode({
-      codeHash: yield* Secrets.hash(code),
-      grantId,
-      redirectUri: asked.redirectUri,
-      codeChallenge: asked.codeChallenge,
-      expiresAt: yield* after(CODE_LASTS),
-    });
+    yield* store.insertGrant(
+      {
+        id: grantId,
+        accountId: account.id,
+        clientId: client.id,
+        scopes: asked.scopes,
+        resources: asked.resources ?? null,
+        createdAt: yield* now,
+      },
+      {
+        codeHash: yield* Secrets.hash(code),
+        grantId,
+        redirectUri: asked.redirectUri,
+        codeChallenge: asked.codeChallenge,
+        expiresAt: yield* after(CODE_LASTS),
+      },
+    );
     yield* events.record({
       kind: "grant.given",
       resource: { kind: "grant", id: grantId, label: client.name },
@@ -153,8 +161,11 @@ export const makeGrants = Effect.fn("Grants.make")(function* () {
     return code;
   }, Effect.provide(crypto));
 
-  /** Records that a grant is gone, and by whose doing: the person's, the app's, or a code's misuse. */
-  const taken = (grant: Grant, by: "person" | "app" | "code_misused") =>
+  /**
+   * Records that a grant is gone, and by whose doing: the person's, the app's, a code's
+   * misuse, or a refresh token's that was used before.
+   */
+  const taken = (grant: Grant, by: "person" | "app" | "code_misused" | "token_reused") =>
     events.record({
       kind: "grant.revoked",
       resource: { kind: "grant", id: grant.id, label: grant.clientName },
@@ -217,14 +228,25 @@ export const makeGrants = Effect.fn("Grants.make")(function* () {
     readonly clientId: string;
     readonly refreshToken: string;
   }) {
-    const grant = yield* store.takeRefreshToken(
-      yield* Secrets.hash(asked.refreshToken),
-      yield* now,
-    );
-    if (Option.isNone(grant) || grant.value.clientId !== asked.clientId) {
+    const at = yield* now;
+    const presented = yield* store.takeRefreshToken(yield* Secrets.hash(asked.refreshToken), at);
+    if (Option.isNone(presented)) {
       return yield* new GrantRefused({ message: "the refresh token is none that is good" });
     }
-    return yield* issue(grant.value);
+    const { grant, spentAt } = presented.value;
+    if (spentAt !== null) {
+      // A token that got the next ones already is with someone it was not given to, and so
+      // may the ones after it be: the grant ends, and the person is asked again.
+      if (at.getTime() - spentAt.getTime() > Duration.toMillis(REUSE_GRACE)) {
+        yield* store.deleteGrant(grant.id);
+        yield* taken(grant, "token_reused");
+      }
+      return yield* new GrantRefused({ message: "the refresh token was used before" });
+    }
+    if (grant.clientId !== asked.clientId) {
+      return yield* new GrantRefused({ message: "the refresh token is none that is good" });
+    }
+    return yield* issue(grant);
   }, Effect.provide(crypto));
 
   const giveBack = Effect.fn("Grants.giveBack")(function* (given: {

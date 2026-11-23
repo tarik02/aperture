@@ -45,7 +45,11 @@ export const HAPPENED: Readonly<Record<EventKind, (event: Event) => string>> = {
   "token.revoked": () => "Revoked the API token",
   "grant.given": () => "Connected the app",
   "grant.revoked": (event) =>
-    event.detail["by"] === "app" ? "The app disconnected itself" : "Disconnected the app",
+    event.detail["by"] === "app"
+      ? "The app disconnected itself"
+      : event.detail["by"] === "token_reused"
+        ? "Disconnected the app: a refresh token of it was used twice"
+        : "Disconnected the app",
   "registration_token.created": () => "Made the registration token",
   "registration_token.revoked": () => "Revoked the registration token",
   "workspace.created": () => "Made the workspace",

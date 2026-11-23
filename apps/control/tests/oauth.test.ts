@@ -185,6 +185,16 @@ for (const stores of Control.STORES) {
         expect(page.pathname).toBe("/oauth/consent");
         expect(page.searchParams.get("client_id")).toBe(client);
         expect(page.searchParams.get("code_challenge")).toBe(asked.code_challenge);
+        // An app that says what its tokens are for says this server's MCP endpoint.
+        const meant = yield* authorize({ ...asked, resource: `${server.issuer}/mcp` });
+        expect(meant.headers["location"]).toMatch(/^\/oauth\/consent\?/u);
+        for (const resource of ["https://elsewhere.example/mcp", server.issuer]) {
+          const refused = yield* authorize({ ...asked, resource });
+          expect(refused.status, resource).toBe(302);
+          expect(refused.headers["location"], resource).toMatch(
+            /^http:\/\/127\.0\.0\.1:9\/callback\?.*error=invalid_target/u,
+          );
+        }
 
         // Nothing is sent to an address the app did not register, nor for an app nobody knows.
         expect(
@@ -231,7 +241,26 @@ for (const stores of Control.STORES) {
         });
         expect(stolen).toMatchObject({ status: 400, body: { error: "invalid_grant" } });
 
-        const redeemed = yield* redeem(yield* approve({ scopes: ["sessions:read"] }));
+        // Tokens for anything but this server's MCP endpoint are refused, and the code is
+        // still the app's to exchange for what there is.
+        const meant = yield* approve({ scopes: ["sessions:read"] });
+        const elsewhere = yield* exchange({
+          grant_type: "authorization_code",
+          code: meant,
+          client_id: client,
+          redirect_uri: REDIRECT,
+          code_verifier: VERIFIER,
+          resource: "https://elsewhere.example/mcp",
+        });
+        expect(elsewhere).toMatchObject({ status: 400, body: { error: "invalid_target" } });
+        const redeemed = yield* exchange({
+          grant_type: "authorization_code",
+          code: meant,
+          client_id: client,
+          redirect_uri: REDIRECT,
+          code_verifier: VERIFIER,
+          resource: `${control.url}/mcp`,
+        });
         expect(redeemed.status).toBe(200);
         tokens = yield* Schema.decodeUnknownEffect(Issued)(redeemed.body);
         expect(tokens).toMatchObject({ token_type: "Bearer", scope: "sessions:read" });
@@ -282,7 +311,20 @@ for (const stores of Control.STORES) {
         const control = yield* Control.Control;
         const refresh = (token: string) =>
           exchange({ grant_type: "refresh_token", refresh_token: token, client_id: client });
-        const next = yield* refresh(tokens.refresh_token);
+        expect(
+          yield* exchange({
+            grant_type: "refresh_token",
+            refresh_token: tokens.refresh_token,
+            client_id: client,
+            resource: "https://elsewhere.example/mcp",
+          }),
+        ).toMatchObject({ status: 400, body: { error: "invalid_target" } });
+        const next = yield* exchange({
+          grant_type: "refresh_token",
+          refresh_token: tokens.refresh_token,
+          client_id: client,
+          resource: `${control.url}/mcp`,
+        });
         expect(next.status).toBe(200);
         const fresh = yield* Schema.decodeUnknownEffect(Issued)(next.body);
         expect(fresh.access_token).not.toBe(tokens.access_token);
@@ -293,6 +335,9 @@ for (const stores of Control.STORES) {
         expect(
           (yield* Schema.decodeUnknownEffect(Refused)((yield* refresh("nobody's")).body)).error,
         ).toBe("invalid_grant");
+        // The app's own second try, right after the first, takes nothing from the first:
+        // the grant is there, and the tokens it got are good.
+        expect((yield* asPerson("GET", "/oauth/grants")).body).toHaveLength(1);
         tokens = fresh;
         const account = yield* request(
           control.url,

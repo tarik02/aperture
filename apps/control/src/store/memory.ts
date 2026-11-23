@@ -47,7 +47,7 @@ export interface MemoryShape {
   /** By the code's digest. */
   readonly oauthCodes: Map<string, NewCode>;
   /** By the token's digest. */
-  readonly oauthTokens: Map<string, NewToken>;
+  readonly oauthTokens: Map<string, NewToken & { readonly spentAt: Date | null }>;
 }
 
 export class Memory extends Context.Service<Memory, MemoryShape>()(

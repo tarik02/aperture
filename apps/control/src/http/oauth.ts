@@ -37,6 +37,7 @@ const Authorization = Schema.Struct({
   scope: Schema.optional(Schema.String),
   code_challenge: Schema.optional(Schema.String),
   code_challenge_method: Schema.optional(Schema.String),
+  resource: Schema.optional(Schema.String),
 });
 
 const Exchange = Schema.Union([
@@ -46,11 +47,13 @@ const Exchange = Schema.Union([
     client_id: Schema.String,
     redirect_uri: Schema.String,
     code_verifier: Schema.String,
+    resource: Schema.optional(Schema.String),
   }),
   Schema.Struct({
     grant_type: Schema.Literal("refresh_token"),
     refresh_token: Schema.String,
     client_id: Schema.String,
+    resource: Schema.optional(Schema.String),
   }),
 ]);
 
@@ -87,6 +90,14 @@ export const layer = HttpRouter.use(
   Effect.fn(function* (router) {
     const grants = yield* Grants;
     const settings = yield* Settings;
+
+    /**
+     * Whether what a client says its tokens are for (RFC 8707) is what this gives them for:
+     * the MCP endpoint and nothing else. One that says nothing is from before clients did.
+     */
+    const meant = (request: HttpServerRequest.HttpServerRequest, resource: string | undefined) =>
+      resource === undefined || resource === `${originOf(settings, request)}${MCP_PATH}`;
+    const NOT_MEANT = "tokens are given for this server's MCP endpoint and nothing else";
 
     const resourceMetadata = (request: HttpServerRequest.HttpServerRequest) => {
       const origin = originOf(settings, request);
@@ -169,6 +180,11 @@ export const layer = HttpRouter.use(
           );
           return HttpServerResponse.redirect(back);
         }
+        if (!meant(request, asked.resource)) {
+          back.searchParams.set("error", "invalid_target");
+          back.searchParams.set("error_description", NOT_MEANT);
+          return HttpServerResponse.redirect(back);
+        }
         const query = request.url.slice(request.url.indexOf("?"));
         return HttpServerResponse.redirect(`${CONSENT_PATH}${query}`);
       },
@@ -184,8 +200,11 @@ export const layer = HttpRouter.use(
     );
 
     const token = Effect.fn("OAuth.http.token")(
-      function* () {
+      function* (request: HttpServerRequest.HttpServerRequest) {
         const asked = yield* HttpServerRequest.schemaBodyUrlParams(Exchange);
+        if (!meant(request, asked.resource)) {
+          return refused("invalid_target", NOT_MEANT);
+        }
         return issued(
           asked.grant_type === "authorization_code"
             ? yield* grants.exchange({

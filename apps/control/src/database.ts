@@ -141,9 +141,9 @@ const initial = statements([
     client_id uuid NOT NULL REFERENCES oauth_clients (id) ON DELETE CASCADE,
     scopes jsonb NOT NULL,
     resources jsonb,
-    created_at timestamptz NOT NULL
+    created_at timestamptz NOT NULL,
+    UNIQUE (account_id, client_id)
   )`,
-  `CREATE INDEX oauth_grants_account_id ON oauth_grants (account_id)`,
   `CREATE TABLE oauth_codes (
     code_hash text PRIMARY KEY,
     grant_id uuid NOT NULL REFERENCES oauth_grants (id) ON DELETE CASCADE,
@@ -155,7 +155,8 @@ const initial = statements([
     token_hash text PRIMARY KEY,
     grant_id uuid NOT NULL REFERENCES oauth_grants (id) ON DELETE CASCADE,
     kind text NOT NULL CHECK (kind IN ('access', 'refresh')),
-    expires_at timestamptz NOT NULL
+    expires_at timestamptz NOT NULL,
+    spent_at timestamptz
   )`,
   `CREATE INDEX oauth_tokens_grant_id ON oauth_tokens (grant_id)`,
   // A link's secret is kept as its digest: whoever reads the database gets into no session.
