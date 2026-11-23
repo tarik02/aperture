@@ -78,7 +78,7 @@ Then wait for the person to say they are done; `snapshot` shows what they left.
 
 ### Route the session's network
 
-`sessions.set_proxy` replaces the session's routing; `sessions.proxy` reads it; `null` turns it off. The first rule whose `match` (`host`, `host:port`, `*.suffix`, `*`) fits decides, by `via`: `direct`, `refuse`, `local`, an upstream's name, or a proxy URL.
+`sessions.set_proxy` replaces the session's routing; `sessions.proxy` reads it; `null` turns it off. The first rule whose `match` (`host`, `host:port`, `*.suffix`, `*`, an address, a network such as `10.0.0.0/8`, IPv6 with a port as `[::1]:443`) fits decides, by `via`: `direct`, `refuse`, `local`, an upstream's name, or a proxy URL.
 
 ```json
 {"upstreams": {"exit": {"url": "socks5://user:pass@proxy.example:1080"}},
