@@ -18,7 +18,7 @@
 
 use std::{
     collections::HashMap,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     path::Path,
     sync::{Arc, Mutex, RwLock},
     time::Duration,
@@ -71,12 +71,44 @@ impl Policy {
     }
 
     fn permits(&self, address: IpAddr) -> bool {
-        // An IPv4 address in IPv6's clothes is the IPv4 address.
-        let address = match address {
-            IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(address, IpAddr::V4),
-            v4 => v4,
-        };
-        !is_local(address) || self.allow.iter().any(|network| network.contains(&address))
+        let address = plain(address);
+        // An address that carries an IPv4 address is where a translator at the node's
+        // network takes it: it is as local as the address it carries, and as allowed.
+        let reached = carried(address).map_or(address, IpAddr::V4);
+        let allowed = |address| self.allow.iter().any(|network| network.contains(&address));
+        !(is_local(address) || is_local(reached)) || allowed(address) || allowed(reached)
+    }
+}
+
+/// An IPv4 address in IPv6's clothes is the IPv4 address: `::ffff:a.b.c.d`, and
+/// `::a.b.c.d` as it was written before that.
+fn plain(address: IpAddr) -> IpAddr {
+    let IpAddr::V6(v6) = address else {
+        return address;
+    };
+    if let Some(v4) = v6.to_ipv4_mapped() {
+        return IpAddr::V4(v4);
+    }
+    match v6.segments() {
+        // `::` and `::1` are IPv6's own.
+        [0, 0, 0, 0, 0, 0, high, low] if (high, low) != (0, 0) && (high, low) != (0, 1) => {
+            IpAddr::V4(Ipv4Addr::from((u32::from(high) << 16) | u32::from(low)))
+        }
+        _ => address,
+    }
+}
+
+/// The IPv4 address an IPv6 address is translated to on its way: NAT64's `64:ff9b::/96`
+/// and 6to4's `2002::/16`.
+fn carried(address: IpAddr) -> Option<Ipv4Addr> {
+    let IpAddr::V6(v6) = address else {
+        return None;
+    };
+    match v6.segments() {
+        [0x64, 0xff9b, 0, 0, 0, 0, high, low] | [0x2002, high, low, ..] => {
+            Some(Ipv4Addr::from((u32::from(high) << 16) | u32::from(low)))
+        }
+        _ => None,
     }
 }
 
@@ -84,14 +116,22 @@ impl Policy {
 fn is_local(address: IpAddr) -> bool {
     match address {
         IpAddr::V4(v4) => {
+            let [first, second, third, _] = v4.octets();
             v4.is_loopback()
                 || v4.is_private()
                 || v4.is_link_local()
-                || v4.is_unspecified()
                 || v4.is_broadcast()
                 || v4.is_multicast()
+                // "This network", which is this machine to a socket.
+                || first == 0
                 // Shared address space, as carrier-grade NATs and overlay networks use.
-                || Ipv4Addr::new(100, 64, 0, 0) == Ipv4Addr::from(u32::from(v4) & 0xffc0_0000)
+                || (first == 100 && second & 0xc0 == 64)
+                // What protocols were assigned, and what networks are measured on: both
+                // are a network's own to route.
+                || (first, second, third) == (192, 0, 0)
+                || (first == 198 && second & 0xfe == 18)
+                // Reserved, which nothing on the internet is.
+                || first >= 240
         }
         IpAddr::V6(v6) => {
             v6.is_loopback()
@@ -99,7 +139,10 @@ fn is_local(address: IpAddr) -> bool {
                 || v6.is_multicast()
                 || v6.is_unique_local()
                 || v6.is_unicast_link_local()
-                || v6 == Ipv6Addr::UNSPECIFIED
+                // Site-local, as it was before unique local addresses.
+                || v6.segments()[0] & 0xffc0 == 0xfec0
+                // NAT64 for a network's own use.
+                || matches!(v6.segments(), [0x64, 0xff9b, 1, ..])
         }
     }
 }
@@ -445,4 +488,118 @@ async fn http_connect<S: Io>(
         bail!("the proxy answered {status:?}");
     }
     Ok(stream)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn what_is_the_nodes_or_its_networks_is_refused_and_the_internet_is_not() {
+        let policy = Policy::new(&[]).unwrap();
+        let table = [
+            ("127.0.0.1", false),
+            ("127.255.255.254", false),
+            ("0.0.0.0", false),
+            ("0.1.2.3", false),
+            ("10.0.0.1", false),
+            ("10.255.255.255", false),
+            ("172.16.0.1", false),
+            ("172.31.255.255", false),
+            ("192.168.0.1", false),
+            ("169.254.169.254", false),
+            ("169.254.0.1", false),
+            ("100.64.0.1", false),
+            ("100.127.255.255", false),
+            ("192.0.0.8", false),
+            ("198.18.0.1", false),
+            ("198.19.255.255", false),
+            ("224.0.0.1", false),
+            ("240.0.0.1", false),
+            ("255.255.255.255", false),
+            ("::", false),
+            ("::1", false),
+            ("fe80::1", false),
+            ("fec0::1", false),
+            ("fc00::1", false),
+            ("fd12:3456::1", false),
+            ("ff02::1", false),
+            // An IPv4 address in IPv6's clothes.
+            ("::ffff:127.0.0.1", false),
+            ("::ffff:10.0.0.1", false),
+            ("::ffff:169.254.169.254", false),
+            ("::127.0.0.1", false),
+            ("::10.0.0.1", false),
+            // What a translator takes to an IPv4 address: the metadata address of a cloud
+            // on a network that has IPv6 alone is the first of these.
+            ("64:ff9b::a9fe:a9fe", false),
+            ("64:ff9b::7f00:1", false),
+            ("64:ff9b::10.0.0.1", false),
+            ("64:ff9b:1::1", false),
+            ("2002:7f00:1::1", false),
+            ("2002:a00:1::1", false),
+            ("2002:c0a8:101::1", false),
+            // The internet, to the edges of the ranges above.
+            ("1.1.1.1", true),
+            ("9.255.255.255", true),
+            ("11.0.0.1", true),
+            ("100.63.255.255", true),
+            ("100.128.0.1", true),
+            ("126.255.255.255", true),
+            ("128.0.0.1", true),
+            ("169.253.255.255", true),
+            ("169.255.0.1", true),
+            ("172.15.255.255", true),
+            ("172.32.0.1", true),
+            ("192.0.1.1", true),
+            ("192.167.255.255", true),
+            ("192.169.0.1", true),
+            ("198.17.255.255", true),
+            ("198.20.0.1", true),
+            ("223.255.255.255", true),
+            ("2606:4700:4700::1111", true),
+            ("2001:4860:4860::8888", true),
+            ("::ffff:1.1.1.1", true),
+            ("::1.1.1.1", true),
+            ("64:ff9b::101:101", true),
+            ("2002:101:101::1", true),
+        ];
+        for (address, permitted) in table {
+            assert_eq!(
+                policy.permits(address.parse().unwrap()),
+                permitted,
+                "{address}"
+            );
+        }
+    }
+
+    #[test]
+    fn what_a_node_allows_is_reached_although_it_is_local() {
+        let allow = ["10.1.0.0/16", "127.0.0.1", "fd00:1::/64"].map(String::from);
+        let policy = Policy::new(&allow).unwrap();
+        let table = [
+            ("10.1.2.3", true),
+            ("10.2.0.1", false),
+            ("127.0.0.1", true),
+            ("127.0.0.2", false),
+            ("fd00:1::7", true),
+            ("fd00:2::7", false),
+            // In whatever clothes it comes.
+            ("::ffff:10.1.2.3", true),
+            ("::ffff:10.2.0.1", false),
+            ("64:ff9b::a01:203", true),
+            ("64:ff9b::a02:1", false),
+            ("192.168.1.1", false),
+            ("1.1.1.1", true),
+        ];
+        for (address, permitted) in table {
+            assert_eq!(
+                policy.permits(address.parse().unwrap()),
+                permitted,
+                "{address}"
+            );
+        }
+        assert!(Policy::new(&["10.1.0.0/33".to_owned()]).is_err());
+        assert!(Policy::new(&["a.example".to_owned()]).is_err());
+    }
 }
