@@ -104,6 +104,12 @@ export interface Tab {
   readonly evaluate: Cdp.Evaluate;
   /** Goes to an address and gives the title of what is there once it is loaded. */
   readonly open: (url: string) => Effect.Effect<string, Cdp.CdpError | TimedOut>;
+  /**
+   * Goes to an address and tells whether what loaded is of the site it names: a page that
+   * did not load is the browser's own, of no site. What the site answers with is the
+   * site's to say, and not always its page to a machine that asks often.
+   */
+  readonly reaches: (url: string) => Effect.Effect<boolean, Cdp.CdpError | TimedOut>;
 }
 
 export const firstTab = (runner: RunnerService) =>
@@ -126,7 +132,16 @@ export const firstTab = (runner: RunnerService) =>
         );
         return yield* page.evaluate("document.title", Schema.String);
       });
-    return { evaluate: page.evaluate, open } satisfies Tab;
+    const reaches: Tab["reaches"] = (url) =>
+      open(url).pipe(
+        Effect.andThen(
+          page.evaluate(
+            `location.hostname === ${JSON.stringify(new URL(url).hostname)}`,
+            Schema.Boolean,
+          ),
+        ),
+      );
+    return { evaluate: page.evaluate, open, reaches } satisfies Tab;
   });
 
 /**

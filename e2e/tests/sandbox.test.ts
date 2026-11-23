@@ -161,10 +161,7 @@ suite(Runner.layer({ features: ["cdp"] }))("what a session's browser sees", (it)
   it.effect("a page loads over HTTPS", () =>
     Effect.gen(function* () {
       const tab = yield* firstTab(yield* Runner.Runner);
-      yield* tab.open("https://example.com/");
-      // Whatever the site answers with, which is not always its page to one that asks
-      // often: a page that did not load is the browser's own, of no site.
-      expect(yield* tab.evaluate("location.origin", Schema.String)).toBe("https://example.com");
+      expect(yield* tab.reaches("https://example.com/")).toBe(true);
     }),
   );
 

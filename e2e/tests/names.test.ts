@@ -86,6 +86,13 @@ const open = (url: string) =>
     return yield* tab.open(url);
   });
 
+/** Goes to an address in the session's first tab; whether what loaded is of that site. */
+const reaches = (url: string) =>
+  Effect.gen(function* () {
+    const tab = yield* firstTab(yield* Runner.Runner);
+    return yield* tab.reaches(url);
+  });
+
 /** Evaluates in the page the session's first tab shows. */
 const inPage = (expression: string) =>
   Effect.gen(function* () {
@@ -137,7 +144,7 @@ suite(sessionWith([]))("names, records and TLS the session answers", (it) => {
 
   it.effect("other sites keep their own certificates", () =>
     Effect.gen(function* () {
-      expect(yield* open("https://example.com/")).toBe("Example Domain");
+      expect(yield* reaches("https://example.com/")).toBe(true);
     }),
   );
 
@@ -151,7 +158,7 @@ suite(sessionWith([]))("names, records and TLS the session answers", (it) => {
     Effect.gen(function* () {
       const taken = yield* configure({ dns: { servers: ["192.0.2.1"] } });
       expect(taken.status, JSON.stringify(taken.body)).toBe(204);
-      expect(yield* open("http://example.net/")).not.toBe("Example Domain");
+      expect(yield* reaches("http://example.net/")).toBe(false);
     }),
   );
 
@@ -159,7 +166,7 @@ suite(sessionWith([]))("names, records and TLS the session answers", (it) => {
     Effect.gen(function* () {
       const taken = yield* configure({ dns: { servers: ["1.1.1.1"] } });
       expect(taken.status, JSON.stringify(taken.body)).toBe(204);
-      expect(yield* open("http://example.net/")).toBe("Example Domain");
+      expect(yield* reaches("http://example.net/")).toBe(true);
     }),
   );
 

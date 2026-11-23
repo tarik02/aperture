@@ -18,10 +18,10 @@ const sessionWith = (network: readonly string[]) =>
 
 const withoutOwnNetwork = await Effect.runPromise(lacksOwnNetwork.pipe(Effect.provide(platform)));
 
-/** The title of a page that came through the session's proxy. */
+/** Whether a page of a site comes through the session's proxy. */
 const pageLoads = Effect.gen(function* () {
   const tab = yield* firstTab(yield* Runner.Runner);
-  return yield* tab.open("https://example.com/");
+  return yield* tab.reaches("https://example.com/");
 });
 
 /** The kinds of ICE candidates the page gathers; `srflx` where a STUN server answered. */
@@ -39,7 +39,7 @@ const aroundTheProxy = Effect.gen(function* () {
 suite(sessionWith([]))("a browser with proxied TCP and no UDP, as sessions have it", (it) => {
   it.effect("pages load", () =>
     Effect.gen(function* () {
-      expect(yield* pageLoads).toBe("Example Domain");
+      expect(yield* pageLoads).toBe(true);
     }),
   );
 
@@ -63,7 +63,7 @@ suite(sessionWith(["--network-tcp", "direct", "--network-udp", "direct"]))(
       "the session starts and pages load, through the proxy",
       () =>
         Effect.gen(function* () {
-          expect(yield* pageLoads).toBe("Example Domain");
+          expect(yield* pageLoads).toBe(true);
         }),
     );
 
@@ -88,7 +88,7 @@ suite(sessionWith(["--network-udp", "direct"]))(
       "the session starts and pages load, through the proxy",
       () =>
         Effect.gen(function* () {
-          expect(yield* pageLoads).toBe("Example Domain");
+          expect(yield* pageLoads).toBe(true);
         }),
     );
 
@@ -109,7 +109,7 @@ suite(sessionWith(["--network-udp", "direct"]))(
 suite(sessionWith(["--network-tcp", "direct"]))("a browser with direct TCP and no UDP", (it) => {
   it.effect.skipIf(withoutOwnNetwork)("pages load, through the proxy", () =>
     Effect.gen(function* () {
-      expect(yield* pageLoads).toBe("Example Domain");
+      expect(yield* pageLoads).toBe(true);
     }),
   );
 

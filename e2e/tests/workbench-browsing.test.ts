@@ -107,7 +107,9 @@ suite(session)("the workbench, for browsing", (it) => {
     Effect.gen(function* () {
       yield* goTo(page, "example.com");
       expect(yield* arrives(page, typed, "https://example.com")).toBe(true);
-      expect(yield* comes(page, `${titleOf(typed)} === "Example Domain"`)).toBe(true);
+      // By the title its page has, whatever the site answers with, and not by its address.
+      const told = `(() => { const title = ${titleOf(typed)}; return !!title && title !== "New Tab" && !title.includes("example.com"); })()`;
+      expect(yield* comes(page, told)).toBe(true);
       const shown = yield* happens(
         page.evaluate(
           "document.querySelector('[data-workbench-address]').value.startsWith('https://example.com')",
