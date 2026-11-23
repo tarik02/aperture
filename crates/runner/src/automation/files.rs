@@ -12,7 +12,12 @@ use browse_core::{Tool, ToolContext, ToolOutput, ToolSpec};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::files::{self, UPLOADS};
+use rustix::fs::FileType;
+
+use crate::{
+    beneath::Beneath,
+    files::{self, UPLOADS},
+};
 
 /// The directories of the session's files, as a file's `path` begins.
 const DIRECTORIES: [&str; 4] = ["recordings", "screenshots", "downloads", UPLOADS];
@@ -88,9 +93,10 @@ impl Tool for FilesTool {
                 };
                 let root = self.0.clone();
                 let mut listed = tokio::task::spawn_blocking(move || {
+                    let files = Beneath::open(&root)?;
                     let mut listed = Vec::new();
                     for directory in directories {
-                        list(&root, Path::new(directory), &mut listed)?;
+                        list(&root, &files, Path::new(directory), &mut listed)?;
                     }
                     std::io::Result::Ok(listed)
                 })
@@ -108,9 +114,11 @@ impl Tool for FilesTool {
                     .strip_prefix(UPLOADS)
                     .and_then(|name| name.strip_prefix('/'))
                     .context("only an upload is deleted: `uploads/<name>`")?;
-                let file = files::named(&self.0.join(UPLOADS), name)
-                    .context("that is no upload's name")?;
-                match tokio::fs::remove_file(&file).await {
+                files::named(&self.0.join(UPLOADS), name).context("that is no upload's name")?;
+                let removed = Beneath::open(&self.0)
+                    .and_then(|files| files.directory(Path::new(UPLOADS)))
+                    .and_then(|uploads| uploads.remove(name));
+                match removed {
                     Ok(()) => Ok(ToolOutput::text(json!({ "deleted": path }).to_string())),
                     Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                         bail!("no upload {name}; `files` lists the uploads there are")
@@ -124,39 +132,36 @@ impl Tool for FilesTool {
 }
 
 /// The files below `directory` of the session's files, those in its own directories too.
-/// What a name hides, as a file that is still being written, is left out.
-fn list(root: &Path, directory: &Path, listed: &mut Vec<Listed>) -> std::io::Result<()> {
-    let entries = match std::fs::read_dir(root.join(directory)) {
+/// What a name hides, as a file that is still being written, is left out. A link is
+/// followed nowhere: what is listed is what is in the session's files.
+fn list(
+    root: &Path,
+    files: &Beneath,
+    directory: &Path,
+    listed: &mut Vec<Listed>,
+) -> std::io::Result<()> {
+    let entries = match files.directory(directory).and_then(|held| held.entries()) {
         Ok(entries) => entries,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(err) => return Err(err),
+        // Not there, or not a directory of the session's files: a link put in its place.
+        Err(_) => return Ok(()),
     };
     for entry in entries {
-        let entry = entry?;
-        let name = entry.file_name();
-        let Some(name) = name.to_str().filter(|name| !name.starts_with('.')) else {
+        if entry.name.starts_with('.') {
             continue;
-        };
-        let below = directory.join(name);
-        // A link is followed nowhere: what is listed is what is in the session's files.
-        let metadata = match entry.metadata() {
-            Ok(metadata) => metadata,
-            // Removed since it was listed.
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(err) => return Err(err),
-        };
-        if metadata.is_dir() {
-            list(root, &below, listed)?;
-        } else if metadata.is_file() {
-            let modified = metadata.modified().ok();
-            listed.push(Listed {
+        }
+        let below = directory.join(&entry.name);
+        match entry.kind {
+            FileType::Directory => list(root, files, &below, listed)?,
+            FileType::RegularFile => listed.push(Listed {
                 path: below.to_string_lossy().into_owned(),
-                size: metadata.len(),
-                modified_ms: modified
-                    .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+                size: entry.size,
+                modified_ms: entry
+                    .modified
+                    .duration_since(UNIX_EPOCH)
                     .map_or(0, |since| since.as_millis() as u64),
                 absolute: root.join(&below),
-            });
+            }),
+            _ => {}
         }
     }
     Ok(())

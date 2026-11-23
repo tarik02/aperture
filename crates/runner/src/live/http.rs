@@ -19,6 +19,7 @@ use axum::{
 };
 use futures_util::StreamExt;
 use percent_encoding::percent_decode_str;
+use rustix::fs::FileType;
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncWriteExt, sync::watch};
 use tracing::warn;
@@ -36,6 +37,7 @@ use super::{
 };
 use crate::{
     automation::Automation,
+    beneath::Beneath,
     cdp,
     egress::Egress,
     files::{self, Download, Progress, UPLOADS},
@@ -285,21 +287,14 @@ async fn file(
     headers: HeaderMap,
 ) -> Result<Response, Refusal> {
     let below = Path::new(&path);
-    let plain = below
-        .components()
-        .all(|part| matches!(part, std::path::Component::Normal(_)));
     let name = below.file_name().and_then(|name| name.to_str());
-    let Some(name) = name.filter(|_| plain) else {
+    let opened = Beneath::open(&live.files).and_then(|files| files.file(below));
+    let (Some(name), Ok(file)) = (name, opened) else {
+        // Whatever is no file of the session's is not there: a directory, a link, a pipe,
+        // a path that leads out of the files.
         return Err(Refusal::not_found("no such file"));
     };
-    let file = match tokio::fs::File::open(live.files.join(below)).await {
-        Ok(file) if file.metadata().await?.is_file() => file,
-        Ok(_) => return Err(Refusal::not_found("no such file")),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            return Err(Refusal::not_found("no such file"));
-        }
-        Err(err) => return Err(err.into()),
-    };
+    let file = tokio::fs::File::from_std(file);
     Ok(served::file(&headers, file, name).await?)
 }
 
@@ -314,28 +309,25 @@ struct Uploaded {
 
 async fn uploads_list(State(live): State<Live>) -> Result<Json<Vec<Uploaded>>, Refusal> {
     let directory = live.files.join(UPLOADS);
-    let mut uploads = Vec::new();
-    let mut entries = match tokio::fs::read_dir(&directory).await {
+    let entries = Beneath::open(&live.files)
+        .and_then(|files| files.directory(Path::new(UPLOADS)))
+        .and_then(|uploads| uploads.entries());
+    let entries = match entries {
         Ok(entries) => entries,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Json(uploads)),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Json(Vec::new())),
         Err(err) => return Err(err.into()),
     };
-    while let Some(entry) = entries.next_entry().await? {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        let metadata = match entry.metadata().await {
-            Ok(metadata) => metadata,
-            // Removed since it was listed.
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(err) => return Err(err.into()),
-        };
-        if metadata.is_file() && files::named(&directory, &name).is_some() {
-            uploads.push(Uploaded {
-                path: entry.path(),
-                name,
-                size: metadata.len(),
-            });
-        }
-    }
+    let mut uploads: Vec<Uploaded> = entries
+        .into_iter()
+        .filter(|entry| entry.kind == FileType::RegularFile)
+        .filter_map(|entry| {
+            Some(Uploaded {
+                path: files::named(&directory, &entry.name)?,
+                name: entry.name,
+                size: entry.size,
+            })
+        })
+        .collect();
     uploads.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(Json(uploads))
 }
@@ -347,14 +339,13 @@ async fn upload(
     RoutePath(name): RoutePath<String>,
     body: Body,
 ) -> Result<Json<Uploaded>, Refusal> {
-    let directory = live.files.join(UPLOADS);
-    let path =
-        files::named(&directory, &name).ok_or_else(|| Refusal::bad_request("not a file name"))?;
+    let path = files::named(&live.files.join(UPLOADS), &name)
+        .ok_or_else(|| Refusal::bad_request("not a file name"))?;
+    let uploads = Beneath::open(&live.files)?.directory_made(UPLOADS)?;
     // Under a name no listing shows until the file is whole.
-    let partial = directory.join(format!(".{name}.part"));
+    let partial = format!(".{name}.part");
     let written = async {
-        tokio::fs::create_dir_all(&directory).await?;
-        let mut file = tokio::fs::File::create(&partial).await?;
+        let mut file = tokio::fs::File::from_std(uploads.create(&partial)?);
         let mut chunks = body.into_data_stream();
         let mut size = 0;
         while let Some(chunk) = chunks.next().await {
@@ -366,7 +357,7 @@ async fn upload(
             file.write_all(&chunk).await?;
         }
         file.flush().await?;
-        tokio::fs::rename(&partial, &path).await?;
+        uploads.rename(&partial, &name)?;
         std::io::Result::Ok(Some(size))
     };
     let size = match written.await {
@@ -377,10 +368,10 @@ async fn upload(
         )),
         Err(err) => Err(err.into()),
     };
-    match tokio::fs::remove_file(&partial).await {
+    match uploads.remove(&partial) {
         Ok(()) => {}
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-        Err(err) => warn!(file = ?partial, %err, "what came of an upload is left behind"),
+        Err(err) => warn!(file = %partial, %err, "what came of an upload is left behind"),
     }
     size
 }
@@ -389,9 +380,12 @@ async fn upload_remove(
     State(live): State<Live>,
     RoutePath(name): RoutePath<String>,
 ) -> Result<StatusCode, Refusal> {
-    let path = files::named(&live.files.join(UPLOADS), &name)
+    files::named(&live.files.join(UPLOADS), &name)
         .ok_or_else(|| Refusal::bad_request("not a file name"))?;
-    match tokio::fs::remove_file(&path).await {
+    let removed = Beneath::open(&live.files)
+        .and_then(|files| files.directory(Path::new(UPLOADS)))
+        .and_then(|uploads| uploads.remove(&name));
+    match removed {
         Ok(()) => Ok(StatusCode::NO_CONTENT),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             Err(Refusal::not_found("no such upload"))

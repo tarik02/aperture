@@ -1,5 +1,6 @@
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as Layer from "effect/Layer";
@@ -115,5 +116,66 @@ suite(session)("what a session's files are served as", (it) => {
       expect(shown.headers["content-type"]).toContain("text/html");
       expect(shown.headers["content-security-policy"] ?? "").not.toContain("sandbox");
     }),
+  );
+
+  it.effect("a link among the files leads nowhere: what it points to is not read", () =>
+    Effect.gen(function* () {
+      const runner = yield* Runner.Runner;
+      const fs = yield* FileSystem.FileSystem;
+      // As what runs in the session's sandbox would leave them, which has the files to write.
+      const outside = `${runner.files}/..`;
+      yield* fs.symlink(`${outside}/token`, `${runner.files}/downloads/token`);
+      yield* fs.symlink(outside, `${runner.files}/downloads/outside`);
+      yield* fs.symlink("report.html", `${runner.files}/uploads/linked.html`);
+
+      for (const path of [
+        "/files/downloads/token",
+        "/files/downloads/outside/token",
+        "/files/uploads/linked.html",
+        "/files/uploads",
+        "/files/uploads/",
+        "/files/uploads/../../token",
+        "/files/uploads/..%2F..%2Ftoken",
+      ]) {
+        const answer = yield* served(runner, path);
+        expect([path, answer.status]).toEqual([path, 404]);
+        expect(answer.text).not.toContain(runner.token);
+      }
+      expect((yield* served(runner, "/files/uploads/report.html")).status).toBe(200);
+      const listed = yield* runner.request("GET", "/uploads");
+      expect(JSON.stringify(listed.body)).not.toContain("linked.html");
+    }),
+  );
+
+  it.effect(
+    "a link in place of the uploads takes no upload, and nothing is removed through it",
+    () =>
+      Effect.gen(function* () {
+        const runner = yield* Runner.Runner;
+        const fs = yield* FileSystem.FileSystem;
+        const elsewhere = `${runner.files}/../elsewhere`;
+        yield* fs.makeDirectory(elsewhere);
+        yield* fs.writeFileString(`${elsewhere}/kept.txt`, "kept\n");
+        yield* fs.rename(`${runner.files}/uploads`, `${runner.files}/uploads-before`);
+        yield* fs.symlink(elsewhere, `${runner.files}/uploads`);
+
+        expect((yield* put(runner, "planted.txt", "planted\n")).status).not.toBe(200);
+        expect(yield* fs.exists(`${elsewhere}/planted.txt`)).toBe(false);
+        expect(yield* fs.exists(`${elsewhere}/.planted.txt.part`)).toBe(false);
+        expect((yield* runner.request("DELETE", "/uploads/kept.txt")).status).not.toBe(204);
+        expect(yield* fs.readFileString(`${elsewhere}/kept.txt`)).toBe("kept\n");
+        expect(JSON.stringify((yield* runner.request("GET", "/uploads")).body)).not.toContain(
+          "kept.txt",
+        );
+
+        // A link where an upload goes is replaced, and what it points to stays as it was.
+        yield* fs.remove(`${runner.files}/uploads`);
+        yield* fs.rename(`${runner.files}/uploads-before`, `${runner.files}/uploads`);
+        yield* fs.symlink(`${elsewhere}/kept.txt`, `${runner.files}/uploads/over.txt`);
+        yield* fs.symlink(`${elsewhere}/kept.txt`, `${runner.files}/uploads/.over.txt.part`);
+        expect((yield* put(runner, "over.txt", "over\n")).status).toBe(200);
+        expect(yield* fs.readFileString(`${elsewhere}/kept.txt`)).toBe("kept\n");
+        expect((yield* served(runner, "/files/uploads/over.txt")).text).toBe("over\n");
+      }),
   );
 });

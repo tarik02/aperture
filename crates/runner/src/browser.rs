@@ -101,6 +101,12 @@ impl Given<'_> {
     }
 }
 
+/// The directories of the session's files that are written from outside the sandbox: what
+/// is recorded and what is shot. The browser reads them and writes neither, so nothing in
+/// its sandbox puts a link where a recording or a picture is about to be written, which
+/// would be written wherever the link points, with the reach of whoever runs the session.
+const KEPT_FROM_OUTSIDE: [&str; 2] = ["recordings", "screenshots"];
+
 /// Starts the browser in its sandbox. The browser runs with `--no-sandbox`, so this one is
 /// what stands between a compromised renderer and the other sessions: it sees its own
 /// profile, cache and files, the sockets of the display, of the extension's host and of its
@@ -312,7 +318,27 @@ fn sandbox(command: &mut Command, spec: &Spec, given: &Given, home: &Path) -> an
         // a page is to upload by their paths.
         .arg("--bind")
         .arg(&spec.files_dir)
-        .arg(&spec.files_dir)
+        .arg(&spec.files_dir);
+    for kept in KEPT_FROM_OUTSIDE {
+        let directory = spec.files_dir.join(kept);
+        // A directory of this session's own making, whatever an earlier run of its
+        // browser left under the name.
+        match fs::symlink_metadata(&directory) {
+            Ok(there) if there.is_dir() => {}
+            Ok(_) => {
+                fs::remove_file(&directory)?;
+                fs::create_dir(&directory)?;
+            }
+            Err(_) => fs::create_dir_all(&directory)?,
+        }
+        for within in [Path::new(FILES), spec.files_dir.as_path()] {
+            command
+                .arg("--ro-bind")
+                .arg(&directory)
+                .arg(within.join(kept));
+        }
+    }
+    command
         .args(["--setenv", "TMPDIR", "/tmp"])
         // File names are UTF-8: without a locale that says so the browser crashes on a
         // file it is handed whose name has more than ASCII.

@@ -31,6 +31,7 @@ gstreamer-allocators = "0.25"
 gstreamer-video = { version = "0.25", features = ["v1_24"] }
 percent-encoding = "2"
 png = "0.18"
+rustix = { version = "1", features = ["fs"] }
 rmcp = { version = "3.9.0", features = ["server", "transport-streamable-http-server"] }
 str0m = { version = "0.24.1", default-features = false, features = ["openssl"] }
 thiserror.workspace = true
