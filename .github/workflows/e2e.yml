@@ -81,6 +81,13 @@ jobs:
 
       - name: The control plane, on a database and a node
         run: nix develop --command pnpm --filter @aperture-browser/control test
+      - uses: actions/upload-artifact@v7.0.1
+        if: failure()
+        with:
+          name: test-failures
+          path: test-failures/
+          if-no-files-found: ignore
+          retention-days: 14
 
   # One machine set up by the NixOS modules alone, which is how a node is installed.
   deployment:
