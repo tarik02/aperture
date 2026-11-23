@@ -92,6 +92,7 @@ async fn make(job: &Job) -> anyhow::Result<()> {
         }
     }
     if job.segments.len() > 1 {
+        cut(job).await?;
         let graph = graph(&job.segments, job.frame, &planned);
         tokio::fs::write(job.work.join("graph.txt"), graph).await?;
     }
@@ -102,20 +103,43 @@ async fn make(job: &Job) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The filters of a raw video whose picture changes size: every segment is read on its
-/// own up to where the next begins, put where it goes in the frame and back at its time,
-/// and the plan's chain takes them as one video.
+/// The file a segment of the raw video is cut into, in the job's directory.
+fn piece(index: usize) -> String {
+    format!("segment-{index}.mkv")
+}
+
+/// Cuts a raw video whose picture changes size into its segments, each a file of its own,
+/// without decoding it. Filters take one size, and ffmpeg settles on the size of what it
+/// gives them from whatever it has decoded by the time every input has a frame: an input
+/// that reads on into the next segment gets that one's size on some runs, and its picture
+/// is then cut and placed as one of that size. A segment begins with a keyframe, so it is
+/// a video by itself.
+async fn cut(job: &Job) -> anyhow::Result<()> {
+    let mut command = ffmpeg(job);
+    for (index, segment) in job.segments.iter().enumerate() {
+        command.args(["-an", "-ss", &format!("{}ms", segment.at_ms)]);
+        // What is copied ends where it is read, which what is decoded does not.
+        if let Some(next) = job.segments.get(index + 1) {
+            command.args(["-t", &format!("{}ms", next.at_ms - segment.at_ms)]);
+        }
+        command.args(READ).arg("-i").arg(&job.video);
+    }
+    for index in 0..job.segments.len() {
+        command.args(["-map", &format!("{index}:v:0"), "-c", "copy"]);
+        command.args(["-f", "matroska"]).arg(piece(index));
+    }
+    finish(job, command).await
+}
+
+/// The filters of a raw video whose picture changes size: every segment is put where it
+/// goes in the frame and back at its time, and the plan's chain takes them as one video.
 fn graph(segments: &[Segment], frame: Video, planned: &plan::Plan) -> String {
     let seconds = |ms: i64| ms as f64 / 1000.0;
     let mut graph = String::new();
     for (index, segment) in segments.iter().enumerate() {
         let (x, y) = segment.placed(frame);
-        graph += &format!("[{index}:v]");
-        if let Some(next) = segments.get(index + 1) {
-            graph += &format!("trim=end={:.3},", seconds(next.at_ms - segment.at_ms));
-        }
         graph += &format!(
-            "setpts=PTS+{at:.3}/TB,pad={width}:{height}:{x}:{y},setsar=1[s{index}];",
+            "[{index}:v]setpts=PTS+{at:.3}/TB,pad={width}:{height}:{x}:{y},setsar=1[s{index}];",
             at = seconds(segment.at_ms),
             width = frame.width,
             height = frame.height,
@@ -128,45 +152,17 @@ fn graph(segments: &[Segment], frame: Video, planned: &plan::Plan) -> String {
     graph
 }
 
-async fn render(job: &Job) -> anyhow::Result<()> {
+/// A video is read as the one container it is and from a file, so that nothing in it can
+/// name something else to read.
+const READ: [&str; 4] = ["-protocol_whitelist", "file", "-f", "matroska"];
+
+/// ffmpeg as the edit runs it: in the job's directory, with nothing of the runner's
+/// environment, and yielding to the session it runs beside.
+fn ffmpeg(job: &Job) -> Command {
     let mut command = Command::new(&job.ffmpeg);
-    command.args(["-hide_banner", "-nostdin", "-nostats", "-loglevel", "error"]);
-    // The video is read as the one container it is and from a file, so that nothing in it
-    // can name something else to read.
-    let read = ["-protocol_whitelist", "file", "-f", "matroska"];
-    if job.segments.len() > 1 {
-        // Filters take one size, so each segment is an input of its own, from its first
-        // frame, which is a keyframe. What ends it is in the graph, which is therefore
-        // not made anew as the next segment's size comes: that would forget the end.
-        for segment in &job.segments {
-            command.args(["-an", "-reinit_filter", "0"]);
-            command.args(["-ss", &format!("{}ms", segment.at_ms)]);
-            command.args(read).arg("-i").arg(&job.video);
-        }
-        // The sound is read whole, and filtered by itself: as a part of the graph its
-        // times come out of order.
-        let sound = format!("{}:a", job.segments.len());
-        command.arg("-vn").args(read).arg("-i").arg(&job.video);
-        command.args([
-            "-/filter_complex",
-            "graph.txt",
-            "-map",
-            "[v]",
-            "-map",
-            &sound,
-        ]);
-        command.args(["-/af", "sound.txt"]);
-    } else {
-        command.args(read).arg("-i").arg(&job.video);
-        command.args(["-/vf", "filter.txt", "-/af", "sound.txt"]);
-    }
     command
+        .args(["-hide_banner", "-nostdin", "-nostats", "-loglevel", "error"])
         .args(["-xerror", "-y"])
-        .args(["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"])
-        .args(["-c:a", "aac", "-b:a", "128k"])
-        .args(["-pix_fmt", "yuv420p", "-fps_mode", "passthrough"])
-        .args(["-movflags", "+faststart", "-f", "mp4"])
-        .arg(&job.edited)
         .current_dir(&job.work)
         .env_clear()
         .env("HOME", &job.work)
@@ -181,11 +177,48 @@ async fn render(job: &Job) -> anyhow::Result<()> {
     // exec.
     unsafe {
         command.pre_exec(|| {
-            // The edit yields to the session it runs beside.
             libc::setpriority(libc::PRIO_PROCESS, 0, 10);
             Ok(())
         });
     }
+    command
+}
+
+async fn render(job: &Job) -> anyhow::Result<()> {
+    let mut command = ffmpeg(job);
+    if job.segments.len() > 1 {
+        for index in 0..job.segments.len() {
+            command.args(READ).arg("-i").arg(piece(index));
+        }
+        // The sound is read whole, and filtered by itself: as a part of the graph its
+        // times come out of order.
+        let sound = format!("{}:a", job.segments.len());
+        command.arg("-vn").args(READ).arg("-i").arg(&job.video);
+        command.args([
+            "-/filter_complex",
+            "graph.txt",
+            "-map",
+            "[v]",
+            "-map",
+            &sound,
+        ]);
+        command.args(["-/af", "sound.txt"]);
+    } else {
+        command.args(READ).arg("-i").arg(&job.video);
+        command.args(["-/vf", "filter.txt", "-/af", "sound.txt"]);
+    }
+    command
+        .args(["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"])
+        .args(["-c:a", "aac", "-b:a", "128k"])
+        .args(["-pix_fmt", "yuv420p", "-fps_mode", "passthrough"])
+        .args(["-movflags", "+faststart", "-f", "mp4"])
+        .arg(&job.edited);
+    finish(job, command).await
+}
+
+/// Runs ffmpeg to its end, which it gets the longer for the longer the video is. What it
+/// said last tells why it failed.
+async fn finish(job: &Job, mut command: Command) -> anyhow::Result<()> {
     let mut ffmpeg = command.spawn().context("failed to start ffmpeg")?;
     let mut errors = ffmpeg.stderr.take().context("ffmpeg has no error output")?;
 

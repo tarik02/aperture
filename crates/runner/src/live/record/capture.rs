@@ -86,13 +86,21 @@ pub(super) async fn record(
         if !*decodable {
             return Ok(());
         }
+        // Never back in time: a tab the recording went on with may have drawn the picture
+        // it has before the tab that was left drew its last, and a file takes no frame
+        // that is earlier than the one before it. And a whole millisecond after the one
+        // before it: the file tells times in milliseconds, and the edit finds a segment's
+        // first frame by its time, which no other frame may have.
+        last = match first {
+            Some(began) => {
+                let since = packet.time.saturating_sub(began).as_millis() as u64;
+                Duration::from_millis(since).max(last + Duration::from_millis(1))
+            }
+            None => Duration::ZERO,
+        };
         let began = *first.get_or_insert(packet.time);
         // Set by the first frame, and the same after.
         let _ = journal.start.set(began);
-        // Never back in time: a tab the recording went on with may have drawn the picture
-        // it has before the tab that was left drew its last, and a file takes no frame
-        // that is earlier than the one before it.
-        last = last.max(packet.time.saturating_sub(began));
         let (width, height) = packet.size;
         if segments.last().map(|last| (last.width, last.height)) != Some(packet.size) {
             segments.push(Segment {
