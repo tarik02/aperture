@@ -89,13 +89,3 @@ export const makeEvents = Effect.fn("Events.make")(function* () {
 });
 
 export const layer = Layer.effect(Events, makeEvents());
-
-/** Events that keep nothing: for checks of what records them, and is not checked for it. */
-export const layerTest = Layer.succeed(
-  Events,
-  Events.of({
-    record: () => Effect.void,
-    list: () => Effect.succeed({ events: [], next: null }),
-    forget: () => Effect.void,
-  }),
-);

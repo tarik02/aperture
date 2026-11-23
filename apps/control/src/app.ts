@@ -7,17 +7,14 @@ import * as HttpStaticServer from "effect/http/HttpStaticServer";
 import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
 import * as Accounts from "./accounts/layer.ts";
-import * as AccountsStoreMemory from "./accounts/store-memory.ts";
 import * as AccountsStoreSql from "./accounts/store-sql.ts";
 import * as Database from "./database.ts";
 import * as EventsForgetting from "./events/forgetting.ts";
 import * as Events from "./events/layer.ts";
-import * as EventsStoreMemory from "./events/store-memory.ts";
 import * as EventsStoreSql from "./events/store-sql.ts";
 import * as Following from "./following.ts";
 import * as Forgetting from "./grants/forgetting.ts";
 import * as Grants from "./grants/layer.ts";
-import * as GrantsStoreMemory from "./grants/store-memory.ts";
 import * as GrantsStoreSql from "./grants/store-sql.ts";
 import * as Authorization from "./http/authorization.ts";
 import * as Handlers from "./http/handlers.ts";
@@ -30,27 +27,20 @@ import * as SessionTools from "./mcp/layer.ts";
 import * as RoutingRoutes from "./http/routing.ts";
 import * as ShareRoutes from "./http/shares.ts";
 import * as Nodes from "./nodes/layer.ts";
-import * as NodesStoreMemory from "./nodes/store-memory.ts";
 import * as NodesStoreSql from "./nodes/store-sql.ts";
 import * as Providers from "./providers/layer.ts";
-import * as ProvidersStoreMemory from "./providers/store-memory.ts";
 import * as ProvidersStoreSql from "./providers/store-sql.ts";
 import * as Routing from "./routing/layer.ts";
 import * as Sessions from "./sessions/layer.ts";
 import { Settings } from "./settings/service.ts";
 import * as Shares from "./shares/layer.ts";
-import * as SharesStoreMemory from "./shares/store-memory.ts";
 import * as SharesStoreSql from "./shares/store-sql.ts";
-import * as SessionsStoreMemory from "./sessions/store-memory.ts";
 import * as SessionsStoreSql from "./sessions/store-sql.ts";
 import * as Snapshots from "./snapshots/layer.ts";
-import * as SnapshotsStoreMemory from "./snapshots/store-memory.ts";
 import * as SnapshotsStoreSql from "./snapshots/store-sql.ts";
-import * as Memory from "./store/memory.ts";
 import * as Tickets from "./tickets/layer.ts";
 import * as Vault from "./vault/layer.ts";
 import * as Workspaces from "./workspaces/layer.ts";
-import * as WorkspacesStoreMemory from "./workspaces/store-memory.ts";
 import * as WorkspacesStoreSql from "./workspaces/store-sql.ts";
 
 /** The stores on the database the settings name, migrated before anything is asked of it. */
@@ -65,19 +55,6 @@ export const stores = Layer.mergeAll(
   SnapshotsStoreSql.layer,
   WorkspacesStoreSql.layer,
 ).pipe(Layer.provide(Database.layer));
-
-/** The stores on nothing but memory, which is gone with the layer. */
-export const storesTest = Layer.mergeAll(
-  AccountsStoreMemory.layerTest,
-  EventsStoreMemory.layerTest,
-  GrantsStoreMemory.layerTest,
-  NodesStoreMemory.layerTest,
-  ProvidersStoreMemory.layerTest,
-  SessionsStoreMemory.layerTest,
-  SharesStoreMemory.layerTest,
-  SnapshotsStoreMemory.layerTest,
-  WorkspacesStoreMemory.layerTest,
-).pipe(Layer.provide(Memory.layer));
 
 /** What the control plane knows and does, whoever asks: over HTTP, or by itself. */
 export const services = Layer.mergeAll(
@@ -145,18 +122,6 @@ export const layer = serving.pipe(
       Layer.provideMerge(providers),
       Layer.provideMerge(Events.layer),
       Layer.provideMerge(stores),
-    ),
-  ),
-  Layer.provide(Vault.layer),
-);
-
-/** The same with nothing kept beyond the layer: for checks that need no database. */
-export const layerTest = serving.pipe(
-  Layer.provide(
-    Identity.layerTest.pipe(
-      Layer.provideMerge(providers),
-      Layer.provideMerge(Events.layer),
-      Layer.provideMerge(storesTest),
     ),
   ),
   Layer.provide(Vault.layer),

@@ -1,6 +1,5 @@
 import { passkey } from "@better-auth/passkey";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
-import { memoryAdapter } from "better-auth/adapters/memory";
 import { APIError } from "better-auth/api";
 import { getMigrations } from "better-auth/db/migration";
 import { genericOAuth } from "better-auth/plugins/generic-oauth";
@@ -76,16 +75,25 @@ const Answered = Schema.fromJsonString(
 );
 
 /**
- * Identity by better-auth, on whatever database it is given. Everything of better-auth is
- * in this function: what it is asked, and what its answers are taken for.
+ * Identity by better-auth, kept in the database the settings name, with its tables brought
+ * up to date first. Everything of better-auth is in this function: what it is asked, and
+ * what its answers are taken for.
  */
-const make = Effect.fn("Identity.make")(function* (
-  database: BetterAuthOptions["database"],
-  /** Whether it is a database whose tables are brought up to date before it is asked anything. */
-  migrated: boolean,
-) {
+export const makeIdentity = Effect.fn("Identity.make")(function* () {
   const vault = yield* Vault;
   const settings = yield* Settings;
+  const database = yield* Effect.acquireRelease(
+    Effect.sync(() => {
+      const made = new Pool({ connectionString: Redacted.value(settings.databaseUrl) });
+      // The database ends the connections that rest when it restarts: the pool drops such
+      // a one and makes another when it is asked for. Unheard, Node ends the program for it.
+      made.on("error", (error) => {
+        Effect.runFork(Effect.logWarning("a database connection at rest was lost", error));
+      });
+      return made;
+    }),
+    (pool) => Effect.promise(() => pool.end()),
+  );
   const accounts = yield* AccountsStore;
   const events = yield* Events;
   const providers = yield* Providers;
@@ -253,13 +261,11 @@ const make = Effect.fn("Identity.make")(function* (
     return Option.map(made, (one) => ({ ...one, revision }));
   });
 
-  if (migrated) {
-    // The tables are the same whichever providers there are.
-    yield* Effect.promise(async () => {
-      const migrations = await getMigrations(optionsFor([]));
-      await migrations.runMigrations();
-    });
-  }
+  // The tables are the same whichever providers there are.
+  yield* Effect.promise(async () => {
+    const migrations = await getMigrations(optionsFor([]));
+    await migrations.runMigrations();
+  });
 
   // A provider that does not answer holds nobody up who signs in without one: they are
   // signed in with no providers until all of them answered. No number of changes is -1,
@@ -612,39 +618,4 @@ const make = Effect.fn("Identity.make")(function* (
   });
 });
 
-/** Identity kept in the database the settings name, with its tables brought up to date first. */
-export const makeIdentity = Effect.fn("Identity.makeSql")(function* () {
-  const settings = yield* Settings;
-  const pool = yield* Effect.acquireRelease(
-    Effect.sync(() => {
-      const made = new Pool({ connectionString: Redacted.value(settings.databaseUrl) });
-      // The database ends the connections that rest when it restarts: the pool drops such
-      // a one and makes another when it is asked for. Unheard, Node ends the program for it.
-      made.on("error", (error) => {
-        Effect.runFork(Effect.logWarning("a database connection at rest was lost", error));
-      });
-      return made;
-    }),
-    (pool) => Effect.promise(() => pool.end()),
-  );
-  return yield* make(pool, true);
-});
-
-/** Identity kept in memory, which is gone with the layer. */
-export const makeIdentityMemory = Effect.fn("Identity.makeMemory")(function* () {
-  return yield* make(
-    memoryAdapter({
-      user: [],
-      session: [],
-      account: [],
-      verification: [],
-      twoFactor: [],
-      passkey: [],
-    }),
-    false,
-  );
-});
-
 export const layer = Layer.effect(Identity, makeIdentity());
-
-export const layerTest = Layer.effect(Identity, makeIdentityMemory());
