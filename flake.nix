@@ -203,7 +203,7 @@
           inherit version src;
           pnpm = pnpmLatest;
           fetcherVersion = 4;
-          hash = "sha256-0zRvfsd63W795py1lIJ9OJ/weYGvLtBm+iwHYiSfISo=";
+          hash = "sha256-smDglXxKqvDM6Azft6prNQ0l4RCALcd6b2zV35IZeG8=";
         };
 
         # The page that shows a session: one HTML file with everything it needs in it, which the
