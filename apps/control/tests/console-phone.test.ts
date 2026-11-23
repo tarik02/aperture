@@ -1,6 +1,7 @@
 import * as Mcp from "@aperture-browser/e2e/src/mcp.ts";
 import { suite } from "@aperture-browser/e2e/src/suite.ts";
 import * as Viewer from "@aperture-browser/e2e/src/viewer.ts";
+import { pictureKeepsUp } from "@aperture-browser/e2e/src/workbench.ts";
 import { until } from "@aperture-browser/e2e/src/wait.ts";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -155,6 +156,9 @@ suite(needs)("the console and a session on a phone, behind the proxy", (it) => {
           }),
           "20 seconds",
         );
+        // And it is the picture of the tab at that size: one of the size before is drawn
+        // smaller in the middle of what shows it, and a finger put beside it is on no page.
+        yield* pictureKeepsUp(page);
         const stage = yield* page.rests(`document.querySelector("[data-aperture-stage]")`);
         // Lifted as it moves: the page goes on under where the finger was.
         yield* page.finger(
