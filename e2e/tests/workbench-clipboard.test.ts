@@ -7,22 +7,27 @@ import * as Mcp from "../src/mcp.ts";
 import * as Runner from "../src/runner.ts";
 import * as Site from "../src/site.ts";
 import { suite } from "../src/suite.ts";
+import * as Tickets from "../src/tickets.ts";
 import { type Page, ready, Viewer } from "../src/viewer.ts";
 import * as ViewerLive from "../src/viewer.ts";
-import { happens } from "../src/wait.ts";
+import { happens, until } from "../src/wait.ts";
 import {
   clickElement,
+  clickPicture,
+  comes,
+  dataPage,
   EVERY_FEATURE,
   inTab,
   keepErrors,
   loggedErrors,
   openByAutomation,
+  pictureKeepsUp,
   selectTab,
 } from "../src/workbench.ts";
 
 const session = Layer.mergeAll(
   // The page that copies is of a site on this machine.
-  Runner.layer({ features: EVERY_FEATURE, args: ["--egress-allow", "127.0.0.1"] }),
+  Tickets.layer({ features: EVERY_FEATURE, args: ["--egress-allow", "127.0.0.1"] }),
   ViewerLive.layer,
 );
 
@@ -83,6 +88,28 @@ const opened = (page: Page) =>
     Schema.Array(Schema.String),
   );
 
+/** A page that is one field, for what is pasted to land in. */
+const FIELD = dataPage(
+  `<title>Paste check</title><textarea id="into" style="position:fixed;inset:0;width:100%;height:100%"></textarea>`,
+);
+const WRITTEN = "document.getElementById('into').value";
+
+/**
+ * Has a page take a paste of text where its keyboard is, as its browser gives one, and
+ * tells whether that is where the session's keys are taken.
+ */
+const paste = (page: Page, text: string) =>
+  page.evaluate(
+    `(() => {
+      const carried = new DataTransfer();
+      carried.setData("text/plain", ${JSON.stringify(text)});
+      const into = document.activeElement;
+      into.dispatchEvent(new ClipboardEvent("paste", { clipboardData: carried, bubbles: true, cancelable: true }));
+      return into.matches("[data-aperture-surface=keys]");
+    })()`,
+    Schema.Boolean,
+  );
+
 const noticed = (page: Page) => happens(page.evaluate(`!!(${NOTICE})`, Schema.Boolean));
 
 suite(session)("what the session copied, where this browser's clipboard refuses it", (it) => {
@@ -90,6 +117,7 @@ suite(session)("what the session copied, where this browser's clipboard refuses 
   let mcp: Mcp.Mcp;
   let site: Site.Site;
   let tab: number;
+  let field: number;
 
   it.effect("marked-up text is copied as text, and is no document here", () =>
     Effect.gen(function* () {
@@ -130,6 +158,11 @@ suite(session)("what the session copied, where this browser's clipboard refuses 
       expect(yield* page.evaluate("document.title", Schema.String)).not.toBe("ran as who watches");
       // The notice goes once what it offered is done.
       expect(yield* happens(page.evaluate(`!(${NOTICE})`, Schema.Boolean))).toBe(true);
+      // What shows the notices takes two more frames to be done with one that went, and
+      // takes the next one of its kind for the same notice until then: it goes with it.
+      yield* page.evaluate(
+        "new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))",
+      );
     }),
   );
 
@@ -144,6 +177,63 @@ suite(session)("what the session copied, where this browser's clipboard refuses 
       // Long enough for what was opened to have run what it carried.
       yield* Effect.sleep("1 second");
       expect(yield* page.evaluate("document.title", Schema.String)).not.toBe("ran as who watches");
+    }),
+  );
+
+  it.effect("what is pasted here is pasted into the page the session shows", () =>
+    Effect.gen(function* () {
+      field = yield* openByAutomation(mcp, FIELD);
+      yield* page.until(`!!document.querySelector('[data-browser-tab][data-tab="${field}"]')`);
+      expect(yield* selectTab(page, field)).toBe(true);
+      yield* pictureKeepsUp(page);
+      yield* clickPicture(page, 100, 100);
+      yield* until(
+        "the field having the session's keyboard",
+        inTab(mcp, field, "document.activeElement?.id === 'into'"),
+      );
+      expect(yield* paste(page, "pasted from here")).toBe(true);
+      yield* until(
+        "what was pasted being in the field",
+        inTab(mcp, field, WRITTEN).pipe(Effect.map((written) => written === "pasted from here")),
+      );
+    }),
+  );
+
+  it.effect("and nothing of whoever may not write the session's clipboard", () =>
+    Effect.gen(function* () {
+      const runner = yield* Runner.Runner;
+      const tickets = yield* Tickets.Tickets;
+      const viewer = yield* Viewer;
+      const ticket = yield* tickets.ticket({ input: "w", tabs: "w" }, { sub: "bob", name: "Bob" });
+      const bob = yield* viewer.open(runner.page({ token: ticket, fit: "0" }));
+      yield* ready(bob);
+      expect(yield* selectTab(bob, field)).toBe(true);
+      yield* inTab(mcp, field, `(document.getElementById('into').value = "", true)`);
+      // A tab is its holder's for a while after their last input: Bob is let have it.
+      yield* page.evaluate("apertureSession.lease('release')");
+      yield* pictureKeepsUp(bob);
+      yield* clickPicture(bob, 100, 100);
+      expect(yield* comes(bob, "s.presence.held.some((h) => h.holder === s.presence.you)")).toBe(
+        true,
+      );
+      yield* bob.type("a");
+      yield* until(
+        "Bob's key being in the field",
+        inTab(mcp, field, WRITTEN).pipe(Effect.map((written) => written === "a")),
+      );
+      expect(yield* paste(bob, "pasted by Bob")).toBe(true);
+      yield* bob.type("z");
+      const written = yield* until(
+        "the key after the paste being in the field",
+        inTab(mcp, field, WRITTEN).pipe(
+          Effect.map((now) => typeof now === "string" && now.endsWith("z") && now),
+        ),
+      );
+      // The keys that paste are his to press, as any key is, and paste what the session
+      // had to paste: what he carried is not put there for them.
+      expect(written).toBe("apasted from herez");
+      expect(bob.errors()).toEqual([]);
+      yield* bob.close;
     }),
   );
 
