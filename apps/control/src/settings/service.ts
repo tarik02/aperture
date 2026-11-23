@@ -1,5 +1,6 @@
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
+import type { IpNetwork } from "effect/net/IpNetwork";
 import type * as Option from "effect/Option";
 import type * as Redacted from "effect/Redacted";
 
@@ -38,11 +39,11 @@ export interface SettingsShape {
    */
   readonly consoleDir: Option.Option<string>;
   /**
-   * The proxies whose word is taken for where a request came from: addresses, and IPv4
-   * ranges as `10.0.0.0/8`. A request that comes from none of them came from where its
-   * connection did, whatever it says.
+   * The proxies whose word is taken for where a request came from: addresses, and ranges
+   * as `10.0.0.0/8` or `fd00::/8`. A request that comes from none of them came from where
+   * its connection did, whatever it says.
    */
-  readonly trustedProxies: ReadonlyArray<string>;
+  readonly trustedProxies: ReadonlyArray<IpNetwork>;
   /** Whether signing in is held to so many tries a while from one address. */
   readonly rateLimit: boolean;
   /**

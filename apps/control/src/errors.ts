@@ -53,6 +53,16 @@ export class SecretFileUnusable extends Schema.TaggedError<SecretFileUnusable>()
   }
 }
 
+/** One of the proxies whose word is to be taken is no address and no range of them. */
+export class TrustedProxiesUnusable extends Schema.TaggedError<TrustedProxiesUnusable>()(
+  "TrustedProxiesUnusable",
+  { named: Schema.String, reason: Schema.String },
+) {
+  override get message() {
+    return `${this.named} in APERTURE_CONTROL_TRUSTED_PROXIES is no address and no range: ${this.reason}`;
+  }
+}
+
 /** The providers people sign in through are not said as they are read. */
 export class ProvidersUnusable extends Schema.TaggedError<ProvidersUnusable>()(
   "ProvidersUnusable",

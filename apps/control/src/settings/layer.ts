@@ -5,8 +5,10 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
-import { ProvidersUnusable, SecretFileUnusable } from "../errors.ts";
+import { ProvidersUnusable, SecretFileUnusable, TrustedProxiesUnusable } from "../errors.ts";
+import { network } from "../http/client-address.ts";
 import { type Provider, Settings } from "./service.ts";
 
 const listed = (list: string) =>
@@ -136,6 +138,7 @@ export const makeSettings = Effect.fn("Settings.make")(function* () {
     proxyTokenFile,
     registrationTokenFile,
     providers,
+    trustedProxies,
     ...settings
   } = yield* given;
   const fromFile = yield* optionalSecretIn(bootstrapTokenFile);
@@ -146,8 +149,17 @@ export const makeSettings = Effect.fn("Settings.make")(function* () {
       reason: "neither the bootstrap token nor a file that holds it is given",
     });
   }
+  // One that is misspelt would be trusted for nothing, and nobody told.
+  const trusted = yield* Effect.forEach(trustedProxies, (named) =>
+    Result.match(network(named), {
+      onSuccess: Effect.succeed,
+      onFailure: (error) =>
+        Effect.fail(new TrustedProxiesUnusable({ named, reason: error.message })),
+    }),
+  );
   return Settings.of({
     ...settings,
+    trustedProxies: trusted,
     bootstrapToken: bootstrap.value,
     providers: yield* providersIn(providers),
     proxyToken: yield* optionalSecretIn(proxyTokenFile),
