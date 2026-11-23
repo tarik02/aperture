@@ -132,7 +132,6 @@ const openPanel = (page: Page) =>
       yield* page.click("[data-session-files-button]");
     }
     yield* page.until(`!!document.querySelector("${PANEL}")`);
-    yield* Effect.sleep("300 millis");
   });
 
 const namesGiven = (mcp: Mcp.Mcp, tab: number, input: string) =>
@@ -174,7 +173,6 @@ suite(session)("the workbench's files", (it) => {
         true,
       );
       expect(yield* appears(page, REQUEST)).toBe(true);
-      yield* Effect.sleep("300 millis");
 
       yield* page.click(upload("passport.txt"));
       yield* clickElement(page, buttonWithin(REQUEST, "Give the file"));
@@ -197,7 +195,6 @@ suite(session)("the workbench's files", (it) => {
         true,
       );
       yield* page.until(`!!document.querySelector("${REQUEST}")`);
-      yield* Effect.sleep("300 millis");
       yield* clickElement(page, buttonWithin(REQUEST, "Cancel"));
       expect(yield* comes(page, "s.fileRequests.length === 0")).toBe(true);
     }),
@@ -212,7 +209,6 @@ suite(session)("the workbench's files", (it) => {
 
       yield* clickPicture(page, ASKS_FOR_SEVERAL.x, ASKS_FOR_SEVERAL.y);
       expect(yield* appears(page, REQUEST)).toBe(true);
-      yield* Effect.sleep("300 millis");
       yield* page.click(upload("passport.txt"));
       yield* page.click(upload("notes.txt"));
       yield* clickElement(page, buttonWithin(REQUEST, "Give 2 files"));

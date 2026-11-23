@@ -79,7 +79,8 @@ suite(node)("watching a session of a node", (it) => {
   it.effect("keys in the viewer reach the session's page", () =>
     Effect.gen(function* () {
       yield* Node.clickInPicture(watcher, "video", FIELD);
-      yield* Effect.sleep("300 millis");
+      // The keys go to what the click gave the keyboard, once it has it.
+      yield* happens(opened.page.evaluate("document.activeElement?.id === 'i'"), ARRIVES_WITHIN_MS);
       yield* watcher.type("hi");
       yield* titleBecomes("typed:hi");
       expect(yield* title()).toBe("typed:hi");

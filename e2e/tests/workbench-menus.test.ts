@@ -9,7 +9,6 @@ import { type Page, ready, snapshot, Viewer } from "../src/viewer.ts";
 import * as ViewerLive from "../src/viewer.ts";
 import { happens } from "../src/wait.ts";
 import {
-  appears,
   clickItem,
   clickPicture,
   closeMenus,
@@ -83,9 +82,8 @@ suite(session)("the workbench's menus and the clipboard", (it) => {
 
       const clicked = yield* clickPicture(page, LINK.x, LINK.y, "right");
       expect(yield* comes(page, "s.menu !== undefined && s.menu.link !== undefined")).toBe(true);
-      expect(yield* appears(page, PAGE_MENU)).toBe(true);
-      yield* Effect.sleep("300 millis");
-      const menu = yield* page.box(PAGE_MENU);
+      // Where it is once it has come to rest: it grows into its place.
+      const menu = yield* page.rests(`document.querySelector(${JSON.stringify(PAGE_MENU)})`);
       expect(Math.abs(menu.left - clicked.x)).toBeLessThan(6);
       expect(Math.abs(menu.top - clicked.y)).toBeLessThan(6);
     }),
@@ -115,15 +113,13 @@ suite(session)("the workbench's menus and the clipboard", (it) => {
   it.effect("the page menu stays within the window near its edge, and Escape dismisses it", () =>
     Effect.gen(function* () {
       expect(yield* selectTab(page, linking)).toBe(true);
-      yield* Effect.sleep("500 millis");
       const corner = yield* snapshot(
         page,
         "({ x: watched.width - 10, y: watched.height - 5 })",
         Schema.Struct({ x: Schema.Number, y: Schema.Number }),
       );
       yield* clickPicture(page, corner.x, corner.y, "right");
-      expect(yield* appears(page, PAGE_MENU)).toBe(true);
-      yield* Effect.sleep("300 millis");
+      yield* page.rests(`document.querySelector(${JSON.stringify(PAGE_MENU)})`);
       expect(yield* menuWithinWindow(page)).toBe(true);
 
       yield* escape(page);

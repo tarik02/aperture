@@ -168,7 +168,7 @@ suite(session)("the workbench's picture and viewport", (it) => {
       expect(again).toBe(true);
       // Leaves the submenu, and the menu open.
       yield* escape(page);
-      yield* Effect.sleep("200 millis");
+      yield* page.until(`!(${menuItem("1280 × 720")})`);
     }),
   );
 
@@ -186,7 +186,7 @@ suite(session)("the workbench's picture and viewport", (it) => {
       yield* clickItem(page, "1x");
       expect(yield* comes(page, `${sizeOf(form)}.scale === 1`)).toBe(true);
       yield* escape(page);
-      yield* Effect.sleep("200 millis");
+      yield* page.until(`!(${menuItem("2x")})`);
     }),
   );
 

@@ -7,6 +7,7 @@ import { suite } from "../src/suite.ts";
 import { type Page, ready, snapshot, Viewer } from "../src/viewer.ts";
 import * as ViewerLive from "../src/viewer.ts";
 import { happens } from "../src/wait.ts";
+import { comes } from "../src/workbench.ts";
 
 const session = Layer.mergeAll(Runner.layer({ features: ["cdp"] }), ViewerLive.layer);
 
@@ -118,7 +119,6 @@ suite(session)("tabs, with two people in the session", (it) => {
       yield* bob.evaluate(`apertureSession.select(${first})`);
       yield* ada.evaluate("apertureSession.go({ url: 'https://example.org/?first' })");
       yield* shows(ada, "?first");
-      yield* Effect.sleep("800 millis");
 
       const opener = (yield* runner.targets).find((target) => target.tab === first);
       const cdp = yield* runner.cdp;
@@ -126,7 +126,11 @@ suite(session)("tabs, with two people in the session", (it) => {
       // Away from the page's one link, which a click would follow.
       const picture = yield* ada.box("[data-aperture-surface=video]");
       yield* ada.clickAt(picture.x + 300, picture.y + 200);
-      yield* Effect.sleep("400 millis");
+      // The click has come once the tab is hers by it.
+      yield* comes(
+        ada,
+        `s.presence.held.some((h) => h.tab === ${first} && h.holder === s.presence.you)`,
+      );
       yield* page.evaluate("window.open('https://example.net/', '_blank') && 1");
 
       const went = yield* happens(

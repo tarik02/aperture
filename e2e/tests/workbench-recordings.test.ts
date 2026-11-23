@@ -54,7 +54,6 @@ const openRecordingMenu = (page: Page) =>
       yield* page.click("[data-workbench-recording]");
     }
     yield* page.until(`!!(${menuItem("Screenshot")})`);
-    yield* Effect.sleep("300 millis");
   });
 
 const Size = Schema.Tuple([Schema.Number, Schema.Number]);
