@@ -8,6 +8,7 @@ mod client;
 pub mod edit;
 mod encode;
 mod encoders;
+mod fresh;
 mod http;
 pub mod icons;
 mod mcp;

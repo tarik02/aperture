@@ -313,7 +313,7 @@ impl From<Session> for pb::Session {
                 .map(|usage| pb::Usage {
                     memory_bytes: usage.memory,
                     memory_peak_bytes: usage.memory_peak,
-                    cpu_time: MessageField::some(duration(usage.cpu)),
+                    cpu_time: MessageField::some(Duration::from(usage.cpu)),
                     tasks: usage.tasks,
                     oom_kills: usage.oom_kills,
                     ..Default::default()
@@ -368,7 +368,7 @@ fn limits_message(limits: Limits) -> pb::Limits {
         swap_bytes: limits.swap,
         cpus: limits.cpus,
         tasks: limits.tasks,
-        suspend_idle_after: limits.idle().map(duration).into(),
+        suspend_idle_after: limits.idle().map(Duration::from).into(),
         ..Default::default()
     }
 }
@@ -411,18 +411,10 @@ fn limits(limits: &pb::Limits) -> Limits {
         swap: limits.swap_bytes,
         cpus: limits.cpus,
         tasks: limits.tasks,
+        // One that is less than nothing, or is no duration, is none: as no limit is.
         idle_ms: limits.suspend_idle_after.as_option().map(|after| {
-            let ms = after.seconds.saturating_mul(1000) + i64::from(after.nanos) / 1_000_000;
-            ms.max(0) as u64
+            Every::try_from(after.clone()).map_or(0, |after| after.as_millis() as u64)
         }),
-    }
-}
-
-fn duration(duration: std::time::Duration) -> Duration {
-    Duration {
-        seconds: duration.as_secs() as i64,
-        nanos: duration.subsec_nanos() as i32,
-        ..Default::default()
     }
 }
 
@@ -477,11 +469,7 @@ fn snapshot_message(snapshot: SnapshotRecord) -> pb::Snapshot {
 }
 
 fn timestamp(ms: u64) -> Timestamp {
-    Timestamp {
-        seconds: (ms / 1000) as i64,
-        nanos: (ms % 1000) as i32 * 1_000_000,
-        ..Default::default()
-    }
+    Timestamp::from_unix((ms / 1000) as i64, (ms % 1000) as i32 * 1_000_000)
 }
 
 impl From<Error> for ConnectError {

@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
+use clap::ValueEnum;
 
 use crate::{
     Feature, Features, Network, PortRange, Profile, Spec, Tcp, Tools, Udp, Viewport, proxy,
@@ -227,12 +228,12 @@ fn feature(said: &str) -> Result<(Feature, bool), String> {
         Some(name) => (name, false),
         None => (said.strip_prefix('+').unwrap_or(said), true),
     };
-    let known = Feature::ALL
-        .into_iter()
-        .find(|feature| feature.name() == name);
-    let feature = known.ok_or_else(|| {
-        let names = Feature::ALL.map(Feature::name).join(", ");
-        format!("{name:?} is none of {names}")
+    let feature = Feature::from_str(name, false).map_err(|_| {
+        let names: Vec<_> = Feature::value_variants()
+            .iter()
+            .map(|feature| feature.name())
+            .collect();
+        format!("{name:?} is none of {}", names.join(", "))
     })?;
     Ok((feature, on))
 }

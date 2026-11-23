@@ -61,12 +61,7 @@ impl Registration {
                     answer
                         .again_after
                         .as_option()
-                        .and_then(|after| {
-                            Duration::try_from_secs_f64(
-                                after.seconds as f64 + f64::from(after.nanos) / 1e9,
-                            )
-                            .ok()
-                        })
+                        .and_then(|after| Duration::try_from(after.clone()).ok())
                         .unwrap_or(AGAIN_AFTER)
                         .max(AGAIN_AT_LEAST)
                 }

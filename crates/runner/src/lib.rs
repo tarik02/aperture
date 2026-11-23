@@ -99,7 +99,9 @@ pub enum Udp {
 }
 
 /// One of the things a session offers besides its picture and input.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+// A name of two words would be `two-words` to clap and `two_words` to serde: it is given
+// one name for both then, with `#[value(name = …)]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum Feature {
     Sound,
@@ -113,28 +115,11 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub const ALL: [Self; 8] = [
-        Self::Sound,
-        Self::Uploads,
-        Self::Downloads,
-        Self::Recordings,
-        Self::Clipboard,
-        Self::Mcp,
-        Self::Cdp,
-        Self::Tunnel,
-    ];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Sound => "sound",
-            Self::Uploads => "uploads",
-            Self::Downloads => "downloads",
-            Self::Recordings => "recordings",
-            Self::Clipboard => "clipboard",
-            Self::Mcp => "mcp",
-            Self::Cdp => "cdp",
-            Self::Tunnel => "tunnel",
-        }
+    /// What it is called where sessions are started with it, and told of it.
+    pub fn name(self) -> String {
+        use clap::ValueEnum;
+        self.to_possible_value()
+            .map_or_else(String::new, |value| value.get_name().to_owned())
     }
 }
 

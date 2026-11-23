@@ -1,9 +1,8 @@
 //! Screenshots of targets, kept in the session's files next to its recordings.
 
 use std::{
-    collections::HashMap,
     path::Path,
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -11,7 +10,10 @@ use aperture_compositor::{Frame, Handle};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use super::http::{encode_png, shrunk};
+use super::{
+    fresh::Fresh,
+    http::{encode_png, shrunk},
+};
 
 const DIRECTORY: &str = "screenshots";
 
@@ -33,15 +35,11 @@ pub struct TabPreview {
     made: Instant,
 }
 
-/// A tab's small picture as it was last made. Whoever asks for it while it is made waits
-/// for that one.
-type Made = Arc<tokio::sync::Mutex<Option<Arc<TabPreview>>>>;
-
-/// The small pictures of the tabs, each made no more than once in a while.
+/// The small pictures of the tabs, each made no more than once in a while. Whoever asks
+/// for one while it is made waits for that one.
 #[derive(Default)]
 pub struct Previews {
-    /// By target.
-    made: Mutex<HashMap<String, Made>>,
+    made: Fresh<Arc<TabPreview>>,
 }
 
 impl Previews {
@@ -53,18 +51,15 @@ impl Previews {
         target: &crate::targets::Target,
         known: &[String],
     ) -> Result<Arc<TabPreview>, aperture_compositor::Error> {
-        let slot = {
-            let mut made = self.made.lock().expect("not poisoned");
-            made.retain(|id, _| known.contains(id));
-            made.entry(target.id.clone()).or_default().clone()
-        };
-        let mut slot = slot.lock().await;
-        if let Some(fresh) = slot
-            .as_ref()
-            .filter(|preview| preview.made.elapsed() < TAB_FRESH_FOR)
-        {
-            return Ok(fresh.clone());
-        }
+        let fresh = |preview: &Arc<TabPreview>| preview.made.elapsed() < TAB_FRESH_FOR;
+        let made = Self::make(compositor, target);
+        self.made.of(&target.id, known, fresh, made).await
+    }
+
+    async fn make(
+        compositor: &Handle,
+        target: &crate::targets::Target,
+    ) -> Result<Arc<TabPreview>, aperture_compositor::Error> {
         let frame = compositor.screenshot(target.window).await?;
         let encoded = tokio::task::spawn_blocking(move || {
             let (width, height, rgba) = if frame.width > TAB_WIDTH {
@@ -85,13 +80,11 @@ impl Previews {
             png.hash(&mut hasher);
             format!("\"{:016x}\"", hasher.finish())
         };
-        let preview = Arc::new(TabPreview {
+        Ok(Arc::new(TabPreview {
             png,
             tag,
             made: Instant::now(),
-        });
-        *slot = Some(preview.clone());
-        Ok(preview)
+        }))
     }
 }
 
