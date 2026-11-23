@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import * as Schema from "effect/Schema";
 import { call } from "#/lib/api.ts";
+import { identity } from "#/lib/identity.ts";
 
 /** The providers people sign in through, which anyone is told. */
 export function useProvidersQuery() {
@@ -11,7 +11,6 @@ export function useProvidersQuery() {
   });
 }
 
-const Started = Schema.Struct({ url: Schema.String });
 /** What a provider's refusal comes back as, in the address of the page that asked. */
 const REFUSAL = ["error", "error_description"];
 
@@ -29,20 +28,16 @@ const here = () => {
  * why not in the address.
  */
 export const continueWith = async (provider: string) => {
-  const answer = await fetch("/api/auth/sign-in/social", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      provider,
-      callbackURL: here(),
-      errorCallbackURL: here(),
-      disableRedirect: true,
-    }),
+  const { data } = await identity.signIn.social({
+    provider,
+    callbackURL: here(),
+    errorCallbackURL: here(),
+    disableRedirect: true,
   });
-  if (!answer.ok) {
+  if (data?.url === undefined) {
     throw new Error("The provider is not reached. Try again in a moment.");
   }
-  location.assign(Schema.decodeUnknownSync(Started)(await answer.json()).url);
+  location.assign(data.url);
 };
 
 const REFUSALS: Readonly<Record<string, string>> = {
