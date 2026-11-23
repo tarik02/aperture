@@ -228,12 +228,7 @@ suite(needs)("a v1 installation moved into v2", (it) => {
         ),
       ).toEqual([SIGNED_IN, OWN, `${LEFT_RUNNING}, ran`]);
       expect(planned.skipped.map((left) => `${left.what} ${left.label}`)).toEqual(
-        expect.arrayContaining([
-          "tenant Gone",
-          "snapshot dropped",
-          "token old",
-          `rule [2001:db8::1]:443 of session ${SIGNED_IN}`,
-        ]),
+        expect.arrayContaining(["tenant Gone", "snapshot dropped", "token old"]),
       );
       expect(planned.notes.map((note) => `${note.what} ${note.label}`)).toEqual([
         "token alice-own",
@@ -427,13 +422,14 @@ suite(needs)("a v1 installation moved into v2", (it) => {
       expect(onNode.map((session) => session.id).sort()).toEqual(
         sessions.map((session) => session.id).sort(),
       );
-      // Its routing is what v1 had, but for the rule that names an IPv6 address.
+      // Its routing is what v1 had, the rule that names an IPv6 address with the others.
       expect(yield* api.sessions.proxy({ params: { id: told(SIGNED_IN)!.id } })).toEqual({
         proxy: {
           upstreams: { corp: { url: "socks5://user:secret@proxy.invalid:1080" } },
           rules: [
             { match: "*.corp.test", via: "corp" },
             { match: "blocked.test:443", via: "refuse" },
+            { match: "[2001:db8::1]:443", via: "refuse" },
           ],
         },
       });

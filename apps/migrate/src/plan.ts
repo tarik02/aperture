@@ -519,13 +519,6 @@ export const plan = (v1: V1Data, known: Known, choices: Choices, now: Date): Pla
       conflicts.push({ what: "session", label, reason: inTheWay ?? "it is not read" });
       continue;
     }
-    for (const match of routed.left) {
-      skipped.push({
-        what: "rule",
-        label: `${match} of session ${label}`,
-        reason: "v2's rules name no IPv6 address: the session is moved without it",
-      });
-    }
     onNode = true;
     steps.push({
       kind: "session",

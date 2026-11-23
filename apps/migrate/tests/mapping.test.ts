@@ -504,9 +504,9 @@ describe("what v1 has, as v2 has it", () => {
     expect(dropped.skipped).toMatchObject([{ what: "session", reason: "--sessions drop" }]);
   });
 
-  it("a session's routing is v2's as it was written, but for a match that names an IPv6 address", () => {
-    expect(routingOf(null)).toEqual({ proxy: null, left: [] });
-    expect(routingOf("{}")).toEqual({ proxy: null, left: [] });
+  it("a session's routing is v2's as it was written, a match that names an IPv6 address too", () => {
+    expect(routingOf(null)).toEqual({ proxy: null });
+    expect(routingOf("{}")).toEqual({ proxy: null });
     expect(routingOf("[]")).toBeUndefined();
     const kept = {
       upstreams: {
@@ -520,21 +520,15 @@ describe("what v1 has, as v2 has it", () => {
         { match: "*", via: "http://proxy.example:8080" },
       ],
     };
-    expect(routingOf(JSON.stringify(kept))).toEqual({ proxy: kept, left: [] });
-    expect(
-      routingOf(
-        JSON.stringify({
-          rules: [
-            { match: "[2001:db8::1]:443", via: "refuse" },
-            { match: "2001:db8::1", via: "refuse" },
-            { match: "blocked.test", via: "refuse" },
-          ],
-        }),
-      ),
-    ).toEqual({
-      proxy: { rules: [{ match: "blocked.test", via: "refuse" }] },
-      left: ["[2001:db8::1]:443", "2001:db8::1"],
-    });
+    expect(routingOf(JSON.stringify(kept))).toEqual({ proxy: kept });
+    const byAddress = {
+      rules: [
+        { match: "[2001:db8::1]:443", via: "refuse" },
+        { match: "2001:db8::1", via: "refuse" },
+        { match: "blocked.test", via: "refuse" },
+      ],
+    };
+    expect(routingOf(JSON.stringify(byAddress))).toEqual({ proxy: byAddress });
 
     const planned = plan(
       {
@@ -551,9 +545,11 @@ describe("what v1 has, as v2 has it", () => {
       SAID,
       NOW,
     );
-    // With no rule left, its connections all go direct, as they do without any routing.
-    expect(planned.steps[1]).toMatchObject({ kind: "session", proxy: null });
-    expect(planned.skipped).toMatchObject([{ what: "rule", label: "[::1]:80 of session routed" }]);
+    expect(planned.steps[1]).toMatchObject({
+      kind: "session",
+      proxy: { rules: [{ match: "[::1]:80", via: "refuse" }] },
+    });
+    expect(planned.skipped).toEqual([]);
   });
 
   it("a person v2 has already is that person, and one with no address is nobody", () => {
