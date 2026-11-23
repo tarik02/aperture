@@ -158,11 +158,6 @@ suite(session)("what the session copied, where this browser's clipboard refuses 
       expect(yield* page.evaluate("document.title", Schema.String)).not.toBe("ran as who watches");
       // The notice goes once what it offered is done.
       expect(yield* happens(page.evaluate(`!(${NOTICE})`, Schema.Boolean))).toBe(true);
-      // What shows the notices takes two more frames to be done with one that went, and
-      // takes the next one of its kind for the same notice until then: it goes with it.
-      yield* page.evaluate(
-        "new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))",
-      );
     }),
   );
 

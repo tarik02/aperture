@@ -154,27 +154,30 @@ export function useWorkbench(): Workbench {
 function useClipboardNotices() {
   const session = useSession();
 
-  useEffect(
-    () =>
-      session.onClipboard((event) => {
-        if (event.written) {
-          return;
-        }
-        const picture = !event.forms.some((form) => form.type.startsWith("text/"));
-        toast("The session copied something", {
-          id: "aperture-session-copied",
-          description: picture
-            ? "This browser did not take it. Open the picture to copy it by hand."
-            : "This browser did not take it without a click.",
-          duration: 15_000,
-          action: {
-            label: picture ? "Open" : "Copy",
-            onClick: () => copyByHand(session, event.forms),
-          },
-        });
-      }),
-    [session],
-  );
+  useEffect(() => {
+    // Each is a notice of its own that takes the place of the one before: one that came
+    // under the same name as a notice that is on its way out went out with it.
+    let shown: string | number | undefined;
+    return session.onClipboard((event) => {
+      if (event.written) {
+        return;
+      }
+      const picture = !event.forms.some((form) => form.type.startsWith("text/"));
+      if (shown !== undefined) {
+        toast.dismiss(shown);
+      }
+      shown = toast("The session copied something", {
+        description: picture
+          ? "This browser did not take it. Open the picture to copy it by hand."
+          : "This browser did not take it without a click.",
+        duration: 15_000,
+        action: {
+          label: picture ? "Open" : "Copy",
+          onClick: () => copyByHand(session, event.forms),
+        },
+      });
+    });
+  }, [session]);
 }
 
 const NOT_DONE = {
