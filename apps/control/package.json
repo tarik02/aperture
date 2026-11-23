@@ -21,6 +21,7 @@
     "@effect/sql-pg": "catalog:",
     "better-auth": "catalog:",
     "effect": "catalog:",
+    "jose": "catalog:",
     "pg": "catalog:"
   },
   "devDependencies": {

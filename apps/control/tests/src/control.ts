@@ -18,6 +18,7 @@ import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as References from "effect/References";
 import type * as SqlClient from "effect/sql/SqlClient";
+import { exportPKCS8, exportSPKI } from "jose";
 import * as App from "../../src/app.ts";
 import * as Server from "../../src/server.ts";
 import * as Settings from "../../src/settings/layer.ts";
@@ -59,14 +60,8 @@ export interface Keepalive {
 }
 
 const BOOTSTRAP = "bootstrap-token-of-the-checks";
-const PEM_LINE = 64;
 const CONSOLE = new URL("../../../console/dist", import.meta.url).pathname;
 const MASTER_KEY_BYTES = 32;
-
-const pem = (what: string, key: ArrayBuffer) => {
-  const lines = Base64.encode(new Uint8Array(key)).match(new RegExp(`.{1,${PEM_LINE}}`, "gu"));
-  return `-----BEGIN ${what}-----\n${(lines ?? []).join("\n")}\n-----END ${what}-----\n`;
-};
 
 const client = (url: string, token: string) =>
   HttpApiClient.make(Api, {
@@ -124,17 +119,8 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
   );
   const ticketKey = `${dir}/ticket.pub.pem`;
   const signingKey = `${dir}/ticket.pem`;
-  yield* fs.writeFileString(
-    ticketKey,
-    pem("PUBLIC KEY", yield* Effect.promise(() => crypto.subtle.exportKey("spki", keys.publicKey))),
-  );
-  yield* fs.writeFileString(
-    signingKey,
-    pem(
-      "PRIVATE KEY",
-      yield* Effect.promise(() => crypto.subtle.exportKey("pkcs8", keys.privateKey)),
-    ),
-  );
+  yield* fs.writeFileString(ticketKey, yield* Effect.promise(() => exportSPKI(keys.publicKey)));
+  yield* fs.writeFileString(signingKey, yield* Effect.promise(() => exportPKCS8(keys.privateKey)));
 
   const masterKey = `${dir}/master.key`;
   yield* fs.writeFileString(

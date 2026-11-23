@@ -1,12 +1,11 @@
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as Base64 from "effect/encoding/Base64";
-import * as Base64Url from "effect/encoding/Base64Url";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Socket from "effect/socket/Socket";
+import { exportSPKI, SignJWT } from "jose";
 import { directory } from "./process.ts";
 import * as Runner from "./runner.ts";
 import { until } from "./wait.ts";
@@ -42,18 +41,10 @@ export class Tickets extends Context.Service<Tickets, TicketsService>()(
 
 const SESSION = "own";
 const LASTS_SECONDS = 600;
-const PEM_LINE = 64;
-
-const encoded = (part: object) => Base64Url.encode(JSON.stringify(part));
 
 /** Seconds since the epoch, `seconds` from now. */
 export const fromNow = (seconds: number) =>
   Clock.currentTimeMillis.pipe(Effect.map((now) => Math.floor(now / 1000) + seconds));
-
-const pem = (key: ArrayBuffer) => {
-  const lines = Base64.encode(new Uint8Array(key)).match(new RegExp(`.{1,${PEM_LINE}}`, "gu"));
-  return `-----BEGIN PUBLIC KEY-----\n${(lines ?? []).join("\n")}\n-----END PUBLIC KEY-----\n`;
-};
 
 /**
  * A session served on its own that takes tickets, and the signer of them, for all the
@@ -69,25 +60,15 @@ export const layer = (options: Runner.RunnerOptions = {}) =>
         crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]),
       );
       const key = `${dir}/ticket.pem`;
-      yield* fs.writeFileString(
-        key,
-        pem(yield* Effect.promise(() => crypto.subtle.exportKey("spki", publicKey))),
-      );
+      yield* fs.writeFileString(key, yield* Effect.promise(() => exportSPKI(publicKey)));
 
       const ticket: TicketsService["ticket"] = Effect.fn(function* (access, claims = {}) {
-        const payload = {
-          sub: "ada",
-          name: "Ada",
-          sid: SESSION,
-          exp: yield* fromNow(LASTS_SECONDS),
-          access,
-          ...claims,
-        };
-        const signed = `${encoded({ alg: "EdDSA", typ: "JWT" })}.${encoded(payload)}`;
-        const signature = yield* Effect.promise(() =>
-          crypto.subtle.sign("Ed25519", privateKey, new TextEncoder().encode(signed)),
+        const exp = yield* fromNow(LASTS_SECONDS);
+        return yield* Effect.promise(() =>
+          new SignJWT({ sub: "ada", name: "Ada", sid: SESSION, exp, access, ...claims })
+            .setProtectedHeader({ alg: "EdDSA", typ: "JWT" })
+            .sign(privateKey),
         );
-        return `${signed}.${Base64Url.encode(new Uint8Array(signature))}`;
       });
 
       const runner = yield* Runner.start({

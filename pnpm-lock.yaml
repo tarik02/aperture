@@ -90,6 +90,9 @@ catalogs:
     input-otp:
       specifier: ^1.5.0
       version: 1.5.0
+    jose:
+      specifier: ^6.2.18
+      version: 6.2.18
     lucide-react:
       specifier: ^1.24.0
       version: 1.75.0
@@ -264,6 +267,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0
+      jose:
+        specifier: 'catalog:'
+        version: 6.2.18
       pg:
         specifier: 'catalog:'
         version: 8.23.1
@@ -408,6 +414,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0
+      jose:
+        specifier: 'catalog:'
+        version: 6.2.18
       vite-plus:
         specifier: 'catalog:'
         version: 0.2.4(@types/node@26.6.6)(@voidzero-dev/vite-plus-core@0.2.4(@types/node@26.6.6)(jiti@2.7.0)(publint@0.3.24)(typescript@6.0.3))(jiti@2.7.0)(publint@0.3.24)(typescript@6.0.3)

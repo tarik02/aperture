@@ -16,6 +16,7 @@
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "effect": "catalog:",
+    "jose": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:"
   }
