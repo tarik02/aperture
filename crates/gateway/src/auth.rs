@@ -13,8 +13,9 @@
 use std::{
     collections::HashMap,
     fs,
-    os::unix::fs::PermissionsExt,
-    path::Path,
+    io::Write,
+    os::unix::fs::OpenOptionsExt,
+    path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -112,9 +113,21 @@ impl Keys {
                 uuid::Uuid::new_v4().simple(),
                 uuid::Uuid::new_v4().simple()
             );
-            fs::write(token, &made)
-                .with_context(|| format!("failed to write {}", token.display()))?;
-            fs::set_permissions(token, fs::Permissions::from_mode(0o600))?;
+            // Whoever waits for the file reads it the moment it is there: it is written
+            // whole and as its owner's alone under another name, and given its name then.
+            // Written where it is to be, it was empty for a moment, and anyone's to read.
+            let mut making = token.as_os_str().to_owned();
+            making.push(format!(".{}", std::process::id()));
+            let making = PathBuf::from(making);
+            let written = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&making)
+                .and_then(|mut file| file.write_all(made.as_bytes()))
+                .and_then(|()| fs::rename(&making, token));
+            written.with_context(|| format!("failed to write {}", token.display()))?;
         }
         let read = fs::read_to_string(token)
             .with_context(|| format!("failed to read the token {}", token.display()))?;
