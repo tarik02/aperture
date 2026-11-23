@@ -765,6 +765,11 @@ impl State {
             if shows(page) {
                 continue;
             }
+            // A page between two documents has no address for a moment, and a tab of the
+            // last run is known by its address: it is a target once it has one again.
+            if page.url.is_empty() && !self.returning.is_empty() {
+                continue;
+            }
             info!(page = %page.id, window = binding.window.0, "target ready");
             fresh.push(page.id.clone());
             self.next_order += 1;
@@ -834,7 +839,12 @@ impl State {
                 return false;
             };
             ready.title.clone_from(&page.title);
-            ready.url.clone_from(&page.url);
+            // A page that loads has no address until its document comes. The tab keeps
+            // the one it had: it is what the tab is known by when the session runs again,
+            // and the session may be suspended at any moment.
+            if !page.url.is_empty() {
+                ready.url.clone_from(&page.url);
+            }
             true
         });
         // A page that is gone before it was a target is expected no longer.
@@ -904,4 +914,82 @@ struct Page {
     url: String,
     window: Option<i64>,
     opener: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PAGE: &str = "https://example.test/";
+
+    fn page(id: &str, url: &str) -> Page {
+        Page {
+            id: id.to_owned(),
+            title: String::new(),
+            url: url.to_owned(),
+            window: Some(1),
+            opener: None,
+        }
+    }
+
+    /// A state whose one Chromium window is settled and shows nothing yet.
+    fn settled(returning: Vec<KeptTab>) -> State {
+        let mut state = State {
+            returning,
+            ..State::default()
+        };
+        state.bindings.insert(
+            1,
+            Binding {
+                tab: 7,
+                window: WindowId(3),
+                settled: true,
+            },
+        );
+        state
+    }
+
+    fn kept(tab: u32) -> KeptTab {
+        KeptTab {
+            tab,
+            url: PAGE.to_owned(),
+            width: 412,
+            height: 915,
+            scale: 2.625,
+            mode: Mode::Mobile,
+            mobile: true,
+        }
+    }
+
+    #[test]
+    fn a_tab_keeps_its_address_while_its_page_loads_again() {
+        let mut state = settled(Vec::new());
+        state.settle(&[page("a", PAGE)]);
+        state.settle(&[page("a", "")]);
+        assert_eq!(state.ready["a"].url, PAGE);
+        state.settle(&[page("a", "https://example.test/next")]);
+        assert_eq!(state.ready["a"].url, "https://example.test/next");
+    }
+
+    #[test]
+    fn a_tab_of_the_last_run_is_known_once_its_page_has_an_address() {
+        let mut state = settled(vec![kept(2)]);
+        state.last_tab = 3;
+        state.settle(&[page("a", "")]);
+        assert!(state.ready.is_empty());
+        state.settle(&[page("a", PAGE)]);
+        let ready = &state.ready["a"];
+        assert_eq!(
+            (ready.tab, ready.mode, ready.mobile),
+            (2, Mode::Mobile, true)
+        );
+        assert!(state.returning.is_empty());
+    }
+
+    #[test]
+    fn a_page_without_an_address_is_a_target_when_no_tab_is_to_come_back() {
+        let mut state = settled(Vec::new());
+        state.settle(&[page("a", "")]);
+        assert_eq!(state.ready["a"].tab, 1);
+    }
 }
