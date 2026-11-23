@@ -23,7 +23,7 @@ in
       type = lib.types.str;
       default = config.networking.hostName;
       defaultText = lib.literalExpression "config.networking.hostName";
-      description = "The node's name, which no other node of the control plane has.";
+      description = "The node's name, which no other node of the control plane has. The node keeps it with the operator token in its state directory, whatever registration token it has: one that is installed again without that token is refused the name until an admin releases it, with `POST /api/control/nodes/<id>/release`.";
     };
     listen = lib.mkOption {
       type = lib.types.str;

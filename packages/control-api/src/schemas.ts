@@ -168,6 +168,8 @@ export const EventKind = Schema.Literals([
   "share.revoked",
   "share.joined",
   "node.registered",
+  "node.refused",
+  "node.released",
   "node.silent",
   "provider.added",
   "provider.changed",

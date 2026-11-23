@@ -37,6 +37,20 @@ const node = (name: string) =>
     return nodes.find((listed) => listed.name === name);
   });
 
+/** A keepalive that came through a proxy, from the address the proxy says. */
+const keepaliveFrom = (from: string, said: Control.Keepalive) =>
+  Effect.gen(function* () {
+    const control = yield* Control.Control;
+    const client = yield* HttpClient.HttpClient;
+    const answer = yield* client.execute(
+      HttpClientRequest.post(`${control.url}${Control.KEEPALIVE}`).pipe(
+        HttpClientRequest.setHeader("x-forwarded-for", from),
+        HttpClientRequest.bodyJsonUnsafe(said),
+      ),
+    );
+    return answer.status;
+  });
+
 suite(Control.layer({ nodeSilentAfter: `${SILENT_AFTER_SECONDS} seconds` }))(
   "nodes that register",
   (it) => {
@@ -190,6 +204,105 @@ suite(Control.layer({ nodeSilentAfter: `${SILENT_AFTER_SECONDS} seconds` }))(
         }),
     );
 
+    it.effect("a node's name is its own: nobody registers under it with another's token", () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const bootstrap = yield* control.as(control.bootstrapToken);
+        const said = {
+          registrationToken: yield* registrationToken,
+          name: "node-held",
+          internalUrl: NOWHERE,
+          publicUrl: "https://held.example",
+          operatorToken: "the-node's-own",
+        };
+        expect((yield* control.keepalive(said)).status).toBe(200);
+        const held = yield* node("node-held");
+
+        // Any registration token is good for a new name, and none for a name that is taken.
+        const another = yield* registrationToken;
+        const intruder = { ...said, operatorToken: "an-intruder's" };
+        for (const tried of [
+          { ...intruder, internalUrl: "http://127.0.0.1:10" },
+          { ...intruder, registrationToken: another },
+          { ...intruder, registrationToken: another, publicUrl: "https://intruder.example" },
+        ]) {
+          const answer = yield* control.keepalive(tried);
+          expect(answer.status).toBe(401);
+          expect(answer.body).toMatchObject({ code: "unauthenticated" });
+        }
+        expect(yield* node("node-held")).toMatchObject({
+          id: held?.id,
+          internalUrl: NOWHERE,
+          publicUrl: "https://held.example",
+        });
+        // It is told once in a while, however often it is tried, and tells no secret.
+        const refused = yield* bootstrap.events.list({
+          query: { kind: "node.refused", resourceId: held?.id ?? "" },
+        });
+        expect(refused.events.map((event) => event.detail)).toEqual([
+          { internalUrl: "http://127.0.0.1:10" },
+        ]);
+        expect(JSON.stringify(refused.events)).not.toContain("intruder's");
+
+        // The node itself says where it is now, with any token that is good.
+        const moved = { ...said, registrationToken: another, internalUrl: "http://127.0.0.1:11" };
+        expect((yield* control.keepalive(moved)).status).toBe(200);
+        expect(yield* node("node-held")).toMatchObject({
+          id: held?.id,
+          internalUrl: "http://127.0.0.1:11",
+        });
+
+        // An admin lets the name go, and the next to register under it is the node.
+        const ada = yield* Control.account("Ada");
+        const at = { params: { id: held?.id ?? "" } };
+        expect((yield* Effect.flip(ada.api.nodes.release(at)))._tag).toBe("Forbidden");
+        const none = yield* Effect.flip(
+          bootstrap.nodes.release({ params: { id: "00000000-0000-7000-8000-00000000dead" } }),
+        );
+        expect(none._tag).toBe("NodeNotFound");
+        yield* bootstrap.nodes.release(at);
+        const reinstalled = { ...said, operatorToken: "after-it-was-installed-again" };
+        expect((yield* control.keepalive(reinstalled)).status).toBe(200);
+        expect((yield* node("node-held"))?.id).toBe(held?.id);
+        expect((yield* control.keepalive(said)).status).toBe(401);
+        const released = yield* bootstrap.events.list({
+          query: { kind: "node.released", resourceId: held?.id ?? "" },
+        });
+        expect(released.events).toHaveLength(1);
+      }),
+    );
+
+    it.effect("a node is where it says only if that is an address a node can be at", () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const said = {
+          registrationToken: yield* registrationToken,
+          name: "node-somewhere",
+          internalUrl: "http://10.0.0.5:7900",
+          operatorToken: "secret",
+        };
+        for (const internalUrl of [
+          "http://admin:secret@10.0.0.5:7900",
+          "http://10.0.0.5:7900/elsewhere",
+          "http://10.0.0.5:7900/?to=elsewhere",
+          "http://10.0.0.5:7900/#elsewhere",
+          "ftp://10.0.0.5",
+          // Where a machine asks about itself, which is no node's to be asked at.
+          "http://169.254.169.254",
+          "http://[fe80::1]:7900",
+          "http://0.0.0.0:7900",
+        ]) {
+          const answer = yield* control.keepalive({ ...said, internalUrl });
+          expect([internalUrl, answer.status]).toEqual([internalUrl, 400]);
+        }
+        for (const publicUrl of ["https://user@sessions.example", "javascript:alert(1)"]) {
+          const answer = yield* control.keepalive({ ...said, publicUrl });
+          expect([publicUrl, answer.status]).toEqual([publicUrl, 400]);
+        }
+        expect(yield* node("node-somewhere")).toBeUndefined();
+      }),
+    );
+
     it.effect("a keepalive is taken as protobuf too, and answered in kind", () =>
       Effect.gen(function* () {
         const control = yield* Control.Control;
@@ -294,6 +407,37 @@ suite(Control.layer({ nodeSilentAfter: `${SILENT_AFTER_SECONDS} seconds` }))(
           alive: true,
         });
       }).pipe(Effect.scoped),
+    );
+  },
+);
+
+// The checks are their own proxy here, and say where a keepalive came from.
+suite(Control.layer({ trustedProxies: "127.0.0.1" }))(
+  "nodes that register from elsewhere",
+  (it) => {
+    it.effect("this machine is where a node is that asks from this machine, and no other", () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const said = {
+          registrationToken: yield* registrationToken,
+          name: "node-somewhere",
+          internalUrl: "http://10.0.0.5:7900",
+          operatorToken: "secret",
+        };
+        const here = { ...said, internalUrl: "http://127.0.0.1:7900" };
+        const from = "203.0.113.7";
+        for (const there of [
+          here,
+          { ...here, internalUrl: "http://[::1]:7900" },
+          { ...here, internalUrl: "http://localhost:7900" },
+          { ...said, publicUrl: here.internalUrl },
+        ]) {
+          expect(yield* keepaliveFrom(from, there)).toBe(400);
+        }
+        expect(yield* node("node-somewhere")).toBeUndefined();
+        expect(yield* keepaliveFrom(from, said)).toBe(200);
+        expect((yield* control.keepalive({ ...here, name: "node-here" })).status).toBe(200);
+      }),
     );
   },
 );

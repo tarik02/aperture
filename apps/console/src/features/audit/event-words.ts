@@ -72,6 +72,9 @@ export const HAPPENED: Readonly<Record<EventKind, (event: Event) => string>> = {
   "share.revoked": () => "Revoked the share link",
   "share.joined": () => "Joined through the share link",
   "node.registered": () => "Registered",
+  "node.refused": (event) =>
+    `Refused another node that asked for the name from ${said(event.detail["internalUrl"]) ?? "elsewhere"}`,
+  "node.released": () => "Let the name go to the next node that registers",
   "node.silent": () => "Fell silent",
   "provider.added": () => "Added the sign-in provider",
   "provider.changed": () => "Changed the sign-in provider",
@@ -159,6 +162,8 @@ export const KINDS: ReadonlyArray<{
       { value: "registration_token.created", label: "Registration token made" },
       { value: "registration_token.revoked", label: "Registration token revoked" },
       { value: "node.registered", label: "Node registered" },
+      { value: "node.refused", label: "Node refused its name" },
+      { value: "node.released", label: "Node released" },
       { value: "node.silent", label: "Node fell silent" },
     ],
   },

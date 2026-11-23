@@ -304,6 +304,7 @@ const nodes = HttpApiBuilder.group(
           }));
         }),
       )
+      .handle("release", ({ params }) => Effect.andThen(admin, nodes.release(params.id)))
       .handle("registrationTokens", () => Effect.andThen(admin, nodes.registrationTokens()))
       .handle(
         "createRegistrationToken",

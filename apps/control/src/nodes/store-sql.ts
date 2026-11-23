@@ -5,7 +5,7 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import { all, done, first, one } from "../store/rows.ts";
 import { NodeRecord, RegistrationToken } from "./schemas.ts";
-import { type NewRegistrationToken, NodesStore, type SeenNode } from "./store.ts";
+import { type NewRegistrationToken, NodesStore, type NodesStoreShape, RELEASED } from "./store.ts";
 
 const encodeOffers = Schema.encodeSync(Schema.fromJsonString(Offers));
 
@@ -56,7 +56,9 @@ export const makeNodesStore = Effect.fn("NodesStore.make")(function* () {
     `.pipe(done);
   });
 
-  const seen = Effect.fn("NodesStore.seen")(function* (node: SeenNode) {
+  const register = Effect.fn("NodesStore.register")(function* (
+    node: Parameters<NodesStoreShape["register"]>[0],
+  ) {
     return yield* sql`
       INSERT INTO nodes (
         id, name, internal_url, balancer_url, public_url, operator_token_sealed,
@@ -67,16 +69,34 @@ export const makeNodesStore = Effect.fn("NodesStore.make")(function* () {
         ${node.publicUrl}, ${node.operatorTokenSealed}, ${node.registrationTokenId},
         ${node.now}, ${node.now}
       )
-      ON CONFLICT (name) DO UPDATE SET
-        internal_url = EXCLUDED.internal_url,
-        balancer_url = EXCLUDED.balancer_url,
-        public_url = EXCLUDED.public_url,
-        operator_token_sealed = EXCLUDED.operator_token_sealed,
-        registration_token_id = EXCLUDED.registration_token_id,
-        last_seen_at = EXCLUDED.last_seen_at,
-        silent_at = NULL
+      ON CONFLICT (name) DO NOTHING
       RETURNING *
-    `.pipe(one(NodeRecord));
+    `.pipe(first(NodeRecord));
+  });
+
+  const seen = Effect.fn("NodesStore.seen")(function* (
+    id: string,
+    held: string,
+    node: Parameters<NodesStoreShape["seen"]>[2],
+  ) {
+    return yield* sql`
+      UPDATE nodes SET
+        internal_url = ${node.internalUrl},
+        balancer_url = ${node.balancerUrl},
+        public_url = ${node.publicUrl},
+        operator_token_sealed = ${node.operatorTokenSealed ?? held},
+        registration_token_id = ${node.registrationTokenId},
+        last_seen_at = ${node.now},
+        silent_at = NULL
+      WHERE id = ${id} AND operator_token_sealed = ${held}
+      RETURNING *
+    `.pipe(first(NodeRecord));
+  });
+
+  const release = Effect.fn("NodesStore.release")(function* (id: string) {
+    return yield* sql`
+      UPDATE nodes SET operator_token_sealed = ${RELEASED} WHERE id = ${id} RETURNING *
+    `.pipe(first(NodeRecord));
   });
 
   const describe = Effect.fn("NodesStore.describe")(function* (id: string, offers: Offers) {
@@ -128,7 +148,9 @@ export const makeNodesStore = Effect.fn("NodesStore.make")(function* () {
     findRegistrationToken,
     findRegistrationTokenByHash,
     revokeRegistrationToken,
+    register,
     seen,
+    release,
     describe,
     noteSilent,
     list,

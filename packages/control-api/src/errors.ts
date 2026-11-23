@@ -76,6 +76,13 @@ export class ApiTokenNotFound extends Schema.TaggedError<ApiTokenNotFound>()(
   { httpApiStatus: 404 },
 ) {}
 
+/** There is no such node. */
+export class NodeNotFound extends Schema.TaggedError<NodeNotFound>()(
+  "NodeNotFound",
+  { id: Schema.String },
+  { httpApiStatus: 404 },
+) {}
+
 /** There is no such registration token. */
 export class RegistrationTokenNotFound extends Schema.TaggedError<RegistrationTokenNotFound>()(
   "RegistrationTokenNotFound",

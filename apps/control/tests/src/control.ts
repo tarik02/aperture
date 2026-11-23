@@ -32,6 +32,8 @@ export interface ControlOptions {
   readonly console?: boolean;
   /** Hold signing in to so many tries a while from one address, as a deployment does. */
   readonly rateLimit?: boolean;
+  /** The proxies whose word is taken for where a request came from. */
+  readonly trustedProxies?: string;
   /**
    * Sign people in through the suite's provider, whose address is given beside this. With
    * `provision`, whoever it vouches for is made a person; of `domains` alone, where named.
@@ -158,6 +160,9 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
           APERTURE_CONTROL_SSO_PROVISION: String(options.sso?.provision ?? false),
           APERTURE_CONTROL_SSO_DOMAINS: (options.sso?.domains ?? []).join(","),
         }),
+    ...(options.trustedProxies === undefined
+      ? {}
+      : { APERTURE_CONTROL_TRUSTED_PROXIES: options.trustedProxies }),
     ...(options.nodeSilentAfter === undefined
       ? {}
       : { APERTURE_CONTROL_NODE_SILENT_AFTER: options.nodeSilentAfter }),

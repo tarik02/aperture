@@ -1,3 +1,4 @@
+import type { NodeNotFound } from "@aperture-browser/control-api";
 import type { ExecutorClient, proto } from "@aperture-browser/executor-client";
 import * as Context from "effect/Context";
 import type * as Duration from "effect/Duration";
@@ -25,7 +26,8 @@ export interface NodesShape {
   readonly revokeRegistrationToken: (id: string) => Effect.Effect<void, RegistrationTokenNotFound>;
   /**
    * Takes a node's keepalive: registers the node where its name is new, and keeps it in
-   * use. Says how long the node is to wait before the next. With a token that was taken
+   * use. A name that is taken is its node's alone: a keepalive under it is taken only with
+   * the operator token the node registered with. Says how long the node is to wait before the next. With a token that was taken
    * back it is taken of a node that registered with that token alone, and only while the
    * node says of itself what it said before.
    */
@@ -35,6 +37,12 @@ export interface NodesShape {
     { readonly node: Node; readonly againAfter: Duration.Duration },
     RegistrationRefused | KeepaliveInvalid
   >;
+  /**
+   * Lets a node's name go: its operator token is forgotten, and the next node to register
+   * under the name is the node, with the sessions it had. For a node that was installed
+   * again and no longer has the token it registered with.
+   */
+  readonly release: (id: string) => Effect.Effect<void, NodeNotFound>;
   /** Every node that ever registered, and whether it is alive: not silent for too long. */
   readonly list: () => Effect.Effect<
     ReadonlyArray<{ readonly node: NodeRecord; readonly alive: boolean }>

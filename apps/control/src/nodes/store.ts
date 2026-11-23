@@ -11,18 +11,19 @@ export interface NewRegistrationToken {
   readonly createdAt: Date;
 }
 
-/** What a node said of itself, and when. `id` is for a node whose name is new. */
+/** What a node said of itself, and when. */
 export interface SeenNode {
-  readonly id: string;
   readonly name: string;
   readonly internalUrl: string;
   readonly balancerUrl: string | null;
   readonly publicUrl: string | null;
-  readonly operatorTokenSealed: string;
   /** The token it registered with; none for the one that is good without being made. */
   readonly registrationTokenId: string | null;
   readonly now: Date;
 }
+
+/** What is kept in place of a node's operator token once an admin let its name go. */
+export const RELEASED = "";
 
 /** Where nodes and the tokens that let them register are kept. */
 export interface NodesStoreShape {
@@ -37,11 +38,22 @@ export interface NodesStoreShape {
   ) => Effect.Effect<Option.Option<RegistrationToken>>;
   /** Takes a token back; one that was taken back before stays as it was. */
   readonly revokeRegistrationToken: (id: string, now: Date) => Effect.Effect<void>;
+  /** Keeps a node under a name that is new; none where the name is taken by now. */
+  readonly register: (
+    node: SeenNode & { readonly id: string; readonly operatorTokenSealed: string },
+  ) => Effect.Effect<Option.Option<NodeRecord>>;
   /**
-   * Writes what a node said of itself and that it was seen now. The node with that name
-   * stays the node it was.
+   * Writes what a node said of itself and that it was seen now, with its operator token
+   * where one is given. The node stays the node it was. None where its operator token is
+   * no longer kept as `held`: another registered under the name meanwhile.
    */
-  readonly seen: (node: SeenNode) => Effect.Effect<NodeRecord>;
+  readonly seen: (
+    id: string,
+    held: string,
+    node: SeenNode & { readonly operatorTokenSealed: string | null },
+  ) => Effect.Effect<Option.Option<NodeRecord>>;
+  /** Forgets a node's operator token, so that the next to register under its name is the node. */
+  readonly release: (id: string) => Effect.Effect<Option.Option<NodeRecord>>;
   readonly describe: (id: string, offers: Offers) => Effect.Effect<void>;
   /**
    * Notes that the nodes not seen since then fell silent, and gives those it was not

@@ -23,6 +23,7 @@ import {
   ProviderNotFound,
   ProviderTaken,
   GrantNotFound,
+  NodeNotFound,
   NodeRefused,
   NodeUnreachable,
   NoNode,
@@ -482,6 +483,7 @@ const ofNode = [
   SessionNotFound,
   SessionHasNoNode,
   NodeUnreachable,
+  NodeNotFound,
   NodeRefused,
 ] as const;
 
@@ -591,6 +593,10 @@ export class AccountsGroup extends HttpApiGroup.make("accounts")
 export class NodesGroup extends HttpApiGroup.make("nodes")
   .add(
     HttpApiEndpoint.get("list", "/nodes", { success: Schema.Array(Node), error: Forbidden }),
+    HttpApiEndpoint.post("release", "/nodes/:id/release", {
+      params: { id: Id },
+      error: [Forbidden, NodeNotFound],
+    }),
     HttpApiEndpoint.get("registrationTokens", "/registration-tokens", {
       success: Schema.Array(RegistrationToken),
       error: Forbidden,
@@ -609,7 +615,7 @@ export class NodesGroup extends HttpApiGroup.make("nodes")
     OpenApi.annotations({
       title: "Nodes",
       description:
-        "The nodes that registered, and the tokens that let nodes register. A token that is revoked registers no new node, and the nodes that registered with it stay.",
+        "The nodes that registered, and the tokens that let nodes register. A token that is revoked registers no new node, and the nodes that registered with it stay. A node keeps its name with the operator token it registered with: nothing else registers under the name, whatever registration token it has. Releasing a node lets its name go to the next that registers under it, for a node that was installed again.",
     }),
   ) {}
 
