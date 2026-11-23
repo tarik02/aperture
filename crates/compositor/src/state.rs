@@ -70,6 +70,14 @@ use crate::{
     text::TextInput,
 };
 
+/// How long a key is down in the session before it writes again, in milliseconds. A key
+/// goes down and comes up as whoever presses it says, over a network: the time between
+/// the two here is the time it was held there and what the way took longer for the one
+/// than for the other, and a key that writes again after a fifth of a second, as a
+/// desktop's own may, wrote a letter twice or more whenever that came to as much.
+const KEY_REPEATS_AFTER_MS: i32 = 600;
+const KEY_REPEATS_A_SECOND: i32 = 25;
+
 /// Windows are told to draw, and drawn, this often.
 const REFRESH: i32 = 60_000;
 const FRAME_INTERVAL: Duration = Duration::from_nanos(1_000_000_000_000 / REFRESH as u64);
@@ -223,8 +231,12 @@ impl State {
         let mut seat_state = SeatState::new();
         let mut seat = seat_state.new_wl_seat(&dh, "aperture");
         // Layouts come from XKB_DEFAULT_LAYOUT etc., e.g. `us,ua`.
-        seat.add_keyboard(XkbConfig::default(), 200, 25)
-            .context("failed to create the keyboard")?;
+        seat.add_keyboard(
+            XkbConfig::default(),
+            KEY_REPEATS_AFTER_MS,
+            KEY_REPEATS_A_SECOND,
+        )
+        .context("failed to create the keyboard")?;
         seat.add_pointer();
 
         let output = Output::new(
