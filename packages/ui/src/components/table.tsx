@@ -39,83 +39,8 @@ type TableProps = React.ComponentProps<"table"> & {
   scrollable?: boolean;
 };
 
+/** How far from an edge the table is scrolled before the edge's shadow shows. */
 const SCROLL_EDGE_EPSILON = 2;
-
-type ScrollBoundaries = {
-  top: boolean;
-  right: boolean;
-  bottom: boolean;
-  left: boolean;
-};
-
-function readScrollBoundaries(viewport: HTMLElement): ScrollBoundaries {
-  return {
-    top: viewport.scrollTop > SCROLL_EDGE_EPSILON,
-    right: viewport.scrollWidth - viewport.clientWidth - viewport.scrollLeft > SCROLL_EDGE_EPSILON,
-    bottom:
-      viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop > SCROLL_EDGE_EPSILON,
-    left: viewport.scrollLeft > SCROLL_EDGE_EPSILON,
-  };
-}
-
-/**
- * Mirrors which edges the viewport can still scroll towards into `data-can-scroll-*`
- * attributes on the shell, so shadows react to scrolling without re-rendering React.
- */
-function useScrollBoundaries<Content extends HTMLElement>() {
-  const shellRef = React.useRef<HTMLDivElement>(null);
-  const viewportRef = React.useRef<HTMLDivElement>(null);
-  const contentRef = React.useRef<Content>(null);
-
-  React.useLayoutEffect(() => {
-    const shell = shellRef.current;
-    const viewport = viewportRef.current;
-    const content = contentRef.current;
-    if (!shell || !viewport || !content) {
-      return;
-    }
-
-    let animationFrame: number | null = null;
-    let previous: ScrollBoundaries | null = null;
-
-    const update = () => {
-      animationFrame = null;
-      const next = readScrollBoundaries(viewport);
-      if (
-        previous?.top === next.top &&
-        previous.right === next.right &&
-        previous.bottom === next.bottom &&
-        previous.left === next.left
-      ) {
-        return;
-      }
-      shell.dataset.canScrollTop = String(next.top);
-      shell.dataset.canScrollRight = String(next.right);
-      shell.dataset.canScrollBottom = String(next.bottom);
-      shell.dataset.canScrollLeft = String(next.left);
-      previous = next;
-    };
-    const scheduleUpdate = () => {
-      animationFrame ??= requestAnimationFrame(update);
-    };
-
-    scheduleUpdate();
-    const resizeObserver = new ResizeObserver(scheduleUpdate);
-    resizeObserver.observe(viewport);
-    resizeObserver.observe(content);
-    viewport.addEventListener("scroll", scheduleUpdate, { passive: true });
-
-    return () => {
-      if (animationFrame !== null) {
-        cancelAnimationFrame(animationFrame);
-      }
-      resizeObserver.disconnect();
-      viewport.removeEventListener("scroll", scheduleUpdate);
-    };
-  }, []);
-
-  return { shellRef, viewportRef, contentRef };
-}
 
 const shadowClassName =
   "aperture:pointer-events-none aperture:absolute aperture:z-35 aperture:opacity-0 aperture:transition-[opacity,left,right,top] aperture:duration-120 aperture:ease-out aperture:from-foreground/12 aperture:to-transparent";
@@ -162,7 +87,8 @@ function ScrollingTable({
   stickyHeader = true,
   ...props
 }: Omit<TableProps, "scrollable">) {
-  const { shellRef, viewportRef, contentRef } = useScrollBoundaries<HTMLTableElement>();
+  const shellRef = React.useRef<HTMLDivElement>(null);
+  const contentRef = React.useRef<HTMLTableElement>(null);
   const stickyLastColumn = stickyLastColumnProp || stickyActionColumn;
   const context = React.useMemo(
     () => ({ stickyHeader, stickyFirstColumn, stickyLastColumn, stacks: true }),
@@ -211,18 +137,15 @@ function ScrollingTable({
       <div
         ref={shellRef}
         data-slot="table-container"
-        data-can-scroll-top="false"
-        data-can-scroll-right="false"
-        data-can-scroll-bottom="false"
-        data-can-scroll-left="false"
         className={cn(
           "aperture:relative aperture:flex aperture:min-h-0 aperture:w-full aperture:max-w-full aperture:flex-col aperture:overflow-hidden aperture:[--table-header-height:0px] aperture:[--table-sticky-end-width:0px] aperture:[--table-sticky-start-width:0px]",
           containerClassName,
         )}
       >
+        {/* The shadows after it show by what it says of itself: which edges it is scrolled from. */}
         <ScrollArea
-          viewportRef={viewportRef}
           scrollbars="both"
+          overflowEdgeThreshold={SCROLL_EDGE_EPSILON}
           className="aperture:min-h-0 aperture:w-full aperture:max-h-[inherit] aperture:flex-1 aperture:[&>[data-slot=scroll-area-scrollbar]]:z-50"
           viewportClassName="aperture:max-h-[inherit]"
         >
@@ -246,7 +169,7 @@ function ScrollingTable({
             aria-hidden="true"
             className={cn(
               shadowClassName,
-              "aperture:top-(--table-header-height) aperture:right-0 aperture:left-0 aperture:h-3 aperture:bg-linear-to-b aperture:[[data-can-scroll-top=true]>&]:opacity-100 aperture:[[data-can-scroll-left=true]>&]:left-(--table-sticky-start-width) aperture:[[data-can-scroll-right=true]>&]:right-(--table-sticky-end-width)",
+              "aperture:top-(--table-header-height) aperture:right-0 aperture:left-0 aperture:h-3 aperture:bg-linear-to-b aperture:[[data-overflow-y-start]~&]:opacity-100 aperture:[[data-overflow-x-start]~&]:left-(--table-sticky-start-width) aperture:[[data-overflow-x-end]~&]:right-(--table-sticky-end-width)",
             )}
           />
         ) : null}
@@ -255,7 +178,7 @@ function ScrollingTable({
             aria-hidden="true"
             className={cn(
               shadowClassName,
-              "aperture:top-0 aperture:bottom-0 aperture:left-(--table-sticky-start-width) aperture:w-4 aperture:bg-linear-to-r aperture:[[data-can-scroll-left=true]>&]:opacity-100 aperture:[[data-can-scroll-top=true]>&]:top-(--table-header-height)",
+              "aperture:top-0 aperture:bottom-0 aperture:left-(--table-sticky-start-width) aperture:w-4 aperture:bg-linear-to-r aperture:[[data-overflow-x-start]~&]:opacity-100 aperture:[[data-overflow-y-start]~&]:top-(--table-header-height)",
             )}
           />
         ) : null}
@@ -264,7 +187,7 @@ function ScrollingTable({
             aria-hidden="true"
             className={cn(
               shadowClassName,
-              "aperture:top-0 aperture:right-(--table-sticky-end-width) aperture:bottom-0 aperture:w-4 aperture:bg-linear-to-l aperture:[[data-can-scroll-right=true]>&]:opacity-100 aperture:[[data-can-scroll-top=true]>&]:top-(--table-header-height)",
+              "aperture:top-0 aperture:right-(--table-sticky-end-width) aperture:bottom-0 aperture:w-4 aperture:bg-linear-to-l aperture:[[data-overflow-x-end]~&]:opacity-100 aperture:[[data-overflow-y-start]~&]:top-(--table-header-height)",
             )}
           />
         ) : null}

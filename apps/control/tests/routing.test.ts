@@ -696,12 +696,14 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
             return new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done({
               scrolled: viewport.scrollTop,
               pinned: head() === before,
-              above: shell.dataset.canScrollTop,
               within: shell.getBoundingClientRect().bottom <= innerHeight,
             }))));
           })()`,
           ),
-        ).toEqual({ scrolled: 200, pinned: true, above: "true", within: true });
+        ).toEqual({ scrolled: 200, pinned: true, within: true });
+        yield* page.until(
+          `document.querySelector('[data-slot="table-container"] [data-slot="scroll-area"]').hasAttribute("data-overflow-y-start")`,
+        );
         yield* shot(page, fs, "console-tokens");
         yield* page.evaluate(DARK);
         yield* shot(page, fs, "console-tokens-dark");
