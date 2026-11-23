@@ -311,3 +311,252 @@ fn allows(
         Needs::Operator => false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use Area::{Cdp, Downloads, Mcp, Proxy, Recordings, Tabs, Tunnel, Uploads};
+    use Needs::{Operator, Reading, Watching, Writing};
+
+    #[test]
+    fn a_route_takes_what_is_said_of_it_and_one_that_is_not_named_the_operator() {
+        let (get, head, post, put, delete) = (
+            Method::GET,
+            Method::HEAD,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+        );
+        let table = [
+            (&get, "", Watching),
+            (&get, "/", Watching),
+            (&head, "/", Watching),
+            (&get, "/ws", Watching),
+            (&get, "/busy", Watching),
+            (&get, "/preview.png", Watching),
+            (&get, "/targets", Watching),
+            (&get, "/targets/7", Watching),
+            (&post, "/", Operator),
+            (&delete, "/", Operator),
+            (&post, "/ws", Operator),
+            (&get, "/ws/more", Operator),
+            (&get, "/preview.png/more", Operator),
+            (&put, "/targets/7/viewport", Writing(Tabs)),
+            (&put, "/targets/7/mode", Writing(Tabs)),
+            (&post, "/targets", Operator),
+            (&delete, "/targets/7", Operator),
+            (&put, "/targets/7/other", Operator),
+            (&get, "/recordings", Reading(Recordings)),
+            (&post, "/recordings", Writing(Recordings)),
+            (&delete, "/recordings/one.mp4", Writing(Recordings)),
+            (&get, "/screenshots", Reading(Recordings)),
+            (&post, "/screenshots", Writing(Recordings)),
+            (&get, "/uploads", Reading(Uploads)),
+            (&put, "/uploads/a.txt", Writing(Uploads)),
+            (&delete, "/uploads/a.txt", Writing(Uploads)),
+            (&get, "/downloads", Reading(Downloads)),
+            (&post, "/downloads", Operator),
+            (&delete, "/downloads", Operator),
+            (&get, "/downloads/a.txt", Operator),
+            (&get, "/files/recordings/one.mp4", Reading(Recordings)),
+            (&head, "/files/recordings/one.mp4", Reading(Recordings)),
+            (&get, "/files/screenshots/one.png", Reading(Recordings)),
+            (&get, "/files/downloads/a.txt", Reading(Downloads)),
+            (&get, "/files/uploads/a.txt", Reading(Uploads)),
+            (&put, "/files/uploads/a.txt", Operator),
+            (&delete, "/files/downloads/a.txt", Operator),
+            (&get, "/files", Operator),
+            (&get, "/files/profile/Cookies", Operator),
+            (&put, "/proxy", Writing(Proxy)),
+            (&get, "/proxy", Operator),
+            (&put, "/proxy/more", Operator),
+            (&put, "/storage-state", Writing(Cdp)),
+            (&post, "/storage-state", Writing(Cdp)),
+            (&get, "/storage-state", Operator),
+            (&get, "/mcp", Writing(Mcp)),
+            (&post, "/mcp", Writing(Mcp)),
+            (&get, "/cdp", Writing(Cdp)),
+            (&get, "/cdp/devtools/page/7", Writing(Cdp)),
+            (&get, "/tunnel", Writing(Tunnel)),
+            (&post, "/tunnel", Writing(Tunnel)),
+            (&get, "/tunnel/more", Operator),
+            (&get, "/suspend", Operator),
+            (&post, "/suspend", Operator),
+            (&get, "/anything-new", Operator),
+        ];
+        for (method, rest, needed) in table {
+            assert_eq!(needs(method, rest), needed, "{method} {rest}");
+        }
+    }
+
+    #[test]
+    fn a_ticket_gives_its_own_session_what_its_access_says_and_nothing_else() {
+        let keys = Keys {
+            token: Arc::from("operator"),
+            tickets: None,
+            place: Box::new(|sid| (sid == "abc").then(|| "/sessions/abc".to_owned())),
+            names: false,
+        };
+        let nothing = Access::default();
+        let uploads: Access = "uploads:rw".parse().unwrap();
+        let reads: Access = "uploads:r recordings:r downloads:r".parse().unwrap();
+        let tabs: Access = "tabs:w".parse().unwrap();
+        let file = Some("/files/uploads/a.txt");
+        let (get, put) = (Method::GET, Method::PUT);
+        let table = [
+            // Watching is everyone's who is let into the session.
+            ("abc", nothing, None, &get, "/sessions/abc", true),
+            ("abc", nothing, None, &get, "/sessions/abc/", true),
+            ("abc", nothing, None, &get, "/sessions/abc/ws", true),
+            ("abc", nothing, None, &get, "/sessions/abc/targets", true),
+            // An area is its reader's to read and its writer's to write.
+            ("abc", nothing, None, &get, "/sessions/abc/uploads", false),
+            ("abc", reads, None, &get, "/sessions/abc/uploads", true),
+            (
+                "abc",
+                reads,
+                None,
+                &put,
+                "/sessions/abc/uploads/a.txt",
+                false,
+            ),
+            (
+                "abc",
+                uploads,
+                None,
+                &put,
+                "/sessions/abc/uploads/a.txt",
+                true,
+            ),
+            ("abc", uploads, None, &get, "/sessions/abc/downloads", false),
+            (
+                "abc",
+                reads,
+                None,
+                &get,
+                "/sessions/abc/files/downloads/a",
+                true,
+            ),
+            (
+                "abc",
+                reads,
+                None,
+                &get,
+                "/sessions/abc/files/recordings/a",
+                true,
+            ),
+            (
+                "abc",
+                nothing,
+                None,
+                &put,
+                "/sessions/abc/targets/7/viewport",
+                false,
+            ),
+            (
+                "abc",
+                tabs,
+                None,
+                &put,
+                "/sessions/abc/targets/7/viewport",
+                true,
+            ),
+            (
+                "abc",
+                tabs,
+                None,
+                &put,
+                "/sessions/abc/targets/7/mode",
+                true,
+            ),
+            ("abc", Access::ALL, None, &get, "/sessions/abc/tunnel", true),
+            ("abc", reads, None, &get, "/sessions/abc/tunnel", false),
+            // What is the operator's is no ticket's, whatever it says.
+            (
+                "abc",
+                Access::ALL,
+                None,
+                &Method::DELETE,
+                "/sessions/abc",
+                false,
+            ),
+            (
+                "abc",
+                Access::ALL,
+                None,
+                &Method::POST,
+                "/sessions/abc/suspend",
+                false,
+            ),
+            (
+                "abc",
+                Access::ALL,
+                None,
+                &get,
+                "/sessions/abc/anything-new",
+                false,
+            ),
+            // Nothing outside the session, and no session whose name only starts as its own.
+            ("abc", Access::ALL, None, &get, "/sessions/abcd", false),
+            ("abc", Access::ALL, None, &get, "/sessions/abcd/ws", false),
+            ("abc", Access::ALL, None, &get, "/sessions/ab", false),
+            ("abc", Access::ALL, None, &get, "/sessions", false),
+            ("abc", Access::ALL, None, &get, "/", false),
+            (
+                "abc",
+                Access::ALL,
+                None,
+                &get,
+                "/other/sessions/abc/ws",
+                false,
+            ),
+            // A session that is not served here.
+            ("gone", Access::ALL, None, &get, "/sessions/gone/ws", false),
+            ("gone", Access::ALL, None, &get, "/sessions/abc/ws", false),
+            // A ticket for one route is good there alone, and gives no more there than its
+            // access does.
+            (
+                "abc",
+                reads,
+                file,
+                &get,
+                "/sessions/abc/files/uploads/a.txt",
+                true,
+            ),
+            (
+                "abc",
+                reads,
+                file,
+                &get,
+                "/sessions/abc/files/uploads/b.txt",
+                false,
+            ),
+            (
+                "abc",
+                reads,
+                file,
+                &get,
+                "/sessions/abc/files/uploads/a.txt/",
+                false,
+            ),
+            ("abc", reads, file, &get, "/sessions/abc/ws", false),
+            ("abc", reads, file, &get, "/sessions/abc", false),
+            (
+                "abc",
+                nothing,
+                file,
+                &get,
+                "/sessions/abc/files/uploads/a.txt",
+                false,
+            ),
+        ];
+        for (sid, access, only, method, path, allowed) in table {
+            assert_eq!(
+                allows(&keys, sid, access, only, method, path),
+                allowed,
+                "{sid} {access} {only:?} {method} {path}"
+            );
+        }
+    }
+}
