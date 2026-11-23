@@ -11,6 +11,7 @@ import { Forbidden, Unauthorized } from "../errors.ts";
 import { bearerOf, callerOf, TOKEN_COOKIE } from "./caller.ts";
 import { clientAddress } from "./client-address.ts";
 import { guestOf, SHARE_COOKIE } from "./guest.ts";
+import { originOf } from "./origin.ts";
 import { nodePath } from "../routing/paths.ts";
 import { ADMIT_PATH } from "../routing/layer.ts";
 import { Routing } from "../routing/service.ts";
@@ -30,6 +31,9 @@ const STATUS = {
   ShareRefused: 401,
   TooManyTries: 429,
 } as const;
+
+/** The routes of a session that are sockets, which a browser opens from any page that asks. */
+const SOCKET = /\/sessions\/[^/]+\/(?:ws|tunnel|cdp(?:\/devtools\/.*)?)$/u;
 
 const refused = (error: { readonly _tag: keyof typeof STATUS }) =>
   Effect.succeed(HttpServerResponse.jsonUnsafe(error, { status: STATUS[error._tag] }));
@@ -61,6 +65,25 @@ export const layer = HttpRouter.use(
       const carried = yield* routing.admitTicket(uri, bearerOf(request));
       if (Option.isSome(carried)) {
         return HttpServerResponse.empty({ headers: { authorization: `Bearer ${carried.value}` } });
+      }
+      // What is left to let a request in is what a browser sends by itself, its cookies,
+      // and it sends them for a page of any origin of the same site: a page elsewhere
+      // would open a session's socket as whoever looks at it. So they are taken from the
+      // pages of this program alone, as the MCP endpoint takes them. A browser says where
+      // a socket is opened from and where anything but a read is asked from; a read that
+      // says nothing is one no page of elsewhere gets the answer of.
+      if (Option.isNone(bearerOf(request))) {
+        const origin = request.headers["origin"];
+        const reads = /^(?:GET|HEAD)$/iu.test(request.headers["x-forwarded-method"] ?? "GET");
+        const own =
+          origin === undefined
+            ? reads && !SOCKET.test(uri.replace(/[?#].*$/u, ""))
+            : origin === originOf(settings, request);
+        if (!own) {
+          return yield* new Forbidden({
+            message: "cookies let in the pages of this program alone: carry a token or a ticket",
+          });
+        }
       }
       const ticket = yield* Option.match(guestOf(request, SHARE_COOKIE), {
         onNone: () => asCaller,

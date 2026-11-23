@@ -2,6 +2,7 @@ import * as Executor from "@aperture-browser/e2e/src/executor.ts";
 import { follow, read, request } from "@aperture-browser/e2e/src/http.ts";
 import * as Mcp from "@aperture-browser/e2e/src/mcp.ts";
 import { directory, logsDirectory } from "@aperture-browser/e2e/src/process.ts";
+import * as Site from "@aperture-browser/e2e/src/site.ts";
 import { suite } from "@aperture-browser/e2e/src/suite.ts";
 import * as Viewer from "@aperture-browser/e2e/src/viewer.ts";
 import { until } from "@aperture-browser/e2e/src/wait.ts";
@@ -522,6 +523,102 @@ suite(needs)("sessions behind a proxy that asks the control plane", (it) => {
         Schema.String,
       );
       expect(me).toBe("Ada");
+    }),
+  );
+
+  it.effect("a page of another origin opens no session with what the browser carries", () =>
+    Effect.gen(function* () {
+      const proxy = yield* Proxy.Proxy;
+      const viewer = yield* Viewer.Viewer;
+      const http = yield* HttpClient.HttpClient;
+      // Another origin of the same site: the browser sends it the cookies all the same.
+      const elsewhere = yield* Site.serve(Site.html("<title>elsewhere</title>"));
+      const opens = (page: Viewer.Page, route: string) =>
+        page.evaluate(
+          `new Promise((resolve) => {
+            const socket = new WebSocket(${JSON.stringify(`${proxy.url.replace("http", "ws")}${path}${route}`)});
+            socket.onopen = () => (socket.close(), resolve(true));
+            socket.onerror = () => resolve(false);
+          })`,
+          Schema.Boolean,
+        );
+      const foreign = yield* viewer.open(elsewhere.url);
+      yield* foreign.until(`document.title === "elsewhere"`);
+      expect(yield* opens(foreign, "/ws")).toBe(false);
+      expect(yield* opens(foreign, "/cdp")).toBe(false);
+      yield* foreign.close;
+      const own = yield* viewer.open(`${proxy.url}/api/control/openapi.json`);
+      yield* own.until(`document.readyState === "complete"`);
+      expect(yield* opens(own, "/ws")).toBe(true);
+      expect(yield* opens(own, "/cdp")).toBe(true);
+      yield* own.close;
+
+      // The same as requests say it, and for the cookie a person signs in with as well.
+      const asked = (
+        method: "GET" | "PUT",
+        route: string,
+        headers: Record<string, string>,
+        token?: string,
+      ) =>
+        http
+          .execute(
+            HttpClientRequest.make(method)(`${proxy.url}${route}`).pipe(
+              HttpClientRequest.setHeaders(headers),
+              token === undefined ? (bare) => bare : HttpClientRequest.bearerToken(token),
+            ),
+          )
+          .pipe(Effect.map((answer) => answer.status));
+      const person = yield* signedIn("Origin of Ada", "origin@example.com");
+      const theirs = yield* until(
+        "a session of the person's own",
+        http
+          .execute(
+            HttpClientRequest.post(`${proxy.url}/api/control/sessions`).pipe(
+              HttpClientRequest.setHeaders({ cookie: person.cookie, origin: proxy.url }),
+              HttpClientRequest.bodyJsonUnsafe({}),
+            ),
+          )
+          .pipe(
+            Effect.flatMap((answer) => answer.json),
+            Effect.flatMap(Schema.decodeUnknownEffect(Schema.Struct({ path: Schema.String }))),
+          ),
+        "30 seconds",
+      );
+      for (const [cookie, session] of [
+        [`aperture_control=${ada.token}`, path],
+        [person.cookie, theirs.path],
+      ] as const) {
+        const from = (origin: string | undefined) => ({
+          cookie,
+          ...(origin === undefined ? {} : { origin }),
+        });
+        const targets = `${session}/targets`;
+        yield* until(
+          "the session answering its own",
+          asked("GET", targets, from(proxy.url)).pipe(Effect.map((status) => status === 200)),
+          "60 seconds",
+        );
+        expect(yield* asked("GET", targets, from(elsewhere.url))).toBe(403);
+        expect(yield* asked("GET", targets, from("null"))).toBe(403);
+        // What is no page says no origin, and reads; a page says its own whenever it does more.
+        expect(yield* asked("GET", targets, from(undefined))).toBe(200);
+        expect(yield* asked("PUT", `${session}/proxy`, from(undefined))).toBe(403);
+        // A browser says where a socket is opened from, always.
+        for (const socket of ["/ws", "/cdp", "/cdp/devtools/page/1", "/tunnel"]) {
+          expect(yield* asked("GET", `${session}${socket}`, from(undefined))).toBe(403);
+          expect(yield* asked("GET", `${session}${socket}`, from(elsewhere.url))).toBe(403);
+          expect(yield* asked("GET", `${session}${socket}`, from(proxy.url))).not.toBe(403);
+        }
+      }
+      // Whoever carries a token or a ticket is let in by that, from wherever.
+      const foreignly = { origin: elsewhere.url };
+      expect(yield* asked("GET", `${path}/targets`, foreignly, ada.token)).toBe(200);
+      expect(yield* asked("GET", `${path}/ws`, {}, ada.token)).not.toBe(403);
+      const { ticket } = yield* ada.api.sessions.createTicket({
+        params: { id: path.split("/").at(-1) ?? "" },
+        payload: {},
+      });
+      expect(yield* asked("GET", `${path}/targets?token=${ticket}`, foreignly)).toBe(200);
     }),
   );
 
