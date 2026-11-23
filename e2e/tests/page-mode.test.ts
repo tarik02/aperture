@@ -438,11 +438,6 @@ suite(session)("how a tab's pages are shown, with a desktop, a phone and the aut
           yield* eve.click("[data-workbench-menu]");
           yield* eve.until(`${menu} !== null`);
         }).pipe(Effect.andThen(landed(menu)));
-        const touch = (type: string, x?: number, y?: number) =>
-          eve.cdp.call("Input.dispatchTouchEvent", {
-            type,
-            touchPoints: x === undefined ? [] : [{ x, y }],
-          });
         const turn = (width: number, height: number) =>
           eve.cdp.call("Emulation.setDeviceMetricsOverride", {
             width,
@@ -507,15 +502,7 @@ suite(session)("how a tab's pages are shown, with a desktop, a phone and the aut
         ).toBe("1,part,true,true");
         // It follows a finger: up to be whole, and down from there to be gone.
         const drawn = (x: number, from: number, to: number) =>
-          Effect.gen(function* () {
-            yield* touch("touchStart", x, from);
-            for (let step = 1; step <= 10; step += 1) {
-              yield* touch("touchMove", x, from + ((to - from) * step) / 10);
-              yield* Effect.sleep("16 millis");
-            }
-            yield* Effect.sleep("150 millis");
-            yield* touch("touchEnd");
-          });
+          eve.finger(ViewerLive.along({ x, y: from }, { x, y: to }), "150 millis");
         const top = `${menu}.getBoundingClientRect().top`;
         yield* drawn(195, (yield* eve.evaluate(top, Schema.Number)) + 10, 150);
         yield* eve.until(`${menu}.dataset.height === "full"`);
@@ -534,13 +521,10 @@ suite(session)("how a tab's pages are shown, with a desktop, a phone and the aut
         yield* eve.until(`${phone}.dataset.lay === "right"`);
         yield* opened;
         const left = yield* eve.evaluate(`${menu}.getBoundingClientRect().left`, Schema.Number);
-        yield* touch("touchStart", left + 40, 12);
-        for (let step = 1; step <= 10; step += 1) {
-          yield* touch("touchMove", left + 40 + step * 29, 12);
-          yield* Effect.sleep("16 millis");
-        }
-        yield* Effect.sleep("150 millis");
-        yield* touch("touchEnd");
+        yield* eve.finger(
+          ViewerLive.along({ x: left + 40, y: 12 }, { x: left + 330, y: 12 }),
+          "150 millis",
+        );
         yield* eve.until(
           `${menu} === null && document.querySelectorAll("[data-slot=drawer-overlay]").length === 0`,
         );

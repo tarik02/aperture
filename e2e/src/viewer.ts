@@ -1,5 +1,5 @@
 import * as Context from "effect/Context";
-import type * as Duration from "effect/Duration";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Base64 from "effect/encoding/Base64";
 import * as Layer from "effect/Layer";
@@ -86,6 +86,24 @@ const aimAt = (element: string, pressed: boolean) => `(() => {
   return { x, y, width: rect.width, height: rect.height, left: rect.left, top: rect.top };
 })()`;
 
+/** A place in a page's window. */
+export interface Place {
+  readonly x: number;
+  readonly y: number;
+}
+
+/** The places a finger is told at on its way from one to another, the first where it is put down. */
+export const along = (from: Place, to: Place, steps = 10): readonly [Place, ...Place[]] => [
+  from,
+  ...Array.from({ length: steps }, (_, step) => ({
+    x: from.x + ((to.x - from.x) * (step + 1)) / steps,
+    y: from.y + ((to.y - from.y) * (step + 1)) / steps,
+  })),
+];
+
+/** How long a finger takes from one place it is told at to the next. */
+const FRAME = Duration.millis(16);
+
 /** A page a person has open, driven as a person drives it. */
 export interface Page {
   /** Evaluates in the page; a promise is waited for. */
@@ -125,6 +143,15 @@ export interface Page {
   readonly clickOn: (element: string) => Effect.Effect<void, Cdp.CdpError | NoElement>;
   /** Puts a finger down and lifts it where it went down. */
   readonly tapAt: (x: number, y: number) => Effect.Effect<void, Cdp.CdpError>;
+  /**
+   * Puts a finger down at the first place, moves it through the others a frame apart and
+   * lifts it, after `rests` where it is to rest first: a finger that rests before it is
+   * lifted flings nothing on.
+   */
+  readonly finger: (
+    path: readonly [Place, ...Place[]],
+    rests?: Duration.Input,
+  ) => Effect.Effect<void, Cdp.CdpError>;
   /** Taps the element a selector names with a finger, once it can be pressed. */
   readonly tap: (selector: string) => Effect.Effect<void, Cdp.CdpError | NoElement>;
   readonly hover: (selector: string) => Effect.Effect<void, Cdp.CdpError | NoElement>;
@@ -366,14 +393,27 @@ export const start = Effect.gen(function* () {
           });
           yield* mouse("mouseReleased", x, y, { button, clickCount: 1 });
         });
-      const tapAt: Page["tapAt"] = (x, y) =>
-        page
-          .call("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] })
-          .pipe(
-            Effect.andThen(
-              page.call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] }),
-            ),
-          );
+      // The browser is told all a finger does without waiting for what it answers to each:
+      // how long a finger rests in a place is how long it is told to, not how long an
+      // answer takes to come back. One that rests half a second is a long press to what
+      // it touches, and an answer takes as long on a machine that is busy.
+      const finger: Page["finger"] = (path, rests = Duration.zero) => {
+        const told = (type: string, at: Place | undefined, after: Duration.Duration) =>
+          page
+            .call("Input.dispatchTouchEvent", { type, touchPoints: at === undefined ? [] : [at] })
+            .pipe(Effect.delay(after));
+        const [began, ...moves] = path;
+        const moved = Duration.times(FRAME, moves.length);
+        return Effect.all(
+          [
+            told("touchStart", began, Duration.zero),
+            ...moves.map((at, index) => told("touchMove", at, Duration.times(FRAME, index + 1))),
+            told("touchEnd", undefined, Duration.sum(moved, Duration.fromInputUnsafe(rests))),
+          ],
+          { concurrency: "unbounded", discard: true },
+        );
+      };
+      const tapAt: Page["tapAt"] = (x, y) => finger([{ x, y }]);
       const press: Page["key"] = (key, code = key, virtualKey = 0) =>
         Effect.gen(function* () {
           const named = { key, code, windowsVirtualKeyCode: virtualKey };
@@ -405,6 +445,7 @@ export const start = Effect.gen(function* () {
           aim(named(selector)).pipe(Effect.flatMap((at) => clickAt(at.x, at.y, button))),
         clickOn: (element) => aim(element).pipe(Effect.flatMap((at) => clickAt(at.x, at.y))),
         tapAt,
+        finger,
         tap: (selector) => aim(named(selector)).pipe(Effect.flatMap((at) => tapAt(at.x, at.y))),
         hover: (selector) =>
           aim(named(selector)).pipe(Effect.flatMap((at) => mouse("mouseMoved", at.x, at.y))),
