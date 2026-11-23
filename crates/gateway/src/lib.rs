@@ -27,7 +27,7 @@ use std::{fmt, io, net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc};
 use axum::{
     Router,
     extract::{FromRequestParts, RawPathParams},
-    http::{HeaderValue, StatusCode, request::Parts},
+    http::{HeaderValue, StatusCode, header, request::Parts},
     middleware,
     response::{IntoResponse, Response},
 };
@@ -110,8 +110,40 @@ impl<S: Send + Sync> FromRequestParts<S> for Which {
 /// The routes one session is reached on, with the page that shows it or without. Mounted
 /// below a path with an `id` in it, they are those of the session of that id. They let
 /// anyone in: see [`guarded`].
+///
+/// All but the page that shows the session answer [`inert`]: a route that is added answers
+/// so without saying it.
 pub fn router(sessions: Arc<dyn Sessions>, viewer: bool) -> Router {
-    cdp::router(sessions.clone()).merge(live::router(sessions, viewer))
+    let routes = cdp::router(sessions.clone())
+        .merge(live::router(sessions))
+        .layer(middleware::map_response(inert));
+    if viewer {
+        routes.route("/", axum::routing::get(async || live::viewer()))
+    } else {
+        routes
+    }
+}
+
+/// Has an answer run nothing where a browser shows it by itself. What a session answers
+/// with is what its pages made of it: files, pictures, names. It is answered from where
+/// the page that shows the session is, and whoever is sent to its address is let in by
+/// what their browser keeps for that page, so what would run there runs as them.
+///
+/// The answer is of the kind it says and no other, and as a document it is one that runs
+/// no script, loads nothing and is of no origin. A picture or a video shown in a page is
+/// held by neither.
+pub async fn inert(mut response: Response) -> Response {
+    let headers = response.headers_mut();
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    // One that says more of itself, as an icon that is drawn with styles of its own, is
+    // left to: the session's runner is as trusted as this is.
+    headers
+        .entry(header::CONTENT_SECURITY_POLICY)
+        .or_insert(HeaderValue::from_static("sandbox; default-src 'none'"));
+    response
 }
 
 /// The routes, for those the keys let in. Pages of `origins` may reach them from a

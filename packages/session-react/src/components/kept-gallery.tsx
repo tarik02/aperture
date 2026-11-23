@@ -4,7 +4,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
-  ExternalLink,
   Film,
   PanelRight,
   Pause,
@@ -244,29 +243,21 @@ function BarButton({
   );
 }
 
-/** The links every kept file has: to a tab of its own, and to a file on this machine. */
+/**
+ * The link every kept file has, to a file on this machine. A file of the session's is
+ * shown here or kept, and is no page of its own: the session answers with it as a file.
+ */
 function FileLinks({ href, file }: { href: string; file: string }) {
   return (
-    <>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        aria-label="Open in a new tab"
-        title="Open in a new tab"
-        render={<a href={href} target="_blank" rel="noreferrer" />}
-      >
-        <ExternalLink />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        aria-label="Download"
-        title="Download"
-        render={<a href={href} download={file.split("/").at(-1) ?? ""} />}
-      >
-        <Download />
-      </Button>
-    </>
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      aria-label="Download"
+      title="Download"
+      render={<a href={href} download={file.split("/").at(-1) ?? ""} />}
+    >
+      <Download />
+    </Button>
   );
 }
 

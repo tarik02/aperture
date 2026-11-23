@@ -21,7 +21,6 @@ use futures_util::StreamExt;
 use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncWriteExt, sync::watch};
-use tower_http::services::ServeDir;
 use tracing::warn;
 
 use super::{
@@ -29,6 +28,7 @@ use super::{
     edit::plan::Options,
     mcp,
     record::{self, Annotation, EditState, Recording, Recordings},
+    served,
     shots::{self, Screenshot},
     sound::Sound,
     state,
@@ -103,7 +103,7 @@ pub async fn serve(socket: &Path, live: Live, automation: Arc<Automation>) -> st
         .route("/recordings/annotations/{kind}", post(recording_annotate))
         .route("/downloads", get(downloads_list))
         .route("/busy", get(busy))
-        .nest_service("/files", ServeDir::new(&live.files));
+        .route("/files/{*path}", get(file));
     if live.features.mcp {
         app = app.nest_service("/mcp", mcp::service(automation));
     }
@@ -276,6 +276,31 @@ async fn busy(State(live): State<Live>) -> Json<Busy> {
             .filter(|download| download.state == Progress::Running)
             .count(),
     })
+}
+
+/// One of the session's files, for whoever keeps it or shows it in a page of their own.
+async fn file(
+    State(live): State<Live>,
+    RoutePath(path): RoutePath<String>,
+    headers: HeaderMap,
+) -> Result<Response, Refusal> {
+    let below = Path::new(&path);
+    let plain = below
+        .components()
+        .all(|part| matches!(part, std::path::Component::Normal(_)));
+    let name = below.file_name().and_then(|name| name.to_str());
+    let Some(name) = name.filter(|_| plain) else {
+        return Err(Refusal::not_found("no such file"));
+    };
+    let file = match tokio::fs::File::open(live.files.join(below)).await {
+        Ok(file) if file.metadata().await?.is_file() => file,
+        Ok(_) => return Err(Refusal::not_found("no such file")),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Err(Refusal::not_found("no such file"));
+        }
+        Err(err) => return Err(err.into()),
+    };
+    Ok(served::file(&headers, file, name).await?)
 }
 
 /// A file put into the session for the browser to take.
@@ -459,12 +484,12 @@ async fn favicon(
     let told = [
         (header::CONTENT_TYPE, icon.kind),
         (header::CACHE_CONTROL, "private, max-age=600"),
-        // An icon is drawn, and runs nothing where it is shown by itself.
+        // An icon is drawn, with styles of its own where it is a drawing, and like all a
+        // session answers with it runs nothing where it is shown by itself.
         (
             header::CONTENT_SECURITY_POLICY,
             "default-src 'none'; style-src 'unsafe-inline'; sandbox",
         ),
-        (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
     ];
     Ok((told, Body::from(icon.bytes.clone())).into_response())
 }

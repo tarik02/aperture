@@ -37,18 +37,12 @@ const DISMISSALS: usize = 64;
 /// What a client is told its socket was closed for: nothing of the protocol is wrong.
 const CLOSED_BY_POLICY: u16 = 1008;
 
-pub fn router(sessions: Arc<dyn Sessions>, viewer: bool) -> Router {
-    let routes = Router::new()
+pub fn router(sessions: Arc<dyn Sessions>) -> Router {
+    Router::new()
         .route("/ws", get(session_socket))
         .route("/tunnel", get(tunnel))
         .route("/callers/{subject}", delete(dismiss))
-        .fallback(forward);
-    let routes = if viewer {
-        routes.route("/", get(shown))
-    } else {
-        routes
-    };
-    routes
+        .fallback(forward)
         .layer(Extension(Dismissals(broadcast::channel(DISMISSALS).0)))
         .with_state(sessions)
 }
@@ -68,10 +62,6 @@ async fn dismiss(
     // Nobody listening is nobody to dismiss.
     let _ = dismissals.0.send((id, subject.to_owned()));
     StatusCode::NO_CONTENT
-}
-
-async fn shown() -> Html<&'static str> {
-    viewer()
 }
 
 /// The workbench: the page that shows a session, which finds the session where the page

@@ -299,7 +299,8 @@ async fn main() -> anyhow::Result<()> {
     let mut routes = Router::new()
         .route(
             &format!("{}/preview.png", sessions::path("{id}")),
-            get(move |Path(id): Path<String>| async move { preview(&previews, &id) }),
+            get(move |Path(id): Path<String>| async move { preview(&previews, &id) })
+                .layer(axum::middleware::map_response(aperture_gateway::inert)),
         )
         .nest(&sessions::path("{id}"), session);
     if shown {
