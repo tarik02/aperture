@@ -23,8 +23,7 @@ const POLL: Duration = Duration::from_millis(50);
 /// accepts a connection before the browser listens, and one made then is never answered.
 const ANSWERED_WITHIN: Duration = Duration::from_secs(2);
 
-/// Host trees the browser loads its libraries, fonts, certificates and resolver
-/// configuration from.
+/// Host trees the browser loads its libraries and fonts from.
 const SYSTEM_ROOTS: &[&str] = &[
     "/usr",
     "/lib",
@@ -34,9 +33,38 @@ const SYSTEM_ROOTS: &[&str] = &[
     "/var/cache/fontconfig",
 ];
 
+/// What the browser is shown of the machine's `/etc`, where the machine has it: how fonts
+/// are found, and the certificates the machine trusts, wherever its distribution keeps
+/// them. The rest of the browser's `/etc` is the session's own, and of the machine's it
+/// sees nothing else.
+const MACHINE_ETC: &[&str] = &[
+    "fonts",
+    "ssl/certs",
+    "ssl/cert.pem",
+    "ssl/trust-source",
+    "pki/tls/certs",
+    "pki/tls/cert.pem",
+    "pki/ca-trust",
+    "ca-certificates",
+];
+
+/// What a browser that draws on a GPU is shown of the machine's `/etc` as well: which
+/// drivers there are, and how they are set.
+const GPU_ETC: &[&str] = &["glvnd", "drirc"];
+
+/// Where NixOS keeps what its `/etc` is links to. What the browser is shown of `/etc` has
+/// links through it.
+const ETC_STATIC: &str = "/etc/static";
+
+/// The machine's time zone, which the browser takes for its own.
+const LOCALTIME: &str = "/etc/localtime";
+
 /// Where a browser looks under `/etc` for what its machine's owner has settled for it:
 /// Chromium, and Chrome.
 const POLICY_DIRS: &[&str] = &["chromium/policies/managed", "opt/chrome/policies/managed"];
+
+/// Who the browser is in its sandbox, which is not the machine's to tell.
+const USER: &str = "browser";
 
 /// What the browser is not to ask whoever uses a session, as none of it is theirs to keep
 /// there: the browser keeps no passwords, addresses or cards and so does not offer to, it
@@ -232,33 +260,7 @@ fn sandbox(command: &mut Command, spec: &Spec, given: &Given, home: &Path) -> an
             command.args(["--ro-bind", root, root]);
         }
     }
-    // The machine's `/etc` with the session's policy over it: the browser reads its policy
-    // from there and from nowhere it can be pointed at.
-    let etc = spec.runtime_dir.join("etc");
-    for dir in POLICY_DIRS {
-        let dir = etc.join(dir);
-        fs::create_dir_all(&dir)?;
-        fs::write(
-            dir.join("aperture.json"),
-            serde_json::to_vec_pretty(&policy())?,
-        )?;
-    }
-    command
-        .args(["--overlay-src", "/etc", "--overlay-src"])
-        .arg(&etc)
-        .args(["--ro-overlay", "/etc"]);
-    if Path::new("/run/systemd/resolve").exists() {
-        command.args(["--ro-bind", "/run/systemd/resolve", "/run/systemd/resolve"]);
-    }
-    if spec.network.reaches_out() {
-        // The machine's resolvers are not the session's, and are often on the machine's
-        // loopback, which is not the browser's.
-        let resolver = spec.runtime_dir.join("resolv.conf");
-        fs::write(&resolver, format!("nameserver {NAMESERVER}\n"))?;
-        let asked = fs::canonicalize("/etc/resolv.conf")
-            .context("the machine names no resolver in /etc/resolv.conf")?;
-        command.arg("--ro-bind").arg(resolver).arg(asked);
-    }
+    etc(command, spec, given, home)?;
     if let Some(node) = render_node {
         // The device, and what tells its driver which GPU it is.
         command.arg("--dev-bind").arg(node).arg(node);
@@ -362,6 +364,84 @@ fn sandbox(command: &mut Command, spec: &Spec, given: &Given, home: &Path) -> an
         .arg("--setenv")
         .arg("APERTURE_EXTENSION_SOCKET")
         .arg(extension_socket);
+    Ok(())
+}
+
+/// The browser's `/etc`, which is the session's own and read only: who the browser is, the
+/// names it knows and where it asks for others, and its policy, which it reads from there
+/// and from nowhere it can be pointed at; and of the machine's, what is listed and its time
+/// zone. Nothing is laid over the machine's `/etc`, which a container's runtime mounts
+/// files of its own into, and the kernel lays nothing over those.
+fn etc(command: &mut Command, spec: &Spec, given: &Given, home: &Path) -> anyhow::Result<()> {
+    let own = spec.runtime_dir.join("etc");
+    for dir in POLICY_DIRS {
+        let dir = own.join(dir);
+        fs::create_dir_all(&dir)?;
+        fs::write(
+            dir.join("aperture.json"),
+            serde_json::to_vec_pretty(&policy())?,
+        )?;
+    }
+    // Safety: neither call fails or touches memory.
+    let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
+    let mut files = vec![
+        (
+            "passwd",
+            format!("{USER}:x:{uid}:{gid}::{}:/sbin/nologin\n", home.display()),
+        ),
+        ("group", format!("{USER}:x:{gid}:\n")),
+        (
+            "nsswitch.conf",
+            "passwd: files\ngroup: files\nhosts: files dns\n".to_owned(),
+        ),
+        // The machine's own names are for the session to answer, not for the browser to
+        // know.
+        ("hosts", "127.0.0.1 localhost\n::1 localhost\n".to_owned()),
+    ];
+    if spec.network.reaches_out() {
+        // The machine's resolvers are not the session's, and are often on the machine's
+        // loopback, which is not the browser's.
+        files.push(("resolv.conf", format!("nameserver {NAMESERVER}\n")));
+    }
+    command.args(["--tmpfs", "/etc"]);
+    for (name, said) in files {
+        let file = own.join(name);
+        fs::write(&file, said)?;
+        command
+            .arg("--ro-bind")
+            .arg(file)
+            .arg(Path::new("/etc").join(name));
+    }
+    for dir in ["chromium", "opt"] {
+        command
+            .arg("--ro-bind")
+            .arg(own.join(dir))
+            .arg(Path::new("/etc").join(dir));
+    }
+    let gpu: &[&str] = match given.render_node {
+        Some(_) => GPU_ETC,
+        None => &[],
+    };
+    for name in MACHINE_ETC.iter().chain(gpu) {
+        let shown = Path::new("/etc").join(name);
+        // Where it is and not where a link says: the link's own path may not be in the
+        // sandbox.
+        if let Ok(kept) = fs::canonicalize(&shown) {
+            command.arg("--ro-bind").arg(kept).arg(shown);
+        }
+    }
+    for link in [ETC_STATIC, LOCALTIME] {
+        let Ok(kept) = fs::canonicalize(link) else {
+            continue;
+        };
+        if SYSTEM_ROOTS.iter().any(|root| kept.starts_with(root)) {
+            // As a link, which is what tells the browser the time zone's name.
+            command.arg("--symlink").arg(kept).arg(link);
+        } else if link == LOCALTIME {
+            command.arg("--ro-bind").arg(kept).arg(link);
+        }
+    }
+    command.args(["--remount-ro", "/etc"]);
     Ok(())
 }
 

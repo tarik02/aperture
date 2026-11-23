@@ -227,16 +227,8 @@ systemctl status aperture-control aperture-node aperture-proxy
 `ghcr.io/tarik02/aperture-session:<version>` (also `:beta` for the newest beta) is **one session**: `aperture-runner serve`, with its browser, sandbox and encoders. It has no control plane, no console, no accounts, no snapshots and no PostgreSQL, and needs none. Whoever holds its token may do anything in it.
 
 ```sh
-# An /etc of the session's own, with the resolvers its browser's connections use.
-mkdir -p etc
-printf 'root:x:0:0:root:/var/empty:/bin/sh\nnobody:x:65534:65534:nobody:/var/empty:/bin/sh\n' > etc/passwd
-printf 'root:x:0:\nnobody:x:65534:\n' > etc/group
-printf 'nameserver 1.1.1.1\n' > etc/resolv.conf
-
 podman run --rm \
   --security-opt unmask=ALL \
-  --no-hosts --no-hostname --dns none \
-  -v "$PWD/etc:/etc:ro" \
   -v aperture-session:/data \
   -p 127.0.0.1:7900:7900 \
   -e APERTURE_FEATURES=sound,uploads,downloads,recordings,clipboard,mcp,cdp \
@@ -253,14 +245,16 @@ Open `http://127.0.0.1:7900/?token=<token>` for the workbench. The same token is
 
 What each part of that is for:
 
-- **`--security-opt unmask=ALL`**: the browser is sandboxed inside the container, with a `/proc` of its own, which a container runtime does not let it mount over the one it masks. The user in the container has to be able to make user namespaces, as on a node.
-- **The `/etc` directory, and `--no-hosts --no-hostname --dns none`**: not optional for now. The sandbox lays the session's browser policy over `/etc`, and the kernel refuses that while the container runtime's own `hosts`, `hostname` and `resolv.conf` are mounted there. Without these flags the container starts, the browser does not (`bwrap: Can't make overlay mount … Invalid argument` in the log), and every route answers as if there were no session. With them the runtime mounts nothing into `/etc`, so the directory has to bring what was there: the two users the image has, and the resolvers. Name your own resolvers in `resolv.conf`.
+- **`--security-opt unmask=ALL`**: the browser is sandboxed inside the container, with a `/proc` of its own, which a container runtime does not let it mount over the one it masks. This is the one thing the image asks for beyond a runtime's defaults: no `--privileged`, no added capability, no device.
+- **User namespaces inside the container.** The sandbox is made of them, as on a node, so whoever runs in the container has to be allowed to make one and to mount in it. A rootless podman container is: its root holds every capability over the container's own user namespace. Where the host forbids user namespaces to unprivileged users the browser does not start. Ubuntu 23.10 and newer do that through AppArmor (`kernel.apparmor_restrict_unprivileged_userns`); the image is checked on Ubuntu 24.04 with that set to `0`.
 - **`/data` kept**, as a volume: the profile, the session's files and its token are there.
 - **`APERTURE_FEATURES`**: every feature is off unless it is turned on.
 - **`--device /dev/net/tun`** is needed only for a browser with a network of its own (`APERTURE_NETWORK_TCP=direct` or `APERTURE_NETWORK_UDP=direct`).
 - **TLS and anything else in front** are yours to add. The image listens on `0.0.0.0:7900` inside the container, in plain HTTP. It has no `/health`; `GET /targets` with the token answers once the browser is up.
 
-This was run with rootless podman. Docker always mounts those three files into `/etc` and has no flag to leave them out, so the image is not expected to start under Docker until the sandbox stops needing `/etc` as it is.
+This is how the image is run before every release, with rootless podman. It was not run under Docker, whose default seccomp and AppArmor profiles keep a container's root from making user namespaces and mounting in them: expect to need `--security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined` there, or `--privileged`.
+
+The session's browser sees the container's `/etc` no more than a node's: it has an `/etc` of its own, as [Configuration](configuration.md#what-a-sessions-browser-sees-of-the-machine) tells. The resolvers the container was given (`--dns`) are the ones the session asks for the names its pages go to.
 
 The image is signed and carries provenance and an SBOM. Each release also has the image as a file for `docker load`, for `linux/amd64` and `linux/arm64`, with `SHA256SUMS`.
 

@@ -140,6 +140,27 @@ The package sets the programs a session runs: `APERTURE_CHROMIUM`, `APERTURE_BWR
 
 `aperture-runner serve`, which is what the container image runs, takes the browser and network settings above, and `APERTURE_DATA` (required: the session's directory), `APERTURE_LISTEN`, `APERTURE_RUNTIME_DIR`, `APERTURE_TOKEN_FILE`, `APERTURE_TICKET_KEY`, `APERTURE_SESSION_ID` and `APERTURE_CORS_ORIGINS`.
 
+### What a session's browser sees of the machine
+
+A session's browser runs in a sandbox with an `/etc` of its own, read only. What is in it:
+
+| In the browser's `/etc` | Whose | Why |
+|---|---|---|
+| `passwd`, `group` | the session's | One user, `browser`, with the numbers the node runs as: the browser asks who it is |
+| `nsswitch.conf` | the session's | Users from those files, names from `hosts` and then the resolver |
+| `hosts` | the session's | `localhost` and nothing else. The names in the machine's `hosts` are not the browser's to know |
+| `resolv.conf` | the session's | Only for a browser with a network of its own: it asks the session for names |
+| `chromium/policies/managed`, `opt/chrome/policies/managed` | the session's | The browser's policy, which it reads from nowhere else |
+| `fonts` | the machine's | How fonts are found and chosen |
+| `ssl/certs`, `ssl/cert.pem`, `ssl/trust-source`, `pki/tls/certs`, `pki/tls/cert.pem`, `pki/ca-trust`, `ca-certificates` | the machine's | The certificate authorities the machine trusts, where its distribution keeps them, for the libraries of the browser that ask for them. The browser checks the sites it goes to against the authorities it comes with |
+| `localtime` | the machine's | The time zone |
+| `static` | the machine's | NixOS only: a link into `/nix/store`, which the files above are links through |
+| `glvnd`, `drirc` | the machine's | Only for a browser that draws on a GPU: which drivers there are and how they are set |
+
+Each of the machine's is there only where the machine has it. Nothing else of the machine's `/etc` is in the sandbox: not its `machine-id`, `os-release`, its users or its services' settings. The machine's name is not among what is kept from the browser: the sandbox is called what the machine is.
+
+Outside `/etc` the browser sees, read only, `/usr`, `/lib`, `/lib64`, `/bin`, `/nix/store` and `/var/cache/fontconfig`, and with a GPU `/run/opengl-driver`, `/sys/dev/char` and `/sys/devices`. Whoever holds a session can read these through its DevTools, so nothing secret belongs in `/nix/store` or anywhere else that every user of the machine may read.
+
 ## Session features
 
 A feature is something a session offers only where it is turned on. A node's sessions offer what the node does and never more; a session tells its clients which it has, and what is off is refused to everyone.
