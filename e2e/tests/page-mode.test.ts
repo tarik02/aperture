@@ -449,6 +449,12 @@ suite(session)("how a tab's pages are shown, with a desktop, a phone and the aut
             screenOrientation: ViewerLive.held(width, height),
           });
         yield* eve.until(`${phone}?.dataset.lay === "right"`, "30 seconds");
+        // The rail is as long as what it holds, and has who else is here once they are told:
+        // what is pressed in it is where it is to be by then.
+        yield* eve.until(
+          `!!document.querySelector("[data-workbench-phone-bar] [data-session-presence]")`,
+          "30 seconds",
+        );
         // The rail is over the picture, which has the whole of the window, and all that
         // is pressed in it is as large as a finger needs.
         const laid = `(() => {

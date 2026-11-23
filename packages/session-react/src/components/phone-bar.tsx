@@ -157,6 +157,15 @@ function useSwipe(lay: BarLay, swiped: (inward: boolean) => void, after = SWIPED
         swiped(lay === "left" ? across > 0 : across < 0);
       }
     },
+    // A press that ended as none, as one whose finger left the bar, begins no swipe later.
+    onPointerUp: () => {
+      if (from.current?.done === false) {
+        from.current = undefined;
+      }
+    },
+    onPointerCancel: () => {
+      from.current = undefined;
+    },
     onClickCapture: (event: React.MouseEvent) => {
       if (from.current?.done === true) {
         event.preventDefault();
