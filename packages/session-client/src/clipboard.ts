@@ -18,17 +18,37 @@ export const textForm = (type: string, text: string): ClipboardForm => ({
 
 const blobOf = (one: ClipboardForm) => new Blob([new Uint8Array(one.data)], { type: one.type });
 
-/** A picture as the PNG clipboards carry. */
-export const png = async (picture: Blob) => {
-  if (picture.type === "image/png") {
-    return picture;
+/** A picture drawn again as a PNG: what it looks like, and nothing else it carried. */
+const drawn = async (picture: Blob) => {
+  const draw = (source: CanvasImageSource, width: number, height: number) => {
+    const canvas = new OffscreenCanvas(width, height);
+    canvas.getContext("2d")?.drawImage(source, 0, 0, width, height);
+    return canvas.convertToBlob({ type: "image/png" });
+  };
+  try {
+    const bitmap = await createImageBitmap(picture);
+    try {
+      return await draw(bitmap, bitmap.width, bitmap.height);
+    } finally {
+      bitmap.close();
+    }
+  } catch {
+    // A drawing is decoded by an image element alone, which runs none of its script.
+    const url = URL.createObjectURL(picture);
+    try {
+      const image = new Image();
+      image.src = url;
+      await image.decode();
+      return await draw(image, image.naturalWidth || 300, image.naturalHeight || 150);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   }
-  const bitmap = await createImageBitmap(picture);
-  const drawn = new OffscreenCanvas(bitmap.width, bitmap.height);
-  drawn.getContext("2d")?.drawImage(bitmap, 0, 0);
-  bitmap.close();
-  return drawn.convertToBlob({ type: "image/png" });
 };
+
+/** A picture as the PNG clipboards carry. */
+export const png = (picture: Blob) =>
+  picture.type === "image/png" ? Promise.resolve(picture) : drawn(picture);
 
 const blobs = async (forms: readonly ClipboardForm[]) => {
   const taken = forms.filter((one) => TAKEN.test(one.type));
@@ -62,30 +82,73 @@ export const write = async (forms: readonly ClipboardForm[]) => {
 };
 
 /**
+ * Copies the old way, which is deprecated and the one way where the clipboard is not a
+ * page's to write: the browser is told to copy, and is handed the texts as it does.
+ */
+const copyOldWay = (texts: ReadonlyMap<string, string>) => {
+  // What is copied without being handed is what is selected, where a browser copies
+  // nothing otherwise.
+  const from = document.createElement("textarea");
+  from.value = texts.get("text/plain") ?? "";
+  document.body.append(from);
+  from.focus();
+  from.select();
+  let handed = false;
+  // Before anything of the page hears of it, whatever has the keyboard by now.
+  const hand = (event: ClipboardEvent) => {
+    for (const [type, text] of texts) {
+      event.clipboardData?.setData(type, text);
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    handed = true;
+  };
+  window.addEventListener("copy", hand, { capture: true });
+  const copied = document.execCommand("copy");
+  window.removeEventListener("copy", hand, { capture: true });
+  from.remove();
+  return copied && (handed || from.value !== "");
+};
+
+/**
  * Copies in a click what `write` could not: text is copied the old way, and a picture
  * opens to be copied by hand.
+ *
+ * What the session copied is what a page there made of it, and nothing of it is opened
+ * as it came: a document made of it here would be this page's own, and run as whoever
+ * watches. Text stays text, and a picture opens as the PNG it is drawn to.
  */
 export const writeByHand = async (forms: readonly ClipboardForm[]) => {
   if (await write(forms)) {
     return true;
   }
-  const text = forms.find((one) => one.type === "text/plain");
-  if (text !== undefined) {
-    const from = document.createElement("textarea");
-    from.value = new TextDecoder().decode(text.data);
-    document.body.append(from);
-    from.select();
-    // Deprecated, and the one way to copy where the clipboard is not a page's to write.
-    const copied = document.execCommand("copy");
-    from.remove();
-    return copied;
+  const texts = new Map(
+    forms
+      .filter((one) => TEXTS.some((type) => type === one.type))
+      .map((one) => [one.type, new TextDecoder().decode(one.data)]),
+  );
+  const marked = texts.get("text/html");
+  if (marked !== undefined && !texts.has("text/plain")) {
+    // Parsed to be read, in a document that runs and loads nothing.
+    const read = new DOMParser().parseFromString(marked, "text/html");
+    for (const unread of read.querySelectorAll("script, style, template")) {
+      unread.remove();
+    }
+    texts.set("text/plain", read.body.textContent ?? "");
   }
-  const shown = forms.find((one) => one.type.startsWith("image/") || one.type === "text/html");
-  if (shown === undefined) {
+  if (texts.size > 0) {
+    return copyOldWay(texts);
+  }
+  const picture = forms.find((one) => one.type.startsWith("image/"));
+  if (picture === undefined) {
     return false;
   }
-  window.open(URL.createObjectURL(blobOf(shown)));
-  return true;
+  try {
+    window.open(URL.createObjectURL(await drawn(blobOf(picture))));
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 /** What the clipboard here has, where the browser lets a page read it. */

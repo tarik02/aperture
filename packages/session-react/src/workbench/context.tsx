@@ -160,7 +160,7 @@ function useClipboardNotices() {
         if (event.written) {
           return;
         }
-        const picture = !event.forms.some((form) => form.type === "text/plain");
+        const picture = !event.forms.some((form) => form.type.startsWith("text/"));
         toast("The session copied something", {
           id: "aperture-session-copied",
           description: picture
