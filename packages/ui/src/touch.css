@@ -23,7 +23,6 @@
     [data-slot="sidebar-menu-button"],
     [data-slot="select-item"],
     [data-slot="combobox-item"],
-    [data-slot="autocomplete-item"],
     [data-slot$="-menu-item"],
     [data-slot$="-menu-sub-trigger"],
     [data-slot$="-menu-checkbox-item"],

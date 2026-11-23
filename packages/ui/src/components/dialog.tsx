@@ -11,7 +11,6 @@ import { ScrollArea } from "./scroll-area.tsx";
 const POPUPS = [
   '[data-slot="select-content"][data-open]',
   '[data-slot="combobox-content"][data-open]',
-  '[data-slot="autocomplete-content"][data-open]',
   '[data-slot$="menu-content"][data-open]',
   '[data-slot="popover-content"][data-open]',
 ].join(", ");

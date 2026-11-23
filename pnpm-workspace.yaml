@@ -7,7 +7,6 @@ onlyBuiltDependencies:
   - esbuild
 
 catalog:
-  "@atlaskit/pragmatic-drag-and-drop": "^2.0.1"
   "@base-ui/react": "^1.9.0"
   better-auth: 1.7.25
   "@better-auth/passkey": 1.7.25
@@ -34,7 +33,6 @@ catalog:
   publint: 0.3.24
   react: "^19.2.7"
   react-dom: "^19.2.7"
-  react-resizable-panels: "^4.12.2"
   sonner: "^2.0.7"
   "@tanstack/react-form": "^1.33.5"
   "@tanstack/react-query": "^5.90.0"
@@ -92,12 +90,9 @@ minimumReleaseAgeExclude:
   - "@typescript/native-preview-win32-arm64@7.0.0-dev.20260707.2"
   - "@typescript/native-preview-win32-x64@7.0.0-dev.20260707.2"
   - "@typescript/native-preview@7.0.0-dev.20260707.2"
-  - devalue@6.0.2
-  - "@effect/openapi-generator@4.0.0"
   - "@effect/platform-node-shared@4.0.0"
   - "@effect/platform-node@4.0.0"
   - "@effect/sql-sqlite-node@4.0.0"
-  - effect-playwright@0.8.0
   - effect@4.0.0
 
 allowBuilds:
