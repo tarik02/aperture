@@ -11,7 +11,7 @@ import { Forbidden, Unauthorized } from "../errors.ts";
 import { bearerOf, callerOf, TOKEN_COOKIE } from "./caller.ts";
 import { clientAddress } from "./client-address.ts";
 import { guestOf, SHARE_COOKIE } from "./guest.ts";
-import { originOf } from "./origin.ts";
+import { originOf, overTls } from "./origin.ts";
 import { nodePath } from "../routing/paths.ts";
 import { ADMIT_PATH } from "../routing/layer.ts";
 import { Routing } from "../routing/service.ts";
@@ -120,7 +120,7 @@ export const layer = HttpRouter.use(
         HttpServerResponse.setCookie(TOKEN_COOKIE, given, {
           httpOnly: true,
           sameSite: "strict",
-          secure: request.headers["x-forwarded-proto"] === "https",
+          secure: overTls(settings, request),
           path: nodePath(""),
         }),
         Effect.orDie,

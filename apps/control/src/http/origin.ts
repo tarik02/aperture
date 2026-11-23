@@ -30,3 +30,11 @@ export const originOf = (settings: SettingsShape, request: HttpServerRequest.Htt
       return `${scheme}://${host}`;
     },
   });
+
+/**
+ * Whether a cookie is kept for TLS alone: where people reach this program over TLS. What
+ * the settings say goes before what the request does, as what speaks TLS for this program
+ * stands before a proxy that hears plain HTTP and says so.
+ */
+export const overTls = (settings: SettingsShape, request: HttpServerRequest.HttpServerRequest) =>
+  originOf(settings, request).startsWith("https://");

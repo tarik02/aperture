@@ -32,6 +32,8 @@ export interface ControlOptions {
   readonly console?: boolean;
   /** Hold signing in to so many tries a while from one address, as a deployment does. */
   readonly rateLimit?: boolean;
+  /** Where people reach it from outside, as a deployment that has a name says. */
+  readonly publicUrl?: string;
   /** The proxies whose word is taken for where a request came from. */
   readonly trustedProxies?: string;
   /**
@@ -160,6 +162,7 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
           APERTURE_CONTROL_SSO_PROVISION: String(options.sso?.provision ?? false),
           APERTURE_CONTROL_SSO_DOMAINS: (options.sso?.domains ?? []).join(","),
         }),
+    ...(options.publicUrl === undefined ? {} : { APERTURE_CONTROL_PUBLIC_URL: options.publicUrl }),
     ...(options.trustedProxies === undefined
       ? {}
       : { APERTURE_CONTROL_TRUSTED_PROXIES: options.trustedProxies }),

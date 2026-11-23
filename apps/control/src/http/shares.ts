@@ -14,6 +14,7 @@ import { Shares } from "../shares/service.ts";
 import { after } from "../time.ts";
 import { clientAddress } from "./client-address.ts";
 import { carried, guestOf, LINK_COOKIE, SHARE_COOKIE } from "./guest.ts";
+import { overTls } from "./origin.ts";
 
 /** Where a guest's page asks about the link it was opened with. */
 export const sharePath = (id: string) => `${PREFIX}/share/${encodeURIComponent(id)}`;
@@ -99,7 +100,7 @@ export const layer = HttpRouter.use(
       const cookie = {
         httpOnly: true,
         sameSite: "strict",
-        secure: request.headers["x-forwarded-proto"] === "https",
+        secure: overTls(settings, request),
         expires: DateTime.toDate(
           entered.expiresAt === null ? longest : DateTime.min(entered.expiresAt, longest),
         ),
