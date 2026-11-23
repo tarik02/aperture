@@ -65,7 +65,7 @@ jobs:
       - name: Pack
         run: |
           mkdir packed
-          for package in session-client session-react session-element executor-client; do
+          for package in control-api executor-client session-client session-react session-element; do
             pnpm --dir "packages/$package" pack --pack-destination "$PWD/packed"
           done
 

@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - master
+      - v2
   workflow_dispatch:
 
 permissions:
@@ -95,3 +96,37 @@ jobs:
 
       - name: Verify nothing changed
         run: git diff --exit-code
+
+  nix:
+    name: nix packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: cachix/install-nix-action@v31
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: aperture-browser
+          skipPush: true
+
+      # A hash left as it was when pnpm-lock.yaml changed fails nowhere else: the
+      # dependencies of before are taken from the store or a cache by it. Fetching them
+      # again is what tells.
+      - name: Verify the dependency hash
+        run: |
+          nix build .#aperture-control.pnpmDeps --no-link --print-build-logs
+          nix build --rebuild .#aperture-control.pnpmDeps --no-link --print-build-logs
+
+      - name: Evaluate
+        run: nix flake check --no-build --all-systems
+
+      - name: Build
+        run: >-
+          nix build
+          .#aperture
+          .#aperture-control
+          .#aperture-migrate
+          .#checks.x86_64-linux.aperture-ffmpeg-features
+          --no-link --print-build-logs

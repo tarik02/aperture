@@ -1,25 +1,51 @@
 name: e2e
 
-# Real sessions end to end, which takes a browser and a while: for a pull request that asks
-# for it with the `e2e` label, and by hand.
+# Real sessions end to end, which takes a browser and a while: for what is pushed to the
+# branches releases are made of, for a pull request that asks for it with the `e2e` label,
+# for the pull request of a release, by hand, and for release-please.yml before it publishes.
 on:
   pull_request:
     types:
+      - opened
       - labeled
       - synchronize
+  push:
+    branches:
+      - master
+      - v2
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
+# Called by another workflow, this one has the caller's name, and a group of its own. What
+# is pushed to master runs to its end: a release waits on it.
 concurrency:
-  group: e2e-${{ github.ref }}
-  cancel-in-progress: true
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
   e2e:
     name: e2e
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'e2e')
+    # The commit a release is made of is pushed as well, and release-please.yml asks for
+    # these checks of it: the push asks for nothing then.
+    if: &asked >-
+      (
+        github.event_name == 'pull_request' &&
+        (
+          contains(github.event.pull_request.labels.*.name, 'e2e') ||
+          startsWith(github.head_ref, 'release-please--')
+        )
+      ) ||
+      (
+        github.event_name != 'pull_request' &&
+        !(
+          github.workflow == 'e2e' &&
+          github.event_name == 'push' &&
+          startsWith(github.event.head_commit.message, 'chore(master): release')
+        )
+      )
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -55,3 +81,22 @@ jobs:
 
       - name: The control plane, on a database and a node
         run: nix develop --command pnpm --filter @aperture-browser/control test
+
+  # One machine set up by the NixOS modules alone, which is how a node is installed.
+  deployment:
+    name: deployment
+    if: *asked
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: cachix/install-nix-action@v31
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: aperture-browser
+          skipPush: true
+
+      - name: The modules, on a machine of their own
+        run: nix build .#checks.x86_64-linux.deployment --no-link --print-build-logs
