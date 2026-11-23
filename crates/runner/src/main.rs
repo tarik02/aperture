@@ -59,6 +59,10 @@ async fn main() -> anyhow::Result<ExitCode> {
             let (spec, front) = alone::Serve::parse_from(&arguments).session()?;
             (spec, Some(front))
         }
+        [flag] if flag == "--version" || flag == "-V" => {
+            println!("aperture-runner {}", env!("CARGO_PKG_VERSION"));
+            return Ok(ExitCode::SUCCESS);
+        }
         [runtime_dir] => {
             let spec =
                 fs::read(spec_path(Path::new(runtime_dir))).context("failed to read the spec")?;

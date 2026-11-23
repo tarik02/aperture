@@ -7,6 +7,7 @@ import * as HttpApiSchema from "effect/http-api/HttpApiSchema";
 import * as HttpApiSecurity from "effect/http-api/HttpApiSecurity";
 import * as OpenApi from "effect/http-api/OpenApi";
 import * as Schema from "effect/Schema";
+import manifest from "../package.json" with { type: "json" };
 import type { Caller } from "./caller.ts";
 import {
   AccountInUse,
@@ -1002,7 +1003,7 @@ export class Api extends HttpApi.make("control")
   .annotateMerge(
     OpenApi.annotations({
       title: "Aperture control plane",
-      version: "0.0.0",
+      version: manifest.version,
       description:
         "Accounts, nodes, where sessions run, and tickets into them. A request carries an account's API token, or the access token an app was given over OAuth, as `Authorization: Bearer`.",
     }),

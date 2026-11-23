@@ -1,6 +1,6 @@
 {
   "name": "@aperture-browser/migrate",
-  "version": "0.0.0",
+  "version": "1.0.0-beta.0",
   "private": true,
   "description": "Moves what an Aperture v1 installation kept into a v2 control plane and its nodes.",
   "type": "module",

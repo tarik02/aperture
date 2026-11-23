@@ -19,6 +19,7 @@ use tokio_tungstenite::tungstenite::{
 use tracing::{info, warn};
 
 #[derive(Parser)]
+#[command(version)]
 enum Arguments {
     /// Attach to a session as its local tunnel, until interrupted.
     Attach {

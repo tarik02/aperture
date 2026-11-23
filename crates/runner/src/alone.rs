@@ -23,7 +23,11 @@ use tracing::{info, warn};
 /// Runs one browser session on its own, for whoever holds its token: the session's
 /// endpoints are served here, as an executor serves those of its sessions.
 #[derive(clap::Parser)]
-#[command(name = "aperture-runner serve", bin_name = "aperture-runner serve")]
+#[command(
+    name = "aperture-runner serve",
+    bin_name = "aperture-runner serve",
+    version
+)]
 pub struct Serve {
     /// The session's own directory: its profile, its files and what else it keeps from
     /// one run to the next. Made when there is none.

@@ -14,6 +14,7 @@ import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
+import manifest from "../../package.json" with { type: "json" };
 import { Accounts } from "../accounts/service.ts";
 import { Forbidden } from "../errors.ts";
 import { SessionTools, type SessionToolError } from "../mcp/service.ts";
@@ -456,7 +457,7 @@ export const layer = Layer.unwrap(
       Layer.provide(
         McpServer.layerHttp({
           name: "aperture",
-          version: "0.0.0",
+          version: manifest.version,
           instructions: INSTRUCTIONS,
           path: PATH,
           protocols: [

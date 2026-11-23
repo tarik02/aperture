@@ -1,6 +1,6 @@
 {
   "name": "@aperture-browser/control",
-  "version": "0.0.0",
+  "version": "1.0.0-beta.0",
   "private": true,
   "description": "The control plane: accounts, the nodes that register with it, where sessions run, and the tickets into them.",
   "type": "module",

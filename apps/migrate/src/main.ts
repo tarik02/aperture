@@ -6,6 +6,7 @@ import * as Flag from "effect/cli/Flag";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import manifest from "../package.json" with { type: "json" };
 import * as App from "./app.ts";
 import { NotMappable } from "./errors.ts";
 import { Migrator } from "./migrator/service.ts";
@@ -90,7 +91,7 @@ const migrate = Command.make("aperture-migrate").pipe(
 );
 
 NodeRuntime.runMain(
-  Command.run(migrate, { version: "0.0.0" }).pipe(
+  Command.run(migrate, { version: manifest.version }).pipe(
     Effect.tapError((error) =>
       CliError.isCliError(error) ? Effect.void : Console.error(String(error)),
     ),

@@ -176,7 +176,7 @@
           pkgs.gst_all_1.gst-plugins-ugly # x264enc
         ];
 
-        version = "0.1.0";
+        version = (lib.importTOML ./Cargo.toml).workspace.package.version;
         # What the programs and the page are built of, so that nothing else builds them again.
         src = lib.fileset.toSource {
           root = ./.;
@@ -429,6 +429,12 @@
             ];
             ExposedPorts."7900/tcp" = { };
             Volumes."/data" = { };
+            # A registry shows the image under the repository its source label names.
+            Labels = {
+              "org.opencontainers.image.source" = "https://github.com/tarik02/aperture";
+              "org.opencontainers.image.version" = version;
+              "org.opencontainers.image.licenses" = "MIT";
+            };
           };
         };
       in
