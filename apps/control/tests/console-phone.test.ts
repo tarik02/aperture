@@ -124,7 +124,8 @@ suite(needs)("the console and a session on a phone, behind the proxy", (it) => {
         // with its button held, which would select what it passes over.
         yield* page.evaluate(`void (location.href = ${JSON.stringify(`/-/sessions/${id}`)})`);
         yield* Viewer.ready(page);
-        const tall = `data:text/html,<title>tall</title><body style="margin:0;height:6000px"><script>let pressed = false; addEventListener("mousedown", () => { pressed = true; }); addEventListener("scroll", () => { document.title = pressed ? "pressed" : "scrolled"; });</script>`;
+        // Of a colour of its own, which tells its picture from the first tab's.
+        const tall = `data:text/html,<title>tall</title><body style="margin:0;height:6000px;background:%23dbeafe"><script>let pressed = false; addEventListener("mousedown", () => { pressed = true; }); addEventListener("scroll", () => { document.title = pressed ? "pressed" : "scrolled"; });</script>`;
         const title = `apertureSession.getSnapshot().targets.find((target) => target.tab === apertureSession.getSnapshot().selected)?.title`;
         // The page is put there by automation, which opens what is no page on the web, and
         // is watched once it is there.
@@ -158,6 +159,23 @@ suite(needs)("the console and a session on a phone, behind the proxy", (it) => {
         );
         // And it is the picture of the tab at that size: one of the size before is drawn
         // smaller in the middle of what shows it, and a finger put beside it is on no page.
+        // The first tab's picture has the shape of a phone's as well, and is shown until
+        // this one's comes, which may come first at the size the tab had before it was a
+        // phone's: the picture is this tab's once it has its colour.
+        yield* page.until(
+          `(() => {
+            const video = document.querySelector("[data-aperture-surface=video]");
+            if (video.videoWidth === 0) return false;
+            const canvas = document.createElement("canvas");
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const drawing = canvas.getContext("2d");
+            drawing.drawImage(video, 0, 0);
+            const [red, green, blue] = drawing.getImageData(canvas.width >> 1, canvas.height >> 1, 1, 1).data;
+            return Math.abs(red - 0xdb) < 24 && Math.abs(green - 0xea) < 24 && Math.abs(blue - 0xfe) < 24;
+          })()`,
+          "20 seconds",
+        );
         yield* pictureKeepsUp(page);
         const stage = yield* page.rests(`document.querySelector("[data-aperture-stage]")`);
         // Lifted as it moves: the page goes on under where the finger was.
