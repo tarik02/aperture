@@ -36,12 +36,14 @@ Not moved: files chosen in a form, keys that may not be exported, closed shadow 
 
 ## Sessions and snapshots
 
-A teleport into a session creates it with the state, and opens it in the console once it is there.
+A teleport into a session creates it with the state and opens it in the console at once. Aperture answers for the session as soon as its browser runs and puts the state in after: the session's page says that it is being restored, and what is put in, while its tabs arrive, and takes no input until all of it is in. The popup is done by then, and says so.
 
-A teleport into a snapshot creates the session, suspends it, takes the snapshot and deletes the session. A snapshot keeps the profile, so cookies and storage are in it and what the pages showed is not. Aperture holds nobody to one snapshot of a name: the extension refuses a name that is taken in the place you chose, before it makes anything, and leaves that snapshot as it is.
+A teleport into a snapshot creates the session, waits until it is restored, suspends it, takes the snapshot and deletes the session, and the popup says which of these it is at. A session that was not restored is deleted, and why is told. A snapshot keeps the profile, so cookies and storage are in it and what the pages showed is not. Aperture holds nobody to one snapshot of a name: the extension refuses a name that is taken in the place you chose, before it makes anything, and leaves that snapshot as it is.
+
+The browser asks for access to the pages' sites in a prompt of its own, and the popup may close over it; the worker keeps the teleport until the sites are given. Where they are refused, or the browser puts no prompt up, the popup says which sites were not given and that nothing was teleported, and nothing is kept waiting. A popup that opens and finds a teleport waiting for sites nobody is asked for any more, as after a prompt that was dismissed, offers **Give access** and **Cancel** in place of the form. The sites are taken whole or not at all: pages without their sites' cookies would be put back broken. What nobody answers runs out after two minutes.
 
 The worker notes how far a teleport came. One it was stopped in goes on from there when the worker starts again: a snapshot that was being taken is looked for before another is asked for. A teleport that was stopped while the session was being created is not asked for again, since whether it was made is not known: look in Aperture before trying again.
 
 ## Checks
 
-`pnpm --filter @aperture-browser/companion test` checks the value codec and the cookies. `apps/control/tests/companion.test.ts` loads the built extension into a browser and teleports a signed-in tab through a control plane of its own.
+`pnpm --filter @aperture-browser/companion test` checks the value codec, the cookies, and the step no browser check reaches: the browser's prompt for sites being answered, refused, not put up, and left behind by a popup that closed. `apps/control/tests/companion.test.ts` loads the built extension into a browser and teleports a signed-in tab through a control plane of its own.

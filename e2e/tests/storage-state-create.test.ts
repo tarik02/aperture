@@ -6,6 +6,7 @@ import * as Schema from "effect/Schema";
 import * as Executor from "../src/executor.ts";
 import { read, refusal } from "../src/http.ts";
 import { suite } from "../src/suite.ts";
+import { until } from "../src/wait.ts";
 
 const node = Executor.layer();
 
@@ -45,7 +46,16 @@ suite(node)("a storage state given when a session is created", (it) => {
       const executor = yield* Executor.Executor;
       const state = stateAt(yield* Clock.currentTimeMillis);
       created = yield* executor.client.sessions.create({ storageState: JSON.stringify(state) });
-      expect(created.state).toBe(proto.SessionState.RUNNING);
+      // Answered for once its browser runs: the state is put in after, and the session
+      // says so until all of it is in.
+      expect(created.state).toBe(proto.SessionState.RESTORING);
+      yield* until(
+        "the session running",
+        executor.client.sessions
+          .get(created.id)
+          .pipe(Effect.map((seen) => seen.state === proto.SessionState.RUNNING)),
+        "60 seconds",
+      );
 
       const taken = yield* executor.session(created.id, "POST", "/storage-state", {
         origins: ["https://example.com"],
@@ -58,16 +68,29 @@ suite(node)("a storage state given when a session is created", (it) => {
     }),
   );
 
-  it.effect("a state the browser does not take makes no session", () =>
+  it.effect("a session whose browser does not take the state fails, stopped, and says why", () =>
     Effect.gen(function* () {
       const executor = yield* Executor.Executor;
       const noPage = { tabs: [{ url: "about:blank" }] };
-      const refused = yield* executor.rpc("CreateSession", {
-        storageState: JSON.stringify(noPage),
-      });
+      const made = yield* executor.client.sessions.create({ storageState: JSON.stringify(noPage) });
+      expect(made.state).toBe(proto.SessionState.RESTORING);
+      const failed = yield* until(
+        "the session being told as failed",
+        executor.client.sessions
+          .get(made.id)
+          .pipe(
+            Effect.map((seen) => (seen.state === proto.SessionState.FAILED ? seen : undefined)),
+          ),
+        "60 seconds",
+      );
+      expect(failed.failure).toMatch(/the storage state was not taken: .*no page on the web/u);
+      expect((yield* executor.session(made.id, "GET", "/targets")).status).toBe(409);
+      yield* executor.client.sessions.delete(made.id);
+
+      // What is no JSON at all is refused before anything is made.
+      const refused = yield* executor.rpc("CreateSession", { storageState: "{" });
       expect(refused.status).toBe(400);
       expect((yield* refusal(refused)).code).toBe("invalid_argument");
-
       const sessions = yield* executor.client.sessions.list;
       expect(sessions.map((session) => session.id)).toEqual([created.id]);
     }),

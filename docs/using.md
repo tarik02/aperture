@@ -43,9 +43,9 @@ api -X DELETE "$APERTURE_URL/api/control/sessions/$SESSION"
 
 From TypeScript, [`@aperture-browser/control-api`](../packages/control-api) is the same API as a typed client.
 
-A session can be created with what its browser is to start with: `storageState` in the body of `POST /sessions` is a [storage state](../skills/aperture/references/session.md#storage-state), with cookies, the storage of origins and the tabs to open. The session is there once the request answers, and is not created where its browser does not take the state.
+A session can be created with what its browser is to start with: `storageState` in the body of `POST /sessions` is a [storage state](../skills/aperture/references/session.md#storage-state), with cookies, the storage of origins and the tabs to open. The request answers once the session's browser runs, with `observedState` `restoring`: the state is put in after, storage and cookies before any of its tabs is opened. The session is `running` once all of it is in. Ask for it until then, as a session takes no input, runs no browser tool and offers no DevTools while it is being restored; whoever opens it meanwhile sees its tabs arrive. One whose browser does not take the state is stopped and `failed`, with `failure` saying why.
 
-A session is running once its `observedState` is `running`. Its own routes (`/targets`, `/files`, `/cdp`, `/mcp` and the rest) are below `$APERTURE_URL<path>`, and take the same API token; [`session.md`](../skills/aperture/references/session.md) lists them.
+A session is ready once its `observedState` is `running`. Its own routes (`/targets`, `/files`, `/cdp`, `/mcp` and the rest) are below `$APERTURE_URL<path>`, and take the same API token; [`session.md`](../skills/aperture/references/session.md) lists them.
 
 ## Recording a tab
 
@@ -165,4 +165,6 @@ Either way the token stays in the extension's own storage on that machine. Where
 
 **What it cannot move:** files chosen in a form, keys that may not leave the browser, what a page keeps in memory alone, the inside of a closed shadow root, the document state of frames (their storage is moved), and cache entries the browser does not let a page read. Each origin's databases, caches and files are taken up to 32 MiB a kind, and a whole teleport up to 48 MiB: what is left out for its size is said when the teleport ends. Pages are loaded again in the session, so a site sees a new browser at another address with your cookies; some sites sign such a browser out.
 
-A teleport into a snapshot makes a session, takes a snapshot of it at rest and deletes the session. What a page shows does not outlast that; cookies and storage do. A snapshot name that is taken already in the place you chose is refused before anything is made.
+A teleport into a session is done once the session is created: its page opens at once and says that it is being restored, and what is put in, while the tabs arrive behind. Nothing is pressed in it until all of it is in.
+
+A teleport into a snapshot makes a session, waits until it is restored, takes a snapshot of it at rest and deletes the session; the extension says which of these it is at. What a page shows does not outlast that; cookies and storage do. A snapshot name that is taken already in the place you chose is refused before anything is made.

@@ -266,6 +266,25 @@ suite(needs)("the companion, in a browser of someone's own", (it) => {
         tags: { source: "aperture-companion", action: "teleport" },
       });
 
+      // The popup is done once the session is there: the browser is shown the session's
+      // page at once, where the state arrives, and the popup waits for nothing.
+      const control = yield* Control.Control;
+      yield* until(
+        "a tab at the session's page of the console",
+        targets.pipe(
+          Effect.map((all) =>
+            all.some((target) => target.url === `${control.url}/-/sessions/${session!.id}`),
+          ),
+        ),
+      );
+      yield* until(
+        "the session having all of its state",
+        ada.api.sessions
+          .get({ params: { id: session!.id } })
+          .pipe(Effect.map((seen) => seen.observedState === "running")),
+        "60 seconds",
+      );
+
       // Its one tab is the page, asked of the site with the cookie that signed in.
       // The empty tab it began with is closed, which it tells of a moment after.
       const tabs = yield* until(

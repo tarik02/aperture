@@ -38,10 +38,6 @@ impl Restoring {
         }))
     }
 
-    pub fn get(&self) -> Restore {
-        self.0.borrow().clone()
-    }
-
     /// Whether anything is held until a state is in.
     pub fn held(&self) -> bool {
         *self.0.borrow() != Restore::None

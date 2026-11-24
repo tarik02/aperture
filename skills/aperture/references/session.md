@@ -69,7 +69,7 @@ The body says what to take: `origins` is `"open-tabs"` (the default) or a list o
 ] }
 ```
 
-A tab's session storage and `window.name` are there before its page's scripts run; `opener` is the index of the tab that opens it. The `active` tab is opened last where its opener lets it, as the newest tab is what whoever opens the session is shown. `POST /api/control/sessions` takes the same document as `storageState`, for a session that starts with it.
+A tab's session storage and `window.name` are there before its page's scripts run; `opener` is the index of the tab that opens it. The `active` tab is opened last where its opener lets it, as the newest tab is what whoever opens the session is shown. `POST /api/control/sessions` takes the same document as `storageState`, for a session that starts with it. That request answers before the state is in: the session's `observedState` is `restoring`, and `running` once all of it is in. Poll `GET /api/control/sessions/{id}` until it is `running` before using the session: its tools and `/cdp` answer `409` meanwhile, and it takes no input. `failed` with a `failure` means its browser did not take the state; the session is stopped. To wait on one request instead, create the session without a state and `PUT` the state to its `storage-state` route, which answers when all of it is in.
 
 ## A session served on its own
 

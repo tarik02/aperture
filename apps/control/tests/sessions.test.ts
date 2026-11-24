@@ -55,44 +55,6 @@ suite(needs)("sessions on a node that registered", (it) => {
     }),
   );
 
-  it.effect(
-    "a session is created with a storage state, and not where its node refuses the state",
-    () =>
-      Effect.gen(function* () {
-        const executor = yield* Executor.Executor;
-        const state = {
-          cookies: [
-            { name: "sid", value: "abc", domain: "example.com", hostOnly: true, path: "/" },
-          ],
-          origins: [{ origin: "https://example.com", localStorage: [{ name: "k", value: "v" }] }],
-        };
-        const made = yield* ada.api.sessions.create({ payload: { storageState: state } });
-        const taken = yield* executor.session(made.id, "POST", "/storage-state", {
-          origins: ["https://example.com"],
-        });
-        expect(taken.body).toMatchObject({
-          cookies: [{ name: "sid", value: "abc" }],
-          origins: [{ origin: "https://example.com", localStorage: [{ name: "k", value: "v" }] }],
-        });
-        yield* ada.api.sessions.delete({ params: { id: made.id } });
-
-        const refused = yield* Effect.flip(
-          ada.api.sessions.create({
-            payload: { storageState: { tabs: [{ url: "about:blank" }] } },
-          }),
-        );
-        expect(refused).toMatchObject({ _tag: "NodeRefused", code: "invalid_argument" });
-        // A state has no browser to go to in a session that is created at rest.
-        const atRest = yield* Effect.flip(
-          ada.api.sessions.create({ payload: { suspended: true, storageState: state } }),
-        );
-        expect(atRest).toMatchObject({ _tag: "NodeRefused", code: "invalid_argument" });
-        expect((yield* ada.api.sessions.list({ query: {} })).map((listed) => listed.id)).toEqual([
-          session,
-        ]);
-      }),
-  );
-
   it.effect("a ticket the control plane signs lets its holder into the session", () =>
     Effect.gen(function* () {
       const executor = yield* Executor.Executor;
