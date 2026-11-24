@@ -24,6 +24,8 @@ What does carry over is **data**. A one-time migrator moves accounts, tenants, s
 | Deleted and expired sessions and snapshots, restorable for a while | Deleting is final | No `restore`, no `reopen` |
 | A suspended session wakes on any call | A session that fell **asleep** from idleness wakes on any call. One suspended on request stays suspended until `resume` | |
 | Browser channel and arguments per session | The node's browser | `browser.channel` is gone |
+| Aperture Companion, connected to a tenant | [Aperture Companion](using.md#the-companion-extension), connected to an account | Install the v2 release's extension and connect again: it asks which workspace a teleport goes to |
+| `initialTargets` and `storageState` when a session is created | `storageState` alone, with `tabs` in it | [Another form](../skills/aperture/references/session.md#storage-state) |
 | Events and audit events | Events, one stream | |
 
 ## For an operator

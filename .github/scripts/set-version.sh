@@ -12,7 +12,7 @@ for manifest in crates/*/Cargo.toml; do
   sed -i -E '/^name = "'"$name"'"$/{n;s/^version = ".*"$/version = "'"$version"'"/}' Cargo.lock
 done
 
-for manifest in packages/*/package.json apps/*/package.json; do
+for manifest in packages/*/package.json apps/*/package.json extensions/*/package.json; do
   jq --arg version "$version" '.version = $version' "$manifest" > "$manifest.tmp"
   mv "$manifest.tmp" "$manifest"
 done

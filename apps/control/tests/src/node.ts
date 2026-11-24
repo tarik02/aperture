@@ -19,16 +19,18 @@ export class Keepalives extends Context.Service<
   }
 >()("@aperture-browser/control/tests/Keepalives") {}
 
-const node = Layer.effect(
-  Executor.Executor,
-  Effect.gen(function* () {
-    const control = yield* Control.Control;
-    return yield* Executor.start({
-      features: ["mcp", "cdp", "recordings", "uploads", "downloads"],
-      env: { APERTURE_TICKET_KEY: control.ticketKey },
-    });
-  }),
-);
+/** The executor, with what else its environment is to have. */
+const node = (env: Record<string, string>) =>
+  Layer.effect(
+    Executor.Executor,
+    Effect.gen(function* () {
+      const control = yield* Control.Control;
+      return yield* Executor.start({
+        features: ["mcp", "cdp", "recordings", "uploads", "downloads"],
+        env: { APERTURE_TICKET_KEY: control.ticketKey, ...env },
+      });
+    }),
+  );
 
 const keepalives = Layer.effect(
   Keepalives,
@@ -66,5 +68,11 @@ const keepalives = Layer.effect(
   }),
 );
 
-/** A real executor that is a node of the suite's control plane, kept alive by the checks. */
-export const registered = keepalives.pipe(Layer.provideMerge(node));
+/**
+ * A real executor that is a node of the suite's control plane, kept alive by the checks:
+ * `env` is what else its environment has, as what its sessions are let reach.
+ */
+export const registeredWith = (env: Record<string, string>) =>
+  keepalives.pipe(Layer.provideMerge(node(env)));
+
+export const registered = registeredWith({});

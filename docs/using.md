@@ -14,7 +14,7 @@ This page is the short version. [`skills/aperture`](../skills/aperture/SKILL.md)
 ## Credentials
 
 - **An API token** (`apc_…`) is an account's, and does what its scopes name. A person makes one in the console under **Account**, **API tokens**; an admin makes one for a service account under **Service accounts**. It is told once.
-- **OAuth**, for MCP clients: no token is copied anywhere. See below.
+- **OAuth**, for MCP clients and [the Companion extension](#the-companion-extension): no token is copied anywhere. See below.
 - **A ticket** is a signed pass into one session for about ten minutes, made from an API token. It is what a browser is given.
 
 Scopes: `sessions:read`, `sessions:write`, `snapshots:read`, `snapshots:write`, `workspaces:read`, `workspaces:write`, `events:read`, `tokens:write`, `admin`. Writing includes reading. `sessions:read` sees sessions and watches them; everything else in a session, the browser tools included, takes `sessions:write`. A token can also be held to named workspaces, sessions and snapshots.
@@ -42,6 +42,8 @@ api -X DELETE "$APERTURE_URL/api/control/sessions/$SESSION"
 `$APERTURE_URL/api/control/openapi.json` is the OpenAPI document: every route, body and error. A refusal is a JSON object with a `_tag`, such as `{"_tag": "SessionNotFound", "id": "…"}`.
 
 From TypeScript, [`@aperture-browser/control-api`](../packages/control-api) is the same API as a typed client.
+
+A session can be created with what its browser is to start with: `storageState` in the body of `POST /sessions` is a [storage state](../skills/aperture/references/session.md#storage-state), with cookies, the storage of origins and the tabs to open. The session is there once the request answers, and is not created where its browser does not take the state.
 
 A session is running once its `observedState` is `running`. Its own routes (`/targets`, `/files`, `/cdp`, `/mcp` and the rest) are below `$APERTURE_URL<path>`, and take the same API token; [`session.md`](../skills/aperture/references/session.md) lists them.
 
@@ -116,3 +118,30 @@ api -X POST "$APERTURE_URL/api/control/sessions/$SESSION/shares" \
 The `url` is told once. Whoever opens it says what the others are to call them and is shown the session's workbench and nothing else: a guest who controls gives input, changes tabs and has the clipboard and the sound; files, routing, automation and DevTools are no guest's. `DELETE /api/control/sessions/{id}/shares/{shareId}` takes the link back and puts its guests out at once.
 
 For someone who has an account and is to look now, a ticket's `url` does the same without a link to keep.
+
+## The Companion extension
+
+The Aperture Companion is an extension for a Chromium browser of your own. It takes the tabs you choose, with what their sites keep in your browser, and opens them in a new session, signed in as you were: this is called a teleport. It can put them into a snapshot instead, for sessions to start from later.
+
+**Loading it.** Each release has an `aperture-companion-<version>.zip`. Extract it, open `chrome://extensions`, turn on **Developer mode** and choose **Load unpacked** on the extracted directory. From a checkout, `pnpm --filter @aperture-browser/companion build` and load `extensions/aperture-companion/dist`.
+
+**Connecting.** Open the extension, enter `$APERTURE_URL` and choose one of:
+
+- **Connect with Aperture.** A window opens on the console: sign in and approve what the extension asks for. It is listed under **Account**, **Connections**, and is taken back there; removing the connection in the extension takes it back as well.
+- **Use API token instead.** An `apc_…` token with `sessions:write`. Add `snapshots:read` to start sessions from snapshots, and `snapshots:write` to teleport into a snapshot.
+
+Either way the token stays in the extension's own storage on that machine. Where the account is in workspaces, the extension asks which one a teleport goes to; **Personal** is the account's own.
+
+**What a teleport moves.** For every tab you choose, and every frame in it:
+
+| | |
+|---|---|
+| Cookies | Those the frames could send, `HttpOnly` ones included, and those the browser keeps apart for the site a frame is embedded in |
+| Local storage, IndexedDB, Cache Storage, private files (OPFS) | Of each origin, on its own and as it is embedded in the tab's page. Dates, bytes, maps, files and Web Crypto keys that may be exported keep their kind |
+| Session storage, `window.name`, `history.state` | Of each tab, there before the page's own scripts run |
+| What the page shows | Form values, editable text, what has the focus, the selection, and how far the page and its parts are scrolled |
+| The tabs themselves | Each at its address; one that another opened keeps it as its opener |
+
+**What it cannot move:** files chosen in a form, keys that may not leave the browser, what a page keeps in memory alone, the inside of a closed shadow root, the document state of frames (their storage is moved), and cache entries the browser does not let a page read. Each origin's databases, caches and files are taken up to 32 MiB a kind, and a whole teleport up to 48 MiB: what is left out for its size is said when the teleport ends. Pages are loaded again in the session, so a site sees a new browser at another address with your cookies; some sites sign such a browser out.
+
+A teleport into a snapshot makes a session, takes a snapshot of it at rest and deletes the session. What a page shows does not outlast that; cookies and storage do. A snapshot name that is taken already in the place you chose is refused before anything is made.

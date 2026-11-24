@@ -4,4 +4,7 @@
 node_modules/
 apps/*/dist/
 packages/*/dist/
+extensions/*/dist/
+extensions/aperture-companion/public/icon-*.png
+extensions/aperture-companion/*.zip
 /test-failures

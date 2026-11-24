@@ -1,7 +1,8 @@
 name: publish
 
 # What a release or a nightly gives whoever installs it: the images for both
-# architectures and the packages on npm, and for a release the same images as its files.
+# architectures and the packages on npm, and for a release the same images and the
+# Companion extension as its files.
 on:
   workflow_call:
     inputs:
@@ -281,9 +282,53 @@ jobs:
             cosign sign --yes "$image@$digest"
           done
 
+  # The extension for a browser of someone's own, as a release has it to load unpacked.
+  companion:
+    name: companion extension
+    if: inputs.release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: pnpm/action-setup@v6.0.9
+        with:
+          version: 11.27.1
+
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Write the version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: .github/scripts/set-version.sh "$VERSION"
+
+      - name: Build
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @aperture-browser/companion build
+          cd extensions/aperture-companion/dist
+          zip --quiet --recurse-paths "$GITHUB_WORKSPACE/aperture-companion-$VERSION.zip" .
+
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: release-files-companion
+          path: aperture-companion-${{ inputs.version }}.zip
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
   files:
     name: release files
-    needs: image
+    needs:
+      - image
+      - companion
     if: inputs.release
     runs-on: ubuntu-24.04
     permissions:

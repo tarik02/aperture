@@ -190,6 +190,8 @@
             ./packages
             # A member of the workspace, so the lockfile names it; its checks are not built.
             ./e2e/package.json
+            # Another: the extension for a browser of someone's own, which no program has in it.
+            ./extensions/aperture-companion/package.json
             ./package.json
             ./pnpm-lock.yaml
             ./pnpm-workspace.yaml

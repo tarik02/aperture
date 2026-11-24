@@ -79,11 +79,12 @@ jobs:
           # the machine goes by it.
           echo "APERTURE_BIN=$(readlink --canonicalize programs)/bin" >> "$GITHUB_ENV"
 
-      - name: Build the workbench and the console
+      - name: Build the workbench, the console and the companion
         run: |
           nix develop --command pnpm install --frozen-lockfile
           nix develop --command pnpm --filter @aperture-browser/workbench build
           nix develop --command pnpm --filter @aperture-browser/console build
+          nix develop --command pnpm --filter @aperture-browser/companion build
 
       - name: Check
         env:
