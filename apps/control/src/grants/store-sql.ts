@@ -30,8 +30,8 @@ export const makeGrantsStore = Effect.fn("GrantsStore.make")(function* () {
   const sql = yield* SqlClient.SqlClient;
   const grants = sql.literal(`
     SELECT oauth_grants.*, oauth_clients.name AS client_name
-    FROM oauth_grants
-    JOIN oauth_clients ON oauth_clients.id = oauth_grants.client_id
+    FROM live_oauth_grants AS oauth_grants
+    JOIN live_oauth_clients AS oauth_clients ON oauth_clients.id = oauth_grants.client_id
   `);
 
   const insertClient = Effect.fn("GrantsStore.insertClient")(function* (client: NewClient) {
@@ -46,7 +46,9 @@ export const makeGrantsStore = Effect.fn("GrantsStore.make")(function* () {
   });
 
   const findClient = Effect.fn("GrantsStore.findClient")(function* (id: string) {
-    return yield* sql`SELECT * FROM oauth_clients WHERE id::text = ${id}`.pipe(first(Client));
+    return yield* sql`SELECT * FROM live_oauth_clients AS oauth_clients WHERE id::text = ${id}`.pipe(
+      first(Client),
+    );
   });
 
   const deleteClientsNeverGranted = Effect.fn("GrantsStore.deleteClientsNeverGranted")(function* (
@@ -55,6 +57,15 @@ export const makeGrantsStore = Effect.fn("GrantsStore.make")(function* () {
     yield* sql`
       DELETE FROM oauth_clients WHERE granted_at IS NULL AND created_at < ${before}
     `.pipe(done);
+  });
+
+  const deleteGrant = Effect.fn("GrantsStore.deleteGrant")(function* (id: string, at: Date) {
+    yield* Effect.gen(function* () {
+      yield* sql`UPDATE live_oauth_grants SET deleted_at = ${at} WHERE id = ${id}`.pipe(done);
+      // What it was used by is nothing to keep: no code or token of it is good again.
+      yield* sql`DELETE FROM oauth_codes WHERE grant_id = ${id}`.pipe(done);
+      yield* sql`DELETE FROM oauth_tokens WHERE grant_id = ${id}`.pipe(done);
+    }).pipe(sql.withTransaction, Effect.orDie);
   });
 
   const insertGrant = Effect.fn("GrantsStore.insertGrant")(function* (
@@ -66,13 +77,16 @@ export const makeGrantsStore = Effect.fn("GrantsStore.make")(function* () {
       // two grants given at once the second waits here and replaces the first, where it
       // would have found none to replace and been refused as a second of the pair.
       yield* sql`
-        UPDATE oauth_clients SET granted_at = COALESCE(granted_at, ${grant.createdAt})
+        UPDATE live_oauth_clients SET granted_at = COALESCE(granted_at, ${grant.createdAt})
         WHERE id = ${grant.clientId}
       `.pipe(done);
-      yield* sql`
-        DELETE FROM oauth_grants
+      const replaced = yield* sql`
+        SELECT id FROM live_oauth_grants
         WHERE account_id = ${grant.accountId} AND client_id = ${grant.clientId}
-      `.pipe(done);
+      `.pipe(all(Schema.Struct({ id: Schema.String })));
+      yield* Effect.forEach(replaced, (one) => deleteGrant(one.id, grant.createdAt), {
+        discard: true,
+      });
       yield* sql`
         INSERT INTO oauth_grants (id, account_id, client_id, scopes, resources, created_at)
         VALUES (
@@ -103,14 +117,10 @@ export const makeGrantsStore = Effect.fn("GrantsStore.make")(function* () {
     return yield* sql`${grants} WHERE oauth_grants.id::text = ${id}`.pipe(first(Grant));
   });
 
-  const deleteGrant = Effect.fn("GrantsStore.deleteGrant")(function* (id: string) {
-    yield* sql`DELETE FROM oauth_grants WHERE id = ${id}`.pipe(done);
-  });
-
   const takeCode = Effect.fn("GrantsStore.takeCode")(function* (codeHash: string, now: Date) {
     return yield* sql`
       DELETE FROM oauth_codes
-      USING oauth_grants
+      USING live_oauth_grants AS oauth_grants
       WHERE oauth_codes.code_hash = ${codeHash}
         AND oauth_codes.expires_at > ${now}
         AND oauth_grants.id = oauth_codes.grant_id
@@ -159,8 +169,8 @@ export const makeGrantsStore = Effect.fn("GrantsStore.make")(function* () {
   ) {
     return yield* sql`
       SELECT oauth_grants.*, oauth_clients.name AS client_name, oauth_tokens.expires_at
-      FROM oauth_grants
-      JOIN oauth_clients ON oauth_clients.id = oauth_grants.client_id
+      FROM live_oauth_grants AS oauth_grants
+      JOIN live_oauth_clients AS oauth_clients ON oauth_clients.id = oauth_grants.client_id
       JOIN oauth_tokens ON oauth_tokens.grant_id = oauth_grants.id
       WHERE oauth_tokens.token_hash = ${tokenHash}
         AND oauth_tokens.kind = 'access'

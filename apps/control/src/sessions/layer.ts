@@ -355,7 +355,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
         ),
         asked(node),
       );
-    yield* store.delete(id);
+    yield* store.delete(id, yield* now);
     yield* events.record({ kind: "session.deleted", ...about(session) });
   });
 

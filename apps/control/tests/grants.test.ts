@@ -4,14 +4,17 @@ import { expect } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Base64Url from "effect/encoding/Base64Url";
+import * as Hex from "effect/encoding/Hex";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as TestClock from "effect/testing/TestClock";
+import { AccountsStore } from "../src/accounts/store.ts";
 import { Events } from "../src/events/service.ts";
 import * as Forgetting from "../src/grants/forgetting.ts";
 import * as GrantsLive from "../src/grants/layer.ts";
 import { Grants } from "../src/grants/service.ts";
+import { GrantsStore } from "../src/grants/store.ts";
 import * as Stores from "./src/stores.ts";
 
 const REDIRECT = "http://127.0.0.1:9/callback";
@@ -77,6 +80,17 @@ const events = Layer.succeed(
     forget: () => Effect.void,
   }),
 );
+
+/** Whether an access token is still some grant's: what a caller that comes with it is told by. */
+const good = Effect.fn(function* (accessToken: string) {
+  const store = yield* GrantsStore;
+  const digest = yield* Effect.promise(() =>
+    crypto.subtle.digest("SHA-256", new TextEncoder().encode(accessToken)),
+  );
+  return Option.isSome(
+    yield* store.findByAccessToken(Hex.encode(new Uint8Array(digest)), new Date()),
+  );
+});
 
 const VERIFIER = "a-verifier-the-app-made-and-keeps-to-itself-0123456789";
 
@@ -156,6 +170,14 @@ suite(needs)("what apps left", (it) => {
 
       yield* Stores.hours(2);
       expect(yield* known(ungranted)).toBe(false);
+      // Removed for good, where what a person gave or took back is kept.
+      const sql = yield* SqlClient.SqlClient;
+      expect(yield* sql`SELECT 1 FROM oauth_clients WHERE id = ${ungranted}`).toEqual([]);
+      expect(
+        yield* sql`
+          SELECT deleted_at IS NULL AS live FROM oauth_grants WHERE client_id = ${granted}
+        `,
+      ).toEqual([{ live: false }]);
       // One that was given a grant asks again as what it registered as, whenever.
       expect(yield* known(granted)).toBe(true);
       expect(yield* known(late.id)).toBe(true);
@@ -214,5 +236,59 @@ suite(needs)("what apps left", (it) => {
       `);
       expect(second._tag).toBe("SqlError");
     }),
+  );
+
+  it.effect(
+    "a grant that is taken back is kept without its tokens, and the app is given another",
+    () =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const grants = yield* Grants;
+        const { clientId, id, tokens } = yield* granted("Taken back");
+        expect(yield* good(tokens.accessToken)).toBe(true);
+        yield* grants.revoke(ada, id);
+        expect(
+          yield* sql`SELECT deleted_at IS NULL AS live FROM oauth_grants WHERE id = ${id}`,
+        ).toEqual([{ live: false }]);
+        expect(yield* sql`SELECT 1 FROM oauth_tokens WHERE grant_id = ${id}`).toEqual([]);
+        expect(
+          (yield* Effect.flip(grants.refresh({ clientId, refreshToken: tokens.refreshToken })))
+            ._tag,
+        ).toBe("GrantRefused");
+        expect(yield* good(tokens.accessToken)).toBe(false);
+
+        yield* grants.approve(ada, {
+          clientId,
+          redirectUri: REDIRECT,
+          codeChallenge: "a challenge",
+          scopes: ["sessions:read"],
+          resources: undefined,
+        });
+        const now = (yield* grants.list(ada)).filter((grant) => grant.clientId === clientId);
+        expect(now.map((grant) => grant.id)).not.toContain(id);
+        expect(now).toHaveLength(1);
+      }),
+  );
+
+  it.effect(
+    "an account that is deleted takes its grants with it, and no token of them is good",
+    () =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const grants = yield* Grants;
+        const accounts = yield* AccountsStore;
+        const { clientId, id, tokens } = yield* granted("Outlived");
+        yield* accounts.delete(ADA, new Date());
+        expect(
+          yield* sql`SELECT deleted_at IS NULL AS live FROM oauth_grants WHERE id = ${id}`,
+        ).toEqual([{ live: false }]);
+        expect(yield* sql`SELECT 1 FROM oauth_tokens WHERE grant_id = ${id}`).toEqual([]);
+        expect(yield* good(tokens.accessToken)).toBe(false);
+        expect(
+          (yield* Effect.flip(grants.refresh({ clientId, refreshToken: tokens.refreshToken })))
+            ._tag,
+        ).toBe("GrantRefused");
+        expect(yield* grants.list(ada)).toEqual([]);
+      }),
   );
 });

@@ -22,18 +22,22 @@ export const makeWorkspacesStore = Effect.fn("WorkspacesStore.make")(function* (
   });
 
   const find = Effect.fn("WorkspacesStore.find")(function* (id: string) {
-    return yield* sql`SELECT * FROM workspaces WHERE id = ${id}`.pipe(first(Workspace));
+    return yield* sql`SELECT * FROM live_workspaces AS workspaces WHERE id = ${id}`.pipe(
+      first(Workspace),
+    );
   });
 
   const list = Effect.fn("WorkspacesStore.list")(function* () {
-    return yield* sql`SELECT * FROM workspaces ORDER BY created_at, id`.pipe(all(Workspace));
+    return yield* sql`SELECT * FROM live_workspaces AS workspaces ORDER BY created_at, id`.pipe(
+      all(Workspace),
+    );
   });
 
   const of = Effect.fn("WorkspacesStore.of")(function* (accountId: string) {
     const rows = yield* sql`
       SELECT workspaces.*, workspace_members.role
-      FROM workspaces
-      JOIN workspace_members ON workspace_members.workspace_id = workspaces.id
+      FROM live_workspaces AS workspaces
+      JOIN live_workspace_members AS workspace_members ON workspace_members.workspace_id = workspaces.id
       WHERE workspace_members.account_id = ${accountId}
       ORDER BY workspaces.created_at, workspaces.id
     `.pipe(all(Joined));
@@ -41,20 +45,26 @@ export const makeWorkspacesStore = Effect.fn("WorkspacesStore.make")(function* (
   });
 
   const rename = Effect.fn("WorkspacesStore.rename")(function* (id: string, name: string) {
-    yield* sql`UPDATE workspaces SET name = ${name} WHERE id = ${id}`.pipe(done);
+    yield* sql`UPDATE live_workspaces SET name = ${name} WHERE id = ${id}`.pipe(done);
   });
 
-  const delete_ = Effect.fn("WorkspacesStore.delete")(function* (id: string) {
+  const delete_ = Effect.fn("WorkspacesStore.delete")(function* (id: string, at: Date) {
     const { used } = yield* sql`
       SELECT (
-        EXISTS (SELECT 1 FROM sessions WHERE workspace_id = ${id})
-        OR EXISTS (SELECT 1 FROM snapshots WHERE workspace_id = ${id})
+        EXISTS (SELECT 1 FROM live_sessions WHERE workspace_id = ${id})
+        OR EXISTS (SELECT 1 FROM live_snapshots WHERE workspace_id = ${id})
       ) AS used
     `.pipe(one(Used));
     if (used) {
       return false;
     }
-    yield* sql`DELETE FROM workspaces WHERE id = ${id}`.pipe(done);
+    yield* Effect.gen(function* () {
+      yield* sql`UPDATE live_workspaces SET deleted_at = ${at} WHERE id = ${id}`.pipe(done);
+      // Nobody is in a workspace that is not there.
+      yield* sql`
+        UPDATE live_workspace_members SET deleted_at = ${at} WHERE workspace_id = ${id}
+      `.pipe(done);
+    }).pipe(sql.withTransaction, Effect.orDie);
     return true;
   });
 
@@ -63,8 +73,8 @@ export const makeWorkspacesStore = Effect.fn("WorkspacesStore.make")(function* (
       SELECT
         accounts.id AS account_id, accounts.name, accounts.kind, accounts.email,
         workspace_members.role
-      FROM workspace_members
-      JOIN accounts ON accounts.id = workspace_members.account_id
+      FROM live_workspace_members AS workspace_members
+      JOIN live_accounts AS accounts ON accounts.id = workspace_members.account_id
       WHERE workspace_members.workspace_id = ${id}
       ORDER BY accounts.created_at, accounts.id
     `.pipe(all(WorkspaceMember));
@@ -78,13 +88,19 @@ export const makeWorkspacesStore = Effect.fn("WorkspacesStore.make")(function* (
     yield* sql`
       INSERT INTO workspace_members (workspace_id, account_id, role)
       VALUES (${id}, ${accountId}, ${role})
-      ON CONFLICT (workspace_id, account_id) DO UPDATE SET role = EXCLUDED.role
+      ON CONFLICT (workspace_id, account_id) WHERE deleted_at IS NULL
+      DO UPDATE SET role = EXCLUDED.role
     `.pipe(done);
   });
 
-  const dismiss = Effect.fn("WorkspacesStore.dismiss")(function* (id: string, accountId: string) {
+  const dismiss = Effect.fn("WorkspacesStore.dismiss")(function* (
+    id: string,
+    accountId: string,
+    at: Date,
+  ) {
     yield* sql`
-      DELETE FROM workspace_members WHERE workspace_id = ${id} AND account_id = ${accountId}
+      UPDATE live_workspace_members SET deleted_at = ${at}
+      WHERE workspace_id = ${id} AND account_id = ${accountId}
     `.pipe(done);
   });
 

@@ -33,6 +33,7 @@ import * as Secrets from "../secrets.ts";
 import { guestsOf, type Share } from "../shares/schemas.ts";
 import { SharesStore } from "../shares/store.ts";
 import { Settings } from "../settings/service.ts";
+import { Vault } from "../vault/service.ts";
 import { after, now } from "../time.ts";
 import { accountOf, reaches } from "./caller.ts";
 import type { Account, AccountKind, ApiToken } from "./schemas.ts";
@@ -58,6 +59,11 @@ const about = (account: Account) =>
     ownerId: account.id,
   }) as const;
 
+/** Where the console asks whoever opens the link the control plane logs who the first admin is. */
+const FIRST_ADMIN = "/setup";
+/** The addresses a program listens on that are every address of its machine, and so none to open. */
+const EVERYWHERE = new Set(["0.0.0.0", "::", "[::]"]);
+
 const counted = (count: number, what: string) => `${count} ${what}${count === 1 ? "" : "s"}`;
 
 export const makeAccounts = Effect.fn("Accounts.make")(function* () {
@@ -72,6 +78,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
   const identity = yield* Identity;
   const settings = yield* Settings;
   const events = yield* Events;
+  const vault = yield* Vault;
   const crypto = yield* Effect.context<Crypto.Crypto>();
   const bootstrap = yield* Secrets.hash(Redacted.value(settings.bootstrapToken));
 
@@ -81,6 +88,10 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     readonly kind: AccountKind;
     readonly email: string | undefined;
     readonly from?: Brought | undefined;
+    /** The password a person named themselves; one who named none sets it with a setup token. */
+    readonly password?: string | undefined;
+    /** What else is written down of how the account came to be. */
+    readonly noted?: Readonly<Record<string, boolean>> | undefined;
   }) {
     if ((account.kind === "person") !== (account.email !== undefined)) {
       return yield* new AccountInvalid({
@@ -90,7 +101,11 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     const person =
       account.email === undefined
         ? null
-        : yield* identity.create({ email: account.email, name: account.name });
+        : yield* identity.create({
+            email: account.email,
+            name: account.name,
+            password: account.password,
+          });
     const made = yield* store.insert({
       id: account.from?.id ?? (yield* Secrets.id),
       name: account.name,
@@ -102,9 +117,47 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     yield* events.record({
       kind: "account.created",
       ...about(made),
-      detail: { kind: made.kind, admin: made.admin, email: made.email },
+      detail: { kind: made.kind, admin: made.admin, email: made.email, ...account.noted },
     });
     return made;
+  }, Effect.provide(crypto));
+
+  // Made of the master key and kept nowhere: the database alone tells nobody the link.
+  const firstAdminToken = yield* vault.secret("first-admin");
+  const firstAdminDigest = yield* Secrets.hash(firstAdminToken);
+  const reachedAt = Option.getOrElse(
+    settings.publicUrl,
+    () =>
+      `http://${EVERYWHERE.has(settings.listenHost) ? "localhost" : settings.listenHost}:${settings.listenPort}`,
+  ).replace(/\/+$/u, "");
+
+  const firstAdminLink = Effect.fn("Accounts.firstAdminLink")(function* () {
+    if (yield* store.anyPerson()) {
+      return Option.none<string>();
+    }
+    // After the `#`, so the token is sent nowhere when the link is opened.
+    return Option.some(`${reachedAt}${FIRST_ADMIN}#token=${firstAdminToken}`);
+  });
+
+  const firstAdmin = Effect.fn("Accounts.firstAdmin")(function* (
+    token: string,
+    person: { readonly name: string; readonly email: string; readonly password: string },
+  ) {
+    const refused = new Forbidden({
+      message:
+        "this link is good no more: someone signs in here already, or it is not the link that was logged",
+    });
+    // Digests are compared, so how long it takes tells nothing of the token.
+    if (!Secrets.same(yield* Secrets.hash(token), firstAdminDigest)) {
+      return yield* refused;
+    }
+    const made = yield* store.forFirstPerson(
+      create({ ...person, admin: true, kind: "person", noted: { first: true } }),
+    );
+    return yield* Option.match(made, {
+      onNone: () => Effect.fail(refused),
+      onSome: Effect.succeed,
+    });
   }, Effect.provide(crypto));
 
   const setupToken = Effect.fn("Accounts.setupToken")(function* (accountId: string) {
@@ -379,7 +432,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     }
     // Its links go with it, and nobody is told which they were afterwards.
     const links = yield* shares.listBy(id);
-    yield* store.delete(id);
+    yield* store.delete(id, yield* now);
     yield* dismiss(id, links);
     yield* events.record({
       kind: "account.removed",
@@ -504,6 +557,8 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
 
   return Accounts.of({
     create,
+    firstAdminLink,
+    firstAdmin,
     setupToken,
     resetSecondFactor,
     removePasskeys,

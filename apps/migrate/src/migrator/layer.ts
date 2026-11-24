@@ -27,6 +27,17 @@ const FROM = "v1";
 
 const now = Clock.currentTimeMillis.pipe(Effect.map((millis) => new Date(millis)));
 
+/** The tables of what is moved under its own id, each with what the plan knows it as. */
+const DELETED = [
+  ["account", "accounts"],
+  ["token", "api_tokens"],
+  ["workspace", "workspaces"],
+  ["snapshot", "snapshots"],
+  ["session", "sessions"],
+] as const;
+
+const Deleted = Schema.Struct({ id: Schema.String, at: Schema.Date });
+
 /** A session's routing as the control plane keeps it before it is sealed. */
 const encodeProxy = Schema.encodeSync(Schema.fromJsonString(ProxyConfig));
 
@@ -73,6 +84,16 @@ export const makeMigrator = Effect.fn("Migrator.make")(function* (options: Optio
     }
     for (const session of yield* sessions.list()) {
       made.set(key("session", session.id), DateTime.toDate(session.createdAt));
+    }
+    // What was moved and deleted in v2 since is kept under its id, and stays deleted: the
+    // stores tell of none of it, so the tables are asked.
+    for (const [kind, table] of DELETED) {
+      const rows = yield* sql`
+        SELECT id::text AS id, created_at AS at FROM ${sql(table)} WHERE deleted_at IS NOT NULL
+      `.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(Deleted))), Effect.orDie);
+      for (const row of rows) {
+        made.set(key(kind, row.id), row.at);
+      }
     }
     return { made, members, people };
   });

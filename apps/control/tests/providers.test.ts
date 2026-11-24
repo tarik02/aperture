@@ -265,6 +265,13 @@ suite(needs({ sso: { unnamed: true } }))(
 
         // Back by the same id, it finds them as who they were. It makes nobody now.
         expect((yield* asAdmin("POST", PROVIDERS, yield* given(ADDED))).status).toBe(201);
+        // The one that was removed is kept beside it, and is the id's no more.
+        expect(
+          yield* control.sql`
+            SELECT deleted_at IS NULL AS live FROM providers WHERE id = ${ADDED}
+            ORDER BY created_at
+          `,
+        ).toEqual([{ live: false }, { live: true }]);
         const landed = yield* signInThrough(control.url, "local", bob.email, undefined, ADDED);
         expect(landed.at).toBe("/-/sessions");
         const after = (yield* bootstrap.accounts.list()).find((one) => one.email === bob.email);

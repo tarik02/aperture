@@ -99,7 +99,7 @@ export const makeWorkspaces = Effect.fn("Workspaces.make")(function* () {
 
   const delete_ = Effect.fn("Workspaces.delete")(function* (caller: Caller, id: string) {
     const found = yield* administered(caller, id);
-    if (!(yield* store.delete(id))) {
+    if (!(yield* store.delete(id, yield* now))) {
       return yield* new WorkspaceInUse({ id });
     }
     yield* events.record({ kind: "workspace.deleted", ...about(found.workspace) });
@@ -137,7 +137,7 @@ export const makeWorkspaces = Effect.fn("Workspaces.make")(function* () {
   ) {
     const found = yield* administered(caller, id);
     const account = yield* accounts.find(accountId);
-    yield* store.dismiss(id, accountId);
+    yield* store.dismiss(id, accountId, yield* now);
     yield* events.record({
       kind: "workspace.member_dismissed",
       ...about(found.workspace),

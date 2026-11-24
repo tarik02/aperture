@@ -32,11 +32,11 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
   });
 
   const find = Effect.fn("SessionsStore.find")(function* (id: string) {
-    return yield* sql`SELECT * FROM sessions WHERE id = ${id}`.pipe(first(Session));
+    return yield* sql`SELECT * FROM live_sessions WHERE id = ${id}`.pipe(first(Session));
   });
 
   const list = Effect.fn("SessionsStore.list")(function* () {
-    return yield* sql`SELECT * FROM sessions ORDER BY created_at, id`.pipe(all(Session));
+    return yield* sql`SELECT * FROM live_sessions ORDER BY created_at, id`.pipe(all(Session));
   });
 
   const listOf = Effect.fn("SessionsStore.listOf")(function* (
@@ -44,7 +44,7 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     workspaceIds: ReadonlyArray<string>,
   ) {
     return yield* sql`
-      SELECT * FROM sessions
+      SELECT * FROM live_sessions
       WHERE ${sql.or([
         sql`(account_id = ${accountId} AND workspace_id IS NULL)`,
         // `IN ()` is no SQL.
@@ -55,7 +55,7 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
   });
 
   const on = Effect.fn("SessionsStore.on")(function* (nodeId: string) {
-    const rows = yield* sql`SELECT id FROM sessions WHERE node_id = ${nodeId}`.pipe(all(Id));
+    const rows = yield* sql`SELECT id FROM live_sessions WHERE node_id = ${nodeId}`.pipe(all(Id));
     return rows.map((row) => row.id);
   });
 
@@ -64,17 +64,17 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     said: SessionDescription,
   ) {
     if (said.label !== undefined) {
-      yield* sql`UPDATE sessions SET label = ${said.label} WHERE id = ${id}`.pipe(done);
+      yield* sql`UPDATE live_sessions SET label = ${said.label} WHERE id = ${id}`.pipe(done);
     }
     if (said.tags !== undefined) {
       yield* sql`
-        UPDATE sessions SET tags = ${JSON.stringify(said.tags)}::jsonb WHERE id = ${id}
+        UPDATE live_sessions SET tags = ${JSON.stringify(said.tags)}::jsonb WHERE id = ${id}
       `.pipe(done);
     }
   });
 
   const proxyOf = Effect.fn("SessionsStore.proxyOf")(function* (id: string) {
-    const row = yield* sql`SELECT proxy_sealed FROM sessions WHERE id = ${id}`.pipe(
+    const row = yield* sql`SELECT proxy_sealed FROM live_sessions WHERE id = ${id}`.pipe(
       first(Schema.Struct({ proxySealed: Schema.NullOr(Schema.String) })),
     );
     return Option.flatMapNullishOr(row, (found) => found.proxySealed);
@@ -84,15 +84,21 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     id: string,
     sealed: string | null,
   ) {
-    yield* sql`UPDATE sessions SET proxy_sealed = ${sealed} WHERE id = ${id}`.pipe(done);
+    yield* sql`UPDATE live_sessions SET proxy_sealed = ${sealed} WHERE id = ${id}`.pipe(done);
   });
 
   const desire = Effect.fn("SessionsStore.desire")(function* (id: string, state: DesiredState) {
-    yield* sql`UPDATE sessions SET desired_state = ${state} WHERE id = ${id}`.pipe(done);
+    yield* sql`UPDATE live_sessions SET desired_state = ${state} WHERE id = ${id}`.pipe(done);
   });
 
-  const delete_ = Effect.fn("SessionsStore.delete")(function* (id: string) {
-    yield* sql`DELETE FROM sessions WHERE id = ${id}`.pipe(done);
+  const delete_ = Effect.fn("SessionsStore.delete")(function* (id: string, at: Date) {
+    yield* Effect.gen(function* () {
+      yield* sql`UPDATE live_sessions SET deleted_at = ${at} WHERE id = ${id}`.pipe(done);
+      // Its links lead nowhere, and go with it.
+      yield* sql`
+        UPDATE live_session_shares SET deleted_at = ${at} WHERE session_id = ${id}
+      `.pipe(done);
+    }).pipe(sql.withTransaction, Effect.orDie);
   });
 
   const observe = Effect.fn("SessionsStore.observe")(function* (
@@ -101,7 +107,7 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     now: Date,
   ) {
     yield* sql`
-      UPDATE sessions
+      UPDATE live_sessions
       SET observed_state = ${seen.state}, failure = ${seen.failure},
         unreachable_since = NULL, observed_at = ${now}
       WHERE id = ${seen.id} AND node_id = ${nodeId}
@@ -110,7 +116,7 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
 
   const gone = Effect.fn("SessionsStore.gone")(function* (nodeId: string, id: string, now: Date) {
     yield* sql`
-      UPDATE sessions
+      UPDATE live_sessions
       SET node_id = NULL, observed_state = 'gone', unreachable_since = NULL,
         observed_at = ${now}
       WHERE id = ${id} AND node_id = ${nodeId}
@@ -119,7 +125,7 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
 
   const unreachable = Effect.fn("SessionsStore.unreachable")(function* (nodeId: string, now: Date) {
     yield* sql`
-      UPDATE sessions SET unreachable_since = ${now}
+      UPDATE live_sessions SET unreachable_since = ${now}
       WHERE node_id = ${nodeId} AND unreachable_since IS NULL
     `.pipe(done);
   });
@@ -129,7 +135,7 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     now: Date,
   ) {
     yield* sql`
-      UPDATE sessions SET unreachable_since = ${now}
+      UPDATE live_sessions SET unreachable_since = ${now}
       WHERE ${sql.and([
         "node_id IS NOT NULL",
         "unreachable_since IS NULL",

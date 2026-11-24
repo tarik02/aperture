@@ -25,11 +25,11 @@ export const makeSnapshotsStore = Effect.fn("SnapshotsStore.make")(function* () 
   });
 
   const find = Effect.fn("SnapshotsStore.find")(function* (id: string) {
-    return yield* sql`SELECT * FROM snapshots WHERE id = ${id}`.pipe(first(Snapshot));
+    return yield* sql`SELECT * FROM live_snapshots WHERE id = ${id}`.pipe(first(Snapshot));
   });
 
   const list = Effect.fn("SnapshotsStore.list")(function* () {
-    return yield* sql`SELECT * FROM snapshots ORDER BY created_at, id`.pipe(all(Snapshot));
+    return yield* sql`SELECT * FROM live_snapshots ORDER BY created_at, id`.pipe(all(Snapshot));
   });
 
   const listOf = Effect.fn("SnapshotsStore.listOf")(function* (
@@ -37,7 +37,7 @@ export const makeSnapshotsStore = Effect.fn("SnapshotsStore.make")(function* () 
     workspaceIds: ReadonlyArray<string>,
   ) {
     return yield* sql`
-      SELECT * FROM snapshots
+      SELECT * FROM live_snapshots
       WHERE ${sql.or([
         sql`(account_id = ${accountId} AND workspace_id IS NULL)`,
         // `IN ()` is no SQL.
@@ -52,22 +52,22 @@ export const makeSnapshotsStore = Effect.fn("SnapshotsStore.make")(function* () 
     said: SnapshotDescription,
   ) {
     if (said.name !== undefined) {
-      yield* sql`UPDATE snapshots SET name = ${said.name} WHERE id = ${id}`.pipe(done);
+      yield* sql`UPDATE live_snapshots SET name = ${said.name} WHERE id = ${id}`.pipe(done);
     }
     if (said.description !== undefined) {
-      yield* sql`UPDATE snapshots SET description = ${said.description} WHERE id = ${id}`.pipe(
+      yield* sql`UPDATE live_snapshots SET description = ${said.description} WHERE id = ${id}`.pipe(
         done,
       );
     }
     if (said.tags !== undefined) {
       yield* sql`
-        UPDATE snapshots SET tags = ${JSON.stringify(said.tags)}::jsonb WHERE id = ${id}
+        UPDATE live_snapshots SET tags = ${JSON.stringify(said.tags)}::jsonb WHERE id = ${id}
       `.pipe(done);
     }
   });
 
-  const delete_ = Effect.fn("SnapshotsStore.delete")(function* (id: string) {
-    yield* sql`DELETE FROM snapshots WHERE id = ${id}`.pipe(done);
+  const delete_ = Effect.fn("SnapshotsStore.delete")(function* (id: string, at: Date) {
+    yield* sql`UPDATE live_snapshots SET deleted_at = ${at} WHERE id = ${id}`.pipe(done);
   });
 
   return SnapshotsStore.of({ insert, find, list, listOf, describe, delete: delete_ });

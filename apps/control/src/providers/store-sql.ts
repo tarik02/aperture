@@ -31,23 +31,25 @@ export const makeProvidersStore = Effect.fn("ProvidersStore.make")(function* () 
         ${JSON.stringify(given.domains)}::jsonb, ${given.enabled}, ${given.createdAt},
         ${given.createdAt}
       )
-      ON CONFLICT (id) DO NOTHING
+      ON CONFLICT (id) WHERE deleted_at IS NULL DO NOTHING
       RETURNING *
     `.pipe(first(StoredProvider));
   });
 
   const list = Effect.fn("ProvidersStore.list")(function* () {
-    return yield* sql`SELECT * FROM providers ORDER BY created_at, id`.pipe(all(StoredProvider));
+    return yield* sql`SELECT * FROM live_providers ORDER BY created_at, id`.pipe(
+      all(StoredProvider),
+    );
   });
 
   const find = Effect.fn("ProvidersStore.find")(function* (id: string) {
-    return yield* sql`SELECT * FROM providers WHERE id = ${id}`.pipe(first(StoredProvider));
+    return yield* sql`SELECT * FROM live_providers WHERE id = ${id}`.pipe(first(StoredProvider));
   });
 
   const update = Effect.fn("ProvidersStore.update")(function* (id: string, to: ChangedProvider) {
     return yield* sql`
       WITH ${counted}
-      UPDATE providers SET
+      UPDATE live_providers SET
         name = ${to.name}, icon = ${to.icon}, issuer = ${to.issuer},
         endpoints = ${JSON.stringify(to.endpoints)}::jsonb, client_id = ${to.clientId},
         client_secret_sealed = ${to.clientSecretSealed},
@@ -59,8 +61,10 @@ export const makeProvidersStore = Effect.fn("ProvidersStore.make")(function* () 
     `.pipe(first(StoredProvider));
   });
 
-  const delete_ = Effect.fn("ProvidersStore.delete")(function* (id: string) {
-    yield* sql`WITH ${counted} DELETE FROM providers WHERE id = ${id}`.pipe(done);
+  const delete_ = Effect.fn("ProvidersStore.delete")(function* (id: string, at: Date) {
+    yield* sql`
+      WITH ${counted} UPDATE live_providers SET deleted_at = ${at} WHERE id = ${id}
+    `.pipe(done);
   });
 
   const revision = Effect.fn("ProvidersStore.revision")(function* () {
