@@ -63,6 +63,10 @@ jobs:
     name: e2e
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
+    # Its first job asks whether checks.yml is building the same programs.
+    permissions:
+      actions: read
+      contents: read
     uses: ./.github/workflows/e2e.yml
 
   publish:
