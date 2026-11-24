@@ -10,7 +10,8 @@ The version is written in `Cargo.toml` (`[workspace.package]`), in `Cargo.lock` 
 |---|---|
 | The session's image, for `linux/amd64` and `linux/arm64`, signed, with provenance and an SBOM | `ghcr.io/tarik02/aperture-session:<version>`, and `:beta` or `:latest` |
 | The npm packages `control-api`, `executor-client`, `session-client`, `session-react`, `session-element` of `@aperture-browser`, with provenance | npm, under the dist-tag `beta` or `latest` |
-| The same images as files for `docker load`, their SBOMs, and `SHA256SUMS` | the GitHub release |
+| The control plane's image and the node's, for the same two, signed: what `deploy/compose.yaml` puts together | `ghcr.io/tarik02/aperture-control` and `ghcr.io/tarik02/aperture-node`, with the same tags |
+| The session's image as files for `docker load`, their SBOMs, and `SHA256SUMS` | the GitHub release |
 | The programs, the control plane and the migrator as Nix builds them | the `aperture-browser` Cachix cache |
 | The changes | `CHANGELOG.md` and the GitHub release |
 
@@ -40,12 +41,12 @@ Any version can be forced the same way, with `Release-As: x.y.z` in the body of 
 
 ## Nightlies
 
-Every push to `master` that is not a release's commit is published by `nightly.yml` as `v0.0.0-nightly.<run>.<sha>`: a GitHub prerelease, the image as `:nightly` and `:nightly-<sha>`, and the npm packages under the dist-tag `nightly`. A nightly has no files on its release and is not pushed to Cachix. The tree is not bumped for it; `.github/scripts/set-version.sh` writes the version into the checkout it is built from.
+Every push to `master` that is not a release's commit is published by `nightly.yml` as `v0.0.0-nightly.<run>.<sha>`: a GitHub prerelease, the image as `:nightly` and `:nightly-<sha>`, and the npm packages under the dist-tag `nightly`. A nightly has no files on its release. The tree is not bumped for it; `.github/scripts/set-version.sh` writes the version into the checkout it is built from.
 
 ## What is checked
 
-- `checks.yml`, on every pull request and on pushes to `master` and `v2`: formatting, lint, types, the builds, the Rust checks, the generated code, and `nix packages`, which builds what the flake installs and fetches the pnpm dependencies again, so that a `workspacePnpmDeps` hash left behind by a change of `pnpm-lock.yaml` fails.
-- `e2e.yml`, on pushes to `master` and `v2`, on a release's pull request, on a pull request labelled `e2e`, and before anything of a release is published: real sessions end to end, and the NixOS modules on a virtual machine (`nix/tests`).
+- `checks.yml`, on every pull request and on pushes to `master`: formatting, lint, types, the builds, the Rust checks, the generated code, and `nix packages`, which builds what the flake installs and fetches the pnpm dependencies again, so that a `workspacePnpmDeps` hash left behind by a change of `pnpm-lock.yaml` fails. What it builds goes to the Cachix cache, so the next run builds only what changed; `session image` and `deployment images` then start the images as their users do.
+- `e2e.yml`, on pushes to `master`, on a release's pull request, on a pull request labelled `e2e`, and before anything of a release is published: real sessions end to end, and the NixOS modules on a virtual machine (`nix/tests`).
 
 ## What the workflows need
 

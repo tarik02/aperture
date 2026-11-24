@@ -12,7 +12,6 @@ on:
   push:
     branches:
       - master
-      - v2
   workflow_dispatch:
   workflow_call:
 
@@ -27,7 +26,7 @@ concurrency:
 
 jobs:
   e2e:
-    name: e2e
+    name: e2e ${{ matrix.name }}
     # The commit a release is made of is pushed as well, and release-please.yml asks for
     # these checks of it: the push asks for nothing then.
     if: &asked >-
@@ -48,24 +47,37 @@ jobs:
       )
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    env:
-      CARGO_PROFILE_DEV_DEBUG: "0"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: sessions
+            run: pnpm test:e2e
+          - name: control plane
+            run: pnpm --filter @aperture-browser/control test
     steps:
       - uses: actions/checkout@v7.0.0
 
       - uses: cachix/install-nix-action@v31
 
-      - uses: actions/cache@v6.1.0
+      - uses: cachix/cachix-action@v17
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: e2e-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'flake.lock') }}
-          restore-keys: e2e-${{ runner.os }}-${{ runner.arch }}-
+          name: aperture-browser
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ secrets.CACHIX_AUTH_TOKEN == '' }}
+          pushFilter: (-source$|-vendor|user-environment)
 
       - name: Let the sandbox make its namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      # The programs as a release has them, which checks.yml has built and the cache has
+      # for whatever commit changed none of them.
+      - name: Build the programs
+        run: |
+          nix build .#aperture-unwrapped --out-link programs --print-build-logs
+          # Where they are, as a program finds itself: a check of what a browser sees of
+          # the machine goes by it.
+          echo "APERTURE_BIN=$(readlink --canonicalize programs)/bin" >> "$GITHUB_ENV"
 
       - name: Build the workbench and the console
         run: |
@@ -73,18 +85,15 @@ jobs:
           nix develop --command pnpm --filter @aperture-browser/workbench build
           nix develop --command pnpm --filter @aperture-browser/console build
 
-      - name: Build the programs
-        run: nix develop --command cargo build --workspace
+      - name: Check
+        env:
+          RUN: ${{ matrix.run }}
+        run: nix develop --command $RUN
 
-      - name: Sessions and executors
-        run: nix develop --command pnpm test:e2e
-
-      - name: The control plane, on a database and a node
-        run: nix develop --command pnpm --filter @aperture-browser/control test
       - uses: actions/upload-artifact@v7.0.1
         if: failure()
         with:
-          name: test-failures
+          name: test-failures-${{ matrix.name }}
           path: test-failures/
           if-no-files-found: ignore
           retention-days: 14

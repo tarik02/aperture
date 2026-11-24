@@ -1,0 +1,122 @@
+# Everything on one machine: the database, the control plane with its console, one node and
+# the proxy people reach it all through. docs/install.md says what to set and what it asks
+# of the machine.
+name: aperture
+
+services:
+  # Makes the secrets the others share, once: what is there stays.
+  keys:
+    image: ghcr.io/tarik02/aperture-control:${APERTURE_VERSION:-beta}
+    entrypoint: ["/bin/aperture-keys", "/keys"]
+    network_mode: none
+    restart: "no"
+    volumes:
+      - keys:/keys
+
+  # Reached by its socket alone, which the control plane is given: it listens on no address.
+  postgres:
+    image: postgres:18
+    command: ["postgres", "-c", "listen_addresses="]
+    network_mode: none
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aperture
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - database:/var/lib/postgresql
+      - postgres:/var/run/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "--username", "postgres", "--dbname", "aperture"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  # The parts below are on the machine's own network. A session's video and sound go to
+  # whoever watches it straight from the node, from the addresses the node finds on its
+  # interfaces, and a container's own network has none anyone outside reaches. They talk
+  # to each other over loopback, and the proxy alone listens where others reach it.
+  control:
+    image: ghcr.io/tarik02/aperture-control:${APERTURE_VERSION:-beta}
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      keys:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment:
+      APERTURE_CONTROL_PUBLIC_URL: ${APERTURE_URL:?set APERTURE_URL to where people reach Aperture, such as https://aperture.example.com}
+      APERTURE_CONTROL_DATABASE_URL: postgres://postgres@localhost/aperture?host=/run/postgresql
+      APERTURE_CONTROL_LISTEN_HOST: 127.0.0.1
+      APERTURE_CONTROL_LISTEN_PORT: 7800
+      APERTURE_CONTROL_MASTER_KEY: /keys/master.key
+      APERTURE_CONTROL_TICKET_KEY: /keys/ticket.pem
+      APERTURE_CONTROL_BOOTSTRAP_TOKEN_FILE: /keys/bootstrap-token
+      APERTURE_CONTROL_PROXY_TOKEN_FILE: /keys/proxy-token
+      APERTURE_CONTROL_REGISTRATION_TOKEN_FILE: /keys/registration-token
+    volumes:
+      - keys:/keys:ro
+      - postgres:/run/postgresql
+    healthcheck:
+      test:
+        - CMD
+        - /bin/node
+        - --eval
+        - >-
+          fetch("http://127.0.0.1:7800/api/control/health").then((answer) => process.exit(answer.ok ? 0 : 1), () => process.exit(1))
+      interval: 2s
+      timeout: 5s
+      retries: 60
+
+  node:
+    image: ghcr.io/tarik02/aperture-node:${APERTURE_VERSION:-beta}
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      control:
+        condition: service_healthy
+    # Each session's browser is sandboxed inside the container, in user namespaces and
+    # with a /proc of its own, which Docker's defaults keep a container from making.
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+      - systempaths=unconfined
+    environment:
+      APERTURE_NODE: ${APERTURE_NODE:-node}
+      APERTURE_LISTEN: 127.0.0.1:7900
+      APERTURE_CONTROL_PLANE: http://127.0.0.1:7800
+      APERTURE_REGISTRATION_TOKEN_FILE: /keys/registration-token
+      APERTURE_TICKET_KEY: /keys/ticket.pub.pem
+      APERTURE_FEATURES: ${APERTURE_FEATURES:-sound,uploads,downloads,recordings,clipboard,cdp,mcp}
+      APERTURE_RTC_PORTS: ${APERTURE_RTC_PORTS:-60000-60999}
+    volumes:
+      - keys:/keys:ro
+      - node:/data
+
+  proxy:
+    image: traefik:v3
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      control:
+        condition: service_healthy
+    # Traefik takes the header its provider sends from its environment, and the token is
+    # in a file.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - export TRAEFIK_PROVIDERS_HTTP_HEADERS_AUTHORIZATION="Bearer $$(cat /keys/proxy-token)" && exec traefik
+    environment:
+      TRAEFIK_ENTRYPOINTS_WEB_ADDRESS: ${APERTURE_LISTEN:-:80}
+      TRAEFIK_PROVIDERS_HTTP_ENDPOINT: http://127.0.0.1:7800/api/control/route/traefik
+      TRAEFIK_PROVIDERS_HTTP_POLLINTERVAL: 2s
+      TRAEFIK_GLOBAL_CHECKNEWVERSION: "false"
+      TRAEFIK_GLOBAL_SENDANONYMOUSUSAGE: "false"
+    volumes:
+      - keys:/keys:ro
+
+volumes:
+  keys:
+  database:
+  postgres:
+  node:

@@ -1,13 +1,14 @@
 # Install
 
-There are two supported ways to run Aperture:
+There are three supported ways to run Aperture:
 
 | | What you get | Use it for |
 |---|---|---|
 | [NixOS modules](#nixos) | The whole deployment: control plane, console, proxy, nodes | Anything with accounts, more than one session, or more than one machine |
+| [Docker Compose](#docker-compose) | The same on one machine, in containers | A deployment with accounts where there is no NixOS |
 | [Container image](#container-image) | One session, served on its own | A single browser for one operator, with no control plane |
 
-The control plane and the executor are not published as an image or as files of their own. They run a browser, a sandbox and encoders that the flake wires to them, so they are installed from the flake: by its NixOS modules, or as its packages (`aperture`, `aperture-control`) on any Linux with Nix, where you write the units yourself from [Configuration](configuration.md).
+The control plane and the node are also the flake's packages (`aperture`, `aperture-control`) on any Linux with Nix, where you write the units yourself from [Configuration](configuration.md).
 
 `<version>` below is a release, such as `1.0.0-beta.1`. Releases are the tags `v<version>` of `github:tarik02/aperture`.
 
@@ -258,4 +259,42 @@ The session's browser sees the container's `/etc` no more than a node's: it has 
 
 The image is signed and carries provenance and an SBOM. Each release also has the image as a file for `docker load`, for `linux/amd64` and `linux/arm64`, with `SHA256SUMS`.
 
-There is no image of the control plane and no compose file. A deployment with accounts is the NixOS modules above, or the flake's packages on another Linux.
+## Docker Compose
+
+Everything on one machine, under Docker: PostgreSQL, the control plane with its console, one node, and the Traefik people reach it all through. [`deploy/compose.yaml`](../deploy/compose.yaml) is the whole of it.
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/tarik02/aperture/master/deploy/compose.yaml
+echo 'APERTURE_URL=http://localhost' > .env
+docker compose up --detach --wait
+```
+
+| In `.env` | Default | |
+|---|---|---|
+| `APERTURE_URL` | required | Where people reach it, such as `https://aperture.example.com`. Signing in takes requests from pages of that origin alone |
+| `APERTURE_LISTEN` | `:80` | Where the proxy listens on the machine |
+| `APERTURE_VERSION` | `beta` | The images' tag: `beta`, or a version such as `1.0.0-beta.1` |
+| `APERTURE_NODE` | `node` | The node's name |
+| `APERTURE_RTC_PORTS` | `60000-60999` | The UDP ports sessions' video and sound use. Open them to whoever watches a session |
+| `APERTURE_FEATURES` | all of them | What the node's sessions offer at most |
+
+What else the control plane and the node take is in [Configuration](configuration.md): add it to their `environment` in the file.
+
+The secrets are made when it first starts, in the volume `aperture_keys`, and stay as they are after. No image here has a shell, so the bootstrap token is read with another:
+
+```sh
+docker run --rm --volume aperture_keys:/keys:ro busybox cat /keys/bootstrap-token
+```
+
+The first admin is then made as in [First sign-in](#first-sign-in), with that token and `APERTURE_URL`.
+
+What it asks of the machine:
+
+- **The machine's own network** for the control plane, the node and the proxy. A session's video and sound go to whoever watches it straight from the node, from the addresses the node finds on its interfaces, and a container's own network has none anyone outside reaches. They talk over loopback, on ports `7800` and `7900`, and the proxy alone listens where others reach it. PostgreSQL listens on no address: the control plane is given its socket.
+- **A sandbox inside the node's container**, as for the [container image](#container-image): the file gives the node `seccomp=unconfined`, `apparmor=unconfined` and `systempaths=unconfined`, and nothing else. Under podman, `unmask=ALL` takes the place of the three. Where the host forbids user namespaces to unprivileged users (Ubuntu 23.10 and newer, `kernel.apparmor_restrict_unprivileged_userns`), browsers do not start.
+- **Linux**, on `amd64` or `arm64`. Docker Desktop's machine is not the one people reach.
+- **TLS in front** is yours to add, as under [TLS](#tls): move the proxy to a local port with `APERTURE_LISTEN=127.0.0.1:8080`, and tell Traefik to trust what stands before it with `TRAEFIK_ENTRYPOINTS_WEB_FORWARDEDHEADERS_TRUSTEDIPS` in the proxy's `environment`.
+
+What is kept, and what losing it costs, is as in [Where data lives](#where-data-lives): the volumes `aperture_keys`, `aperture_database` and `aperture_node`.
+
+This is brought up with Docker before every release, on Ubuntu 24.04, where a session is made in it. The images are `ghcr.io/tarik02/aperture-control` and `ghcr.io/tarik02/aperture-node`, signed with cosign, for `linux/amd64` and `linux/arm64`.

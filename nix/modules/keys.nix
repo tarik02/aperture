@@ -17,16 +17,6 @@ let
     umask 077
     cd ${cfg.directory}
 
-    secret() { ${lib.getExe pkgs.openssl} rand -base64 32 | tr -d '\n=' | tr '+/' '-_'; }
-    # Made once: what is there stays, since what was sealed and signed with it is still read.
-    made() {
-      local file=$1
-      shift
-      if [ ! -s "$file" ]; then
-        "$@" > "$file.new"
-        mv "$file.new" "$file"
-      fi
-    }
     owned() {
       local file=$1 owner=$2 group=$3 mode=$4
       id -u "$owner" > /dev/null 2>&1 || owner=root
@@ -35,12 +25,7 @@ let
       chmod "$mode" "$file"
     }
 
-    made master.key secret
-    made bootstrap-token secret
-    made registration-token secret
-    made proxy-token secret
-    made ticket.pem ${lib.getExe pkgs.openssl} genpkey -algorithm ed25519
-    ${lib.getExe pkgs.openssl} pkey -in ticket.pem -pubout -out ticket.pub.pem
+    ${lib.getExe (packagesFor pkgs).aperture-keys} .
     # Traefik takes the header its provider sends from its environment.
     printf 'TRAEFIK_PROVIDERS_HTTP_HEADERS_AUTHORIZATION=Bearer %s\n' "$(cat proxy-token)" > proxy.env
 

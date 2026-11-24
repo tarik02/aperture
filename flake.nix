@@ -198,6 +198,19 @@
           ];
         };
 
+        # What the programs alone are built of: a change of the console or the control plane
+        # builds none of them again.
+        programsSrc = lib.fileset.toSource {
+          root = ./.;
+          fileset = lib.fileset.unions [
+            ./Cargo.toml
+            ./Cargo.lock
+            ./buf.yaml
+            ./crates
+            ./proto
+          ];
+        };
+
         workspacePnpmDeps = pkgs.fetchPnpmDeps {
           pname = "aperture-workspace";
           inherit version src;
@@ -346,7 +359,8 @@
         # The programs as cargo builds them, which find nothing of what they run by themselves.
         apertureUnwrapped = pkgs.rustPlatform.buildRustPackage {
           pname = "aperture-unwrapped";
-          inherit version src;
+          inherit version;
+          src = programsSrc;
           cargoLock = {
             lockFile = ./Cargo.lock;
             allowBuiltinFetchGit = true;
@@ -429,12 +443,106 @@
             ];
             ExposedPorts."7900/tcp" = { };
             Volumes."/data" = { };
-            # A registry shows the image under the repository its source label names.
-            Labels = {
-              "org.opencontainers.image.source" = "https://github.com/tarik02/aperture";
-              "org.opencontainers.image.version" = version;
-              "org.opencontainers.image.licenses" = "MIT";
-            };
+            Labels = imageLabels;
+          };
+        };
+
+        # The secrets the parts of a deployment share, made in the directory it is given.
+        # Made once: what is there stays, since what was sealed and signed with it is
+        # still read.
+        keys = pkgs.writeShellApplication {
+          name = "aperture-keys";
+          runtimeInputs = [
+            pkgs.coreutils
+            pkgs.openssl
+          ];
+          text = ''
+            umask 077
+            cd "''${1:?usage: aperture-keys DIRECTORY}"
+
+            secret() { openssl rand -base64 32 | tr -d '\n=' | tr '+/' '-_'; }
+            made() {
+              local file=$1
+              shift
+              if [ ! -s "$file" ]; then
+                "$@" > "$file.new"
+                mv "$file.new" "$file"
+              fi
+            }
+
+            made master.key secret
+            made bootstrap-token secret
+            made registration-token secret
+            made proxy-token secret
+            made ticket.pem openssl genpkey -algorithm ed25519
+            openssl pkey -in ticket.pem -pubout -out ticket.pub.pem
+          '';
+        };
+
+        imageLabels = {
+          # A registry shows an image under the repository its source label names.
+          "org.opencontainers.image.source" = "https://github.com/tarik02/aperture";
+          "org.opencontainers.image.version" = version;
+          "org.opencontainers.image.licenses" = "MIT";
+        };
+
+        # A node in a container: the executor, with its sessions below /data. Each
+        # session's browser is sandboxed as in the session's image, and asks the same of
+        # whatever runs the container.
+        nodeImage = pkgs.dockerTools.streamLayeredImage {
+          name = "aperture-node";
+          tag = version;
+          contents = [
+            aperture
+            pkgs.dockerTools.fakeNss
+            # The executor trusts whom the system does when it speaks to a control plane.
+            pkgs.dockerTools.caCertificates
+          ];
+          extraCommands = ''
+            mkdir -p data tmp run
+            chmod 1777 tmp
+          '';
+          config = {
+            Entrypoint = [ (lib.getExe' aperture "aperture-executor") ];
+            Env = [
+              "HOME=/data"
+              "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
+              "APERTURE_DATA_DIR=/data"
+              "APERTURE_LISTEN=0.0.0.0:7900"
+              "APERTURE_RUNTIME_DIR=/run/aperture"
+            ];
+            ExposedPorts."7900/tcp" = { };
+            Volumes."/data" = { };
+            Labels = imageLabels;
+          };
+        };
+
+        # The control plane in a container, with the console it serves. `aperture-keys` is
+        # in it as well, for whoever has the deployment's secrets made beside it.
+        controlImage = pkgs.dockerTools.streamLayeredImage {
+          name = "aperture-control";
+          tag = version;
+          contents = [
+            control
+            keys
+            # Its health is asked with the runtime it has: the image has no shell.
+            nodeRuntime
+            pkgs.dockerTools.fakeNss
+            pkgs.dockerTools.caCertificates
+          ];
+          extraCommands = ''
+            mkdir -p tmp
+            chmod 1777 tmp
+          '';
+          config = {
+            Entrypoint = [ (lib.getExe control) ];
+            Env = [
+              "APERTURE_CONTROL_LISTEN_HOST=0.0.0.0"
+              "APERTURE_CONTROL_LISTEN_PORT=7800"
+              "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
+            ];
+            ExposedPorts."7800/tcp" = { };
+            Labels = imageLabels;
           };
         };
       in
@@ -477,6 +585,9 @@
           aperture-workbench = workbench;
           aperture-console = console;
           aperture-control = control;
+          aperture-keys = keys;
+          node-image = nodeImage;
+          control-image = controlImage;
           aperture-migrate = migrate;
           aperture-chromium = runtimeChromium;
           aperture-ffmpeg = runtimeFfmpeg;

@@ -1,6 +1,6 @@
 name: publish
 
-# What a release or a nightly gives whoever installs it: the session's image for both
+# What a release or a nightly gives whoever installs it: the images for both
 # architectures and the packages on npm, and for a release the same images as its files.
 on:
   workflow_call:
@@ -34,6 +34,8 @@ permissions:
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}-session
+  # The control plane's image and the node's are this with `-control` and `-node`.
+  IMAGES: ghcr.io/${{ github.repository }}
 
 jobs:
   image:
@@ -110,6 +112,17 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           .github/scripts/smoke-image.sh "aperture-session-$VERSION-linux-$ARCH.tar.gz"
 
+      # The same for a whole deployment, as deploy/compose.yaml puts it together.
+      - name: Build the images of a deployment
+        run: |
+          for part in control node; do
+            nix build ".#$part-image" --print-build-logs
+            ./result | gzip > "aperture-$part.tar.gz"
+          done
+
+      - name: Bring the deployment up and make a session in it
+        run: .github/scripts/smoke-compose.sh aperture-control.tar.gz aperture-node.tar.gz
+
       - name: Build what the modules install
         if: inputs.release
         run: nix build .#aperture .#aperture-control .#aperture-migrate --no-link --print-build-logs
@@ -158,6 +171,20 @@ jobs:
         env:
           DIGEST: ${{ steps.push.outputs.digest }}
         run: cosign sign --yes "$IMAGE@$DIGEST"
+
+      - name: Push and sign the images of a deployment
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          for part in control node; do
+            image="$IMAGES-$part"
+            docker load < "aperture-$part.tar.gz"
+            docker tag "aperture-$part:$VERSION" "$image:$VERSION-$ARCH"
+            docker push "$image:$VERSION-$ARCH"
+            repo_digest="$(docker image inspect "$image:$VERSION-$ARCH" --format '{{json .RepoDigests}}' | jq -r --arg image "$image" '.[] | select(startswith($image + "@"))' | head -n 1)"
+            cosign sign --yes "$repo_digest"
+          done
 
       - uses: actions/upload-artifact@v7.0.1
         if: inputs.release
@@ -226,6 +253,33 @@ jobs:
         env:
           DIGEST: ${{ steps.publish.outputs.digest }}
         run: cosign sign --yes "$IMAGE@$DIGEST"
+
+      - name: Publish and sign the manifests of a deployment's images
+        env:
+          TAGS: ${{ inputs.image-tags }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          for part in control node; do
+            image="$IMAGES-$part"
+            tag_args=()
+            first_tag=""
+            while IFS= read -r tag; do
+              if [[ -n "$tag" ]]; then
+                if [[ -z "$first_tag" ]]; then
+                  first_tag="$tag"
+                fi
+                tag_args+=(--tag "$image:$tag")
+              fi
+            done <<< "$TAGS"
+
+            docker buildx imagetools create \
+              "${tag_args[@]}" \
+              "$image:$VERSION-amd64" \
+              "$image:$VERSION-arm64"
+
+            digest="$(docker buildx imagetools inspect "$image:$first_tag" --format '{{json .Manifest}}' | jq -r '.digest')"
+            cosign sign --yes "$image@$digest"
+          done
 
   files:
     name: release files
