@@ -99,7 +99,22 @@ printf 'TRAEFIK_PROVIDERS_HTTP_HEADERS_AUTHORIZATION=Bearer %s\n' "$(cat proxy-t
 
 ### First sign-in
 
-Nobody makes themselves a person: an admin does. The first admin is made with the bootstrap token, and sets a password with a setup link.
+Nobody makes themselves a person: an admin does. The first admin is made from a link the control plane logs when it starts, for as long as nobody signs in yet:
+
+```sh
+journalctl --unit aperture-control --grep 'first admin'
+# No one can sign in yet: make the first admin at https://aperture.example.com/setup#token=…
+```
+
+Open the link, say your name, email address and a password, and you are signed in to the console as an admin. From there everything else is in the console: people, service accounts, API tokens, workspaces, nodes, registration tokens, sign-in providers.
+
+The link starts with `publicUrl`. Without one it names the address the control plane listens on, `http://127.0.0.1:7800`, which opens on the machine itself; from elsewhere, put the address you reach Aperture at in its place and keep `/setup#token=…`.
+
+It is good once. As soon as anyone is a person here it makes nobody, whoever has it, and no later start logs it. Until then every start logs the same link: the token is made of the master key and kept nowhere. Whoever reads the control plane's log before the first admin is made can become it, so make it soon.
+
+#### With the bootstrap token
+
+For what sets a deployment up without anyone at a browser, the bootstrap token does what an admin does, the first admin included:
 
 ```sh
 export APERTURE_URL=https://aperture.example.com    # or http://localhost on the machine itself
@@ -112,7 +127,7 @@ TOKEN=$(api -X POST "$APERTURE_URL/api/control/accounts/$ID/setup-token" | jq -r
 echo "$APERTURE_URL/invite#token=$TOKEN"
 ```
 
-Open the link that prints, set a password, and you are signed in to the console as an admin. From there everything else is in the console: people, service accounts, API tokens, workspaces, nodes, registration tokens, sign-in providers.
+Whoever opens the link that prints sets a password for that account. A person made so ends the logged link as any other does.
 
 The bootstrap token keeps working for as long as the control plane is given it. Keep it as you keep a root password; what is done with it is in the events as done by the bootstrap token.
 
@@ -280,13 +295,20 @@ docker compose up --detach --wait
 
 What else the control plane and the node take is in [Configuration](configuration.md): add it to their `environment` in the file.
 
-The secrets are made when it first starts, in the volume `aperture_keys`, and stay as they are after. No image here has a shell, so the bootstrap token is read with another:
+The control plane logs where the first admin is made, as under [First sign-in](#first-sign-in):
+
+```sh
+docker compose logs control | grep 'first admin'
+# No one can sign in yet: make the first admin at http://localhost/setup#token=…
+```
+
+Open the link, which starts with `APERTURE_URL`, and say who you are and a password: you are signed in as an admin.
+
+The secrets are made when it first starts, in the volume `aperture_keys`, and stay as they are after. What sets a deployment up by itself uses the bootstrap token, [as there](#with-the-bootstrap-token). No image here has a shell, so it is read with another:
 
 ```sh
 docker run --rm --volume aperture_keys:/keys:ro busybox cat /keys/bootstrap-token
 ```
-
-The first admin is then made as in [First sign-in](#first-sign-in), with that token and `APERTURE_URL`.
 
 What it asks of the machine:
 
