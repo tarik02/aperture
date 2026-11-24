@@ -34,6 +34,8 @@ import {
   type Session as SessionRecord,
   useSessionQuery,
 } from "#/features/session/session.queries.ts";
+import { NotAnsweringNote, TryNow } from "#/components/not-answering.tsx";
+import { notAnswering, useUnanswered } from "#/lib/answering.ts";
 import { told } from "#/lib/api.ts";
 
 type StateProps = {
@@ -263,6 +265,7 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
   );
   useDocumentTitle(watched || (session.data?.label ?? "Session"));
   const drawn = useDrawn(workbench, session.data?.path ?? null);
+  const unanswered = useUnanswered(session);
 
   useEffect(() => {
     if (session.data !== undefined) {
@@ -278,7 +281,15 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
     }
   }, [runs, resume.reset]);
 
-  if (session.isError) {
+  if (unanswered) {
+    return (
+      <State note="unanswered" action={<TryNow />}>
+        <NotAnsweringNote />
+      </State>
+    );
+  }
+  // What was shown before stays while Aperture does not answer what became of it.
+  if (session.isError && !notAnswering(session.error)) {
     return <State note="missing">{told(session.error, "The session was not looked up.")}</State>;
   }
   if (session.data === undefined) {

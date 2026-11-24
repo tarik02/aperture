@@ -1,5 +1,7 @@
 import { ShareRole } from "@aperture-browser/control-api";
+import * as Data from "effect/Data";
 import * as Schema from "effect/Schema";
+import { failedToAnswer, Unanswered } from "#/lib/answering.ts";
 
 const Told = Schema.Struct({
   sessionId: Schema.String,
@@ -15,13 +17,11 @@ const Told = Schema.Struct({
 export type Link = typeof Told.Type;
 
 /** Why a link lets nobody in, for whoever opened it. */
-export class LinkRefused extends Error {
-  constructor(readonly status: number) {
-    super(
-      status === 429
-        ? "Too many links that are none came from here. Try again in a minute."
-        : "This link lets nobody in any more. Ask whoever shared it for another.",
-    );
+export class LinkRefused extends Data.TaggedError("LinkRefused")<{ readonly status: number }> {
+  override get message() {
+    return this.status === 429
+      ? "Too many links that are none came from here. Try again in a minute."
+      : "This link lets nobody in any more. Ask whoever shared it for another.";
   }
 }
 
@@ -37,9 +37,14 @@ export const enter = async (
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(given),
+  }).catch(() => {
+    throw new Unanswered();
   });
+  if (failedToAnswer(answer.status)) {
+    throw new Unanswered();
+  }
   if (!answer.ok) {
-    throw new LinkRefused(answer.status);
+    throw new LinkRefused({ status: answer.status });
   }
   return Schema.decodeUnknownSync(Told)(await answer.json());
 };
