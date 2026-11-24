@@ -2,7 +2,7 @@
 //! given, the status it reports, and where both are kept in the session's runtime directory.
 //!
 //! The runner knows nothing of sessions beyond its own, nor of where the directories it is
-//! given come from, whoever made them.
+//! given come from.
 
 pub mod options;
 pub mod proxy;
