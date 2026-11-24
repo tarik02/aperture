@@ -12,7 +12,7 @@ export const announceFirstAdmin = Effect.fn("FirstAdmin.announce")(function* () 
   const accounts = yield* Accounts;
   const link = yield* accounts.firstAdminLink();
   if (Option.isSome(link)) {
-    yield* Effect.logWarning(`No one can sign in yet: make the first admin at ${link.value}`);
+    yield* Effect.logWarning(`Setup link: ${link.value}`);
   }
 });
 

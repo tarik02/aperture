@@ -6,7 +6,7 @@ import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as Control from "./src/control.ts";
 import { cookiesOf } from "./src/person.ts";
 
-const LOGGED = /^No one can sign in yet: make the first admin at (\S+)$/u;
+const LOGGED = /^Setup link: (\S+)$/u;
 
 /** The links a control plane logged to make the first admin at. */
 const links = (control: Control.ControlService) =>

@@ -102,8 +102,8 @@ printf 'TRAEFIK_PROVIDERS_HTTP_HEADERS_AUTHORIZATION=Bearer %s\n' "$(cat proxy-t
 Nobody makes themselves a person: an admin does. The first admin is made from a link the control plane logs when it starts, for as long as nobody signs in yet:
 
 ```sh
-journalctl --unit aperture-control --grep 'first admin'
-# No one can sign in yet: make the first admin at https://aperture.example.com/setup#token=…
+journalctl --unit aperture-control --grep 'Setup link'
+# Setup link: https://aperture.example.com/setup#token=…
 ```
 
 Open the link, say your name, email address and a password, and you are signed in to the console as an admin. From there everything else is in the console: people, service accounts, API tokens, workspaces, nodes, registration tokens, sign-in providers.
@@ -298,8 +298,8 @@ What else the control plane and the node take is in [Configuration](configuratio
 The control plane logs where the first admin is made, as under [First sign-in](#first-sign-in):
 
 ```sh
-docker compose logs control | grep 'first admin'
-# No one can sign in yet: make the first admin at http://localhost/setup#token=…
+docker compose logs control | grep 'Setup link'
+# Setup link: http://localhost/setup#token=…
 ```
 
 Open the link, which starts with `APERTURE_URL`, and say who you are and a password: you are signed in as an admin.

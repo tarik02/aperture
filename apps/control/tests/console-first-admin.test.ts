@@ -8,7 +8,7 @@ import * as Schema from "effect/Schema";
 import { ENTER, shot } from "./src/console.ts";
 import * as Control from "./src/control.ts";
 
-const LOGGED = /^No one can sign in yet: make the first admin at (\S+)$/u;
+const LOGGED = /^Setup link: (\S+)$/u;
 
 const needs = Layer.mergeAll(Viewer.layer, Control.layer({ console: true }));
 
