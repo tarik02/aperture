@@ -78,6 +78,7 @@ export type {
   PictureSettings,
   PictureWay,
   Presence,
+  Restoring,
   Role,
   Snapshot,
   Target,

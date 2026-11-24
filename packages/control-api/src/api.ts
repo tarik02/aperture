@@ -619,6 +619,16 @@ export class NodesGroup extends HttpApiGroup.make("nodes")
     }),
   ) {}
 
+/**
+ * What a session's browser keeps for the sites it visits, as its node takes it: the
+ * session's own `storage-state` route says what each part holds.
+ */
+const StorageState = Schema.Struct({
+  cookies: Schema.optional(Schema.Array(Schema.Record(Schema.String, Schema.Unknown))),
+  origins: Schema.optional(Schema.Array(Schema.Record(Schema.String, Schema.Unknown))),
+  tabs: Schema.optional(Schema.Array(Schema.Record(Schema.String, Schema.Unknown))),
+});
+
 export class SessionsGroup extends HttpApiGroup.make("sessions")
   .add(
     HttpApiEndpoint.get("list", "/sessions", {
@@ -641,6 +651,15 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
         workspaceId: Schema.optional(Schema.NonEmptyString),
         tags: Schema.optional(Tags),
         proxy: Schema.optional(ProxyConfig),
+        /**
+         * Cookies, the storage of origins and the tabs for the session's browser to start
+         * with, over what its snapshot has: what a session's `storage-state` route gives,
+         * and takes. Not for a session that is created suspended. The session is answered
+         * with as soon as its browser runs, as `restoring`: it is `running` once all of
+         * the state is in, and `failed`, with `failure` saying why, where its browser did
+         * not take it.
+         */
+        storageState: Schema.optional(StorageState),
       }),
       success: Session.pipe(HttpApiSchema.status(201)),
       error: [Forbidden, WorkspaceNotFound, SnapshotNotFound, NoNode, NodeRefused],

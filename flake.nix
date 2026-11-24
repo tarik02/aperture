@@ -190,6 +190,8 @@
             ./packages
             # A member of the workspace, so the lockfile names it; its checks are not built.
             ./e2e/package.json
+            # Another: the extension for a browser of someone's own, which no program has in it.
+            ./extensions/aperture-companion/package.json
             ./package.json
             ./pnpm-lock.yaml
             ./pnpm-workspace.yaml
@@ -243,7 +245,7 @@
           inherit version src;
           pnpm = pnpmLatest;
           fetcherVersion = 4;
-          hash = "sha256-ojG19kJ7g7Hv2bYN7HcndwBq8p9Mn4vVxQynV9hudFw=";
+          hash = "sha256-ZotD3JLYZaW6Elqq2cFXGsvdxwnC0nk1UX0G5ckUhCM=";
         };
 
         # The page that shows a session: one HTML file with everything it needs in it, which the

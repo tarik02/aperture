@@ -274,7 +274,9 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
   }, [session.data !== undefined, sessionId]);
 
   // It runs: asking it to is done with, and a later rest is told as one.
-  const runs = session.data?.observedState === "running";
+  // One that is being restored runs for whoever looks: its workbench says what it is at.
+  const runs =
+    session.data?.observedState === "running" || session.data?.observedState === "restoring";
   useEffect(() => {
     if (runs) {
       resume.reset();
@@ -342,7 +344,7 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
       </State>
     );
   }
-  if (observedState !== "running") {
+  if (!runs) {
     return (
       <WorkbenchSkeleton note="starting" picture={kept}>
         Starting…

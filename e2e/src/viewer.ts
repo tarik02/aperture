@@ -172,6 +172,13 @@ export interface Page {
 /** A browser on this machine that watches sessions, as a person's does. */
 export interface ViewerService {
   readonly open: (url: string, options?: OpenOptions) => Effect.Effect<Page, Cdp.CdpError>;
+  /**
+   * A page the browser opened itself, as an extension's, driven where and as large as it
+   * is: by its target's id.
+   */
+  readonly adopt: (targetId: string) => Effect.Effect<Page, Cdp.CdpError>;
+  /** The browser itself, for what is asked of no page. */
+  readonly cdp: Cdp.Cdp;
 }
 
 /** How long something that is to be pressed gets to be there and at rest. */
@@ -217,7 +224,8 @@ const TOLD_OF_A_PAGE = `(() => {
 const Thrown = Schema.Struct({ exceptionDetails: Cdp.ExceptionDetails });
 const thrownOf = Schema.decodeUnknownOption(Thrown);
 
-export const start = Effect.gen(function* () {
+/** Starts the browser, with what else it is to be started with. */
+export const startWith = Effect.fn("Viewer.start")(function* (more: readonly string[] = []) {
   const lasting = yield* Effect.scope;
   const profile = yield* directory;
   const browser = yield* run(yield* chromium, [
@@ -229,6 +237,7 @@ export const start = Effect.gen(function* () {
     "--use-angle=swiftshader",
     "--enable-unsafe-swiftshader",
     "--autoplay-policy=no-user-gesture-required",
+    ...more,
     "about:blank",
   ]);
   const endpoint = yield* until(
@@ -278,14 +287,10 @@ export const start = Effect.gen(function* () {
     ).pipe(Effect.map((kept) => kept.flat())),
   );
 
-  const open: ViewerService["open"] = (url, options = {}) =>
+  // A page that is opened here is sent to `url`, and one that is there is left where it is.
+  const drive = (targetId: string, url: string | undefined, options: OpenOptions = {}) =>
     Effect.gen(function* () {
       const { width = 1280, height = 800, mobile = false, scheme } = options;
-      const { targetId } = yield* cdp.call(
-        "Target.createTarget",
-        { url: "about:blank", newWindow: true },
-        Created,
-      );
       const page = yield* cdp.attach(targetId);
       const errors: string[] = [];
       opened += 1;
@@ -310,14 +315,16 @@ export const start = Effect.gen(function* () {
         yield* page.call(`${domain}.enable`);
       }
       yield* page.call("Emulation.setFocusEmulationEnabled", { enabled: true });
-      yield* page.call("Emulation.setDeviceMetricsOverride", {
-        width,
-        height,
-        deviceScaleFactor: 1,
-        mobile,
-        // A phone tells how it is held, which a window of its shape alone does not.
-        ...(mobile ? { screenOrientation: held(width, height) } : {}),
-      });
+      if (url !== undefined) {
+        yield* page.call("Emulation.setDeviceMetricsOverride", {
+          width,
+          height,
+          deviceScaleFactor: 1,
+          mobile,
+          // A phone tells how it is held, which a window of its shape alone does not.
+          ...(mobile ? { screenOrientation: held(width, height) } : {}),
+        });
+      }
       if (mobile) {
         yield* page.call("Emulation.setTouchEmulationEnabled", {
           enabled: true,
@@ -335,12 +342,13 @@ export const start = Effect.gen(function* () {
               ]),
         ],
       });
-      const origin = new URL(url).origin;
-      yield* cdp.call("Browser.grantPermissions", {
-        origin,
-        permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"],
-      });
-      yield* page.call("Page.navigate", { url });
+      if (url !== undefined) {
+        yield* cdp.call("Browser.grantPermissions", {
+          origin: new URL(url).origin,
+          permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"],
+        });
+        yield* page.call("Page.navigate", { url });
+      }
 
       const box: Page["box"] = (selector) =>
         page
@@ -486,8 +494,15 @@ export const start = Effect.gen(function* () {
       } satisfies Page;
     });
 
-  return { open } satisfies ViewerService;
+  const open: ViewerService["open"] = (url, options = {}) =>
+    cdp
+      .call("Target.createTarget", { url: "about:blank", newWindow: true }, Created)
+      .pipe(Effect.flatMap(({ targetId }) => drive(targetId, url, options)));
+
+  return { open, adopt: (targetId) => drive(targetId, undefined), cdp } satisfies ViewerService;
 });
+
+export const start = startWith();
 
 export class Viewer extends Context.Service<Viewer, ViewerService>()(
   "@aperture-browser/e2e/Viewer",

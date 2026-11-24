@@ -118,7 +118,7 @@ Where executors keep snapshots together, so that a session is created on one nod
 Where executors put a session whenever it is suspended, so that another node resumes it: its record, and what its profile had above its layers with its files. A node asked to resume a session it does not have, or has another state of, brings it from there. Which node runs a session is for whoever tells the nodes what to do. Executors can be set up to say in the store which sessions they have as well, and then refuse one another node has unless asked to take it over. A session whose node died is resumed elsewhere as it was last suspended. A node drops its own copy of a session that is at rest there when asked to: that is evicting it, and the session stays for whichever node resumes it.
 
 **Storage state**:
-What a session's browser keeps for the sites it visits, as a document that is taken out of one session and put into another: its cookies, the local storage of origins and, where asked for, their databases. It is for whoever runs the session, as the DevTools endpoint is. A snapshot keeps the whole profile; a storage state is the part of it that moves between browsers.
+What a session's browser keeps for the sites it visits, as a document that is taken out of one session and put into another: its cookies, what origins store and, where it is put in, the tabs that were open. A session that is created with one is _restoring_ until all of it is in: watched, and given no input. It is for whoever runs the session, as the DevTools endpoint is. A snapshot keeps the whole profile; a storage state is the part of it that moves between browsers.
 _Avoid_: Browser state, capsule
 
 **Session file**:

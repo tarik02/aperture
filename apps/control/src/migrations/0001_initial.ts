@@ -139,7 +139,9 @@ export default statements([
     node_id uuid REFERENCES nodes (id),
     desired_state text NOT NULL CHECK (desired_state IN ('running', 'suspended')),
     observed_state text NOT NULL CHECK (
-      observed_state IN ('suspended', 'starting', 'running', 'suspending', 'failed', 'gone')
+      observed_state IN (
+        'suspended', 'starting', 'restoring', 'running', 'suspending', 'failed', 'gone'
+      )
     ),
     failure text,
     unreachable_since timestamptz,

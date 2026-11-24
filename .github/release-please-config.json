@@ -34,6 +34,12 @@
           "path": "apps/*/package.json",
           "glob": true,
           "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "extensions/*/package.json",
+          "glob": true,
+          "jsonpath": "$.version"
         }
       ]
     }

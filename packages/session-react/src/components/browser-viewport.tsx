@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { AppWindow, Eye, Loader2, Plus, RotateCcw, Unplug } from "lucide-react";
+import { AppWindow, Eye, History, Loader2, Plus, RotateCcw, Unplug } from "lucide-react";
 import { Badge } from "@aperture-browser/ui/components/badge";
 import { Button } from "@aperture-browser/ui/components/button";
 import {
@@ -10,7 +10,9 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@aperture-browser/ui/components/empty";
+import { Spinner } from "@aperture-browser/ui/components/spinner";
 import { cn } from "@aperture-browser/ui/utils";
+import type { Restoring } from "@aperture-browser/session-client";
 import { useLease, useReconnect, useSession, useSessionSnapshot } from "../session.tsx";
 import { useWorkbench } from "../workbench/context.tsx";
 import { WorkbenchSlot } from "../workbench/slot.tsx";
@@ -69,7 +71,10 @@ export function BrowserViewport({ className }: BrowserViewportProps) {
           </Empty>
         </div>
       ) : null}
-      {open && snapshot.targets.length === 0 ? (
+      {open && snapshot.restoring !== undefined ? (
+        <Restored restoring={snapshot.restoring} />
+      ) : null}
+      {open && snapshot.restoring === undefined && snapshot.targets.length === 0 ? (
         <Empty
           className="aperture:absolute aperture:inset-0 aperture:border-none"
           data-session-empty=""
@@ -115,6 +120,49 @@ export function BrowserViewport({ className }: BrowserViewportProps) {
       ) : null}
       <WorkbenchSlot name="viewport" />
     </SessionViewport>
+  );
+}
+
+const counted = (count: number, one: string, many: string) =>
+  `${count} ${count === 1 ? one : many}`;
+
+/** What is being put into the session's browser, of what there is of each. */
+const beingPut = ({ tabs, cookies, origins }: Restoring) =>
+  [
+    tabs > 0 ? counted(tabs, "tab", "tabs") : undefined,
+    cookies > 0 ? counted(cookies, "cookie", "cookies") : undefined,
+    origins > 0 ? `the storage of ${counted(origins, "site", "sites")}` : undefined,
+  ].filter((part) => part !== undefined);
+
+/**
+ * Over the picture while the session is given what its browser starts with: the tabs are
+ * seen to arrive behind it, and nothing is pressed through it, as a press on a page that
+ * is not yet what it is to be is a wrong one. The session takes no input meanwhile either.
+ */
+function Restored({ restoring }: { restoring: Restoring }) {
+  const parts = beingPut(restoring);
+  const failed = restoring.failure !== undefined;
+  return (
+    <div
+      data-session-restoring={failed ? "failed" : "underway"}
+      className="aperture:absolute aperture:inset-0 aperture:z-20 aperture:flex aperture:items-center aperture:justify-center aperture:bg-background/60 aperture:backdrop-blur-[2px]"
+    >
+      <Empty className="aperture:max-w-sm aperture:flex-none aperture:rounded-xl aperture:border aperture:border-solid aperture:bg-card/95 aperture:shadow-sm">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">{failed ? <History /> : <Spinner />}</EmptyMedia>
+          <EmptyTitle>
+            {failed ? "The session was not restored" : "Restoring the session"}
+          </EmptyTitle>
+          <EmptyDescription role={failed ? "alert" : "status"}>
+            {failed
+              ? restoring.failure
+              : parts.length === 0
+                ? "What its browser starts with is on its way."
+                : `Putting in ${parts.join(", ")}.`}
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    </div>
   );
 }
 

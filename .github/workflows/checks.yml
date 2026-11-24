@@ -30,6 +30,8 @@ jobs:
             run: pnpm typecheck
           - name: build
             run: pnpm build
+          - name: companion
+            run: pnpm --filter @aperture-browser/companion test
     steps:
       - uses: actions/checkout@v7.0.0
 

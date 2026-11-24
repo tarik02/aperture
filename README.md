@@ -30,6 +30,7 @@ flowchart LR
 | Proxy | One origin before the control plane and the nodes. It reads its routes from the control plane and asks it whether each request to a session may pass. |
 | Console | The web app people sign in to: sessions, snapshots, workspaces, tokens, nodes, sign-in providers, events. |
 | Workbench | A session shown as a browser to work in. The console shows it, a session serves it itself, and the npm packages embed it. |
+| Companion | An extension for a browser of your own: it moves the tabs you choose, signed in as they are, into a session or a snapshot. [`extensions/aperture-companion`](extensions/aperture-companion) |
 
 A runner also serves one session on its own, with no control plane and no executor: that is what the container image is.
 
@@ -58,7 +59,7 @@ The pages below, with the packages and the REST API, are also a site: <https://a
 |---|---|
 | [Install](docs/install.md) | NixOS modules, Docker Compose, the container image, keys and tokens, first sign-in, TLS, nodes, data, health |
 | [Configuration](docs/configuration.md) | Every setting an operator sets, with its type and default |
-| [Using](docs/using.md) | MCP for agents, the REST API, embedding a session, share links |
+| [Using](docs/using.md) | MCP for agents, the REST API, embedding a session, share links, the Companion extension |
 | [Upgrading from v1](docs/upgrading-from-v1.md) | What changed, and the one-time migrator |
 | [`skills/aperture`](skills/aperture/SKILL.md) | The workflows an agent follows, written for agents |
 | [CONTEXT.md](CONTEXT.md) | What each word means here |

@@ -55,6 +55,10 @@ pub struct Spec {
     pub browser_args: Vec<String>,
     #[serde(default)]
     pub features: Features,
+    /// Whoever starts the session puts a storage state into it next: until that is in, the
+    /// session says it is being restored, from its first moment.
+    #[serde(default)]
+    pub restoring: bool,
 }
 
 /// What network the browser has in its sandbox, besides its proxy, which is the session's
@@ -287,6 +291,9 @@ pub fn is_alive(runtime_dir: &Path) -> io::Result<bool> {
         Err(fs::TryLockError::Error(err)) => Err(err),
     }
 }
+
+/// The most a storage state that is put into a session takes.
+pub const STATE_BYTES: usize = 64 * 1024 * 1024;
 
 /// The picture of what a session showed last, in what its runner keeps of it.
 pub const PREVIEW: &str = "preview.png";

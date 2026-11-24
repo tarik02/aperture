@@ -94,16 +94,30 @@ jobs:
           # the machine goes by it.
           echo "APERTURE_BIN=$(readlink --canonicalize programs)/bin" >> "$GITHUB_ENV"
 
-      - name: Build the workbench and the console
+      - name: Build the workbench, the console and the companion
         run: |
           nix develop --command pnpm install --frozen-lockfile
           nix develop --command pnpm --filter @aperture-browser/workbench build
           nix develop --command pnpm --filter @aperture-browser/console build
+          nix develop --command pnpm --filter @aperture-browser/companion build
 
       - name: Check
         env:
           RUN: ${{ matrix.run }}
-        run: nix develop --command $RUN
+          # Where the checks keep the pictures they take of what a page shows.
+          APERTURE_E2E_LOGS: ${{ runner.temp }}/e2e
+        run: |
+          mkdir -p "$APERTURE_E2E_LOGS"
+          nix develop --command $RUN
+
+      # What the pages looked like, for whoever reviews by looking.
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: pictures-${{ matrix.name }}
+          path: ${{ runner.temp }}/e2e/*.png
+          if-no-files-found: ignore
+          retention-days: 14
 
       - uses: actions/upload-artifact@v7.0.1
         if: failure()

@@ -1,0 +1,38 @@
+{
+  "name": "@aperture-browser/companion",
+  "version": "1.0.0-beta.0",
+  "private": true,
+  "description": "The Aperture Companion: a browser extension that moves the tabs of someone's own browser, with what the sites keep there, into a session.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/generate-icons.ts && vp build",
+    "typecheck": "tsgo --noEmit && tsgo --noEmit -p scripts",
+    "test": "vp test run"
+  },
+  "dependencies": {
+    "@aperture-browser/control-api": "workspace:*",
+    "@aperture-browser/shared": "workspace:*",
+    "@aperture-browser/ui": "workspace:*",
+    "@atlaskit/pragmatic-drag-and-drop": "catalog:",
+    "effect": "catalog:",
+    "lucide-react": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "tldts": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/platform-node": "catalog:",
+    "@resvg/resvg-js": "catalog:",
+    "@tailwindcss/vite": "catalog:",
+    "@types/chrome": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "tailwindcss": "catalog:",
+    "tw-animate-css": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  }
+}

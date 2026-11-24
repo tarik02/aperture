@@ -450,6 +450,7 @@ const sessions = HttpApiBuilder.group(
             workspaceId: payload.workspaceId,
             proxy: payload.proxy,
             tags: payload.tags ?? {},
+            storageState: payload.storageState,
           }),
         ).pipe(Effect.flatMap(tell.one)),
       )

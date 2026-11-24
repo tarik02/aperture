@@ -38,6 +38,8 @@ const STORING_PAGE = `${NO_ICON}<title>set</title><script>
       big: 5n,
       none: undefined,
       cyc: cyclic,
+      file: new File(['filed'], 'note.txt', { type: 'text/plain' }),
+      map: new Map([['k', new Set([1])]]),
     });
     writing.objectStore('kept').put({ id: 2, by: 'b', plain: [1, 'two', { three: 3 }] });
     writing.objectStore('loose').put('abc', 'token');
@@ -78,6 +80,8 @@ const READ_DATABASE = `new Promise((found) => {
         big: typeof record.big === 'bigint' && String(record.big),
         none: 'none' in record && record.none === undefined,
         cyc: record.cyc.self === record.cyc && record.cyc.name,
+        file: record.file instanceof File && [record.file.name, record.file.type, record.file.size],
+        map: record.map instanceof Map && record.map.get('k') instanceof Set && record.map.get('k').has(1),
       };
     };
     kept.index('by').get('b').onsuccess = (got) => {
@@ -97,16 +101,20 @@ const READ_DATABASE = `new Promise((found) => {
   };
 })`;
 
-/** Keeps a file in a database of its own, and says `blob` in its title once it is kept. */
-const STORE_A_FILE = `(() => {
-  const opening = indexedDB.open('files');
-  opening.onupgradeneeded = () => opening.result.createObjectStore('f');
+/**
+ * Keeps a key that may not leave the browser in a database of its own, and says `key` in
+ * its title once it is kept.
+ */
+const STORE_A_KEY = `(async () => {
+  const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt']);
+  const opening = indexedDB.open('keys');
+  opening.onupgradeneeded = () => opening.result.createObjectStore('k');
   opening.onsuccess = () => {
-    const writing = opening.result.transaction('f', 'readwrite');
-    writing.objectStore('f').put(new Blob(['x']), 'b');
+    const writing = opening.result.transaction('k', 'readwrite');
+    writing.objectStore('k').put({ held: key }, 'device');
     writing.oncomplete = () => {
       opening.result.close();
-      document.title = 'blob';
+      document.title = 'key';
     };
   };
 })()`;
@@ -309,13 +317,18 @@ suite(stage)("storage state, taken out of one session and put into others", (it)
     }),
   );
 
-  it.effect("a state with more than is carried is refused", () =>
+  it.effect("a state that names what is no origin, or no page, is refused", () =>
     Effect.gen(function* () {
       const { site, plain } = yield* Stage;
-      const refused = yield* plain.runner.request("PUT", "/storage-state", {
-        origins: [{ origin: site.url, cacheStorage: [{ name: "db" }] }],
-      });
-      expect(refused.status).toBe(400);
+      for (const state of [
+        { origins: [{ origin: site.url, ancestorOrigins: ["nonsense"] }] },
+        { tabs: [{ url: "about:blank" }] },
+        { tabs: [{ url: site.url, opener: 0 }] },
+      ]) {
+        const refused = yield* plain.runner.request("PUT", "/storage-state", state);
+        expect(refused.status).toBe(400);
+      }
+      expect(yield* plain.runner.targets).toHaveLength(1);
     }),
   );
 
@@ -351,7 +364,8 @@ suite(stage)("storage state, taken out of one session and put into others", (it)
       const found = yield* withDatabases.page.evaluate(READ_DATABASE, Found);
       expect(found).toMatchObject({ version: 3, stores: ["counted", "kept", "loose"] });
       expect(found.indexes).toEqual(["by"]);
-      // What JSON does not hold: a date, bytes, a big integer, undefined, a cycle.
+      // What JSON does not hold: a date, bytes, a big integer, undefined, a cycle, a file,
+      // a map of sets.
       expect(found.rich).toEqual({
         by: "a",
         when: 86400000,
@@ -359,6 +373,8 @@ suite(stage)("storage state, taken out of one session and put into others", (it)
         big: "5",
         none: true,
         cyc: "c",
+        file: ["note.txt", "text/plain", 5],
+        map: true,
       });
       expect(found.byIndex).toEqual({ id: 2, by: "b", plain: [1, "two", { three: 3 }] });
       // Records whose keys are not in their values, and a store that counts its own.
@@ -391,18 +407,22 @@ suite(stage)("storage state, taken out of one session and put into others", (it)
     }),
   );
 
-  it.effect("a database holding a file fails the export, which says where the file is", () =>
-    Effect.gen(function* () {
-      const { source } = yield* Stage;
-      yield* source.page.evaluate(STORE_A_FILE);
-      yield* until("the file being kept", source.page.evaluate("document.title === 'blob'"));
+  it.effect(
+    "a database holding a key that may not leave the browser fails the export, which says where it is",
+    () =>
+      Effect.gen(function* () {
+        const { source } = yield* Stage;
+        yield* source.page.evaluate(STORE_A_KEY);
+        yield* until("the key being kept", source.page.evaluate("document.title === 'key'"));
 
-      const refused = yield* source.runner.request("POST", "/storage-state", { indexed_db: true });
-      expect(refused.status).toBe(400);
-      const said = JSON.stringify(refused.body);
-      expect(said).toContain("files, f");
-      expect(said).toContain("Blob");
-    }),
+        const refused = yield* source.runner.request("POST", "/storage-state", {
+          indexed_db: true,
+        });
+        expect(refused.status).toBe(400);
+        const said = JSON.stringify(refused.body);
+        expect(said).toContain("keys, k");
+        expect(said).toContain("may not leave the browser");
+      }),
   );
 
   it.effect("and an export without databases still works there", () =>

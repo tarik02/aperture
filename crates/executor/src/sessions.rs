@@ -6,7 +6,7 @@
 //! about a running session is kept in memory here; its state is read from that directory.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     os::unix::fs::DirBuilderExt,
     path::{Path, PathBuf},
@@ -115,6 +115,9 @@ impl Config {
 pub enum State {
     Suspended,
     Starting,
+    /// Its browser runs and is being given the storage state the session was created
+    /// with: it is not yet the session that was asked for.
+    Restoring,
     Running,
     Suspending,
     Failed,
@@ -172,6 +175,10 @@ pub struct Sessions {
     /// share them, and wholly by whoever drops the snapshots that are gone from there:
     /// one on its way is not there yet.
     arriving: tokio::sync::RwLock<()>,
+    /// The sessions whose browsers are being given what they were created with. Kept
+    /// here alone: an executor that is restarted meanwhile tells such a session as
+    /// running, with what of its state was in by then.
+    restoring: Mutex<HashSet<String>>,
 }
 
 impl Sessions {
@@ -183,6 +190,7 @@ impl Sessions {
             busy: Mutex::default(),
             activity: Mutex::default(),
             arriving: tokio::sync::RwLock::default(),
+            restoring: Mutex::default(),
         }
     }
 
@@ -256,7 +264,7 @@ impl Sessions {
     }
 
     pub async fn create(
-        &self,
+        self: &Arc<Self>,
         snapshot_id: Option<&str>,
         suspended: bool,
         proxy: Option<proxy::Config>,
@@ -305,20 +313,17 @@ impl Sessions {
         if !suspended {
             let _busy = self.busy(&record.id).await;
             self.hold(&record.id, false).await?;
-            self.start(&record.id).await?;
-            if let Some(state) = storage_state {
-                let live = self.running_live(&record.id)?;
-                let taken = aperture_gateway::put(
-                    &live.socket,
-                    "/storage-state",
-                    state.as_bytes().to_vec(),
-                );
-                if let Err(reason) = taken.await {
-                    // A session without what it was to start with is not the one asked
-                    // for.
-                    drop(_busy);
-                    self.delete(&record.id).await?;
-                    return Err(Error::State(format!("{reason:#}")));
+            match storage_state {
+                None => self.start(&record.id).await?,
+                Some(state) => {
+                    // Said before its browser is there: it is at no moment a session that
+                    // runs without what it was to start with.
+                    self.restoring(&record.id, true);
+                    if let Err(err) = self.start_as(&record.id, true).await {
+                        self.restoring(&record.id, false);
+                        return Err(err);
+                    }
+                    tokio::spawn(self.clone().restore(record.id.clone(), state.to_owned()));
                 }
             }
         }
@@ -664,7 +669,9 @@ impl Sessions {
     fn running_live(&self, id: &str) -> Result<Live> {
         let session = self.get(id)?;
         match (session.state, session.status.and_then(|status| status.live)) {
-            (State::Running, Some(live)) => Ok(live),
+            // One that is being restored is watched meanwhile, and reached by what
+            // restores it.
+            (State::Running | State::Restoring, Some(live)) => Ok(live),
             _ => Err(Error::NotRunning(id.to_owned())),
         }
     }
@@ -676,6 +683,7 @@ impl Sessions {
         let mut status = read_status(&runtime).map_err(io)?;
         let phase = status.as_ref().map(|status| status.phase);
         let state = match (alive, phase) {
+            (true, Some(Phase::Running)) if self.is_restoring(&record.id) => State::Restoring,
             (true, Some(Phase::Running)) => State::Running,
             (true, Some(Phase::Stopping)) => State::Suspending,
             (true, _) => State::Starting,
@@ -720,9 +728,71 @@ impl Sessions {
         })
     }
 
+    fn restoring(&self, id: &str, underway: bool) {
+        let mut restoring = self.restoring.lock().expect("not poisoned");
+        if underway {
+            restoring.insert(id.to_owned());
+        } else {
+            restoring.remove(id);
+        }
+    }
+
+    fn is_restoring(&self, id: &str) -> bool {
+        self.restoring.lock().expect("not poisoned").contains(id)
+    }
+
+    /// Puts the storage state a session was created with into its browser, which runs by
+    /// now, and has the session say that it runs once all of it is in. A session that
+    /// does not take it is stopped, and says that it failed and why: it is not the
+    /// session that was asked for, and is not left looking like it.
+    async fn restore(self: Arc<Self>, id: String, state: String) {
+        let taken = match self.running_live(&id) {
+            Ok(live) => aperture_gateway::put(&live.socket, "/storage-state", state.into_bytes())
+                .await
+                .map_err(|reason| format!("{reason:#}")),
+            Err(err) => Err(err.to_string()),
+        };
+        // After whatever is done with the session meanwhile, which may be what kept the
+        // state from being taken.
+        let _busy = self.busy(&id).await;
+        match taken {
+            Ok(()) => info!(session = %id, "session restored"),
+            Err(reason) => {
+                warn!(session = %id, "the storage state was not taken: {reason}");
+                if let Err(err) = self.failed_to_restore(&id, reason).await {
+                    warn!(session = %id, "a session that was not restored is not told as failed: {err}");
+                }
+            }
+        }
+        self.restoring(&id, false);
+    }
+
+    async fn failed_to_restore(&self, id: &str, reason: String) -> Result<()> {
+        // Deleted meanwhile: there is nothing left to tell of.
+        if self.store.session(id).is_err() {
+            return Ok(());
+        }
+        self.stop(id).await?;
+        let runtime = self.runtime_dir(id);
+        let status = Status {
+            phase: Phase::Failed,
+            pid: std::process::id(),
+            cdp: None,
+            live: None,
+            failure: Some(Error::State(reason).to_string()),
+        };
+        aperture_runner::write_status(&runtime, &status).map_err(|err| Error::Io(runtime, err))
+    }
+
     /// Starts the session's runner and waits until its browser serves. Does nothing for a
     /// session that has one.
     async fn start(&self, id: &str) -> Result<()> {
+        self.start_as(id, false).await
+    }
+
+    /// Starts it as one that is given a storage state next, where `restoring`: it says
+    /// from its first moment that it is being restored.
+    async fn start_as(&self, id: &str, restoring: bool) -> Result<()> {
         let runtime = self.runtime_dir(id);
         let io = |err| Error::Io(runtime.clone(), err);
         if is_alive(&runtime).map_err(io)? {
@@ -758,10 +828,11 @@ impl Sessions {
             files: paths.files,
             state: paths.state,
         };
-        let spec =
+        let mut spec =
             self.config
                 .setup
                 .spec(id, runtime.clone(), directories, proxy, features, network);
+        spec.restoring = restoring;
         fs::write(
             aperture_runner::spec_path(&runtime),
             serde_json::to_vec_pretty(&spec).expect("a spec is serializable"),

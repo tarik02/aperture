@@ -24,12 +24,16 @@ export const DesiredState = Schema.Literals(["running", "suspended"]);
 export type DesiredState = typeof DesiredState.Type;
 
 /**
- * What the session's node last said it is. `gone` is a session its node has no more
- * though nobody asked the control plane to delete it.
+ * What the session's node last said it is. `restoring` is a session whose browser runs
+ * and is being given the storage state it was created with: it is watched meanwhile, takes
+ * no input, and is `running` once all of it is in, or `failed` where its browser did not
+ * take it. `gone` is a session its node has no more though nobody asked the control plane
+ * to delete it.
  */
 export const ObservedState = Schema.Literals([
   "suspended",
   "starting",
+  "restoring",
   "running",
   "suspending",
   "failed",

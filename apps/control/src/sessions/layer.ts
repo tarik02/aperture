@@ -42,6 +42,7 @@ const STATES: Record<proto.SessionState, ObservedState | undefined> = {
   [proto.SessionState.UNSPECIFIED]: undefined,
   [proto.SessionState.SUSPENDED]: "suspended",
   [proto.SessionState.STARTING]: "starting",
+  [proto.SessionState.RESTORING]: "restoring",
   [proto.SessionState.RUNNING]: "running",
   [proto.SessionState.SUSPENDING]: "suspending",
   [proto.SessionState.FAILED]: "failed",
@@ -190,6 +191,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       readonly suspended: boolean;
       readonly snapshotId: string | undefined;
       readonly proxy: ProxyConfig | undefined;
+      readonly storageState: string | undefined;
     },
   ): Effect.Effect<readonly [Node, proto.Session], NoNode | NodeRefused> => {
     const [node, ...rest] = candidates;
@@ -202,6 +204,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
         suspended: wanted.suspended,
         snapshotId: wanted.snapshotId,
         ...(wanted.proxy === undefined ? {} : { proxy: toExecutor(wanted.proxy) }),
+        ...(wanted.storageState === undefined ? {} : { storageState: wanted.storageState }),
       })
       .pipe(
         asked(node),
@@ -243,6 +246,8 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       suspended: options.suspended,
       snapshotId: options.snapshotId,
       proxy: options.proxy,
+      storageState:
+        options.storageState === undefined ? undefined : JSON.stringify(options.storageState),
     });
     const created = session.createdAt;
     yield* store.insert({
