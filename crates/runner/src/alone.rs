@@ -11,7 +11,7 @@ use std::{
 };
 
 use anyhow::Context;
-use aperture_gateway::{Listen, Origin, Refused, auth::Keys};
+use aperture_gateway::{Listen, Listening, Origin, Refused, auth::Keys};
 use aperture_runner::{
     Cdp, Live, Profile, Spec,
     options::{Directories, Options},
@@ -132,6 +132,7 @@ impl Serve {
             Front {
                 origins: self.cors_origins,
                 listen: self.listen,
+                listening: Mutex::new(None),
                 keys: Mutex::new(Some(keys)),
             },
         ))
@@ -141,12 +142,28 @@ impl Serve {
 /// Where a session that runs on its own is reached, and by whom.
 pub struct Front {
     listen: Listen,
+    /// From when the address is taken until the session is served.
+    listening: Mutex<Option<Listening>>,
     origins: Vec<Origin>,
     /// Until the session is served.
     keys: Mutex<Option<Keys>>,
 }
 
 impl Front {
+    /// Takes the address the session is served at, before anything of the session is
+    /// started: an address that is another's fails the session while it has no browser
+    /// yet, and nobody else takes it in the seconds a browser needs to start. Whoever
+    /// connects before the session is served waits until it is.
+    pub async fn listen(&self) -> anyhow::Result<()> {
+        let listening = self
+            .listen
+            .bind()
+            .await
+            .with_context(|| format!("failed to listen on {}", self.listen))?;
+        *self.listening.lock().expect("not poisoned") = Some(listening);
+        Ok(())
+    }
+
     /// Serves the session, from now until the task is aborted.
     pub async fn serve(
         &self,
@@ -156,11 +173,8 @@ impl Front {
         let own = Own { live, cdp };
         let keys = self.keys.lock().expect("not poisoned").take();
         let keys = keys.context("the session is served already")?;
-        let listening = self
-            .listen
-            .bind()
-            .await
-            .with_context(|| format!("failed to listen on {}", self.listen))?;
+        let listening = self.listening.lock().expect("not poisoned").take();
+        let listening = listening.context("the session's address was not taken")?;
         info!(listen = %self.listen, "session served");
         let routes = aperture_gateway::router(Arc::new(own), true);
         let app = aperture_gateway::guarded(routes, keys, &self.origins);

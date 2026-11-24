@@ -60,6 +60,7 @@ async fn main() -> anyhow::Result<ExitCode> {
         // Its own name is what the first argument stands for here.
         [first, ..] if first == "serve" => {
             let (spec, front) = alone::Serve::parse_from(&arguments).session()?;
+            front.listen().await?;
             (spec, Some(front))
         }
         [flag] if flag == "--version" || flag == "-V" => {
