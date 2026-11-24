@@ -211,6 +211,33 @@
           ];
         };
 
+        # What the page that shows a session is built of. The programs take that page into
+        # themselves, so whatever is here builds them again: the console, the control plane
+        # and the checks are not. Every member's manifest is, as the lockfile names them all.
+        workbenchSrc =
+          let
+            manifests = lib.fileset.fileFilter (file: file.name == "package.json");
+          in
+          lib.fileset.toSource {
+            root = ./.;
+            fileset = lib.fileset.unions [
+              ./package.json
+              ./pnpm-lock.yaml
+              ./pnpm-workspace.yaml
+              ./tsconfig.base.json
+              ./vite.config.ts
+              (manifests ./apps)
+              (manifests ./packages)
+              (lib.fileset.intersection (lib.fileset.maybeMissing ./extensions) (manifests ./.))
+              ./e2e/package.json
+              ./apps/workbench
+              ./packages/session-client
+              ./packages/session-react
+              ./packages/ui
+              ./packages/shared
+            ];
+          };
+
         workspacePnpmDeps = pkgs.fetchPnpmDeps {
           pname = "aperture-workspace";
           inherit version src;
@@ -223,7 +250,8 @@
         # gateway takes into the programs.
         workbench = pkgs.stdenvNoCC.mkDerivation {
           pname = "aperture-workbench";
-          inherit version src;
+          inherit version;
+          src = workbenchSrc;
           pnpmDeps = workspacePnpmDeps;
           nativeBuildInputs = [
             nodeRuntime
