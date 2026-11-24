@@ -52,6 +52,8 @@ On NixOS, one machine with everything on it is one option. With `github:tarik02/
 
 [Install](docs/install.md) carries that through to the first sign-in, TLS and a second node.
 
+The pages below, with the packages and the REST API, are also a site: <https://aperture-browser-docs.pages.dev>.
+
 | | |
 |---|---|
 | [Install](docs/install.md) | NixOS modules, Docker Compose, the container image, keys and tokens, first sign-in, TLS, nodes, data, health |

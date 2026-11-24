@@ -4,6 +4,7 @@ export default defineConfig({
   fmt: {
     ignorePatterns: [
       "**/gen/**",
+      "**/routeTree.gen.ts",
       "*.md",
       "*.toml",
       "*.lock",
