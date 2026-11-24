@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
 import type {
+  EditRecording,
   Recording,
   RecordingAnnotation,
   Screenshot,
@@ -18,6 +19,7 @@ import type {
   ClipboardForm,
   Failure,
   LeaseAction,
+  Pace,
   PageMode,
   PointerMark,
   Snapshot,
@@ -36,6 +38,7 @@ import {
 
 export { SessionError } from "./errors.ts";
 export type {
+  EditRecording,
   Recording,
   RecordingAnnotation,
   RecordingBurst,
@@ -60,6 +63,7 @@ export type {
   DownloadState,
   Failure,
   Features,
+  Pace,
   Grant,
   FileRequest,
   HeldTab,
@@ -214,7 +218,10 @@ export interface Session {
     readonly list: () => Promise<Recording[]>;
     readonly get: (id: string) => Promise<Recording>;
     readonly start: (options?: StartRecording) => Promise<Recording>;
-    readonly stop: (id: string) => Promise<Recording>;
+    /** Stops a recording; its edit is made with `options`. */
+    readonly stop: (id: string, options?: EditRecording) => Promise<Recording>;
+    /** Makes the edit of a stopped recording again, with other options. */
+    readonly edit: (id: string, options?: EditRecording) => Promise<Recording>;
     /** Has a running recording go on with another tab. */
     readonly retarget: (id: string, tab: number) => Promise<Recording>;
     /** Adds an annotation to the recording named, or to the only one that runs. */
@@ -224,6 +231,11 @@ export interface Session {
   readonly storageState: {
     readonly export: (asked?: StorageStateAsked) => Promise<StorageState>;
     readonly import: (state: StorageState) => Promise<void>;
+  };
+  /** How the session's automation moves the pointer in what is recorded. */
+  readonly pace: {
+    readonly get: () => Promise<Pace>;
+    readonly set: (pace: Pace) => Promise<Pace>;
   };
   readonly screenshots: {
     readonly list: () => Promise<Screenshot[]>;
@@ -287,13 +299,18 @@ export const connect = (options: ConnectOptions): Session => {
       list: () => promised(session.recordings.list),
       get: (id) => promised(session.recordings.get(id)),
       start: (started) => promised(session.recordings.start(started)),
-      stop: (id) => promised(session.recordings.stop(id)),
+      stop: (id, options) => promised(session.recordings.stop(id, options)),
+      edit: (id, options) => promised(session.recordings.edit(id, options)),
       retarget: (id, tab) => promised(session.recordings.retarget(id, tab)),
       annotate: (annotation, id) => promised(session.recordings.annotate(annotation, id)),
     },
     storageState: {
       export: (asked) => promised(session.storageState.export(asked)),
       import: (state) => promised(session.storageState.import(state)),
+    },
+    pace: {
+      get: () => promised(session.pace.get),
+      set: (pace) => promised(session.pace.set(pace)),
     },
     screenshots: {
       list: () => promised(session.screenshots.list),

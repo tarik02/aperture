@@ -51,11 +51,13 @@ Use the exact snapshot the user names; `snapshots.list` (`name`, `tag`) finds it
 
 ### Record what you do
 
-1. `recording` with `action: "start"`, the `tab`, and `capture: "bursts"`; keep its `id`.
-2. Drive the page. `action: "caption"` with `text` where a viewer needs context; `focus` … `reset_focus` around what should be seen up close.
-3. `action: "stop"` with the `id`.
-4. Poll `action: "status"` until `edit.state` is `finished`; `edit.file` is the edited video, `file` the raw one. `failed` comes with `edit.failure`.
-5. Fetch it: see the next workflow.
+1. `pace` with `pace: "slow"` for a demo, `"instant"` to have the pointer jump; left alone it is `fast`. It is the session's, for every recording, and stays until set again.
+2. `recording` with `action: "start"` and the `tab`; keep its `id`. Add `follow: true` to have it go on with whichever tab you act on.
+3. Drive the page. `action: "caption"` with `text` where a viewer needs context; `focus` … `reset_focus` around what should be seen up close.
+4. `action: "stop"` with the `id` and how the edit is cut: `capture: "bursts"` keeps only the stretches around what you did; `idle: "cut"` or `"speed"` shortens the quiet ones of a continuous capture; `ripple: true` marks clicks; `fps: 30` halves the frames of the default 60, for a smaller file. With none of them the edit is the whole recording.
+5. Poll `action: "status"` until `edit.state` is `finished`; `edit.file` is the edited video, `edit.options` what made it, `file` the raw one. `failed` comes with `edit.failure`.
+6. The cut is wrong: `action: "edit"` with the `id` and other options makes the edit again from the same raw video, and it takes the place of the one before; poll `status` as before. It is refused while an edit of that recording is being made, and for a recording whose raw video was removed. What the pointer did is in the raw video and does not change.
+7. Fetch it: see the next workflow.
 
 ### Move files out and in
 

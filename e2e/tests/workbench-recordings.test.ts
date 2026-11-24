@@ -15,6 +15,7 @@ import {
   buttonWithin,
   clickElement,
   clickItem,
+  closeMenus,
   dataPage,
   escape,
   EVERY_FEATURE,
@@ -25,6 +26,7 @@ import {
   loggedErrors,
   menuItem,
   openByAutomation,
+  openMenu,
   selectTab,
 } from "../src/workbench.ts";
 
@@ -172,11 +174,7 @@ suite(session)("the workbench's recordings and what it keeps", (it) => {
   it.effect("a recording of what automation did shows its calls and where the pointer moved", () =>
     Effect.gen(function* () {
       const runner = yield* Runner.Runner;
-      const started = yield* runner.request("POST", "/recordings", {
-        tab: form,
-        idle: "speed",
-        ripple: true,
-      });
+      const started = yield* runner.request("POST", "/recordings", { tab: form });
       withAutomation = (yield* read(started, Schema.Struct({ id: Schema.String }))).id;
       // What automation does is some way into the recording, and apart.
       yield* Effect.sleep("1 second");
@@ -185,7 +183,10 @@ suite(session)("the workbench's recordings and what it keeps", (it) => {
       yield* Effect.sleep("4 seconds");
       yield* mcp.call("click", { tab: form, selector: "#send" });
       yield* Effect.sleep("1 second");
-      yield* runner.request("POST", UrlPath.make`/recordings/${withAutomation}/stop`);
+      yield* runner.request("POST", UrlPath.make`/recordings/${withAutomation}/stop`, {
+        idle: "speed",
+        ripple: true,
+      });
 
       yield* openRecordingMenu(page);
       const kept = `[data-kept-id="${withAutomation}"]`;
@@ -259,6 +260,34 @@ suite(session)("the workbench's recordings and what it keeps", (it) => {
       }),
   );
 
+  it.effect("'Edit again…' makes the recording's edit anew, as chosen there", () =>
+    Effect.gen(function* () {
+      const edit = `all.find((one) => one.id === "${withAutomation}").edit`;
+      const before = yield* recordings(page, `${edit}.made_at_ms`);
+      yield* page.mouse("mouseMoved", 660, 320);
+      yield* page.click("[data-kept-edit-again]");
+      // What the edit there is was made with is what is offered.
+      yield* page.rests(menuItem("Quiet stretches"));
+      expect(yield* page.evaluate(`${menuItem("Quiet stretches")}.textContent`)).toMatch(
+        /Speed up/u,
+      );
+      yield* clickItem(page, "Highlight clicks");
+      yield* clickItem(page, "Make the edit");
+
+      const made = yield* happens(
+        recordings(
+          page,
+          `${edit}.state === "finished" && ${edit}.made_at_ms > ${String(before)} && ${edit}.options.ripple === false && ${edit}.options.idle === "speed"`,
+        ),
+        "1 minute",
+      );
+      expect(made).toBe(true);
+      // The player shows the edit that was made, under the name the one before had.
+      expect(yield* happens(page.evaluate(`${VIDEO}?.readyState >= 1`), "10 seconds")).toBe(true);
+      yield* page.evaluate(`${VIDEO}.pause()`);
+    }),
+  );
+
   it.effect("a screenshot chosen from the gallery's list is shown at its own size", () =>
     Effect.gen(function* () {
       yield* page.mouse("mouseMoved", 5, 5);
@@ -284,6 +313,19 @@ suite(session)("the workbench's recordings and what it keeps", (it) => {
       );
       expect(emptied).toBe(false);
       expect(yield* leaves(page, GALLERY)).toBe(true);
+    }),
+  );
+
+  it.effect("the automation's pace is set in the browser menu, for the session", () =>
+    Effect.gen(function* () {
+      const runner = yield* Runner.Runner;
+      yield* openMenu(page, "[data-workbench-menu]", "Automation pace");
+      yield* clickItem(page, "Automation pace");
+      yield* clickItem(page, "Slow");
+      const told = yield* happens(page.evaluate(`apertureSession.getSnapshot().pace === "slow"`));
+      expect(told).toBe(true);
+      expect((yield* runner.request("GET", "/pace")).body).toEqual({ pace: "slow" });
+      yield* closeMenus(page);
     }),
   );
 

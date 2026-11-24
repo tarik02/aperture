@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { Recording } from "@aperture-browser/session-client";
 import {
   Camera,
   ChevronLeft,
@@ -8,6 +9,7 @@ import {
   PanelRight,
   Pause,
   Play,
+  Scissors,
   Volume2,
   VolumeX,
   X,
@@ -19,17 +21,33 @@ import {
   DialogContent,
   DialogTitle,
 } from "@aperture-browser/ui/components/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@aperture-browser/ui/components/dropdown-menu";
 import { cn } from "@aperture-browser/ui/utils";
-import { keptOf, type Kept } from "../hooks/use-recordings.ts";
+import { keptOf, recordingIsEdited, type Kept } from "../hooks/use-recordings.ts";
 import {
   useRecordingTimeline,
   type RecordingTimeline,
   type TimelineEvent,
 } from "../hooks/use-timeline.ts";
-import { useSession } from "../session.tsx";
+import { failureText, showNotice } from "../notices.ts";
+import { useSession, useSessionSnapshot } from "../session.tsx";
 import { useWorkbench } from "../workbench/context.tsx";
 import { formatDuration, formatStarted, Thumbnail } from "./menu-parts.tsx";
-import { KeptFacts, keptPreview } from "./recording-menu.tsx";
+import {
+  editOptions,
+  editSettings,
+  EditSettingsItems,
+  KeptFacts,
+  keptPreview,
+  type EditSettings,
+} from "./recording-menu.tsx";
 
 interface Size {
   readonly width: number;
@@ -288,7 +306,9 @@ function RecordingView({
   const [raw, setRaw] = useState(false);
   const playsRaw = raw || edited === undefined;
   const file = playsRaw ? recording.file : (edited ?? recording.file);
-  const src = session.fileUrl(file);
+  // An edit that was made again has the file of the one before, and is another video.
+  const made = playsRaw ? null : (recording.edit?.made_at_ms ?? null);
+  const src = made === null ? session.fileUrl(file) : madeAt(session.fileUrl(file), made);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -416,11 +436,7 @@ function RecordingView({
                 key={String(one)}
                 type="button"
                 aria-pressed={raw === one}
-                title={
-                  one
-                    ? "The video as it was recorded"
-                    : "With the cuts and marks it was started with"
-                }
+                title={one ? "The video as it was recorded" : "With the cuts and marks of its edit"}
                 className={cn(
                   "aperture:rounded aperture:px-1.5 aperture:text-xs aperture:leading-5 aperture:outline-none aperture:focus-visible:ring-2 aperture:focus-visible:ring-ring",
                   raw === one
@@ -439,6 +455,7 @@ function RecordingView({
           </div>
         )}
         <div className="aperture:flex aperture:shrink-0 aperture:items-center">
+          <EditAgain recording={recording} />
           <Button
             type="button"
             variant="ghost"
@@ -454,6 +471,70 @@ function RecordingView({
       </div>
     </div>
   );
+}
+
+/**
+ * Makes the edit of a recording again, of the same raw video and as chosen here: what the
+ * edit there is was made with, until something else is. The new edit takes its place.
+ */
+function EditAgain({ recording }: { recording: Recording }) {
+  const { recordings } = useWorkbench();
+  const allowed = useSessionSnapshot().features.recordings.write;
+  const [chosen, setChosen] = useState<EditSettings | undefined>(undefined);
+  const settings = chosen ?? editSettings(recording.edit?.options);
+  const editing = recordingIsEdited(recording);
+
+  // A session that makes no edits has none to make again, and a recording that failed has
+  // no video to make one of.
+  if (recording.edit === null || recording.state !== "finished") {
+    return null;
+  }
+  const edit = () => {
+    recordings.edit(recording.id, editOptions(settings)).then(
+      () => setChosen(undefined),
+      (cause: unknown) =>
+        showNotice({
+          level: "error",
+          message: "The recording was not edited again",
+          description: failureText(cause),
+        }),
+    );
+  };
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Edit again…"
+            title={editing ? "The edit is being made" : "Edit again…"}
+            data-kept-edit-again=""
+            disabled={editing || !allowed}
+          />
+        }
+      >
+        <Scissors />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side="top" align="end" className="aperture:w-64">
+        <DropdownMenuLabel>Edit again</DropdownMenuLabel>
+        <EditSettingsItems settings={settings} onChange={setChosen} />
+        <DropdownMenuSeparator />
+        <DropdownMenuItem data-kept-edit-make="" onClick={edit}>
+          <Scissors />
+          Make the edit
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** A file's address as of one making of it, which no cache has for another. */
+function madeAt(address: string, made: number): string {
+  const url = new URL(address);
+  url.searchParams.set("made", String(made));
+  return url.toString();
 }
 
 /** What an event of the timeline is, in a few words. */

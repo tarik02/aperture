@@ -142,12 +142,9 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
         executor.token,
       );
 
-      started = yield* recording({
-        action: "start",
-        tab: opened.id,
-        idle: "cut",
-        ripple: true,
-      }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Started)));
+      started = yield* recording({ action: "start", tab: opened.id }).pipe(
+        Effect.flatMap(Schema.decodeUnknownEffect(Started)),
+      );
 
       const hidden = yield* happens(snapshot(watcher, "s.cursor === 'none'"), "5 seconds");
       expect(hidden).toBe(true);
@@ -203,9 +200,12 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
     Effect.gen(function* () {
       // Nothing happens for a while, which the edit cuts.
       yield* Effect.sleep("2500 millis");
-      stopped = yield* recording({ action: "stop", id: started.id }).pipe(
-        Effect.flatMap(Schema.decodeUnknownEffect(Recording)),
-      );
+      stopped = yield* recording({
+        action: "stop",
+        id: started.id,
+        idle: "cut",
+        ripple: true,
+      }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Recording)));
 
       expect(stopped.state).toBe("finished");
       expect(stopped.duration_ms).toBeGreaterThan(5000);
@@ -330,19 +330,24 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
   it.effect("a blinking caret does not keep a page from being idle", () =>
     Effect.gen(function* () {
       yield* agent.call("click", { tab: opened.id, selector: "#i" });
-      const blinking = yield* recording({
-        action: "start",
-        tab: opened.id,
-        idle: "cut",
-        motion_threshold: 0,
-      }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Started)));
+      const blinking = yield* recording({ action: "start", tab: opened.id }).pipe(
+        Effect.flatMap(Schema.decodeUnknownEffect(Started)),
+      );
       yield* agent.call("hover", { tab: opened.id, x: 700, y: 200 });
       // Long enough that what is cut of it is told from how long the hover took.
       yield* Effect.sleep("7 seconds");
-      yield* recording({ action: "stop", id: blinking.id });
+      yield* recording({ action: "stop", id: blinking.id, idle: "cut", motion_threshold: 0 });
 
       const timeline = yield* timelineOf(yield* edited(blinking.id));
       expect(timeline.edited_duration_ms).toBeLessThan(timeline.duration_ms - 1500);
+    }),
+  );
+
+  it.effect("the pace the automation sets is told to whoever watches", () =>
+    Effect.gen(function* () {
+      expect(yield* snapshot(watcher, "s.pace")).toBe("fast");
+      expect(yield* agent.call("pace", { pace: "slow" })).toMatch(/"pace": "slow"/u);
+      expect(yield* happens(snapshot(watcher, "s.pace === 'slow'"), "5 seconds")).toBe(true);
     }),
   );
 

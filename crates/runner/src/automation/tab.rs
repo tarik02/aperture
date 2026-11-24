@@ -20,7 +20,8 @@ use tokio::{
 use super::keys::evdev_code;
 use crate::{
     cdp,
-    live::{edit::plan::Pace, record::Recordings},
+    live::record::Recordings,
+    pace::{Pace, Paced},
     presence::{MemberId, Presence},
     targets::Target,
 };
@@ -42,6 +43,7 @@ pub(super) struct TabSession {
     browser: cdp::Client,
     targets: watch::Receiver<Vec<Target>>,
     recordings: Recordings,
+    pace: Paced,
     target: String,
     session: String,
     presence: Arc<Presence>,
@@ -58,6 +60,7 @@ impl TabSession {
         browser: cdp::Client,
         targets: watch::Receiver<Vec<Target>>,
         recordings: Recordings,
+        pace: Paced,
         target: String,
         presence: Arc<Presence>,
     ) -> anyhow::Result<Arc<Self>> {
@@ -78,6 +81,7 @@ impl TabSession {
             browser,
             targets,
             recordings,
+            pace,
             target,
             session,
             presence,
@@ -158,6 +162,14 @@ impl TabSession {
     /// Inserts text a character at a time, as typing looks, where the browser would insert
     /// it at once: what a recording at a pace shows of a field being filled. False when the
     /// text is to go in at once after all.
+    /// The session's pace, while the tab is being recorded: nothing is slowed for a tab
+    /// that nothing records.
+    fn pace(&self) -> Option<Pace> {
+        self.recordings
+            .records(&self.target)
+            .then(|| self.pace.get())
+    }
+
     async fn type_out(&self, text: &str, pace: Pace) -> Result<bool, CdpError> {
         let (each, at_most) = match pace {
             Pace::Instant => return Ok(false),
@@ -261,7 +273,7 @@ impl TabSession {
         let travelled = matches!(input, Input::PointerMotion { .. });
         self.presence.input(self.actor()?, self.tab()?, input);
         // A slow pace takes each step of the pointer's way about twice as long.
-        if travelled && self.recordings.pace(&self.target) == Some(Pace::Slow) {
+        if travelled && self.pace() == Some(Pace::Slow) {
             sleep(SLOW_STEP).await;
         }
         if settles {
@@ -331,7 +343,7 @@ impl Cdp for TabSession {
         }
         if method == "Input.insertText"
             && session_id.is_none()
-            && let Some(pace) = self.recordings.pace(&self.target)
+            && let Some(pace) = self.pace()
             && let Some(text) = params["text"].as_str()
             && self.type_out(text, pace).await?
         {

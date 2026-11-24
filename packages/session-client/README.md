@@ -32,6 +32,6 @@ detach();
 session.close();
 ```
 
-`getSnapshot` and `subscribe` are a store, as `useSyncExternalStore` takes one. What is sent over the session socket is not answered: its effect shows in the snapshot. The session's HTTP routes (`recordings`, `screenshots`, `upload`, `storageState`) return promises that reject with `SessionError`.
+`getSnapshot` and `subscribe` are a store, as `useSyncExternalStore` takes one. What is sent over the session socket is not answered: its effect shows in the snapshot. The session's HTTP routes (`recordings`, `pace`, `screenshots`, `upload`, `storageState`) return promises that reject with `SessionError`.
 
 `@aperture-browser/session-client/effect` has the same client as an Effect service, with the generated protocol messages.

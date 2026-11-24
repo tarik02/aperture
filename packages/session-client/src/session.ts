@@ -52,6 +52,8 @@ import {
   type PictureWay,
   PIXELS,
   featuresOf,
+  type Pace,
+  paceOf,
   NO_FEATURES,
   presenceOf,
   QUALITIES,
@@ -218,7 +220,16 @@ export interface SessionService {
     readonly list: Effect.Effect<Http.Recording[], SessionError>;
     readonly get: (id: string) => Effect.Effect<Http.Recording, SessionError>;
     readonly start: (options?: Http.StartRecording) => Effect.Effect<Http.Recording, SessionError>;
-    readonly stop: (id: string) => Effect.Effect<Http.Recording, SessionError>;
+    /** Stops a recording; its edit is made with `options`. */
+    readonly stop: (
+      id: string,
+      options?: Http.EditRecording,
+    ) => Effect.Effect<Http.Recording, SessionError>;
+    /** Makes the edit of a stopped recording again, with other options. */
+    readonly edit: (
+      id: string,
+      options?: Http.EditRecording,
+    ) => Effect.Effect<Http.Recording, SessionError>;
     /** Has a running recording go on with another tab. */
     readonly retarget: (id: string, tab: number) => Effect.Effect<Http.Recording, SessionError>;
     /** Adds an annotation to the recording named, or to the only one that runs. */
@@ -233,6 +244,14 @@ export interface SessionService {
       asked?: Http.StorageStateAsked,
     ) => Effect.Effect<Http.StorageState, SessionError>;
     readonly import: (state: Http.StorageState) => Effect.Effect<void, SessionError>;
+  };
+  /**
+   * How the session's automation moves the pointer in what is recorded. The snapshot's
+   * `pace` tells it as it is set, by anyone.
+   */
+  readonly pace: {
+    readonly get: Effect.Effect<Pace, SessionError>;
+    readonly set: (pace: Pace) => Effect.Effect<Pace, SessionError>;
   };
   readonly screenshots: {
     readonly list: Effect.Effect<Http.Screenshot[], SessionError>;
@@ -300,6 +319,7 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
     cursor: "default",
     picture: { way, ways, status: undefined, formats: [], settings, rtc: undefined },
     features: NO_FEATURES,
+    pace: "fast",
     muted: [],
     menu: undefined,
     fit: false,
@@ -713,6 +733,10 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
         update({ features: featuresOf(message.value) });
         break;
       }
+      case "paced": {
+        update({ pace: paceOf(message.value.pace) });
+        break;
+      }
       case "presence": {
         update({ presence: presenceOf(message.value) });
         break;
@@ -1097,13 +1121,18 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
       list: Http.listRecordings(address),
       get: (id) => Http.getRecording(address, id),
       start: (started) => Http.startRecording(address, started),
-      stop: (id) => Http.stopRecording(address, id),
+      stop: (id, options) => Http.stopRecording(address, id, options),
+      edit: (id, options) => Http.editRecording(address, id, options),
       retarget: (id, tab) => Http.retargetRecording(address, id, tab),
       annotate: (annotation, id) => Http.annotateRecording(address, annotation, id),
     },
     storageState: {
       export: (asked) => Http.exportStorageState(address, asked),
       import: (state) => Http.importStorageState(address, state),
+    },
+    pace: {
+      get: Http.getPace(address),
+      set: (pace) => Http.setPace(address, pace),
     },
     screenshots: {
       list: Http.listScreenshots(address),

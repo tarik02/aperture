@@ -6,8 +6,9 @@
 //! as the target's does, and as the recording goes on with a tab of another size.
 //!
 //! That is the raw video: what a target showed, from start to stop. Once it stopped, the
-//! edit (see [`edit`](super::edit)) makes a second video of it and its journal; the raw one
-//! stays.
+//! edit (see [`edit`](super::edit)) makes a second video of it and its journal, as whoever
+//! stopped it said; the raw one stays, and the edit is made of it again, with other options,
+//! for as long as it does.
 //!
 //! Next to the video goes the recording's journal, a file with a JSON object a line for
 //! what the session's automation did while the recording ran. Every entry has a `kind`,
@@ -58,12 +59,9 @@ use tracing::{info, warn};
 
 pub use self::annotate::Annotation;
 use self::annotate::Rect;
-use self::capture::{Heard, Moved, Raw, Writer};
+use self::capture::{Heard, Moved, Writer};
 use super::{
-    edit::{
-        self,
-        plan::{Options, Pace, Video},
-    },
+    edit::{self, Raw, plan::Options},
     encode::{Format, Quality},
     shots,
     sound::Sound,
@@ -129,7 +127,9 @@ pub struct Recording {
     pub duration_ms: Option<u64>,
     pub bytes: Option<u64>,
     pub failure: Option<String>,
-    pub options: Options,
+    /// It goes on with whichever tab the session's automation acts on.
+    #[serde(default)]
+    pub follow: bool,
     /// The edit, once the recording stopped; none where there is no ffmpeg to make it.
     pub edit: Option<Edit>,
 }
@@ -145,6 +145,13 @@ pub enum EditState {
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct Edit {
     pub state: EditState,
+    /// What it is made with: what the recording was stopped with, or what it was last
+    /// edited again with.
+    #[serde(default)]
+    pub options: Options,
+    /// When it was made, which tells one edit of a recording from the one before.
+    #[serde(default)]
+    pub made_at_ms: Option<u64>,
     /// The edited video's file, relative to the session's files, once it is made.
     pub file: Option<String>,
     /// What happened, where in the raw video and where in the edited one.
@@ -219,6 +226,14 @@ struct Entry {
     focuses: u64,
     /// Where automation last put the pointer.
     pointer: Option<(f64, f64)>,
+    /// What it was stopped with, for the edit made as its raw video ends.
+    stopped_with: Options,
+    editing: Option<JoinHandle<()>>,
+}
+
+/// A recording of an earlier run of the session.
+struct Earlier {
+    recording: Recording,
     editing: Option<JoinHandle<()>>,
 }
 
@@ -251,7 +266,7 @@ struct Inner {
     allowed: bool,
     recordings: Mutex<HashMap<String, Entry>>,
     /// The recordings of the session's earlier runs, as their files tell.
-    earlier: Vec<Recording>,
+    earlier: Mutex<HashMap<String, Earlier>>,
     /// How many recordings run, for those who journal to ask cheaply.
     running: AtomicUsize,
 }
@@ -263,7 +278,14 @@ impl Recordings {
     /// Recordings in the session's files, with those its earlier runs kept there. With
     /// `allowed` off none is started.
     pub fn new(sources: Sources, files: PathBuf, editor: Editor, allowed: bool) -> Self {
-        let earlier = kept::restore(&files);
+        let earlier = kept::restore(&files).into_iter().map(|recording| {
+            let earlier = Earlier {
+                recording,
+                editing: None,
+            };
+            (earlier.recording.id.clone(), earlier)
+        });
+        let earlier = Mutex::new(earlier.collect());
         let Sources {
             streams,
             compositor,
@@ -286,12 +308,12 @@ impl Recordings {
         }))
     }
 
-    /// Starts recording a target; the newest one when none is named.
-    pub async fn start(&self, target: Option<&str>, options: Options) -> Result<Recording, Error> {
+    /// Starts recording a target; the newest one when none is named. With `follow` it goes
+    /// on with whichever tab the session's automation acts on.
+    pub async fn start(&self, target: Option<&str>, follow: bool) -> Result<Recording, Error> {
         if !self.0.allowed {
             return Err(Error::Off);
         }
-        options.check().map_err(Error::Options)?;
         let target = {
             let targets = self.0.targets.borrow();
             match target {
@@ -301,10 +323,10 @@ impl Recordings {
             .cloned()
             .ok_or(Error::NoTarget)?
         };
-        Ok(self.begin(target, options).await?)
+        Ok(self.begin(target, follow).await?)
     }
 
-    async fn begin(&self, target: Target, options: Options) -> anyhow::Result<Recording> {
+    async fn begin(&self, target: Target, follow: bool) -> anyhow::Result<Recording> {
         let inner = &self.0;
         let id = uuid::Uuid::now_v7().simple().to_string();
         let file = format!("{DIRECTORY}/{id}.mkv");
@@ -351,16 +373,13 @@ impl Recordings {
             preview,
             journal_dropped: 0,
             state: State::Recording,
-            started_at_ms: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |since| since.as_millis() as u64),
+            started_at_ms: now_ms(),
             duration_ms: None,
             bytes: None,
             failure: None,
-            options,
+            follow,
             edit: None,
         };
-        let threshold = recording.options.motion_threshold;
         let (stop, stopped) = oneshot::channel();
         let (moves, moved) = mpsc::unbounded_channel();
         let tab = target.browser_tab;
@@ -374,7 +393,7 @@ impl Recordings {
                     pixels,
                     tab,
                 };
-                let made = capture::record(on, heard, writer, stopped, moved, journal, threshold);
+                let made = capture::record(on, heard, writer, stopped, moved, journal);
                 recordings.ended(&id, finished(made).await);
             }
         });
@@ -390,6 +409,7 @@ impl Recordings {
                     focus: None,
                     focuses: 0,
                     pointer: None,
+                    stopped_with: Options::default(),
                     editing: None,
                 },
             );
@@ -472,8 +492,8 @@ impl Recordings {
         Ok(entry.recording.clone())
     }
 
-    /// Has the recordings that keep only what automation does go on with the tab it is
-    /// about to act on.
+    /// Has the recordings that follow the automation go on with the tab it is about to
+    /// act on.
     pub async fn follow(&self, tab: u32) {
         if self.0.running.load(Ordering::Relaxed) == 0 {
             return;
@@ -484,7 +504,7 @@ impl Recordings {
                 .values()
                 .map(|entry| &entry.recording)
                 .filter(|recording| recording.state == State::Recording)
-                .filter(|recording| recording.options.capture == super::edit::plan::Capture::Bursts)
+                .filter(|recording| recording.follow)
                 .filter(|recording| recording.tab != tab)
                 .map(|recording| recording.id.clone())
                 .collect()
@@ -497,13 +517,21 @@ impl Recordings {
     }
 
     /// Stops a recording and waits until its raw video is complete. The edit, where there
-    /// is one, goes on after.
-    pub async fn stop(&self, id: &str) -> Result<Recording, Error> {
+    /// is one, is made with `options` and goes on after. A recording that had stopped is
+    /// told as it is: [`Self::edit`] makes another edit of it.
+    pub async fn stop(&self, id: &str, options: Options) -> Result<Recording, Error> {
+        options.check().map_err(Error::Options)?;
         let running = {
             let mut recordings = self.0.recordings.lock().expect("not poisoned");
-            let entry = recordings.get_mut(id).ok_or(Error::NoRecording)?;
+            let Some(entry) = recordings.get_mut(id) else {
+                drop(recordings);
+                return self.get(id);
+            };
             // While the video still runs, so that the zoom ends inside it.
             self.close_focus(entry, None, "stopped");
+            if entry.running.is_some() {
+                entry.stopped_with = options;
+            }
             entry.running.take()
         };
         if let Some((stop, task)) = running {
@@ -514,15 +542,54 @@ impl Recordings {
         self.get(id)
     }
 
+    /// Makes the edit of a recording again, of the same raw video and with other options.
+    /// It is made after this returns, and takes the place of the edit there is.
+    pub fn edit(&self, id: &str, options: Options) -> Result<Recording, Error> {
+        if !self.0.allowed {
+            return Err(Error::Off);
+        }
+        options.check().map_err(Error::Options)?;
+        let refused = |why: &str| Err(Error::State(why.into()));
+        self.with(id, |recording, editing| {
+            match recording.state {
+                State::Recording => {
+                    return refused("the recording still runs: stop it with these options");
+                }
+                State::Failed => return refused("the recording failed: it has no video to edit"),
+                State::Finished => {}
+            }
+            let edit = recording.edit.as_ref();
+            if edit.is_some_and(|edit| edit.state == EditState::Editing) {
+                return refused("the recording is being edited: ask again once that is made");
+            }
+            *editing = Some(self.make(recording, options)?);
+            kept::keep(&self.0.files, recording);
+            info!(recording = %id, "recording edited again");
+            Ok(recording.clone())
+        })
+        .ok_or(Error::NoRecording)?
+    }
+
     pub fn get(&self, id: &str) -> Result<Recording, Error> {
-        let recordings = self.0.recordings.lock().expect("not poisoned");
-        let earlier = || self.0.earlier.iter().find(|recording| recording.id == id);
-        recordings
-            .get(id)
-            .map(|entry| &entry.recording)
-            .or_else(earlier)
-            .cloned()
+        self.with(id, |recording, _| recording.clone())
             .ok_or(Error::NoRecording)
+    }
+
+    /// Does something to a recording, of this run or of an earlier one, and to the edit
+    /// that is being made of it.
+    fn with<T>(
+        &self,
+        id: &str,
+        act: impl FnOnce(&mut Recording, &mut Option<JoinHandle<()>>) -> T,
+    ) -> Option<T> {
+        let mut recordings = self.0.recordings.lock().expect("not poisoned");
+        if let Some(entry) = recordings.get_mut(id) {
+            return Some(act(&mut entry.recording, &mut entry.editing));
+        }
+        drop(recordings);
+        let mut earlier = self.0.earlier.lock().expect("not poisoned");
+        let earlier = earlier.get_mut(id)?;
+        Some(act(&mut earlier.recording, &mut earlier.editing))
     }
 
     /// Stops every recording that runs and gives up on the edits, as the session ends.
@@ -536,49 +603,58 @@ impl Recordings {
                 .collect()
         };
         for id in running {
-            if let Err(err) = self.stop(&id).await {
+            if let Err(err) = self.stop(&id, Options::default()).await {
                 warn!(recording = %id, "a recording was not stopped: {err:#}");
             }
         }
+        let files = &self.0.files;
+        let give_up = |recording: &mut Recording, editing: &mut Option<JoinHandle<()>>| {
+            let Some(editing) = editing.take() else {
+                return;
+            };
+            editing.abort();
+            if let Some(edit) = &mut recording.edit {
+                edit.state = EditState::Failed;
+                edit.failure = Some("the session ended before the edit was made".into());
+            }
+            kept::keep(files, recording);
+        };
         let mut recordings = self.0.recordings.lock().expect("not poisoned");
         for entry in recordings.values_mut() {
-            if let Some(editing) = entry.editing.take() {
-                editing.abort();
-                if let Some(edit) = &mut entry.recording.edit {
-                    edit.state = EditState::Failed;
-                    edit.failure = Some("the session ended before the edit was made".into());
-                }
-                kept::keep(&self.0.files, &entry.recording);
-            }
+            give_up(&mut entry.recording, &mut entry.editing);
+        }
+        drop(recordings);
+        let mut earlier = self.0.earlier.lock().expect("not poisoned");
+        for earlier in earlier.values_mut() {
+            give_up(&mut earlier.recording, &mut earlier.editing);
         }
     }
 
     pub fn list(&self) -> Vec<Recording> {
-        let recordings = self.0.recordings.lock().expect("not poisoned");
-        let mut list: Vec<Recording> = recordings
-            .values()
-            .map(|entry| &entry.recording)
-            .chain(&self.0.earlier)
-            .cloned()
-            .collect();
+        let mut list: Vec<Recording> = {
+            let recordings = self.0.recordings.lock().expect("not poisoned");
+            recordings
+                .values()
+                .map(|entry| entry.recording.clone())
+                .collect()
+        };
+        let earlier = self.0.earlier.lock().expect("not poisoned");
+        list.extend(earlier.values().map(|earlier| earlier.recording.clone()));
         list.sort_by(|a, b| a.id.cmp(&b.id));
         list
     }
 
-    /// How automation is to act on a target: at the slowest pace its running recordings
-    /// ask for; none when nothing records it.
-    pub fn pace(&self, target: &str) -> Option<Pace> {
+    /// Whether a recording of the target runs: the session's pace is for what is recorded.
+    pub fn records(&self, target: &str) -> bool {
         if self.0.running.load(Ordering::Relaxed) == 0 {
-            return None;
+            return false;
         }
         let recordings = self.0.recordings.lock().expect("not poisoned");
         recordings
             .values()
             .map(|entry| &entry.recording)
             .filter(|recording| recording.state == State::Recording)
-            .filter(|recording| recording.target.eq_ignore_ascii_case(target))
-            .map(|recording| recording.options.pace)
-            .max()
+            .any(|recording| recording.target.eq_ignore_ascii_case(target))
     }
 
     /// Now, on the clock journal entries are timed with.
@@ -638,9 +714,27 @@ impl Recordings {
             match outcome {
                 Ok(raw) => {
                     recording.state = State::Finished;
-                    recording.duration_ms = Some(raw.duration.as_millis() as u64);
-                    info!(recording = %id, duration = ?raw.duration, "recording finished");
-                    entry.editing = self.edit(recording, raw);
+                    recording.duration_ms = Some(raw.duration_ms as u64);
+                    info!(recording = %id, duration_ms = raw.duration_ms, "recording finished");
+                    kept::keep_raw(&inner.files, id, &raw);
+                    // Without ffmpeg recordings are left raw.
+                    if inner.editor.ffmpeg.is_some() {
+                        let options = std::mem::take(&mut entry.stopped_with);
+                        match self.make(recording, options.clone()) {
+                            Ok(editing) => entry.editing = Some(editing),
+                            Err(err) => {
+                                warn!(recording = %id, "recording edit failed: {err:#}");
+                                recording.edit = Some(Edit {
+                                    state: EditState::Failed,
+                                    options,
+                                    made_at_ms: None,
+                                    file: None,
+                                    timeline: None,
+                                    failure: Some(format!("{err:#}")),
+                                });
+                            }
+                        }
+                    }
                 }
                 Err(err) => {
                     recording.state = State::Failed;
@@ -653,28 +747,40 @@ impl Recordings {
         self.count(&recordings);
     }
 
-    /// Starts making the edit of a recording whose raw video is complete; nothing where
-    /// there is no ffmpeg to make it.
-    fn edit(&self, recording: &mut Recording, raw: Raw) -> Option<JoinHandle<()>> {
+    /// Starts making an edit of a recording whose raw video is complete. Refused where
+    /// there is nothing to make it with or of: the edit there is stays then.
+    fn make(&self, recording: &mut Recording, options: Options) -> Result<JoinHandle<()>, Error> {
         let inner = &self.0;
-        let ffmpeg = inner.editor.ffmpeg.clone()?;
+        let refused = |why: &str| Err(Error::State(why.into()));
+        let Some(ffmpeg) = inner.editor.ffmpeg.clone() else {
+            return refused("this session has no ffmpeg to make edits with");
+        };
+        let video = inner.files.join(&recording.file);
+        if !video.is_file() {
+            return refused(
+                "the recording's raw video is gone, and an edit is made of nothing else",
+            );
+        }
+        let raw = kept::raw_path(&inner.files, &recording.id);
+        if !raw.is_file() {
+            return refused("what an edit takes of the raw video was not kept with it");
+        }
         recording.edit = Some(Edit {
             state: EditState::Editing,
+            options: options.clone(),
+            made_at_ms: None,
             file: None,
             timeline: None,
             failure: None,
         });
-        let video = inner.files.join(&recording.file);
         let (edited, timeline) = edit::outputs(&video);
-        let job = edit::Job {
+        let ask = edit::Ask {
             ffmpeg,
             journal: inner.files.join(&recording.journal),
+            raw,
             work: video.with_extension("edit"),
             cache: inner.editor.cache.clone(),
-            options: recording.options.clone(),
-            changed_at_ms: raw.changed_at_ms,
-            frame: Video::fitting(raw.duration.as_millis() as i64, &raw.segments),
-            segments: raw.segments,
+            options,
             dropped: recording.journal_dropped,
             video,
             edited,
@@ -682,36 +788,35 @@ impl Recordings {
         };
         let recordings = self.clone();
         let id = recording.id.clone();
-        Some(tokio::spawn(async move {
-            let made = finished(edit::run(job)).await;
+        Ok(tokio::spawn(async move {
+            let made = finished(edit::run(ask)).await;
             recordings.edited(&id, made);
         }))
     }
 
     fn edited(&self, id: &str, made: anyhow::Result<()>) {
-        let mut recordings = self.0.recordings.lock().expect("not poisoned");
-        let Some(entry) = recordings.get_mut(id) else {
-            return;
-        };
-        entry.editing = None;
-        let stem = entry.recording.file.trim_end_matches(".mkv").to_owned();
-        let Some(edit) = &mut entry.recording.edit else {
-            return;
-        };
-        match made {
-            Ok(()) => {
-                edit.state = EditState::Finished;
-                edit.file = Some(format!("{stem}.edited.mp4"));
-                edit.timeline = Some(format!("{stem}.timeline.json"));
-                info!(recording = %id, "recording edited");
+        self.with(id, |recording, editing| {
+            *editing = None;
+            let stem = recording.file.trim_end_matches(".mkv").to_owned();
+            let Some(edit) = &mut recording.edit else {
+                return;
+            };
+            match made {
+                Ok(()) => {
+                    edit.state = EditState::Finished;
+                    edit.file = Some(format!("{stem}.edited.mp4"));
+                    edit.timeline = Some(format!("{stem}.timeline.json"));
+                    edit.made_at_ms = Some(now_ms());
+                    info!(recording = %id, "recording edited");
+                }
+                Err(err) => {
+                    edit.state = EditState::Failed;
+                    edit.failure = Some(format!("{err:#}"));
+                    warn!(recording = %id, "recording edit failed: {err:#}");
+                }
             }
-            Err(err) => {
-                edit.state = EditState::Failed;
-                edit.failure = Some(format!("{err:#}"));
-                warn!(recording = %id, "recording edit failed: {err:#}");
-            }
-        }
-        kept::keep(&self.0.files, &entry.recording);
+            kept::keep(&self.0.files, recording);
+        });
     }
 
     /// Takes count of the recordings that run. The pointer is in the frames while any does.
@@ -723,6 +828,13 @@ impl Recordings {
         self.0.running.store(recording, Ordering::Relaxed);
         self.0.compositor.draw_pointer(recording > 0);
     }
+}
+
+/// Now, as the time of day.
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_millis() as u64)
 }
 
 /// What a task made. One that panicked made a failure, so that whoever waits for what it

@@ -8,6 +8,7 @@ use crate::targets::Mode;
 use crate::{
     files::Progress,
     live::sound,
+    pace::Pace,
     pages,
     presence::{Mark, Phase, Role, Shown},
     proto::aperture::live::v1::{self as pb, server_message},
@@ -61,6 +62,20 @@ impl Client {
             ..Default::default()
         };
         self.send(server_message::Message::Clipboard(Box::new(clipboard)))
+            .await
+    }
+
+    pub(super) async fn send_pace(&mut self) -> Result<(), axum::Error> {
+        let pace = match *self.pace.borrow_and_update() {
+            Pace::Instant => pb::Pace::PACE_INSTANT,
+            Pace::Fast => pb::Pace::PACE_FAST,
+            Pace::Slow => pb::Pace::PACE_SLOW,
+        };
+        let paced = pb::Paced {
+            pace: pace.into(),
+            ..Default::default()
+        };
+        self.send(server_message::Message::Paced(Box::new(paced)))
             .await
     }
 

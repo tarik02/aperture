@@ -265,6 +265,8 @@ fn needs(method: &Method, rest: &str) -> Needs {
             Needs::Writing(Area::Tabs)
         }
         ("recordings" | "screenshots", _) => either(Area::Recordings),
+        // How the automation moves in what is recorded is for whoever may record.
+        ("pace", None) => either(Area::Recordings),
         ("uploads", _) => either(Area::Uploads),
         ("downloads", None) if reads => Needs::Reading(Area::Downloads),
         ("files", Some("recordings" | "screenshots")) if reads => Needs::Reading(Area::Recordings),
@@ -349,6 +351,8 @@ mod tests {
             (&put, "/targets/7/other", Operator),
             (&get, "/recordings", Reading(Recordings)),
             (&post, "/recordings", Writing(Recordings)),
+            (&get, "/pace", Reading(Recordings)),
+            (&put, "/pace", Writing(Recordings)),
             (&delete, "/recordings/one.mp4", Writing(Recordings)),
             (&get, "/screenshots", Reading(Recordings)),
             (&post, "/screenshots", Writing(Recordings)),

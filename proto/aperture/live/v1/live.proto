@@ -76,7 +76,27 @@ message ServerMessage {
     Failed failed = 16;
     Pointer pointer = 17;
     Stroke stroke = 18;
+    Paced paced = 19;
   }
+}
+
+// How the session's automation moves the pointer in a tab that is being recorded. It is
+// the session's, the same for every recording and whoever watches: told once the client
+// said `hello`, and again whenever it is set, which the session's `/pace` route and its
+// `pace` tool do. A tab nothing records gets the automation's input at once.
+message Paced {
+  Pace pace = 1;
+}
+
+enum Pace {
+  PACE_UNSPECIFIED = 0;
+  // The pointer jumps to each action.
+  PACE_INSTANT = 1;
+  // The pointer travels there, quickly but so that the eye can follow, and text is typed
+  // out.
+  PACE_FAST = 2;
+  // Unhurried travel, for demos.
+  PACE_SLOW = 3;
 }
 
 // What the client may do in the session, area by area: what whoever let it in gave it, of
