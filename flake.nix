@@ -180,15 +180,12 @@
         ];
 
         version = (lib.importTOML ./Cargo.toml).workspace.package.version;
-        # What the programs and the page are built of, so that nothing else builds them again.
+        # What the console, the control plane and the migration are built of. The programs'
+        # crates and the protocol are not: what is generated from the protocol is kept beside
+        # what uses it, and a change of a crate builds none of the three again.
         src = lib.fileset.toSource {
           root = ./.;
           fileset = lib.fileset.unions [
-            ./Cargo.toml
-            ./Cargo.lock
-            ./buf.yaml
-            ./crates
-            ./proto
             ./apps
             ./packages
             # A member of the workspace, so the lockfile names it; its checks are not built.
