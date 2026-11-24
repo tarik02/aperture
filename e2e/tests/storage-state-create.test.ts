@@ -61,11 +61,9 @@ suite(node)("a storage state given when a session is created", (it) => {
   it.effect("a state the browser does not take makes no session", () =>
     Effect.gen(function* () {
       const executor = yield* Executor.Executor;
-      const unknownPart = {
-        origins: [{ origin: "https://example.com", opfs: [{ path: "a" }] }],
-      };
+      const noPage = { tabs: [{ url: "about:blank" }] };
       const refused = yield* executor.rpc("CreateSession", {
-        storageState: JSON.stringify(unknownPart),
+        storageState: JSON.stringify(noPage),
       });
       expect(refused.status).toBe(400);
       expect((yield* refusal(refused)).code).toBe("invalid_argument");

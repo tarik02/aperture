@@ -27,7 +27,7 @@ Refusals here are plain text with a status: `401` no good credential, `403` the 
 | `GET /recordings`, `GET /screenshots`, `GET /downloads`, `GET /uploads` | What there is of each, as JSON | `recordings:r`, `downloads:r`, `uploads:r` |
 | `GET /files/<path>` | A file's bytes, `path` as the `files` tool gives it | the area of its directory |
 | `PUT /uploads/{name}` | Puts a file for a page to take; the body is the bytes | `uploads:w` |
-| `POST /storage-state` | Cookies and local storage of the browser, as JSON; `PUT` puts one in | `cdp:w` |
+| `POST /storage-state` | Cookies and the storage of origins, out of the browser as JSON; `PUT` puts one in, with tabs to open | `cdp:w` |
 | `POST /mcp` | The session's own MCP server: the browser tools without `session_id` | `mcp:w` |
 | `/cdp`, `/cdp/json/version` | The browser's DevTools endpoint | `cdp:w` |
 | `/tunnel` | Where `aperture-tunnel attach` connects | `tunnel:w` |
@@ -48,6 +48,24 @@ curl -fsS -X POST -H "Authorization: Bearer $APERTURE_TOKEN" -H 'Content-Type: a
 ```
 
 `{"cookies": […], "origins": […]}`. A snapshot keeps the whole profile; a storage state is the part that moves between browsers.
+
+The body says what to take: `origins` is `"open-tabs"` (the default) or a list of origins, `cookies` is `"matching"` (those that go to these origins, the default) or `"all"`, and `indexed_db`, `cache_storage` and `opfs` each add a kind of what the origins store, which is left out otherwise. An export fails where a database holds what cannot be written down, such as a key that may not leave the browser.
+
+`PUT` takes the same document: cookies beside those there are, each origin's local storage in place of what it had, and each database, cache and file in place of the origin's one of that name. It takes two things an export does not give:
+
+- an origin with `ancestorOrigins`, the top one first, for what it stores while it is embedded in a page of another site, which the browser keeps apart;
+- `tabs`, each opened beside the tabs that show something:
+
+```json
+{ "tabs": [
+  { "url": "https://example.com/inbox", "active": true,
+    "sessionStorage": [{ "origin": "https://example.com", "entries": [{ "name": "k", "value": "v" }] }],
+    "document": { "scroll": { "x": 0, "y": 240 }, "windowName": "inbox" } },
+  { "url": "https://example.com/compose", "opener": 0 }
+] }
+```
+
+A tab's session storage and `window.name` are there before its page's scripts run; `opener` is the index of the tab that opens it. The `active` tab is opened last where its opener lets it, as the newest tab is what whoever opens the session is shown. `POST /api/control/sessions` takes the same document as `storageState`, for a session that starts with it.
 
 ## A session served on its own
 

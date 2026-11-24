@@ -288,5 +288,8 @@ pub fn is_alive(runtime_dir: &Path) -> io::Result<bool> {
     }
 }
 
+/// The most a storage state that is put into a session takes.
+pub const STATE_BYTES: usize = 64 * 1024 * 1024;
+
 /// The picture of what a session showed last, in what its runner keeps of it.
 pub const PREVIEW: &str = "preview.png";

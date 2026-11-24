@@ -292,7 +292,17 @@ async fn main() -> anyhow::Result<()> {
     ));
     tokio::spawn(sessions.clone().suspend_idle());
 
-    let connect = connectrpc::Router::new().add_service(Arc::new(rpc::Executor(sessions.clone())));
+    // A session is created with a storage state as large as its runner takes one, which
+    // is more than a request is let be otherwise.
+    let with_state = aperture_runner::STATE_BYTES + 1024 * 1024;
+    let connect = connectrpc::Router::new()
+        .add_service(Arc::new(rpc::Executor(sessions.clone())))
+        .with_route_limits(
+            "aperture.executor.v1.ExecutorService/CreateSession",
+            connectrpc::Limits::default()
+                .with_max_request_body_size(with_state)
+                .with_max_message_size(with_state),
+        );
     let shown = !arguments.no_viewer;
     let session = aperture_gateway::router(Arc::new(Door(sessions.clone())), shown);
     let previews = sessions.clone();

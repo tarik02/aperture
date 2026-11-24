@@ -46,9 +46,6 @@ use crate::{
     targets::{Mode, Tabs, Target},
 };
 
-/// The most a state that is put into the session takes.
-const STATE_BYTES: usize = 64 * 1024 * 1024;
-
 /// What the live endpoints serve.
 #[derive(Clone)]
 pub struct Live {
@@ -96,7 +93,7 @@ pub async fn serve(socket: &Path, live: Live, automation: Arc<Automation>) -> st
             "/storage-state",
             post(state_export)
                 .put(state_import)
-                .layer(DefaultBodyLimit::max(STATE_BYTES)),
+                .layer(DefaultBodyLimit::max(aperture_runner::STATE_BYTES)),
         )
         .route("/recordings", get(recordings_list).post(recording_start))
         .route("/recordings/{id}", get(recording_get))
