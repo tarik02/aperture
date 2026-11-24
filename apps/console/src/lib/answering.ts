@@ -30,9 +30,10 @@ export const notAnswering = (error: unknown) => {
     return false;
   }
   const { reason } = error;
+  // A status the API names no failure for comes as an answer that was not understood.
   return (
     reason._tag === "TransportError" ||
-    (reason._tag === "StatusCodeError" && failedToAnswer(reason.response.status))
+    ("response" in reason && failedToAnswer(reason.response.status))
   );
 };
 
