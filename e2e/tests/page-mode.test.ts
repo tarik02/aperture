@@ -220,6 +220,8 @@ suite(session)("how a tab's pages are shown, with a desktop, a phone and the aut
       expect(yield* handOver(bob, ada)).toBe(true);
       // The page takes the size of the phone's window, less the workbench's bar.
       expect(yield* comes(ada, "watched.mobile && watched.width === 390")).toBe(true);
+      // The desk is told of it as well, over a socket of its own: a moment later, maybe.
+      expect(yield* comes(bob, "watched.mobile && watched.width === 390")).toBe(true);
       expect(yield* snapshot(bob, "[s.phone, watched.mobile, watched.width].join()")).toBe(
         "false,true,390",
       );
