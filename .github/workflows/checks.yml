@@ -114,9 +114,8 @@ jobs:
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           # A pull request from elsewhere has no token, and builds what it needs itself.
           skipPush: ${{ secrets.CACHIX_AUTH_TOKEN == '' }}
-          # Sources, each crate cargo is given and what images are assembled from are made
-          # again faster than fetched.
-          pushFilter: (-source$|-vendor|-cargo-(src|package|git)-|linkLockedDeps|stream-aperture-|layers\.json|excludePaths|closure-info|user-environment)
+          # Sources and what images are assembled from are made again faster than fetched.
+          pushFilter: (-source$|-vendor|stream-aperture-|layers\.json|excludePaths|closure-info|user-environment)
 
       # A hash left as it was when pnpm-lock.yaml changed fails nowhere else: the
       # dependencies of before are taken from the store or a cache by it. Fetching them
