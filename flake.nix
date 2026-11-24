@@ -464,6 +464,9 @@
           // {
             src = programsSrc;
             cargoArtifacts = programsDependencies;
+            # Each program says what crates it was made of, to whoever audits it.
+            nativeBuildInputs = programsBuild.nativeBuildInputs ++ [ pkgs.cargo-auditable ];
+            cargoBuildCommand = "cargo auditable build --release";
             # Of the programs alone: the dependencies are not built again for a change of the page.
             env.APERTURE_WORKBENCH = "${workbench}/index.html";
             preBuild = ''
