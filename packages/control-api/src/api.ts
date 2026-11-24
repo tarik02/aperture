@@ -654,8 +654,10 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
         /**
          * Cookies, the storage of origins and the tabs for the session's browser to start
          * with, over what its snapshot has: what a session's `storage-state` route gives,
-         * and takes. Not for a session that is created suspended, and a session that does
-         * not take it is not created.
+         * and takes. Not for a session that is created suspended. The session is answered
+         * with as soon as its browser runs, as `restoring`: it is `running` once all of
+         * the state is in, and `failed`, with `failure` saying why, where its browser did
+         * not take it.
          */
         storageState: Schema.optional(StorageState),
       }),

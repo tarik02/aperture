@@ -42,6 +42,7 @@ const STATES: Record<proto.SessionState, ObservedState | undefined> = {
   [proto.SessionState.UNSPECIFIED]: undefined,
   [proto.SessionState.SUSPENDED]: "suspended",
   [proto.SessionState.STARTING]: "starting",
+  [proto.SessionState.RESTORING]: "restoring",
   [proto.SessionState.RUNNING]: "running",
   [proto.SessionState.SUSPENDING]: "suspending",
   [proto.SessionState.FAILED]: "failed",

@@ -54,6 +54,7 @@ import {
   featuresOf,
   type Pace,
   paceOf,
+  restoringOf,
   NO_FEATURES,
   presenceOf,
   QUALITIES,
@@ -320,6 +321,7 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
     picture: { way, ways, status: undefined, formats: [], settings, rtc: undefined },
     features: NO_FEATURES,
     pace: "fast",
+    restoring: undefined,
     muted: [],
     menu: undefined,
     fit: false,
@@ -735,6 +737,10 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
       }
       case "paced": {
         update({ pace: paceOf(message.value.pace) });
+        break;
+      }
+      case "restoring": {
+        update({ restoring: restoringOf(message.value) });
         break;
       }
       case "presence": {

@@ -184,6 +184,7 @@ impl Setup {
             network,
             browser_args: self.browser_args.clone(),
             features,
+            restoring: false,
         }
     }
 }

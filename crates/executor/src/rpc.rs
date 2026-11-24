@@ -280,13 +280,14 @@ impl From<Session> for pb::Session {
         let state = match session.state {
             State::Suspended => pb::SessionState::SESSION_STATE_SUSPENDED,
             State::Starting => pb::SessionState::SESSION_STATE_STARTING,
+            State::Restoring => pb::SessionState::SESSION_STATE_RESTORING,
             State::Running => pb::SessionState::SESSION_STATE_RUNNING,
             State::Suspending => pb::SessionState::SESSION_STATE_SUSPENDING,
             State::Failed => pb::SessionState::SESSION_STATE_FAILED,
         };
         let status = session.status;
         let endpoints = match session.state {
-            State::Running => {
+            State::Running | State::Restoring => {
                 let path = sessions::path(&session.record.id);
                 MessageField::some(pb::Endpoints {
                     cdp_path: format!("{path}/cdp"),

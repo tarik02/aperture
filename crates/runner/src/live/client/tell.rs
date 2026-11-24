@@ -9,6 +9,7 @@ use crate::{
     files::Progress,
     live::sound,
     pace::Pace,
+    restore::Restore,
     pages,
     presence::{Mark, Phase, Role, Shown},
     proto::aperture::live::v1::{self as pb, server_message},
@@ -62,6 +63,29 @@ impl Client {
             ..Default::default()
         };
         self.send(server_message::Message::Clipboard(Box::new(clipboard)))
+            .await
+    }
+
+    pub(super) async fn send_restore(&mut self) -> Result<(), axum::Error> {
+        let restoring = match self.restore.borrow_and_update().clone() {
+            Restore::None => pb::Restoring::default(),
+            Restore::Underway {
+                tabs,
+                cookies,
+                origins,
+            } => pb::Restoring {
+                underway: true,
+                tabs,
+                cookies,
+                origins,
+                ..Default::default()
+            },
+            Restore::Failed(reason) => pb::Restoring {
+                failure: Some(reason),
+                ..Default::default()
+            },
+        };
+        self.send(server_message::Message::Restoring(Box::new(restoring)))
             .await
     }
 

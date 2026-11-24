@@ -16,6 +16,7 @@ mod names;
 mod pace;
 mod pages;
 mod presence;
+mod restore;
 mod targets;
 
 mod proto {
@@ -445,6 +446,7 @@ impl Session {
             icons: Arc::default(),
             recordings: recordings.clone(),
             pace,
+            restore: restore::Restoring::new(spec.restoring),
             egress: self.egress.clone(),
             rtc_ports: spec.rtc_ports,
             downloads,

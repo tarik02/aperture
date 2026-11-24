@@ -77,7 +77,23 @@ message ServerMessage {
     Pointer pointer = 17;
     Stroke stroke = 18;
     Paced paced = 19;
+    Restoring restoring = 20;
   }
+}
+
+// Whether the session is being given what its browser starts with: the storage state it
+// was created with, or one that is put into it. Told once the client said `hello`, and
+// again whenever it changes. While it is underway the session takes no input and changes
+// no tabs for anyone: its pages are not yet what they are to be.
+message Restoring {
+  bool underway = 1;
+  // What is put in, which is none of each until the state has come.
+  uint32 tabs = 2;
+  uint32 cookies = 3;
+  uint32 origins = 4;
+  // Why the state the session was to start with was not taken: the session is not what
+  // was asked for, and ends.
+  optional string failure = 5;
 }
 
 // How the session's automation moves the pointer in a tab that is being recorded. It is

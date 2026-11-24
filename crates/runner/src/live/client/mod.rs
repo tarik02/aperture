@@ -31,6 +31,7 @@ use super::{
 use crate::{
     files::{self, Download},
     pace::Pace,
+    restore::Restore,
     pages::{self, Along, History},
     presence::{Identity, Mark, Membership, Phase, Present, Shown},
     proto::aperture::live::v1::{self as pb, client_message, server_message},
@@ -71,6 +72,7 @@ pub async fn serve(live: Live, socket: WebSocket, identity: Identity) {
         cursor: live.compositor.cursor(),
         clipboard: live.compositor.clipboard(),
         pace: live.pace.watch(),
+        restore: live.restore.watch(),
         downloads: live.downloads.clone(),
         file_requests: live.pages.requests(),
         menus: live.pages.menus(),
@@ -115,6 +117,8 @@ struct Client {
     /// What the session copied; the client is told what is copied from now on.
     clipboard: watch::Receiver<Option<Forms>>,
     pace: watch::Receiver<Pace>,
+    /// Whether the session is being given what its browser starts with.
+    restore: watch::Receiver<Restore>,
     downloads: watch::Receiver<Vec<Download>>,
     file_requests: watch::Receiver<Vec<pages::Request>>,
     menus: broadcast::Receiver<pages::Menu>,
@@ -307,6 +311,12 @@ impl Client {
                     }
                     self.send_pace().await?;
                 }
+                changed = self.restore.changed(), if self.greeted => {
+                    if changed.is_err() {
+                        return Ok(());
+                    }
+                    self.send_restore().await?;
+                }
             }
         }
     }
@@ -384,7 +394,10 @@ impl Client {
                 Ok(())
             }
             Message::Go(go) => {
-                let gone = self.go(*go).await;
+                let gone = match self.restored() {
+                    Ok(()) => self.go(*go).await,
+                    Err(held) => Err(held),
+                };
                 self.answer(pb::Asked::ASKED_GO, gone).await?;
                 // A tab the client opened may be there already.
                 if self.select(None).await? {
@@ -393,7 +406,10 @@ impl Client {
                 Ok(())
             }
             Message::Close(close) => {
-                let closed = self.close(close.tab).await;
+                let closed = match self.restored() {
+                    Ok(()) => self.close(close.tab).await,
+                    Err(held) => Err(held),
+                };
                 self.answer(pb::Asked::ASKED_CLOSE, closed).await
             }
             Message::CopyPicture(picture) => match self.picture(&picture.url).await {
@@ -433,7 +449,10 @@ impl Client {
                     Message::PointerLeave(_) => self.point(None),
                     _ => {}
                 }
-                self.input(message);
+                // A click on a page that is not yet what it is to be is a wrong click.
+                if self.restored().is_ok() {
+                    self.input(message);
+                }
                 Ok(())
             }
         }
@@ -471,6 +490,7 @@ impl Client {
         self.format = self.formats.first().copied().unwrap_or(Format::H264);
         self.send_features().await?;
         self.send_pace().await?;
+        self.send_restore().await?;
         self.send_targets().await?;
         self.send_cursor().await?;
         self.send_downloads().await?;
@@ -640,6 +660,15 @@ impl Client {
     }
 
     /// Tells the client of what it asked for and was not done.
+    /// Fails while the session is being given what its browser starts with.
+    fn restored(&self) -> anyhow::Result<()> {
+        ensure!(
+            *self.restore.borrow() == Restore::None,
+            "the session is being restored"
+        );
+        Ok(())
+    }
+
     async fn answer(
         &mut self,
         asked: pb::Asked,

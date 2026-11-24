@@ -52,8 +52,12 @@ enum SessionState {
   SESSION_STATE_STARTING = 2;
   SESSION_STATE_RUNNING = 3;
   SESSION_STATE_SUSPENDING = 4;
-  // The browser ended without being asked to; `failure` says how. The profile is kept.
+  // The browser ended without being asked to, or did not take the storage state the
+  // session was created with; `failure` says how. The profile is kept.
   SESSION_STATE_FAILED = 5;
+  // The browser runs and is being given the storage state the session was created with.
+  // The session is watched meanwhile and takes no input, and runs once all of it is in.
+  SESSION_STATE_RESTORING = 6;
 }
 
 message Executor {
@@ -276,9 +280,11 @@ message CreateSessionRequest {
   // The network the session's browser has. What is left unspecified is as the executor
   // has it; `direct` where the executor has it otherwise is refused.
   Network network = 6;
-  // Cookies and the storage of origins for the session's browser to start with, over
-  // what its snapshot has: the JSON a session's `storage-state` route gives. Not for a
-  // session that is created suspended. A session that does not take it is not created.
+  // Cookies, the storage of origins and tabs for the session's browser to start with,
+  // over what its snapshot has: the JSON a session's `storage-state` route takes. Not for
+  // a session that is created suspended. The session is answered with as soon as its
+  // browser runs, in the state `RESTORING`: it is `RUNNING` once all of the state is in,
+  // and `FAILED`, with its browser stopped, where its browser did not take it.
   optional string storage_state = 7;
 }
 

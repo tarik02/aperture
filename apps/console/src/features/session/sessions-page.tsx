@@ -46,7 +46,8 @@ type Order = (typeof ORDERS)[number]["value"];
 
 const STATUS: Record<Status, (session: Session) => boolean> = {
   all: () => true,
-  active: (session) => ["running", "starting", "suspending"].includes(session.observedState),
+  active: (session) =>
+    ["running", "starting", "restoring", "suspending"].includes(session.observedState),
   suspended: (session) => session.observedState === "suspended",
   failed: (session) =>
     session.observedState === "failed" ||

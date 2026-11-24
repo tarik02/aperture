@@ -119,6 +119,24 @@ export const featuresOf = (features: pb.Features): Features => ({
 /** How the session's automation moves the pointer in a tab that is being recorded. */
 export type Pace = "instant" | "fast" | "slow";
 
+/**
+ * A storage state being put into the session's browser: so many tabs, cookies and origins,
+ * which is none of each until the state has come. While it is underway the session takes
+ * no input and changes no tabs. With `failure`, the state the session was to start with
+ * was not taken, and the session ends.
+ */
+export interface Restoring {
+  readonly tabs: number;
+  readonly cookies: number;
+  readonly origins: number;
+  readonly failure: string | undefined;
+}
+
+export const restoringOf = (told: pb.Restoring): Restoring | undefined =>
+  told.underway || told.failure !== undefined
+    ? { tabs: told.tabs, cookies: told.cookies, origins: told.origins, failure: told.failure }
+    : undefined;
+
 export const paceOf = (pace: pb.Pace): Pace => {
   switch (pace) {
     case pb.Pace.INSTANT: {
@@ -275,6 +293,11 @@ export interface Snapshot {
   readonly features: Features;
   /** How the session's automation moves the pointer in a tab that is being recorded. */
   readonly pace: Pace;
+  /**
+   * The session is being given what its browser starts with, or was not: nothing where
+   * it is what it was asked to be.
+   */
+  readonly restoring: Restoring | undefined;
   /** The numbers of the tabs that are muted here; the others are heard while watched. */
   readonly muted: readonly number[];
   /** The session's right-click report, at the client coordinates of the click. */

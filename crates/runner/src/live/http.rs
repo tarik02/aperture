@@ -42,6 +42,7 @@ use crate::{
     egress::Egress,
     files::{self, Download, Progress, UPLOADS},
     pace::{Pace, Paced},
+    restore::{Restore, Restoring},
     pages::Pages,
     presence::{Identity, Presence},
     targets::{Mode, Tabs, Target},
@@ -63,6 +64,8 @@ pub struct Live {
     pub recordings: Recordings,
     /// How the session's automation moves the pointer in what is recorded.
     pub pace: Paced,
+    /// Whether the session is being given what its browser starts with.
+    pub restore: Restoring,
     pub egress: Arc<Egress>,
     pub rtc_ports: Option<PortRange>,
     pub downloads: watch::Receiver<Vec<Download>>,
@@ -109,7 +112,11 @@ pub async fn serve(socket: &Path, live: Live, automation: Arc<Automation>) -> st
         .route("/busy", get(busy))
         .route("/files/{*path}", get(file));
     if live.features.mcp {
-        app = app.nest_service("/mcp", mcp::service(automation));
+        let once_restored = axum::middleware::from_fn_with_state(live.clone(), once_restored);
+        let tools = Router::new()
+            .nest_service("/mcp", mcp::service(automation))
+            .layer(once_restored);
+        app = app.merge(tools);
     }
     if live.features.recordings {
         app = app.route("/screenshots", get(screenshots_list).post(screenshot_take));
@@ -578,15 +585,56 @@ async fn state_export(
     ))
 }
 
-/// Cookies and the storage of origins, into the session's browser.
+/// Refuses the session's automation while the session is being given what its browser
+/// starts with: what a tool did to a page that is not yet what it is to be would be done
+/// to another page.
+async fn once_restored(
+    State(live): State<Live>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    if live.restore.held() {
+        return Refusal(
+            StatusCode::CONFLICT,
+            "the session is being restored".to_owned(),
+        )
+        .into_response();
+    }
+    next.run(request).await
+}
+
+/// Cookies, the storage of origins and tabs, into the session's browser. The session says
+/// that it is being restored for as long as that takes. A state it was started to be given
+/// and does not take leaves it saying so: it is not the session that was asked for.
 async fn state_import(
     State(live): State<Live>,
     Json(given): Json<state::State>,
 ) -> Result<StatusCode, Refusal> {
-    given.check().map_err(Refusal::bad_request)?;
-    let imported = state::import(&live.browser, &given).await;
-    imported.map_err(|err| Refusal::failed(format_args!("{err:#}")))?;
-    Ok(StatusCode::NO_CONTENT)
+    let awaited = live.restore.held();
+    let ended = |failure: Option<String>| match failure {
+        Some(reason) if awaited => Restore::Failed(reason),
+        _ => Restore::None,
+    };
+    if let Err(refused) = given.check() {
+        live.restore.set(ended(Some(refused.clone())));
+        return Err(Refusal::bad_request(refused));
+    }
+    live.restore.set(Restore::Underway {
+        tabs: given.tabs.len() as u32,
+        cookies: given.cookies.len() as u32,
+        origins: given.origins.len() as u32,
+    });
+    match state::import(&live.browser, &given).await {
+        Ok(()) => {
+            live.restore.set(ended(None));
+            Ok(StatusCode::NO_CONTENT)
+        }
+        Err(err) => {
+            let reason = format!("{err:#}");
+            live.restore.set(ended(Some(reason.clone())));
+            Err(Refusal::failed(reason))
+        }
+    }
 }
 
 /// A tab as a request names it: by its number, or by its target's id.

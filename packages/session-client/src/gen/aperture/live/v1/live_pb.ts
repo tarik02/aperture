@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file aperture/live/v1/live.proto.
  */
 export const file_aperture_live_v1_live: GenFile = /*@__PURE__*/
-  fileDesc("ChthcGVydHVyZS9saXZlL3YxL2xpdmUucHJvdG8SEGFwZXJ0dXJlLmxpdmUudjEi3QgKDUNsaWVudE1lc3NhZ2USKgoGc2VsZWN0GAEgASgLMhguYXBlcnR1cmUubGl2ZS52MS5TZWxlY3RIABI5Cg5wb2ludGVyX21vdGlvbhgCIAEoCzIfLmFwZXJ0dXJlLmxpdmUudjEuUG9pbnRlck1vdGlvbkgAEjkKDnBvaW50ZXJfYnV0dG9uGAMgASgLMh8uYXBlcnR1cmUubGl2ZS52MS5Qb2ludGVyQnV0dG9uSAASOQoOcG9pbnRlcl9zY3JvbGwYBCABKAsyHy5hcGVydHVyZS5saXZlLnYxLlBvaW50ZXJTY3JvbGxIABI3Cg1wb2ludGVyX2xlYXZlGAUgASgLMh4uYXBlcnR1cmUubGl2ZS52MS5Qb2ludGVyTGVhdmVIABIkCgNrZXkYBiABKAsyFS5hcGVydHVyZS5saXZlLnYxLktleUgAEiYKBHRleHQYByABKAsyFi5hcGVydHVyZS5saXZlLnYxLlRleHRIABIuCgh2aWV3cG9ydBgIIAEoCzIaLmFwZXJ0dXJlLmxpdmUudjEuVmlld3BvcnRIABIoCgVoZWxsbxgJIAEoCzIXLmFwZXJ0dXJlLmxpdmUudjEuSGVsbG9IABIvCglydGNfb2ZmZXIYCiABKAsyGi5hcGVydHVyZS5saXZlLnYxLlJ0Y09mZmVySAASMwoLdmlkZW9fc2hvd24YCyABKAsyHC5hcGVydHVyZS5saXZlLnYxLlZpZGVvU2hvd25IABIwCgljbGlwYm9hcmQYDCABKAsyGy5hcGVydHVyZS5saXZlLnYxLkNsaXBib2FyZEgAEiYKBGRyb3AYDSABKAsyFi5hcGVydHVyZS5saXZlLnYxLkRyb3BIABI1CgxmaWxlc19jaG9zZW4YDiABKAsyHS5hcGVydHVyZS5saXZlLnYxLkZpbGVzQ2hvc2VuSAASKAoFbGVhc2UYDyABKAsyFy5hcGVydHVyZS5saXZlLnYxLkxlYXNlSAASIgoCZ28YECABKAsyFC5hcGVydHVyZS5saXZlLnYxLkdvSAASNQoMY29weV9waWN0dXJlGBEgASgLMh0uYXBlcnR1cmUubGl2ZS52MS5Db3B5UGljdHVyZUgAEigKBWNsb3NlGBIgASgLMhcuYXBlcnR1cmUubGl2ZS52MS5DbG9zZUgAEioKBmZvbGxvdxgTIAEoCzIYLmFwZXJ0dXJlLmxpdmUudjEuRm9sbG93SAASJgoEZHJhdxgUIAEoCzIWLmFwZXJ0dXJlLmxpdmUudjEuRHJhd0gAEi4KCHBvaW50aW5nGBUgASgLMhouYXBlcnR1cmUubGl2ZS52MS5Qb2ludGluZ0gAEioKBmRldmljZRgWIAEoCzIYLmFwZXJ0dXJlLmxpdmUudjEuRGV2aWNlSAASLQoIc2V0X21vZGUYFyABKAsyGS5hcGVydHVyZS5saXZlLnYxLlNldE1vZGVIAEIJCgdtZXNzYWdlIqQHCg1TZXJ2ZXJNZXNzYWdlEiwKB3RhcmdldHMYASABKAsyGS5hcGVydHVyZS5saXZlLnYxLlRhcmdldHNIABIuCghzZWxlY3RlZBgCIAEoCzIaLmFwZXJ0dXJlLmxpdmUudjEuU2VsZWN0ZWRIABIqCgZjdXJzb3IYAyABKAsyGC5hcGVydHVyZS5saXZlLnYxLkN1cnNvckgAEjEKCnJ0Y19hbnN3ZXIYBCABKAsyGy5hcGVydHVyZS5saXZlLnYxLlJ0Y0Fuc3dlckgAEiYKBHRpbGUYBSABKAsyFi5hcGVydHVyZS5saXZlLnYxLlRpbGVIABIzCgtydGNfcmVmdXNlZBgGIAEoCzIcLmFwZXJ0dXJlLmxpdmUudjEuUnRjUmVmdXNlZEgAEjMKC3ZpZGVvX2ZyYW1lGAcgASgLMhwuYXBlcnR1cmUubGl2ZS52MS5WaWRlb0ZyYW1lSAASNQoMdmlkZW9fc3RhdHVzGAggASgLMh0uYXBlcnR1cmUubGl2ZS52MS5WaWRlb1N0YXR1c0gAEjAKCWNsaXBib2FyZBgJIAEoCzIbLmFwZXJ0dXJlLmxpdmUudjEuQ2xpcGJvYXJkSAASMAoJZG93bmxvYWRzGAogASgLMhsuYXBlcnR1cmUubGl2ZS52MS5Eb3dubG9hZHNIABI3Cg1maWxlX3JlcXVlc3RzGAsgASgLMh4uYXBlcnR1cmUubGl2ZS52MS5GaWxlUmVxdWVzdHNIABIuCghwcmVzZW5jZRgMIAEoCzIaLmFwZXJ0dXJlLmxpdmUudjEuUHJlc2VuY2VIABImCgRtZW51GA0gASgLMhYuYXBlcnR1cmUubGl2ZS52MS5NZW51SAASLQoFYXVkaW8YDiABKAsyHC5hcGVydHVyZS5saXZlLnYxLkF1ZGlvRnJhbWVIABIuCghmZWF0dXJlcxgPIAEoCzIaLmFwZXJ0dXJlLmxpdmUudjEuRmVhdHVyZXNIABIqCgZmYWlsZWQYECABKAsyGC5hcGVydHVyZS5saXZlLnYxLkZhaWxlZEgAEiwKB3BvaW50ZXIYESABKAsyGS5hcGVydHVyZS5saXZlLnYxLlBvaW50ZXJIABIqCgZzdHJva2UYEiABKAsyGC5hcGVydHVyZS5saXZlLnYxLlN0cm9rZUgAEigKBXBhY2VkGBMgASgLMhcuYXBlcnR1cmUubGl2ZS52MS5QYWNlZEgAQgkKB21lc3NhZ2UiLQoFUGFjZWQSJAoEcGFjZRgBIAEoDjIWLmFwZXJ0dXJlLmxpdmUudjEuUGFjZSLNAwoIRmVhdHVyZXMSJgoFaW5wdXQYCSABKAsyFy5hcGVydHVyZS5saXZlLnYxLkdyYW50EiUKBHRhYnMYCiABKAsyFy5hcGVydHVyZS5saXZlLnYxLkdyYW50EiYKBWxlYXNlGAsgASgLMhcuYXBlcnR1cmUubGl2ZS52MS5HcmFudBImCgVzb3VuZBgBIAEoCzIXLmFwZXJ0dXJlLmxpdmUudjEuR3JhbnQSKAoHdXBsb2FkcxgCIAEoCzIXLmFwZXJ0dXJlLmxpdmUudjEuR3JhbnQSKgoJZG93bmxvYWRzGAMgASgLMhcuYXBlcnR1cmUubGl2ZS52MS5HcmFudBIrCgpyZWNvcmRpbmdzGAQgASgLMhcuYXBlcnR1cmUubGl2ZS52MS5HcmFudBIqCgljbGlwYm9hcmQYBSABKAsyFy5hcGVydHVyZS5saXZlLnYxLkdyYW50EiQKA21jcBgGIAEoCzIXLmFwZXJ0dXJlLmxpdmUudjEuR3JhbnQSJAoDY2RwGAcgASgLMhcuYXBlcnR1cmUubGl2ZS52MS5HcmFudBInCgZ0dW5uZWwYCCABKAsyFy5hcGVydHVyZS5saXZlLnYxLkdyYW50IiQKBUdyYW50EgwKBHJlYWQYASABKAgSDQoFd3JpdGUYAiABKAgiuwEKBUhlbGxvEigKBnBpeGVscxgBIAEoDjIYLmFwZXJ0dXJlLmxpdmUudjEuUGl4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cGJvYXJkLkZvcm0aIgoERm9ybRIMCgR0eXBlGAEgASgJEgwKBGRhdGEYAiABKAwiRwoIVmlld3BvcnQSDQoFd2lkdGgYASABKA0SDgoGaGVpZ2h0GAIgASgNEhIKBXNjYWxlGAMgASgBSACIAQFCCAoGX3NjYWxlIt4BCgZUYXJnZXQSCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSCwoDdXJsGAMgASgJEg0KBXdpZHRoGAQgASgNEg4KBmhlaWdodBgFIAEoDRINCgVzY2FsZRgGIAEoARILCgN0YWIYByABKA0SDgoGc291bmRzGAggASgIEhEKCWdvZXNfYmFjaxgJIAEoCBIUCgxnb2VzX2ZvcndhcmQYCiABKAgSKAoEbW9kZRgLIAEoDjIaLmFwZXJ0dXJlLmxpdmUudjEuUGFnZU1vZGUSDgoGbW9iaWxlGAwgASgIIjQKB1RhcmdldHMSKQoHdGFyZ2V0cxgBIAMoCzIYLmFwZXJ0dXJlLmxpdmUudjEuVGFyZ2V0IiQKCFNlbGVjdGVkEhAKA3RhYhgBIAEoDUgAiAEBQgYKBF90YWIiYAoGQ3Vyc29yEg8KBW5hbWVkGAEgASgJSAASMQoGaGlkZGVuGAIgASgLMh8uYXBlcnR1cmUubGl2ZS52MS5DdXJzb3IuSGlkZGVuSAAaCAoGSGlkZGVuQggKBmN1cnNvcipMCgRQYWNlEhQKEFBBQ0VfVU5TUEVDSUZJRUQQABIQCgxQQUNFX0lOU1RBTlQQARINCglQQUNFX0ZBU1QQAhINCglQQUNFX1NMT1cQAyrFAQoLVmlkZW9Gb3JtYXQSHAoYVklERU9fRk9STUFUX1VOU1BFQ0lGSUVEEAASFQoRVklERU9fRk9STUFUX0gyNjQQARIcChhWSURFT19GT1JNQVRfRlVMTF9DSFJPTUEQAhIVChFWSURFT19GT1JNQVRfSDI2NRADEhQKEFZJREVPX0ZPUk1BVF9WUDkQBBIgChxWSURFT19GT1JNQVRfVlA5X0ZVTExfQ0hST01BEAUSFAoQVklERU9fRk9STUFUX0FWMRAGKnYKDFZpZGVvUXVhbGl0eRIdChlWSURFT19RVUFMSVRZX1VOU1BFQ0lGSUVEEAASFQoRVklERU9fUVVBTElUWV9MT1cQARIYChRWSURFT19RVUFMSVRZX01FRElVTRACEhYKElZJREVPX1FVQUxJVFlfRlVMTBADKlcKBlBpeGVscxIWChJQSVhFTFNfVU5TUEVDSUZJRUQQABIQCgxQSVhFTFNfVklERU8QARIQCgxQSVhFTFNfVElMRVMQAhIRCg1QSVhFTFNfRlJBTUVTEAMqpAEKC01vdXNlQnV0dG9uEhwKGE1PVVNFX0JVVFRPTl9VTlNQRUNJRklFRBAAEhUKEU1PVVNFX0JVVFRPTl9MRUZUEAESFgoSTU9VU0VfQlVUVE9OX1JJR0hUEAISFwoTTU9VU0VfQlVUVE9OX01JRERMRRADEhUKEU1PVVNFX0JVVFRPTl9CQUNLEAQSGAoUTU9VU0VfQlVUVE9OX0ZPUldBUkQQBSp/Cg1Eb3dubG9hZFN0YXRlEh4KGkRPV05MT0FEX1NUQVRFX1VOU1BFQ0lGSUVEEAASGgoWRE9XTkxPQURfU1RBVEVfUlVOTklORxABEhcKE0RPV05MT0FEX1NUQVRFX0RPTkUQAhIZChVET1dOTE9BRF9TVEFURV9GQUlMRUQQAypwCgtTdHJva2VQaGFzZRIcChhTVFJPS0VfUEhBU0VfVU5TUEVDSUZJRUQQABIWChJTVFJPS0VfUEhBU0VfU1RBUlQQARIVChFTVFJPS0VfUEhBU0VfTU9WRRACEhQKEFNUUk9LRV9QSEFTRV9FTkQQAypNCgRSb2xlEhQKEFJPTEVfVU5TUEVDSUZJRUQQABINCglST0xFX1ZJRVcQARIQCgxST0xFX0NPTlRST0wQAhIOCgpST0xFX0FETUlOEAMqiwEKC0xlYXNlQWN0aW9uEhwKGExFQVNFX0FDVElPTl9VTlNQRUNJRklFRBAAEhUKEUxFQVNFX0FDVElPTl9UQUtFEAESGAoUTEVBU0VfQUNUSU9OX1JFTEVBU0UQAhIWChJMRUFTRV9BQ1RJT05fQUxMT1cQAxIVChFMRUFTRV9BQ1RJT05fS0VFUBAEKlMKBUFsb25nEhUKEUFMT05HX1VOU1BFQ0lGSUVEEAASDgoKQUxPTkdfQkFDSxABEhEKDUFMT05HX0ZPUldBUkQQAhIQCgxBTE9OR19SRUxPQUQQAyqTAQoFQXNrZWQSFQoRQVNLRURfVU5TUEVDSUZJRUQQABIMCghBU0tFRF9HTxABEg8KC0FTS0VEX0NMT1NFEAISFgoSQVNLRURfQ09QWV9QSUNUVVJFEAMSFgoSQVNLRURfRklMRVNfQ0hPU0VOEAQSEAoMQVNLRURfRk9MTE9XEAUSEgoOQVNLRURfU0VUX01PREUQBipmCghQYWdlTW9kZRIZChVQQUdFX01PREVfVU5TUEVDSUZJRUQQABISCg5QQUdFX01PREVfQVVUTxABEhUKEVBBR0VfTU9ERV9ERVNLVE9QEAISFAoQUEFHRV9NT0RFX01PQklMRRADYgZwcm90bzM");
+  fileDesc("ChthcGVydHVyZS9saXZlL3YxL2xpdmUucHJvdG8SEGFwZXJ0dXJlLmxpdmUudjEi3QgKDUNsaWVudE1lc3NhZ2USKgoGc2VsZWN0GAEgASgLMhguYXBlcnR1cmUubGl2ZS52MS5TZWxlY3RIABI5Cg5wb2ludGVyX21vdGlvbhgCIAEoCzIfLmFwZXJ0dXJlLmxpdmUudjEuUG9pbnRlck1vdGlvbkgAEjkKDnBvaW50ZXJfYnV0dG9uGAMgASgLMh8uYXBlcnR1cmUubGl2ZS52MS5Qb2ludGVyQnV0dG9uSAASOQoOcG9pbnRlcl9zY3JvbGwYBCABKAsyHy5hcGVydHVyZS5saXZlLnYxLlBvaW50ZXJTY3JvbGxIABI3Cg1wb2ludGVyX2xlYXZlGAUgASgLMh4uYXBlcnR1cmUubGl2ZS52MS5Qb2ludGVyTGVhdmVIABIkCgNrZXkYBiABKAsyFS5hcGVydHVyZS5saXZlLnYxLktleUgAEiYKBHRleHQYByABKAsyFi5hcGVydHVyZS5saXZlLnYxLlRleHRIABIuCgh2aWV3cG9ydBgIIAEoCzIaLmFwZXJ0dXJlLmxpdmUudjEuVmlld3BvcnRIABIoCgVoZWxsbxgJIAEoCzIXLmFwZXJ0dXJlLmxpdmUudjEuSGVsbG9IABIvCglydGNfb2ZmZXIYCiABKAsyGi5hcGVydHVyZS5saXZlLnYxLlJ0Y09mZmVySAASMwoLdmlkZW9fc2hvd24YCyABKAsyHC5hcGVydHVyZS5saXZlLnYxLlZpZGVvU2hvd25IABIwCgljbGlwYm9hcmQYDCABKAsyGy5hcGVydHVyZS5saXZlLnYxLkNsaXBib2FyZEgAEiYKBGRyb3AYDSABKAsyFi5hcGVydHVyZS5saXZlLnYxLkRyb3BIABI1CgxmaWxlc19jaG9zZW4YDiABKAsyHS5hcGVydHVyZS5saXZlLnYxLkZpbGVzQ2hvc2VuSAASKAoFbGVhc2UYDyABKAsyFy5hcGVydHVyZS5saXZlLnYxLkxlYXNlSAASIgoCZ28YECABKAsyFC5hcGVydHVyZS5saXZlLnYxLkdvSAASNQoMY29weV9waWN0dXJlGBEgASgLMh0uYXBlcnR1cmUubGl2ZS52MS5Db3B5UGljdHVyZUgAEigKBWNsb3NlGBIgASgLMhcuYXBlcnR1cmUubGl2ZS52MS5DbG9zZUgAEioKBmZvbGxvdxgTIAEoCzIYLmFwZXJ0dXJlLmxpdmUudjEuRm9sbG93SAASJgoEZHJhdxgUIAEoCzIWLmFwZXJ0dXJlLmxpdmUudjEuRHJhd0gAEi4KCHBvaW50aW5nGBUgASgLMhouYXBlcnR1cmUubGl2ZS52MS5Qb2ludGluZ0gAEioKBmRldmljZRgWIAEoCzIYLmFwZXJ0dXJlLmxpdmUudjEuRGV2aWNlSAASLQoIc2V0X21vZGUYFyABKAsyGS5hcGVydHVyZS5saXZlLnYxLlNldE1vZGVIAEIJCgdtZXNzYWdlItYHCg1TZXJ2ZXJNZXNzYWdlEiwKB3RhcmdldHMYASABKAsyGS5hcGVydHVyZS5saXZlLnYxLlRhcmdldHNIABIuCghzZWxlY3RlZBgCIAEoCzIaLmFwZXJ0dXJlLmxpdmUudjEuU2VsZWN0ZWRIABIqCgZjdXJzb3IYAyABKAsyGC5hcGVydHVyZS5saXZlLnYxLkN1cnNvckgAEjEKCnJ0Y19hbnN3ZXIYBCABKAsyGy5hcGVydHVyZS5saXZlLnYxLlJ0Y0Fuc3dlckgAEiYKBHRpbGUYBSABKAsyFi5hcGVydHVyZS5saXZlLnYxLlRpbGVIABIzCgtydGNfcmVmdXNlZBgGIAEoCzIcLmFwZXJ0dXJlLmxpdmUudjEuUnRjUmVmdXNlZEgAEjMKC3ZpZGVvX2ZyYW1lGAcgASgLMhwuYXBlcnR1cmUubGl2ZS52MS5WaWRlb0ZyYW1lSAASNQoMdmlkZW9fc3RhdHVzGAggASgLMh0uYXBlcnR1cmUubGl2ZS52MS5WaWRlb1N0YXR1c0gAEjAKCWNsaXBib2FyZBgJIAEoCzIbLmFwZXJ0dXJlLmxpdmUudjEuQ2xpcGJvYXJkSAASMAoJZG93bmxvYWRzGAogASgLMhsuYXBlcnR1cmUubGl2ZS52MS5Eb3dubG9hZHNIABI3Cg1maWxlX3JlcXVlc3RzGAsgASgLMh4uYXBlcnR1cmUubGl2ZS52MS5GaWxlUmVxdWVzdHNIABIuCghwcmVzZW5jZRgMIAEoCzIaLmFwZXJ0dXJlLmxpdmUudjEuUHJlc2VuY2VIABImCgRtZW51GA0gASgLMhYuYXBlcnR1cmUubGl2ZS52MS5NZW51SAASLQoFYXVkaW8YDiABKAsyHC5hcGVydHVyZS5saXZlLnYxLkF1ZGlvRnJhbWVIABIuCghmZWF0dXJlcxgPIAEoCzIaLmFwZXJ0dXJlLmxpdmUudjEuRmVhdHVyZXNIABIqCgZmYWlsZWQYECABKAsyGC5hcGVydHVyZS5saXZlLnYxLkZhaWxlZEgAEiwKB3BvaW50ZXIYESABKAsyGS5hcGVydHVyZS5saXZlLnYxLlBvaW50ZXJIABIqCgZzdHJva2UYEiABKAsyGC5hcGVydHVyZS5saXZlLnYxLlN0cm9rZUgAEigKBXBhY2VkGBMgASgLMhcuYXBlcnR1cmUubGl2ZS52MS5QYWNlZEgAEjAKCXJlc3RvcmluZxgUIAEoCzIbLmFwZXJ0dXJlLmxpdmUudjEuUmVzdG9yaW5nSABCCQoHbWVzc2FnZSJvCglSZXN0b3JpbmcSEAoIdW5kZXJ3YXkYASABKAgSDAoEdGFicxgCIAEoDRIPCgdjb29raWVzGAMgASgNEg8KB29yaWdpbnMYBCABKA0SFAoHZmFpbHVyZRgFIAEoCUgAiAEBQgoKCF9mYWlsdXJlIi0KBVBhY2VkEiQKBHBhY2UYASABKA4yFi5hcGVydHVyZS5saXZlLnYxLlBhY2UizQMKCEZlYXR1cmVzEiYKBWlucHV0GAkgASgLMhcuYXBlcnR1cmUubGl2ZS52MS5HcmFudBIlCgR0YWJzGAogASgLMhcuYXBlcnR1cmUubGl2ZS52MS5HcmFudBImCgVsZWFzZRgLIAEoCzIXLmFwZXJ0dXJlLmxpdmUudjEuR3JhbnQSJgoFc291bmQYASABKAsyFy5hcGVydHVyZS5saXZlLnYxLkdyYW50EigKB3VwbG9hZHMYAiABKAsyFy5hcGVydHVyZS5saXZlLnYxLkdyYW50EioKCWRvd25sb2FkcxgDIAEoCzIXLmFwZXJ0dXJlLmxpdmUudjEuR3JhbnQSKwoKcmVjb3JkaW5ncxgEIAEoCzIXLmFwZXJ0dXJlLmxpdmUudjEuR3JhbnQSKgoJY2xpcGJvYXJkGAUgASgLMhcuYXBlcnR1cmUubGl2ZS52MS5HcmFudBIkCgNtY3AYBiABKAsyFy5hcGVydHVyZS5saXZlLnYxLkdyYW50EiQK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bGVzQ2hvc2VuEgoKAmlkGAEgASgEEg0KBWZpbGVzGAIgAygJIkoKBERyb3ASCQoBeBgBIAEoARIJCgF5GAIgASgBEiwKB2NvbnRlbnQYAyABKAsyGy5hcGVydHVyZS5saXZlLnYxLkNsaXBib2FyZCJgCglDbGlwYm9hcmQSLwoFZm9ybXMYASADKAsyIC5hcGVydHVyZS5saXZlLnYxLkNsaXBib2FyZC5Gb3JtGiIKBEZvcm0SDAoEdHlwZRgBIAEoCRIMCgRkYXRhGAIgASgMIkcKCFZpZXdwb3J0Eg0KBXdpZHRoGAEgASgNEg4KBmhlaWdodBgCIAEoDRISCgVzY2FsZRgDIAEoAUgAiAEBQggKBl9zY2FsZSLeAQoGVGFyZ2V0EgoKAmlkGAEgASgJEg0KBXRpdGxlGAIgASgJEgsKA3VybBgDIAEoCRINCgV3aWR0aBgEIAEoDRIOCgZoZWlnaHQYBSABKA0SDQoFc2NhbGUYBiABKAESCwoDdGFiGAcgASgNEg4KBnNvdW5kcxgIIAEoCBIRCglnb2VzX2JhY2sYCSABKAgSFAoMZ29lc19mb3J3YXJkGAogASgIEigKBG1vZGUYCyABKA4yGi5hcGVydHVyZS5saXZlLnYxLlBhZ2VNb2RlEg4KBm1vYmlsZRgMIAEoCCI0CgdUYXJnZXRzEikKB3RhcmdldHMYASADKAsyGC5hcGVydHVyZS5saXZlLnYxLlRhcmdldCIkCghTZWxlY3RlZBIQCgN0YWIYASABKA1IAIgBAUIGCgRfdGFiImAKBkN1cnNvchIPCgVuYW1lZBgBIAEoCUgAEjEKBmhpZGRlbhgCIAEoCzIfLmFwZXJ0dXJlLmxpdmUudjEuQ3Vyc29yLkhpZGRlbkgAGggKBkhpZGRlbkIICgZjdXJzb3IqTAoEUGFjZRIUChBQQUNFX1VOU1BFQ0lGSUVEEAASEAoMUEFDRV9JTlNUQU5UEAESDQoJUEFDRV9GQVNUEAISDQoJUEFDRV9TTE9XEAMqxQEKC1ZpZGVvRm9ybWF0EhwKGFZJREVPX0ZPUk1BVF9VTlNQRUNJRklFRBAAEhUKEVZJREVPX0ZPUk1BVF9IMjY0EAESHAoYVklERU9fRk9STUFUX0ZVTExfQ0hST01BEAISFQoRVklERU9fRk9STUFUX0gyNjUQAxIUChBWSURFT19GT1JNQVRfVlA5EAQSIAocVklERU9fRk9STUFUX1ZQOV9GVUxMX0NIUk9NQRAFEhQKEFZJREVPX0ZPUk1BVF9BVjEQBip2CgxWaWRlb1F1YWxpdHkSHQoZVklERU9fUVVBTElUWV9VTlNQRUNJRklFRBAAEhUKEVZJREVPX1FVQUxJVFlfTE9XEAESGAoUVklERU9fUVVBTElUWV9NRURJVU0QAhIWChJWSURFT19RVUFMSVRZX0ZVTEwQAypXCgZQaXhlbHMSFgoSUElYRUxTX1VOU1BFQ0lGSUVEEAASEAoMUElYRUxTX1ZJREVPEAESEAoMUElYRUxTX1RJTEVTEAISEQoNUElYRUxTX0ZSQU1FUxADKqQBCgtNb3VzZUJ1dHRvbhIcChhNT1VTRV9CVVRUT05fVU5TUEVDSUZJRUQQABIVChFNT1VTRV9CVVRUT05fTEVGVBABEhYKEk1PVVNFX0JVVFRPTl9SSUdIVBACEhcKE01PVVNFX0JVVFRPTl9NSURETEUQAxIVChFNT1VTRV9CVVRUT05fQkFDSxAEEhgKFE1PVVNFX0JVVFRPTl9GT1JXQVJEEAUqfwoNRG93bmxvYWRTdGF0ZRIeChpET1dOTE9BRF9TVEFURV9VTlNQRUNJRklFRBAAEhoKFkRPV05MT0FEX1NUQVRFX1JVTk5JTkcQARIXChNET1dOTE9BRF9TVEFURV9ET05FEAISGQoVRE9XTkxPQURfU1RBVEVfRkFJTEVEEAMqcAoLU3Ryb2tlUGhhc2USHAoYU1RST0tFX1BIQVNFX1VOU1BFQ0lGSUVEEAASFgoSU1RST0tFX1BIQVNFX1NUQVJUEAESFQoRU1RST0tFX1BIQVNFX01PVkUQAhIUChBTVFJPS0VfUEhBU0VfRU5EEAMqTQoEUm9sZRIUChBST0xFX1VOU1BFQ0lGSUVEEAASDQoJUk9MRV9WSUVXEAESEAoMUk9MRV9DT05UUk9MEAISDgoKUk9MRV9BRE1JThADKosBCgtMZWFzZUFjdGlvbhIcChhMRUFTRV9BQ1RJT05fVU5TUEVDSUZJRUQQABIVChFMRUFTRV9BQ1RJT05fVEFLRRABEhgKFExFQVNFX0FDVElPTl9SRUxFQVNFEAISFgoSTEVBU0VfQUNUSU9OX0FMTE9XEAMSFQoRTEVBU0VfQUNUSU9OX0tFRVAQBCpTCgVBbG9uZxIVChFBTE9OR19VTlNQRUNJRklFRBAAEg4KCkFMT05HX0JBQ0sQARIRCg1BTE9OR19GT1JXQVJEEAISEAoMQUxPTkdfUkVMT0FEEAMqkwEKBUFza2VkEhUKEUFTS0VEX1VOU1BFQ0lGSUVEEAASDAoIQVNLRURfR08QARIPCgtBU0tFRF9DTE9TRRACEhYKEkFTS0VEX0NPUFlfUElDVFVSRRADEhYKEkFTS0VEX0ZJTEVTX0NIT1NFThAEEhAKDEFTS0VEX0ZPTExPVxAFEhIKDkFTS0VEX1NFVF9NT0RFEAYqZgoIUGFnZU1vZGUSGQoVUEFHRV9NT0RFX1VOU1BFQ0lGSUVEEAASEgoOUEFHRV9NT0RFX0FVVE8QARIVChFQQUdFX01PREVfREVTS1RPUBACEhQKEFBBR0VfTU9ERV9NT0JJTEUQA2IGcHJvdG8z");
 
 /**
  * @generated from message aperture.live.v1.ClientMessage
@@ -296,6 +296,12 @@ export type ServerMessage = Message<"aperture.live.v1.ServerMessage"> & {
      */
     value: Paced;
     case: "paced";
+  } | {
+    /**
+     * @generated from field: aperture.live.v1.Restoring restoring = 20;
+     */
+    value: Restoring;
+    case: "restoring";
   } | { case: undefined; value?: undefined };
 };
 
@@ -305,6 +311,53 @@ export type ServerMessage = Message<"aperture.live.v1.ServerMessage"> & {
  */
 export const ServerMessageSchema: GenMessage<ServerMessage> = /*@__PURE__*/
   messageDesc(file_aperture_live_v1_live, 1);
+
+/**
+ * Whether the session is being given what its browser starts with: the storage state it
+ * was created with, or one that is put into it. Told once the client said `hello`, and
+ * again whenever it changes. While it is underway the session takes no input and changes
+ * no tabs for anyone: its pages are not yet what they are to be.
+ *
+ * @generated from message aperture.live.v1.Restoring
+ */
+export type Restoring = Message<"aperture.live.v1.Restoring"> & {
+  /**
+   * @generated from field: bool underway = 1;
+   */
+  underway: boolean;
+
+  /**
+   * What is put in, which is none of each until the state has come.
+   *
+   * @generated from field: uint32 tabs = 2;
+   */
+  tabs: number;
+
+  /**
+   * @generated from field: uint32 cookies = 3;
+   */
+  cookies: number;
+
+  /**
+   * @generated from field: uint32 origins = 4;
+   */
+  origins: number;
+
+  /**
+   * Why the state the session was to start with was not taken: the session is not what
+   * was asked for, and ends.
+   *
+   * @generated from field: optional string failure = 5;
+   */
+  failure?: string | undefined;
+};
+
+/**
+ * Describes the message aperture.live.v1.Restoring.
+ * Use `create(RestoringSchema)` to create a new message.
+ */
+export const RestoringSchema: GenMessage<Restoring> = /*@__PURE__*/
+  messageDesc(file_aperture_live_v1_live, 2);
 
 /**
  * How the session's automation moves the pointer in a tab that is being recorded. It is
@@ -326,7 +379,7 @@ export type Paced = Message<"aperture.live.v1.Paced"> & {
  * Use `create(PacedSchema)` to create a new message.
  */
 export const PacedSchema: GenMessage<Paced> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 2);
+  messageDesc(file_aperture_live_v1_live, 3);
 
 /**
  * What the client may do in the session, area by area: what whoever let it in gave it, of
@@ -421,7 +474,7 @@ export type Features = Message<"aperture.live.v1.Features"> & {
  * Use `create(FeaturesSchema)` to create a new message.
  */
 export const FeaturesSchema: GenMessage<Features> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 3);
+  messageDesc(file_aperture_live_v1_live, 4);
 
 /**
  * @generated from message aperture.live.v1.Grant
@@ -443,7 +496,7 @@ export type Grant = Message<"aperture.live.v1.Grant"> & {
  * Use `create(GrantSchema)` to create a new message.
  */
 export const GrantSchema: GenMessage<Grant> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 4);
+  messageDesc(file_aperture_live_v1_live, 5);
 
 /**
  * The client's first message. The session answers with what it offers, its targets, the
@@ -495,7 +548,7 @@ export type Hello = Message<"aperture.live.v1.Hello"> & {
  * Use `create(HelloSchema)` to create a new message.
  */
 export const HelloSchema: GenMessage<Hello> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 5);
+  messageDesc(file_aperture_live_v1_live, 6);
 
 /**
  * The video the client gets from now on, over WebRTC or as frames. Sent when it starts
@@ -527,7 +580,7 @@ export type VideoStatus = Message<"aperture.live.v1.VideoStatus"> & {
  * Use `create(VideoStatusSchema)` to create a new message.
  */
 export const VideoStatusSchema: GenMessage<VideoStatus> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 6);
+  messageDesc(file_aperture_live_v1_live, 7);
 
 /**
  * The session's sound: what its browser plays, all its pages together, as Opus packets of
@@ -554,7 +607,7 @@ export type AudioFrame = Message<"aperture.live.v1.AudioFrame"> & {
  * Use `create(AudioFrameSchema)` to create a new message.
  */
 export const AudioFrameSchema: GenMessage<AudioFrame> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 7);
+  messageDesc(file_aperture_live_v1_live, 8);
 
 /**
  * The client showed the video frame stamped `time_us`, or let it go undecoded. A client
@@ -575,7 +628,7 @@ export type VideoShown = Message<"aperture.live.v1.VideoShown"> & {
  * Use `create(VideoShownSchema)` to create a new message.
  */
 export const VideoShownSchema: GenMessage<VideoShown> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 8);
+  messageDesc(file_aperture_live_v1_live, 9);
 
 /**
  * A WebRTC offer, as SDP, with a video track for the session to send on.
@@ -594,7 +647,7 @@ export type RtcOffer = Message<"aperture.live.v1.RtcOffer"> & {
  * Use `create(RtcOfferSchema)` to create a new message.
  */
 export const RtcOfferSchema: GenMessage<RtcOffer> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 9);
+  messageDesc(file_aperture_live_v1_live, 10);
 
 /**
  * @generated from message aperture.live.v1.RtcAnswer
@@ -611,7 +664,7 @@ export type RtcAnswer = Message<"aperture.live.v1.RtcAnswer"> & {
  * Use `create(RtcAnswerSchema)` to create a new message.
  */
 export const RtcAnswerSchema: GenMessage<RtcAnswer> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 10);
+  messageDesc(file_aperture_live_v1_live, 11);
 
 /**
  * The session could not make the WebRTC connection the client offered. The session socket
@@ -631,7 +684,7 @@ export type RtcRefused = Message<"aperture.live.v1.RtcRefused"> & {
  * Use `create(RtcRefusedSchema)` to create a new message.
  */
 export const RtcRefusedSchema: GenMessage<RtcRefused> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 11);
+  messageDesc(file_aperture_live_v1_live, 12);
 
 /**
  * A frame of the watched target's video, as its format has frames: an access unit in
@@ -689,7 +742,7 @@ export type VideoFrame = Message<"aperture.live.v1.VideoFrame"> & {
  * Use `create(VideoFrameSchema)` to create a new message.
  */
 export const VideoFrameSchema: GenMessage<VideoFrame> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 12);
+  messageDesc(file_aperture_live_v1_live, 13);
 
 /**
  * A part of the watched target's picture that changed, as a PNG image; the whole picture
@@ -739,7 +792,7 @@ export type Tile = Message<"aperture.live.v1.Tile"> & {
  * Use `create(TileSchema)` to create a new message.
  */
 export const TileSchema: GenMessage<Tile> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 13);
+  messageDesc(file_aperture_live_v1_live, 14);
 
 /**
  * @generated from message aperture.live.v1.Select
@@ -756,7 +809,7 @@ export type Select = Message<"aperture.live.v1.Select"> & {
  * Use `create(SelectSchema)` to create a new message.
  */
 export const SelectSchema: GenMessage<Select> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 14);
+  messageDesc(file_aperture_live_v1_live, 15);
 
 /**
  * Positions are in the selected target's logical pixels, from its top-left corner.
@@ -780,7 +833,7 @@ export type PointerMotion = Message<"aperture.live.v1.PointerMotion"> & {
  * Use `create(PointerMotionSchema)` to create a new message.
  */
 export const PointerMotionSchema: GenMessage<PointerMotion> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 15);
+  messageDesc(file_aperture_live_v1_live, 16);
 
 /**
  * @generated from message aperture.live.v1.PointerButton
@@ -812,7 +865,7 @@ export type PointerButton = Message<"aperture.live.v1.PointerButton"> & {
  * Use `create(PointerButtonSchema)` to create a new message.
  */
 export const PointerButtonSchema: GenMessage<PointerButton> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 16);
+  messageDesc(file_aperture_live_v1_live, 17);
 
 /**
  * @generated from message aperture.live.v1.PointerScroll
@@ -846,7 +899,7 @@ export type PointerScroll = Message<"aperture.live.v1.PointerScroll"> & {
  * Use `create(PointerScrollSchema)` to create a new message.
  */
 export const PointerScrollSchema: GenMessage<PointerScroll> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 17);
+  messageDesc(file_aperture_live_v1_live, 18);
 
 /**
  * @generated from message aperture.live.v1.PointerLeave
@@ -859,7 +912,7 @@ export type PointerLeave = Message<"aperture.live.v1.PointerLeave"> & {
  * Use `create(PointerLeaveSchema)` to create a new message.
  */
 export const PointerLeaveSchema: GenMessage<PointerLeave> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 18);
+  messageDesc(file_aperture_live_v1_live, 19);
 
 /**
  * @generated from message aperture.live.v1.Key
@@ -883,7 +936,7 @@ export type Key = Message<"aperture.live.v1.Key"> & {
  * Use `create(KeySchema)` to create a new message.
  */
 export const KeySchema: GenMessage<Key> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 19);
+  messageDesc(file_aperture_live_v1_live, 20);
 
 /**
  * Text as it is, whatever keyboard it takes to write: what a phone's keyboard or an input
@@ -914,7 +967,7 @@ export type Text = Message<"aperture.live.v1.Text"> & {
  * Use `create(TextSchema)` to create a new message.
  */
 export const TextSchema: GenMessage<Text> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 20);
+  messageDesc(file_aperture_live_v1_live, 21);
 
 /**
  * What the session's browser downloaded since the session started, oldest first; the
@@ -935,7 +988,7 @@ export type Downloads = Message<"aperture.live.v1.Downloads"> & {
  * Use `create(DownloadsSchema)` to create a new message.
  */
 export const DownloadsSchema: GenMessage<Downloads> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 21);
+  messageDesc(file_aperture_live_v1_live, 22);
 
 /**
  * @generated from message aperture.live.v1.Download
@@ -982,7 +1035,7 @@ export type Download = Message<"aperture.live.v1.Download"> & {
  * Use `create(DownloadSchema)` to create a new message.
  */
 export const DownloadSchema: GenMessage<Download> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 22);
+  messageDesc(file_aperture_live_v1_live, 23);
 
 /**
  * Who is in the session and who drives which tab. Sent in answer to `hello` and whenever
@@ -1020,7 +1073,7 @@ export type Presence = Message<"aperture.live.v1.Presence"> & {
  * Use `create(PresenceSchema)` to create a new message.
  */
 export const PresenceSchema: GenMessage<Presence> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 23);
+  messageDesc(file_aperture_live_v1_live, 24);
 
 /**
  * @generated from message aperture.live.v1.Member
@@ -1068,7 +1121,7 @@ export type Member = Message<"aperture.live.v1.Member"> & {
  * Use `create(MemberSchema)` to create a new message.
  */
 export const MemberSchema: GenMessage<Member> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 24);
+  messageDesc(file_aperture_live_v1_live, 25);
 
 /**
  * Follows a member: the client watches the tab the member watches, also when the member
@@ -1089,7 +1142,7 @@ export type Follow = Message<"aperture.live.v1.Follow"> & {
  * Use `create(FollowSchema)` to create a new message.
  */
 export const FollowSchema: GenMessage<Follow> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 25);
+  messageDesc(file_aperture_live_v1_live, 26);
 
 /**
  * Where another member's pointer is on the tab the client watches, in the tab's logical
@@ -1118,7 +1171,7 @@ export type Pointer = Message<"aperture.live.v1.Pointer"> & {
  * Use `create(PointerSchema)` to create a new message.
  */
 export const PointerSchema: GenMessage<Pointer> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 26);
+  messageDesc(file_aperture_live_v1_live, 27);
 
 /**
  * @generated from message aperture.live.v1.Point
@@ -1140,7 +1193,7 @@ export type Point = Message<"aperture.live.v1.Point"> & {
  * Use `create(PointSchema)` to create a new message.
  */
 export const PointSchema: GenMessage<Point> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 27);
+  messageDesc(file_aperture_live_v1_live, 28);
 
 /**
  * Where the client's pointer is over the tab it watches while what it does there is no
@@ -1162,7 +1215,7 @@ export type Pointing = Message<"aperture.live.v1.Pointing"> & {
  * Use `create(PointingSchema)` to create a new message.
  */
 export const PointingSchema: GenMessage<Pointing> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 28);
+  messageDesc(file_aperture_live_v1_live, 29);
 
 /**
  * A point of a stroke the client draws over the tab it watches, in the tab's logical
@@ -1201,7 +1254,7 @@ export type Draw = Message<"aperture.live.v1.Draw"> & {
  * Use `create(DrawSchema)` to create a new message.
  */
 export const DrawSchema: GenMessage<Draw> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 29);
+  messageDesc(file_aperture_live_v1_live, 30);
 
 /**
  * A point of a stroke another member draws over the tab the client watches.
@@ -1240,7 +1293,7 @@ export type Stroke = Message<"aperture.live.v1.Stroke"> & {
  * Use `create(StrokeSchema)` to create a new message.
  */
 export const StrokeSchema: GenMessage<Stroke> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 30);
+  messageDesc(file_aperture_live_v1_live, 31);
 
 /**
  * @generated from message aperture.live.v1.HeldTab
@@ -1271,7 +1324,7 @@ export type HeldTab = Message<"aperture.live.v1.HeldTab"> & {
  * Use `create(HeldTabSchema)` to create a new message.
  */
 export const HeldTabSchema: GenMessage<HeldTab> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 31);
+  messageDesc(file_aperture_live_v1_live, 32);
 
 /**
  * About the tab the client watches.
@@ -1290,7 +1343,7 @@ export type Lease = Message<"aperture.live.v1.Lease"> & {
  * Use `create(LeaseSchema)` to create a new message.
  */
 export const LeaseSchema: GenMessage<Lease> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 32);
+  messageDesc(file_aperture_live_v1_live, 33);
 
 /**
  * The watched target's page was asked for its menu, as by a right click, and showed none
@@ -1334,7 +1387,7 @@ export type Menu = Message<"aperture.live.v1.Menu"> & {
  * Use `create(MenuSchema)` to create a new message.
  */
 export const MenuSchema: GenMessage<Menu> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 33);
+  messageDesc(file_aperture_live_v1_live, 34);
 
 /**
  * Takes the watched target's page elsewhere.
@@ -1374,7 +1427,7 @@ export type Go = Message<"aperture.live.v1.Go"> & {
  * Use `create(GoSchema)` to create a new message.
  */
 export const GoSchema: GenMessage<Go> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 34);
+  messageDesc(file_aperture_live_v1_live, 35);
 
 /**
  * Closes a target's tab, for a client that may give it input: one nobody else holds.
@@ -1393,7 +1446,7 @@ export type Close = Message<"aperture.live.v1.Close"> & {
  * Use `create(CloseSchema)` to create a new message.
  */
 export const CloseSchema: GenMessage<Close> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 35);
+  messageDesc(file_aperture_live_v1_live, 36);
 
 /**
  * Something a client asked for was not done. What is done is not answered: it shows in
@@ -1420,7 +1473,7 @@ export type Failed = Message<"aperture.live.v1.Failed"> & {
  * Use `create(FailedSchema)` to create a new message.
  */
 export const FailedSchema: GenMessage<Failed> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 36);
+  messageDesc(file_aperture_live_v1_live, 37);
 
 /**
  * What the client is used from. A client says so after `hello`, and again when it changes.
@@ -1442,7 +1495,7 @@ export type Device = Message<"aperture.live.v1.Device"> & {
  * Use `create(DeviceSchema)` to create a new message.
  */
 export const DeviceSchema: GenMessage<Device> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 37);
+  messageDesc(file_aperture_live_v1_live, 38);
 
 /**
  * Sets the mode of the tab the client watches, for a client that holds it. Where that
@@ -1462,7 +1515,7 @@ export type SetMode = Message<"aperture.live.v1.SetMode"> & {
  * Use `create(SetModeSchema)` to create a new message.
  */
 export const SetModeSchema: GenMessage<SetMode> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 38);
+  messageDesc(file_aperture_live_v1_live, 39);
 
 /**
  * Asks for a picture the watched target's page shows. The session answers with
@@ -1482,7 +1535,7 @@ export type CopyPicture = Message<"aperture.live.v1.CopyPicture"> & {
  * Use `create(CopyPictureSchema)` to create a new message.
  */
 export const CopyPictureSchema: GenMessage<CopyPicture> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 39);
+  messageDesc(file_aperture_live_v1_live, 40);
 
 /**
  * The pages that ask for files and have no answer yet, as a page does when a file input
@@ -1503,7 +1556,7 @@ export type FileRequests = Message<"aperture.live.v1.FileRequests"> & {
  * Use `create(FileRequestsSchema)` to create a new message.
  */
 export const FileRequestsSchema: GenMessage<FileRequests> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 40);
+  messageDesc(file_aperture_live_v1_live, 41);
 
 /**
  * @generated from message aperture.live.v1.FileRequest
@@ -1534,7 +1587,7 @@ export type FileRequest = Message<"aperture.live.v1.FileRequest"> & {
  * Use `create(FileRequestSchema)` to create a new message.
  */
 export const FileRequestSchema: GenMessage<FileRequest> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 41);
+  messageDesc(file_aperture_live_v1_live, 42);
 
 /**
  * Answers a page's request for files with files a client put into the session first (see
@@ -1560,7 +1613,7 @@ export type FilesChosen = Message<"aperture.live.v1.FilesChosen"> & {
  * Use `create(FilesChosenSchema)` to create a new message.
  */
 export const FilesChosenSchema: GenMessage<FilesChosen> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 42);
+  messageDesc(file_aperture_live_v1_live, 43);
 
 /**
  * Drops content onto the watched target at a position, as one who dragged it there would:
@@ -1593,7 +1646,7 @@ export type Drop = Message<"aperture.live.v1.Drop"> & {
  * Use `create(DropSchema)` to create a new message.
  */
 export const DropSchema: GenMessage<Drop> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 43);
+  messageDesc(file_aperture_live_v1_live, 44);
 
 /**
  * Content that is copied or dragged: the same content in each form it is had in, at most
@@ -1613,7 +1666,7 @@ export type Clipboard = Message<"aperture.live.v1.Clipboard"> & {
  * Use `create(ClipboardSchema)` to create a new message.
  */
 export const ClipboardSchema: GenMessage<Clipboard> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 44);
+  messageDesc(file_aperture_live_v1_live, 45);
 
 /**
  * @generated from message aperture.live.v1.Clipboard.Form
@@ -1640,7 +1693,7 @@ export type Clipboard_Form = Message<"aperture.live.v1.Clipboard.Form"> & {
  * Use `create(Clipboard_FormSchema)` to create a new message.
  */
 export const Clipboard_FormSchema: GenMessage<Clipboard_Form> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 44, 0);
+  messageDesc(file_aperture_live_v1_live, 45, 0);
 
 /**
  * The viewport of the target the client watches: the size its page gets, in logical (CSS)
@@ -1677,7 +1730,7 @@ export type Viewport = Message<"aperture.live.v1.Viewport"> & {
  * Use `create(ViewportSchema)` to create a new message.
  */
 export const ViewportSchema: GenMessage<Viewport> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 45);
+  messageDesc(file_aperture_live_v1_live, 46);
 
 /**
  * A browser target: a page of the session's browser, shown in a window of its own. It is
@@ -1770,7 +1823,7 @@ export type Target = Message<"aperture.live.v1.Target"> & {
  * Use `create(TargetSchema)` to create a new message.
  */
 export const TargetSchema: GenMessage<Target> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 46);
+  messageDesc(file_aperture_live_v1_live, 47);
 
 /**
  * Every target of the session, oldest first. Sent after `hello` and whenever a target
@@ -1790,7 +1843,7 @@ export type Targets = Message<"aperture.live.v1.Targets"> & {
  * Use `create(TargetsSchema)` to create a new message.
  */
 export const TargetsSchema: GenMessage<Targets> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 47);
+  messageDesc(file_aperture_live_v1_live, 48);
 
 /**
  * The tab the client's video shows from now on; none when the session has no target.
@@ -1809,7 +1862,7 @@ export type Selected = Message<"aperture.live.v1.Selected"> & {
  * Use `create(SelectedSchema)` to create a new message.
  */
 export const SelectedSchema: GenMessage<Selected> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 48);
+  messageDesc(file_aperture_live_v1_live, 49);
 
 /**
  * @generated from message aperture.live.v1.Cursor
@@ -1840,7 +1893,7 @@ export type Cursor = Message<"aperture.live.v1.Cursor"> & {
  * Use `create(CursorSchema)` to create a new message.
  */
 export const CursorSchema: GenMessage<Cursor> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 49);
+  messageDesc(file_aperture_live_v1_live, 50);
 
 /**
  * @generated from message aperture.live.v1.Cursor.Hidden
@@ -1853,7 +1906,7 @@ export type Cursor_Hidden = Message<"aperture.live.v1.Cursor.Hidden"> & {
  * Use `create(Cursor_HiddenSchema)` to create a new message.
  */
 export const Cursor_HiddenSchema: GenMessage<Cursor_Hidden> = /*@__PURE__*/
-  messageDesc(file_aperture_live_v1_live, 49, 0);
+  messageDesc(file_aperture_live_v1_live, 50, 0);
 
 /**
  * @generated from enum aperture.live.v1.Pace
