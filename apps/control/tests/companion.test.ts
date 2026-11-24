@@ -13,7 +13,7 @@ import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import { shot, signInWithToken } from "./src/console.ts";
+import { rested, shot, signInWithToken } from "./src/console.ts";
 import * as Control from "./src/control.ts";
 import { registeredWith } from "./src/node.ts";
 
@@ -272,7 +272,10 @@ suite(needs)("the companion, in a browser of someone's own", (it) => {
         "the session telling of the page's tab alone",
         executor.session(session!.id, "GET", "/targets").pipe(
           Effect.flatMap((listed) => read(listed, SessionTargets)),
-          Effect.map((all) => (all.length === 1 ? all : undefined)),
+          // It tells of the page's tab a moment after it tells the empty one is gone.
+          Effect.map((all) =>
+            all.length === 1 && all[0]?.url.startsWith(site.url) ? all : undefined,
+          ),
         ),
       );
       expect(tabs.map((tab) => tab.url)).toEqual([`${site.url}/notes`]);
@@ -431,6 +434,10 @@ suite(needs)("the companion, in a browser of someone's own", (it) => {
         "30 seconds",
       );
       const page = yield* viewer.adopt(asking.targetId);
+      // What the sign-in page offers comes as it learns of it, a passkey's button after
+      // the rest, and moves what is below: the page is pressed once it stays as it is.
+      yield* page.until(`!!document.querySelector("[data-console-sign-in-way]")`, "30 seconds");
+      yield* rested(page);
       yield* signInWithToken(page, ada.token);
       yield* page.until(`!!document.querySelector("[data-console-consent-allow]")`, "30 seconds");
       expect(yield* page.text("[data-console-consent]")).toContain("Aperture Companion");
