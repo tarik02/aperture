@@ -9,33 +9,82 @@ import {
   FieldSet,
 } from "@aperture-browser/ui/components/field";
 import { useForm, useStore } from "@tanstack/react-form";
-import { useId, useState } from "react";
+import { Fragment, useId, useState } from "react";
 import { ApertureMark } from "#/components/aperture-mark.tsx";
 import { useDocumentTitle } from "#/lib/document-title.ts";
 import { WindowTitlebar } from "#/components/window-titlebar.tsx";
-import { Choice } from "#/components/choice.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
 import { useApproveMutation } from "#/features/oauth/oauth.mutations.ts";
 import { useAskingQuery } from "#/features/oauth/oauth.queries.ts";
-import { SCOPES } from "#/features/token/scopes.ts";
+import { ticked, withBrought } from "#/features/token/scopes.ts";
 import {
   type ChosenResource,
+  resourcesOf,
   TokenResourcesPicker,
 } from "#/features/token/token-resources-picker.tsx";
 import { told } from "#/lib/api.ts";
 
-const REACH = [
-  { value: "all", label: "All this account reaches" },
-  { value: "chosen", label: "Only chosen workspaces, sessions and snapshots" },
-] as const;
+type Level = { readonly scope: Scope; readonly lets: string };
+
+/**
+ * What an app may be let do, by what it is done to: each thing in a row with the scopes
+ * there are for it, the lesser first. What only an admin does stands apart from the rest.
+ */
+const GROUPS: ReadonlyArray<{
+  readonly label: string;
+  readonly things: ReadonlyArray<{ readonly name: string; readonly levels: ReadonlyArray<Level> }>;
+}> = [
+  {
+    label: "Sessions and snapshots",
+    things: [
+      {
+        name: "Sessions",
+        levels: [
+          { scope: "sessions:read", lets: "See and watch" },
+          { scope: "sessions:write", lets: "Create, drive, delete" },
+        ],
+      },
+      {
+        name: "Snapshots",
+        levels: [
+          { scope: "snapshots:read", lets: "See" },
+          { scope: "snapshots:write", lets: "Save, change, delete" },
+        ],
+      },
+    ],
+  },
+  {
+    label: "Workspaces and account",
+    things: [
+      {
+        name: "Workspaces",
+        levels: [
+          { scope: "workspaces:read", lets: "See, with members" },
+          { scope: "workspaces:write", lets: "Create, set members" },
+        ],
+      },
+      { name: "API tokens", levels: [{ scope: "tokens:write", lets: "See, make and revoke" }] },
+      {
+        name: "Events",
+        levels: [{ scope: "events:read", lets: "See what was done, and by whom" }],
+      },
+    ],
+  },
+  {
+    label: "Administration",
+    things: [
+      {
+        name: "Nodes and accounts",
+        levels: [{ scope: "admin", lets: "All that only an admin does" }],
+      },
+    ],
+  },
+];
 
 /** What an app that asks for nothing in particular is offered: to drive sessions. */
 const USUAL: ReadonlyArray<Scope> = ["sessions:write", "snapshots:read"];
 
 const isScope = (given: string): given is Scope => Scope.literals.some((scope) => scope === given);
-
-const idsOf = (chosen: ReadonlyArray<ChosenResource>, kind: ChosenResource["kind"]) =>
-  chosen.filter((one) => one.kind === kind).map((one) => one.id);
 
 /** An authorization request as the address of this page carries it. */
 type Asked = {
@@ -107,16 +156,17 @@ function Consent({ asked }: { asked: Asked }) {
   const account = useAccountQuery();
   const asking = useAskingQuery(asked);
   const approve = useApproveMutation();
-  const reachId = useId();
   const resourcesId = useId();
   const admin = account.data?.admin === true;
   const form = useForm({
     defaultValues: {
-      scopes: [...(asked.scopes.length === 0 ? USUAL : asked.scopes)].filter(
-        (scope) => admin || scope !== "admin",
+      scopes: withBrought(
+        (asked.scopes.length === 0 ? USUAL : asked.scopes).filter(
+          (scope) => admin || scope !== "admin",
+        ),
       ),
       // None for a grant that reaches all its account does.
-      resources: null as ReadonlyArray<ChosenResource> | null,
+      resources: [] as ReadonlyArray<ChosenResource>,
     },
     onSubmit: async ({ value }) => {
       const [first, ...others] = value.scopes;
@@ -130,14 +180,7 @@ function Consent({ asked }: { asked: Asked }) {
           state: asked.state,
           codeChallenge: asked.codeChallenge,
           scopes: [first, ...others],
-          resources:
-            value.resources === null
-              ? undefined
-              : {
-                  workspaces: idsOf(value.resources, "workspaces"),
-                  sessions: idsOf(value.resources, "sessions"),
-                  snapshots: idsOf(value.resources, "snapshots"),
-                },
+          resources: resourcesOf(value.resources),
         });
         location.assign(redirectTo);
       } catch {
@@ -200,77 +243,81 @@ function Consent({ asked }: { asked: Asked }) {
                 data-invalid={said === undefined ? undefined : true}
               >
                 <FieldLegend variant="label">It may</FieldLegend>
-                <div data-slot="checkbox-group" className="aperture:grid aperture:gap-y-2">
-                  {SCOPES.filter((one) => admin || one.scope !== "admin").map((one) => (
-                    <label
-                      key={one.scope}
-                      className="aperture:flex aperture:items-start aperture:gap-2.5 aperture:text-sm"
-                    >
-                      <Checkbox
-                        data-console-scope={one.scope}
-                        className="aperture:mt-0.5"
-                        aria-invalid={said !== undefined}
-                        checked={field.state.value.includes(one.scope)}
-                        onCheckedChange={(checked) =>
-                          field.handleChange(
-                            SCOPES.map((each) => each.scope).filter((scope) =>
-                              scope === one.scope ? checked : field.state.value.includes(scope),
-                            ),
-                          )
-                        }
-                      />
-                      <span>
-                        {one.lets}{" "}
-                        <span className="aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
-                          {one.scope}
+                <div data-slot="checkbox-group" className="aperture:grid aperture:gap-y-3">
+                  {GROUPS.map((group) => ({
+                    ...group,
+                    things: group.things.filter((thing) =>
+                      thing.levels.some((level) => admin || level.scope !== "admin"),
+                    ),
+                  }))
+                    .filter((group) => group.things.length > 0)
+                    .map((group) => (
+                      <div
+                        key={group.label}
+                        role="group"
+                        aria-label={group.label}
+                        data-console-scope-group={group.label}
+                        // A name to the left of what is ticked for it where there is the
+                        // room, and above it on a phone.
+                        className="aperture:grid aperture:grid-cols-2 aperture:gap-x-3 aperture:gap-y-2 aperture:border-t aperture:pt-3 aperture:text-sm aperture:first:border-t-0 aperture:first:pt-0 aperture:sm:grid-cols-[7.5rem_1fr_1fr]"
+                      >
+                        <span className="aperture:col-span-full aperture:text-xs aperture:font-medium aperture:text-muted-foreground">
+                          {group.label}
                         </span>
-                      </span>
-                    </label>
-                  ))}
+                        {group.things.map((thing) => (
+                          <Fragment key={thing.name}>
+                            <span className="aperture:col-span-full aperture:sm:col-span-1">
+                              {thing.name}
+                            </span>
+                            {thing.levels.map((level) => (
+                              <label
+                                key={level.scope}
+                                className={
+                                  thing.levels.length === 1
+                                    ? "aperture:col-span-2 aperture:flex aperture:items-start aperture:gap-2.5"
+                                    : "aperture:flex aperture:items-start aperture:gap-2.5"
+                                }
+                              >
+                                <Checkbox
+                                  data-console-scope={level.scope}
+                                  className="aperture:mt-0.5"
+                                  aria-invalid={said !== undefined}
+                                  checked={field.state.value.includes(level.scope)}
+                                  onCheckedChange={(checked) =>
+                                    field.handleChange(
+                                      ticked(field.state.value, level.scope, checked),
+                                    )
+                                  }
+                                />
+                                <span className="aperture:grid aperture:min-w-0 aperture:gap-0.5">
+                                  {level.lets}
+                                  <span className="aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
+                                    {level.scope}
+                                  </span>
+                                </span>
+                              </label>
+                            ))}
+                          </Fragment>
+                        ))}
+                      </div>
+                    ))}
                 </div>
                 <FieldError reserved>{said}</FieldError>
               </FieldSet>
             );
           }}
         </form.Field>
-        <form.Field
-          name="resources"
-          validators={{
-            onSubmit: ({ value }) =>
-              value !== null && value.length === 0
-                ? "Choose at least one workspace, session or snapshot."
-                : undefined,
-          }}
-        >
-          {(field) => {
-            const said = field.state.meta.errors.find((error) => typeof error === "string");
-            return (
-              <Field
-                data-console-consent-reach
-                data-invalid={said === undefined ? undefined : true}
-              >
-                <FieldLabel htmlFor={reachId}>Among</FieldLabel>
-                <Choice
-                  id={reachId}
-                  className="aperture:w-full"
-                  value={field.state.value === null ? "all" : "chosen"}
-                  options={REACH}
-                  onChange={(reach) =>
-                    field.handleChange(reach === "all" ? null : (field.state.value ?? []))
-                  }
-                />
-                {field.state.value === null ? null : (
-                  <TokenResourcesPicker
-                    id={resourcesId}
-                    chosen={field.state.value}
-                    invalid={said !== undefined}
-                    onChange={field.handleChange}
-                  />
-                )}
-                <FieldError reserved>{said}</FieldError>
-              </Field>
-            );
-          }}
+        <form.Field name="resources">
+          {(field) => (
+            <Field data-console-consent-reach>
+              <FieldLabel htmlFor={resourcesId}>Among</FieldLabel>
+              <TokenResourcesPicker
+                id={resourcesId}
+                chosen={field.state.value}
+                onChange={field.handleChange}
+              />
+            </Field>
+          )}
         </form.Field>
         <div className="aperture:flex aperture:justify-end aperture:gap-2">
           <Button type="button" variant="outline" data-console-consent-deny onClick={deny}>

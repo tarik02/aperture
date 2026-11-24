@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 /**
  * Tells the styles what of the window the on-screen keyboard leaves to be seen, where the
@@ -48,4 +48,35 @@ export function useKeyboardInset() {
       root.style.removeProperty("--keyboard-top");
     };
   }, []);
+}
+
+/**
+ * What of the window's top and foot is not seen, mostly for an on-screen keyboard: for what
+ * is placed by a script, and stays clear of it.
+ */
+export function useKeyboardCovered() {
+  const subscribe = useCallback((tell: () => void) => {
+    const viewport = window.visualViewport;
+    viewport?.addEventListener("resize", tell);
+    viewport?.addEventListener("scroll", tell);
+    return () => {
+      viewport?.removeEventListener("resize", tell);
+      viewport?.removeEventListener("scroll", tell);
+    };
+  }, []);
+  // One string, so that what is told is the same until it changes.
+  const told = useSyncExternalStore(
+    subscribe,
+    () => {
+      const viewport = window.visualViewport;
+      if (viewport === null || Math.abs(viewport.scale - 1) >= 0.01) {
+        return "0 0";
+      }
+      const top = Math.max(0, Math.round(viewport.offsetTop));
+      return `${top} ${Math.max(0, Math.round(window.innerHeight - viewport.height - top))}`;
+    },
+    () => "0 0",
+  );
+  const [top = 0, bottom = 0] = told.split(" ").map(Number);
+  return { top, bottom };
 }
