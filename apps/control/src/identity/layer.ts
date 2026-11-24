@@ -15,7 +15,7 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import { Pool } from "pg";
 import { AccountsStore } from "../accounts/store.ts";
-import { EmailTaken, PersonNotFound } from "../errors.ts";
+import { AccountInvalid, EmailTaken, PersonNotFound } from "../errors.ts";
 import { anonymous } from "../events/schemas.ts";
 import { Events } from "../events/service.ts";
 import { type ActiveProvider, Providers } from "../providers/service.ts";
@@ -446,6 +446,7 @@ export const makeIdentity = Effect.fn("Identity.make")(function* () {
   const create = Effect.fn("Identity.create")(function* (person: {
     readonly email: string;
     readonly name: string;
+    readonly password?: string | undefined;
   }) {
     // Asked first: signing up with an address that is taken is answered as if it were not,
     // so that nobody learns from it who signs in here.
@@ -455,21 +456,29 @@ export const makeIdentity = Effect.fn("Identity.make")(function* () {
     if (taken !== null) {
       return yield* new EmailTaken({ email: person.email });
     }
-    const password = yield* Secrets.make("unset");
-    const made = yield* Effect.promise(() =>
-      current.auth.api.signUpEmail({ body: { ...person, password } }),
-    );
-    // Made with a password since nobody is made without, which is then nobody's: a
-    // person has one once they set it.
-    yield* Effect.promise(async () =>
-      (await current.auth.$context).adapter.deleteMany({
-        model: "account",
-        where: [
-          { field: "userId", value: made.user.id },
-          { field: "providerId", value: PASSWORD },
-        ],
-      }),
-    );
+    const { email, name } = person;
+    const password = person.password ?? (yield* Secrets.make("unset"));
+    const made = yield* Effect.tryPromise({
+      try: () => current.auth.api.signUpEmail({ body: { email, name, password } }),
+      // What it refuses is what was given: an address that is none, a password it takes none of.
+      catch: (error) =>
+        new AccountInvalid({
+          message: error instanceof APIError ? error.message : "that makes nobody a person",
+        }),
+    });
+    if (person.password === undefined) {
+      // Made with a password since nobody is made without, which is then nobody's: a
+      // person has one once they set it.
+      yield* Effect.promise(async () =>
+        (await current.auth.$context).adapter.deleteMany({
+          model: "account",
+          where: [
+            { field: "userId", value: made.user.id },
+            { field: "providerId", value: PASSWORD },
+          ],
+        }),
+      );
+    }
     return { id: made.user.id, email: made.user.email, name: made.user.name } satisfies Person;
   }, Effect.provide(context));
 

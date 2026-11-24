@@ -6,6 +6,7 @@ import * as HttpRouter from "effect/http/HttpRouter";
 import * as HttpStaticServer from "effect/http/HttpStaticServer";
 import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
+import * as FirstAdmin from "./accounts/first-admin.ts";
 import * as Accounts from "./accounts/layer.ts";
 import * as AccountsStoreSql from "./accounts/store-sql.ts";
 import * as Database from "./database.ts";
@@ -106,6 +107,7 @@ const serving = Layer.mergeAll(
     ),
   ),
   Following.layer,
+  FirstAdmin.layer,
   Forgetting.layer,
   EventsForgetting.layer,
 ).pipe(Layer.provide(services));

@@ -36,6 +36,16 @@ export interface AccountsStoreShape {
   readonly insertForPerson: (
     account: NewAccount & { readonly person: NonNullable<NewAccount["person"]> },
   ) => Effect.Effect<Account>;
+  /** Whether any account is a person's: whether anyone signs in here. */
+  readonly anyPerson: () => Effect.Effect<boolean>;
+  /**
+   * Does what makes the first person, where no account is a person's, and tells what it
+   * made; nothing where one is. Nothing else on this database does so meanwhile, so of
+   * two that come together the second finds the person the first made.
+   */
+  readonly forFirstPerson: <A, E, R>(
+    make: Effect.Effect<A, E, R>,
+  ) => Effect.Effect<Option.Option<A>, E, R>;
   readonly list: () => Effect.Effect<ReadonlyArray<Account>>;
   readonly find: (id: string) => Effect.Effect<Option.Option<Account>>;
   /** The account someone signs in as. */

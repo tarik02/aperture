@@ -65,7 +65,7 @@ Where accounts keep sessions and snapshots together: what is a workspace's is al
 An account for something that is not a person: it comes with API tokens alone. It holds sessions and snapshots and is let into workspaces as a person's account is.
 
 **Person**:
-Someone who signs in: known by an email address, and proven by a password of their own, which they set with a setup link an admin gives them, by a passkey they added, or by the word of a provider. A person has one account. Nobody makes themselves a person: an admin does, or a provider's word where the control plane is set to take it.
+Someone who signs in: known by an email address, and proven by a password of their own, which they set with a setup link an admin gives them, by a passkey they added, or by the word of a provider. A person has one account. Nobody makes themselves a person: an admin does, or a provider's word where the control plane is set to take it. The first is the exception, while there is none: the control plane logs a link when it starts, and whoever opens it names themselves and a password and is an admin.
 
 **Passkey**:
 What an authenticator of a person's keeps for them and proves it has, in place of their password: good at the address the control plane is reached at and nowhere else. A person adds passkeys once signed in, names them and removes them; one signs them in by itself, and no second factor is asked after it. An admin removes a person's passkeys without them, as for one who lost the device.

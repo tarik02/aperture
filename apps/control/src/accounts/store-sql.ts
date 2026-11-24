@@ -15,6 +15,9 @@ const Held = Schema.Struct({
   expiresAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
 });
 
+/** What is held while the first person is made: a number of this program's own choosing. */
+const FIRST_PERSON_LOCK = 7_800_001;
+
 /** Accounts in the SQL database. */
 export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -33,6 +36,27 @@ export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
       RETURNING *
     `.pipe(one(Account));
   });
+
+  const anyPerson = Effect.fn("AccountsStore.anyPerson")(function* () {
+    const found = yield* sql`SELECT id FROM accounts WHERE kind = 'person' LIMIT 1`.pipe(
+      Effect.orDie,
+    );
+    return found.length > 0;
+  });
+
+  const forFirstPerson = <A, E, R>(make: Effect.Effect<A, E, R>) =>
+    Effect.gen(function* () {
+      // Held until the transaction ends, by every program on this database alike.
+      yield* sql`SELECT pg_advisory_xact_lock(${FIRST_PERSON_LOCK})`.pipe(done);
+      if (yield* anyPerson()) {
+        return Option.none<A>();
+      }
+      return Option.some(yield* make);
+    }).pipe(
+      sql.withTransaction,
+      Effect.catchTag("SqlError", Effect.die),
+      Effect.withSpan("AccountsStore.forFirstPerson"),
+    );
 
   const list = Effect.fn("AccountsStore.list")(function* () {
     return yield* sql`SELECT * FROM accounts ORDER BY created_at, id`.pipe(all(Account));
@@ -151,6 +175,8 @@ export const makeAccountsStore = Effect.fn("AccountsStore.make")(function* () {
   return AccountsStore.of({
     insert,
     insertForPerson,
+    anyPerson,
+    forFirstPerson,
     list,
     find,
     findByPerson,
