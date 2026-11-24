@@ -30,6 +30,7 @@ use super::{
 };
 use crate::{
     files::{self, Download},
+    pace::Pace,
     pages::{self, Along, History},
     presence::{Identity, Mark, Membership, Phase, Present, Shown},
     proto::aperture::live::v1::{self as pb, client_message, server_message},
@@ -69,6 +70,7 @@ pub async fn serve(live: Live, socket: WebSocket, identity: Identity) {
     let mut client = Client {
         cursor: live.compositor.cursor(),
         clipboard: live.compositor.clipboard(),
+        pace: live.pace.watch(),
         downloads: live.downloads.clone(),
         file_requests: live.pages.requests(),
         menus: live.pages.menus(),
@@ -112,6 +114,7 @@ struct Client {
     cursor: watch::Receiver<Cursor>,
     /// What the session copied; the client is told what is copied from now on.
     clipboard: watch::Receiver<Option<Forms>>,
+    pace: watch::Receiver<Pace>,
     downloads: watch::Receiver<Vec<Download>>,
     file_requests: watch::Receiver<Vec<pages::Request>>,
     menus: broadcast::Receiver<pages::Menu>,
@@ -298,6 +301,12 @@ impl Client {
                     }
                     self.send_copied().await?;
                 }
+                changed = self.pace.changed() => {
+                    if changed.is_err() {
+                        return Ok(());
+                    }
+                    self.send_pace().await?;
+                }
             }
         }
     }
@@ -461,6 +470,7 @@ impl Client {
         self.formats = made.await.map_err(axum::Error::new)?;
         self.format = self.formats.first().copied().unwrap_or(Format::H264);
         self.send_features().await?;
+        self.send_pace().await?;
         self.send_targets().await?;
         self.send_cursor().await?;
         self.send_downloads().await?;

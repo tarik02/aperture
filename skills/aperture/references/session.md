@@ -25,6 +25,10 @@ Refusals here are plain text with a status: `401` no good credential, `403` the 
 | `GET /targets/{tab}/screenshot.png` | The tab as a PNG, now | watching |
 | `GET /targets/{tab}/favicon` | The icon of the tab's page, as the session's browser fetches it; `204` where the page has none | watching |
 | `GET /recordings`, `GET /screenshots`, `GET /downloads`, `GET /uploads` | What there is of each, as JSON | `recordings:r`, `downloads:r`, `uploads:r` |
+| `POST /recordings` | Starts recording `tab` (the newest when left out); `follow: true` has it go on with the tab automation acts on | `recordings:w` |
+| `POST /recordings/{id}/stop` | Stops it; the body says how its edit is made: `capture`, `idle`, `ripple`, `burst`, `motion_threshold`, `fps` | `recordings:w` |
+| `POST /recordings/{id}/edit` | Makes the edit again from the same raw video, with a body as `stop` takes; `409` while one is being made or the raw video is gone | `recordings:w` |
+| `GET /pace`, `PUT /pace` | How automation moves the pointer in what is recorded: `{"pace": "instant" \| "fast" \| "slow"}` | `recordings:r`, `recordings:w` |
 | `GET /files/<path>` | A file's bytes, `path` as the `files` tool gives it | the area of its directory |
 | `PUT /uploads/{name}` | Puts a file for a page to take; the body is the bytes | `uploads:w` |
 | `POST /storage-state` | Cookies and the storage of origins, out of the browser as JSON; `PUT` puts one in, with tabs to open | `cdp:w` |

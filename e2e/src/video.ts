@@ -55,6 +55,12 @@ export const frameSizes = (file: string) =>
     }),
   );
 
+/** How many frames a video has. */
+export const frameCount = (file: string) =>
+  run(["-an", "-i", file, "-vf", "showinfo", "-f", "null", "-"]).pipe(
+    Effect.map(({ errors }) => Array.from(errors.matchAll(/ pts_time:/gu)).length),
+  );
+
 /** How large the patch around a point is that tells its colour. */
 const PATCH = 4;
 

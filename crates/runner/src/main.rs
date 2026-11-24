@@ -13,6 +13,7 @@ mod extension;
 mod files;
 mod live;
 mod names;
+mod pace;
 mod pages;
 mod presence;
 mod targets;
@@ -424,11 +425,13 @@ impl Session {
             spec.features.recordings,
         );
         let presence = presence::Presence::new(self.compositor.clone());
+        let pace = pace::Paced::restore(spec.state_dir.join("pace.json"));
         let automation = Arc::new(automation::Automation::new(
             devtools.clone(),
             targets(),
             tabs.clone(),
             recordings.clone(),
+            pace.clone(),
             spec.files_dir.clone(),
             &presence,
         ));
@@ -441,6 +444,7 @@ impl Session {
             previews: Arc::default(),
             icons: Arc::default(),
             recordings: recordings.clone(),
+            pace,
             egress: self.egress.clone(),
             rtc_ports: spec.rtc_ports,
             downloads,

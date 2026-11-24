@@ -15,6 +15,8 @@ export {
   pictureStatus,
 } from "./components/picture-menu.tsx";
 export {
+  AutomationPaceItem,
+  EditSettingsItems,
   KeptFacts,
   KeptItems,
   keptPreview,
@@ -23,6 +25,7 @@ export {
   RunningRecordingItems,
   ScreenshotItem,
   useRecordingSettings,
+  type EditSettings,
   type RecordingSettings,
 } from "./components/recording-menu.tsx";
 export { SessionFilesButton } from "./components/session-files.tsx";

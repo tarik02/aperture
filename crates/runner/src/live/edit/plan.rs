@@ -28,7 +28,8 @@ const RIPPLE_MS: i64 = 600;
 /// a view that chased every move of the pointer would never hold still.
 const POINTER_DEAD_ZONE: f64 = 0.5;
 
-/// What a recording says, as it starts, about the edit made when it stops.
+/// How an edit of a recording is made: said as the recording stops, and again for every
+/// edit that is made of it after.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Options {
@@ -39,11 +40,14 @@ pub struct Options {
     /// Marks clicks with a ripple.
     pub ripple: bool,
     pub burst: Burst,
-    /// How automation moves the pointer while the recording runs.
-    pub pace: Pace,
     /// The share of the picture that must change for something to have happened, for
     /// `idle` and `bursts` to tell: from 0 to 1.
     pub motion_threshold: f64,
+    /// The edited video's frames a second. The raw video has a frame where the picture
+    /// changed, sixty a second at most: more would only repeat them. Sixty unless said
+    /// otherwise, so that what moved moves as it did: of a page that moves all the while,
+    /// that edit is about a third larger than one at thirty, and takes little longer.
+    pub fps: u32,
 }
 
 impl Default for Options {
@@ -53,24 +57,11 @@ impl Default for Options {
             idle: None,
             ripple: false,
             burst: Burst::default(),
-            pace: Pace::default(),
             // A typed character counts, a mark a few pixels large does not.
             motion_threshold: 0.0002,
+            fps: 60,
         }
     }
-}
-
-/// How fast automation acts on a target that is being recorded.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Pace {
-    /// The pointer jumps to each action.
-    Instant,
-    /// The pointer travels there, quickly but so that the eye can follow.
-    #[default]
-    Fast,
-    /// Unhurried travel, for demos.
-    Slow,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,6 +109,9 @@ impl Options {
         }
         if !(0.0..=1.0).contains(&self.motion_threshold) {
             return Err("motion_threshold must be 0 to 1".into());
+        }
+        if !(1..=60).contains(&self.fps) {
+            return Err("fps must be 1 to 60".into());
         }
         let burst = self.burst;
         let sizes = [
@@ -199,7 +193,7 @@ impl Video {
 
 /// A stretch of the raw video in which its picture has one size: from `at_ms` until the
 /// next one begins.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Segment {
     pub at_ms: i64,
     pub width: u32,

@@ -128,8 +128,11 @@ A file under the session's files directory: downloads, uploads and recordings. S
 A target's video and sound from start to stop, written as it is encoded for those who watch, with a journal of what automation did meanwhile. That is the raw recording. It may go on with another tab, and its picture changes size as the tab's does.
 
 **Recording edit**:
-What is made of a raw recording once it stops: a second video with the cuts, speed-ups, captions, zooms and click ripples the recording asked for, and a timeline that maps one to the other. Its frame is the smallest every size of the raw picture fits in, each in the middle of it. The raw recording stays.
+What is made of a raw recording once it stops: a second video with the cuts, speed-ups, captions, zooms and click ripples whoever stopped it asked for, and a timeline that maps one to the other. Its frame is the smallest every size of the raw picture fits in, each in the middle of it. The raw recording stays, and the edit is made of it again with other options: a recording has one edit, the last one made.
 _Avoid_: Post-processing, render
+
+**Pace**:
+How the session's automation moves the pointer in a tab that is being recorded: at once, or along a way the eye can follow, quickly or slowly. It is the session's, the same for every recording and every member, and stays when the session is suspended and resumed. A tab nothing records gets its input at once.
 
 **Tap**:
 The session's extension taking one tab's sound apart from the others, so each listener hears the tab they watch. A tapped tab plays into its tap and nowhere else.

@@ -47,19 +47,23 @@ export function useRecordingTimeline(
 ): RecordingTimeline | undefined {
   const session = useSession();
   const file = recording?.edit?.timeline ?? undefined;
-  const [read, setRead] = useState<{ file: string; timeline: RecordingTimeline } | undefined>();
+  // An edit that was made again has the file of the one before.
+  const made = recording?.edit?.made_at_ms ?? 0;
+  const [read, setRead] = useState<
+    { file: string; made: number; timeline: RecordingTimeline } | undefined
+  >();
 
   useEffect(() => {
     if (file === undefined) {
       return undefined;
     }
     const asking = new AbortController();
-    fetch(session.fileUrl(file), { signal: asking.signal })
+    fetch(session.fileUrl(file), { signal: asking.signal, cache: "no-store" })
       .then((answer) => (answer.ok ? answer.json() : undefined))
       .then(
         (timeline: unknown) => {
           if (isTimeline(timeline)) {
-            setRead({ file, timeline });
+            setRead({ file, made, timeline });
           }
         },
         () => {
@@ -67,7 +71,7 @@ export function useRecordingTimeline(
         },
       );
     return () => asking.abort();
-  }, [session, file]);
+  }, [session, file, made]);
 
-  return read?.file === file ? read?.timeline : undefined;
+  return read?.file === file && read?.made === made ? read?.timeline : undefined;
 }

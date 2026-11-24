@@ -41,6 +41,7 @@ use crate::{
     cdp,
     egress::Egress,
     files::{self, Download, Progress, UPLOADS},
+    pace::{Pace, Paced},
     pages::Pages,
     presence::{Identity, Presence},
     targets::{Mode, Tabs, Target},
@@ -60,6 +61,8 @@ pub struct Live {
     pub previews: Arc<shots::Previews>,
     pub icons: Arc<super::icons::Icons>,
     pub recordings: Recordings,
+    /// How the session's automation moves the pointer in what is recorded.
+    pub pace: Paced,
     pub egress: Arc<Egress>,
     pub rtc_ports: Option<PortRange>,
     pub downloads: watch::Receiver<Vec<Download>>,
@@ -98,8 +101,10 @@ pub async fn serve(socket: &Path, live: Live, automation: Arc<Automation>) -> st
         .route("/recordings", get(recordings_list).post(recording_start))
         .route("/recordings/{id}", get(recording_get))
         .route("/recordings/{id}/stop", post(recording_stop))
+        .route("/recordings/{id}/edit", post(recording_edit))
         .route("/recordings/{id}/retarget", post(recording_retarget))
         .route("/recordings/annotations/{kind}", post(recording_annotate))
+        .route("/pace", get(pace_get).put(pace_set))
         .route("/downloads", get(downloads_list))
         .route("/busy", get(busy))
         .route("/files/{*path}", get(file));
@@ -605,9 +610,9 @@ struct StartRecording {
     /// The tab to record; the newest one when left out.
     #[serde(default, deserialize_with = "named")]
     tab: Option<String>,
-    /// What the edit does once the recording stops.
-    #[serde(flatten)]
-    options: Options,
+    /// Go on with whichever tab the session's automation acts on.
+    #[serde(default)]
+    follow: bool,
 }
 
 async fn recording_start(
@@ -617,7 +622,7 @@ async fn recording_start(
     let request = body.map(|Json(request)| request).unwrap_or_default();
     let started = live
         .recordings
-        .start(request.tab.as_deref(), request.options);
+        .start(request.tab.as_deref(), request.follow);
     Ok((StatusCode::CREATED, Json(started.await?)))
 }
 
@@ -658,11 +663,43 @@ async fn recording_get(
     Ok(Json(live.recordings.get(&id)?))
 }
 
+/// Stops a recording. What is passed says how its edit is made.
 async fn recording_stop(
     State(live): State<Live>,
     RoutePath(id): RoutePath<String>,
+    options: Option<Json<Options>>,
 ) -> Result<Json<Recording>, Refusal> {
-    Ok(Json(live.recordings.stop(&id).await?))
+    let options = options.map(|Json(options)| options).unwrap_or_default();
+    Ok(Json(live.recordings.stop(&id, options).await?))
+}
+
+/// Makes the edit of a stopped recording again, with what is passed.
+async fn recording_edit(
+    State(live): State<Live>,
+    RoutePath(id): RoutePath<String>,
+    options: Option<Json<Options>>,
+) -> Result<Json<Recording>, Refusal> {
+    let options = options.map(|Json(options)| options).unwrap_or_default();
+    Ok(Json(live.recordings.edit(&id, options)?))
+}
+
+/// The session's pace, as it is told and set.
+#[derive(Serialize, Deserialize)]
+struct PaceView {
+    pace: Pace,
+}
+
+async fn pace_get(State(live): State<Live>) -> Json<PaceView> {
+    Json(PaceView {
+        pace: live.pace.get(),
+    })
+}
+
+async fn pace_set(State(live): State<Live>, Json(asked): Json<PaceView>) -> Json<PaceView> {
+    live.pace.set(asked.pace);
+    Json(PaceView {
+        pace: live.pace.get(),
+    })
 }
 
 #[derive(Deserialize)]

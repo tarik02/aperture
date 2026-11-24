@@ -116,6 +116,23 @@ export const featuresOf = (features: pb.Features): Features => ({
   tunnel: grantOf(features.tunnel),
 });
 
+/** How the session's automation moves the pointer in a tab that is being recorded. */
+export type Pace = "instant" | "fast" | "slow";
+
+export const paceOf = (pace: pb.Pace): Pace => {
+  switch (pace) {
+    case pb.Pace.INSTANT: {
+      return "instant";
+    }
+    case pb.Pace.SLOW: {
+      return "slow";
+    }
+    default: {
+      return "fast";
+    }
+  }
+};
+
 export interface Member {
   readonly id: number;
   readonly name: string;
@@ -256,6 +273,8 @@ export interface Snapshot {
   readonly picture: Picture;
   /** Nothing is granted until the session has told. */
   readonly features: Features;
+  /** How the session's automation moves the pointer in a tab that is being recorded. */
+  readonly pace: Pace;
   /** The numbers of the tabs that are muted here; the others are heard while watched. */
   readonly muted: readonly number[];
   /** The session's right-click report, at the client coordinates of the click. */

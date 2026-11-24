@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Recording, Screenshot, StartRecording } from "@aperture-browser/session-client";
+import type {
+  EditRecording,
+  Recording,
+  Screenshot,
+  StartRecording,
+} from "@aperture-browser/session-client";
 import { useSession, useSessionSnapshot } from "../session.tsx";
 
 /** How often the recordings are asked for while one is being made or edited. */
@@ -17,7 +22,10 @@ export interface RecordingsControl {
   readonly refresh: () => void;
   /** Rejects with what the session answered. */
   readonly start: (options?: StartRecording) => Promise<Recording>;
-  readonly stop: (id: string) => Promise<Recording>;
+  /** Stops a recording; its edit is made with `options`. */
+  readonly stop: (id: string, options?: EditRecording) => Promise<Recording>;
+  /** Makes the edit of a stopped recording again, with other options. */
+  readonly edit: (id: string, options?: EditRecording) => Promise<Recording>;
   /** Takes a screenshot of a target and keeps it in the session's files. */
   readonly takeScreenshot: (tab: number) => Promise<Screenshot>;
 }
@@ -92,12 +100,23 @@ export function useRecordings(enabled = true): RecordingsControl {
   );
 
   const stop = useCallback(
-    async (id: string) => {
+    async (id: string, options?: EditRecording) => {
       setBusy(true);
       try {
-        return await session.recordings.stop(id);
+        return await session.recordings.stop(id, options);
       } finally {
         setBusy(false);
+        refresh();
+      }
+    },
+    [session, refresh],
+  );
+
+  const edit = useCallback(
+    async (id: string, options?: EditRecording) => {
+      try {
+        return await session.recordings.edit(id, options);
+      } finally {
         refresh();
       }
     },
@@ -115,7 +134,7 @@ export function useRecordings(enabled = true): RecordingsControl {
     [session, refresh],
   );
 
-  return { recordings, screenshots, busy, refresh, start, stop, takeScreenshot };
+  return { recordings, screenshots, busy, refresh, start, stop, edit, takeScreenshot };
 }
 
 /** Something the session kept of a tab: a recording that ended, or a screenshot. */
