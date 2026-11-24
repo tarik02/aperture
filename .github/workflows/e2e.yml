@@ -75,7 +75,9 @@ jobs:
       - name: Build the programs
         run: |
           nix build .#aperture-unwrapped --out-link programs --print-build-logs
-          echo "APERTURE_BIN=$PWD/programs/bin" >> "$GITHUB_ENV"
+          # Where they are, as a program finds itself: a check of what a browser sees of
+          # the machine goes by it.
+          echo "APERTURE_BIN=$(readlink --canonicalize programs)/bin" >> "$GITHUB_ENV"
 
       - name: Build the workbench and the console
         run: |
