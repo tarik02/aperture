@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SplatRouteImport } from './routes/$'
+import { Route as R404RouteImport } from './routes/404'
 import { Route as ApiReferenceRouteImport } from './routes/api-reference'
 import { Route as OpenapiDotjsonRouteImport } from './routes/openapi[.]json'
 import { Route as ApiSearchRouteImport } from './routes/api/search'
@@ -17,6 +18,11 @@ import { Route as ApiSearchRouteImport } from './routes/api/search'
 const SplatRoute = SplatRouteImport.update({
   id: '/$',
   path: '/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const R404Route = R404RouteImport.update({
+  id: '/404',
+  path: '/404',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiReferenceRoute = ApiReferenceRouteImport.update({
@@ -37,12 +43,14 @@ const ApiSearchRoute = ApiSearchRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/$': typeof SplatRoute
+  '/404': typeof R404Route
   '/api-reference': typeof ApiReferenceRoute
   '/openapi.json': typeof OpenapiDotjsonRoute
   '/api/search': typeof ApiSearchRoute
 }
 export interface FileRoutesByTo {
   '/$': typeof SplatRoute
+  '/404': typeof R404Route
   '/api-reference': typeof ApiReferenceRoute
   '/openapi.json': typeof OpenapiDotjsonRoute
   '/api/search': typeof ApiSearchRoute
@@ -50,20 +58,28 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/$': typeof SplatRoute
+  '/404': typeof R404Route
   '/api-reference': typeof ApiReferenceRoute
   '/openapi.json': typeof OpenapiDotjsonRoute
   '/api/search': typeof ApiSearchRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/$' | '/api-reference' | '/openapi.json' | '/api/search'
+  fullPaths: '/$' | '/404' | '/api-reference' | '/openapi.json' | '/api/search'
   fileRoutesByTo: FileRoutesByTo
-  to: '/$' | '/api-reference' | '/openapi.json' | '/api/search'
-  id: '__root__' | '/$' | '/api-reference' | '/openapi.json' | '/api/search'
+  to: '/$' | '/404' | '/api-reference' | '/openapi.json' | '/api/search'
+  id:
+    | '__root__'
+    | '/$'
+    | '/404'
+    | '/api-reference'
+    | '/openapi.json'
+    | '/api/search'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   SplatRoute: typeof SplatRoute
+  R404Route: typeof R404Route
   ApiReferenceRoute: typeof ApiReferenceRoute
   OpenapiDotjsonRoute: typeof OpenapiDotjsonRoute
   ApiSearchRoute: typeof ApiSearchRoute
@@ -76,6 +92,13 @@ declare module '@tanstack/react-router' {
       path: '/$'
       fullPath: '/$'
       preLoaderRoute: typeof SplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/404': {
+      id: '/404'
+      path: '/404'
+      fullPath: '/404'
+      preLoaderRoute: typeof R404RouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api-reference': {
@@ -104,6 +127,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   SplatRoute: SplatRoute,
+  R404Route: R404Route,
   ApiReferenceRoute: ApiReferenceRoute,
   OpenapiDotjsonRoute: OpenapiDotjsonRoute,
   ApiSearchRoute: ApiSearchRoute,

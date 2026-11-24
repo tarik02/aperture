@@ -1,0 +1,11 @@
+/docs / 301
+/docs/installation /install 301
+/docs/docker /install#container-image 301
+/docs/monitoring /install#health 301
+/docs/cli /upgrading-from-v1 301
+/docs/session-sharing /using#share-links 301
+/docs/development / 301
+/docs/packages/session-react /packages/session-react 301
+/docs/packages/session-element /packages/session-element 301
+/docs/packages/* /upgrading-from-v1 301
+/docs/* / 301

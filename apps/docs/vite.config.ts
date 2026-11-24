@@ -10,8 +10,13 @@ export default defineConfig({
     tailwindcss(),
     tanstackStart({
       prerender: { enabled: true, crawlLinks: true, failOnError: true },
-      // What no page links to: the search's index and the API's document.
-      pages: [{ path: "/api/search" }, { path: "/openapi.json" }],
+      // What no page links to: the search's index, the API's document, and what an address
+      // with no page gets, which is a file at the top and not a directory's index.
+      pages: [
+        { path: "/api/search" },
+        { path: "/openapi.json" },
+        { path: "/404", prerender: { autoSubfolderIndex: false } },
+      ],
     }),
     viteReact(),
   ]),
