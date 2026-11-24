@@ -10,7 +10,7 @@ import type * as Scope from "effect/Scope";
 import * as Socket from "effect/socket/Socket";
 import * as Cdp from "./cdp.ts";
 import { type Answer, request } from "./http.ts";
-import { DidNotStart, directory, freePort, run } from "./process.ts";
+import { DidNotStart, directory, run } from "./process.ts";
 import { program } from "./programs.ts";
 import { until } from "./wait.ts";
 
@@ -72,14 +72,15 @@ export const start = Effect.fn("Runner.start")(function* (options: RunnerOptions
   const http = yield* HttpClient.HttpClient;
   const webSockets = yield* Socket.WebSocketConstructor;
   const dir = yield* directory;
-  const port = yield* freePort;
   const features = (options.features ?? []).flatMap((feature) => ["--feature", feature]);
   const runner = yield* run(yield* program("aperture-runner"), [
     "serve",
     "--data",
     `${dir}/session`,
+    // A port the system chooses as the runner listens: one found free here before may be
+    // another's by then, as another file's checks start sessions of their own.
     "--listen",
-    `127.0.0.1:${port}`,
+    "127.0.0.1:0",
     "--runtime-dir",
     `${dir}/run`,
     ...features,
@@ -92,7 +93,14 @@ export const start = Effect.fn("Runner.start")(function* (options: RunnerOptions
       .pipe(Effect.map((written) => written.trim() || undefined)),
     "30 seconds",
   );
-  const url = `http://127.0.0.1:${port}`;
+  const address = yield* until(
+    "the runner writing where it listens",
+    fs
+      .readFileString(`${dir}/session/address`)
+      .pipe(Effect.map((written) => written.trim() || undefined)),
+    "30 seconds",
+  );
+  const url = `http://${address}`;
   const ask: RunnerService["request"] = (method, path, body) =>
     request(url, token, method, path, body).pipe(
       Effect.provideService(HttpClient.HttpClient, http),
@@ -112,7 +120,7 @@ export const start = Effect.fn("Runner.start")(function* (options: RunnerOptions
     page: (query = {}) => `${url}/?${new URLSearchParams({ token, ...query }).toString()}`,
     request: ask,
     targets,
-    cdp: Cdp.connect(`ws://127.0.0.1:${port}/cdp?token=${token}`).pipe(
+    cdp: Cdp.connect(`ws://${address}/cdp?token=${token}`).pipe(
       Effect.provideService(Socket.WebSocketConstructor, webSockets),
     ),
     said: runner.said,
