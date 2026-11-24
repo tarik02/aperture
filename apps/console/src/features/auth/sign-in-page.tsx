@@ -5,10 +5,17 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { CodeInput } from "#/components/code-input.tsx";
+import { NotAnswering } from "#/components/not-answering.tsx";
 import { TextField } from "#/components/text-field.tsx";
 import { AuthCard } from "#/features/auth/auth-card.tsx";
 import { takePasswordSet } from "#/features/auth/password-set.ts";
-import { continueWith, refusal, useProvidersQuery } from "#/features/auth/sso.ts";
+import {
+  continueWith,
+  refusal,
+  type SignInProvider,
+  useProvidersQuery,
+} from "#/features/auth/sso.ts";
+import { useUnanswered } from "#/lib/answering.ts";
 import { callAs, carry, told } from "#/lib/api.ts";
 import {
   calledOff,
@@ -58,12 +65,16 @@ const useSignedIn = () => {
 export function SignInPage() {
   const [way, setWay] = useState<Way>("password");
   const providers = useProvidersQuery();
+  const unanswered = useUnanswered(providers);
+  if (unanswered) {
+    return <NotAnswering />;
+  }
   // Shown once it is known which ways in there are: nothing moves under a pointer then.
   if (providers.isPending) {
     return null;
   }
   if (way === "password") {
-    return <WithPassword onWay={setWay} />;
+    return <WithPassword providers={providers.data ?? []} onWay={setWay} />;
   }
   if (way === "token") {
     return <WithToken onWay={setWay} />;
@@ -73,9 +84,14 @@ export function SignInPage() {
 }
 
 /** The providers there are, each a way in beside the password; why one signed nobody in. */
-function Providers({ onRefused }: { onRefused: (error: unknown) => void }) {
+function Providers({
+  providers,
+  onRefused,
+}: {
+  providers: ReadonlyArray<SignInProvider>;
+  onRefused: (error: unknown) => void;
+}) {
   const router = useRouter();
-  const providers = useProvidersQuery();
   const [refused] = useState(refusal);
   const leaving = useMutation({ mutationFn: continueWith, onError: onRefused });
 
@@ -88,7 +104,7 @@ function Providers({ onRefused }: { onRefused: (error: unknown) => void }) {
 
   return (
     <>
-      {(providers.data ?? []).map((provider) => (
+      {providers.map((provider) => (
         <Button
           key={provider.id}
           type="button"
@@ -152,7 +168,13 @@ function WithPasskey({ onRefused }: { onRefused: (error: unknown) => void }) {
   );
 }
 
-function WithPassword({ onWay }: { onWay: (way: Way) => void }) {
+function WithPassword({
+  providers,
+  onWay,
+}: {
+  providers: ReadonlyArray<SignInProvider>;
+  onWay: (way: Way) => void;
+}) {
   const signedIn = useSignedIn();
   const signing = useMutation({
     mutationFn: (given: { email: string; password: string }) =>
@@ -225,6 +247,7 @@ function WithPassword({ onWay }: { onWay: (way: Way) => void }) {
         }}
       />
       <Providers
+        providers={providers}
         onRefused={(error) => {
           signing.reset();
           setOtherwise(error);

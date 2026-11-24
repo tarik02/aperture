@@ -3,9 +3,11 @@ import { useForm, useStore } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { NotAnswering } from "#/components/not-answering.tsx";
 import { TextField } from "#/components/text-field.tsx";
 import { AuthCard } from "#/features/auth/auth-card.tsx";
 import { notePasswordSet } from "#/features/auth/password-set.ts";
+import { useUnanswered } from "#/lib/answering.ts";
 import { call, told } from "#/lib/api.ts";
 import { signIn } from "#/lib/identity.ts";
 import { tellSigned } from "#/lib/sign.ts";
@@ -50,7 +52,11 @@ export function FirstAdminPage() {
     onSubmit: ({ value }) => make.mutateAsync(value).catch(() => undefined),
   });
   const submitting = useStore(form.store, (state) => state.isSubmitting);
+  const unanswered = useUnanswered(awaited);
 
+  if (unanswered) {
+    return <NotAnswering />;
+  }
   // Shown once it is known whether the link is still good: nothing moves under a pointer then.
   if (awaited.isPending) {
     return null;
