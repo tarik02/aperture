@@ -95,13 +95,17 @@ suite(node)("the targets of a session on a node", (it) => {
   );
 
   // A page that has loaded has not drawn yet, and a window nothing was drawn in is as
-  // blank as another: the two are told apart once the opened page shows in its own.
+  // blank as another: the two are told apart once the opened page shows in its own. The
+  // browser opens a page in the window of the tab it is opened from, and shows it there
+  // for a moment before the page is moved to a window of its own: the first tab's window
+  // has its picture until the first tab is drawn again. Each look takes both pictures.
   it.effect("each target has a window of its own", () =>
     Effect.gen(function* () {
-      const firstPicture = yield* screenshot(firstTab.id);
-      expect(isPng(firstPicture)).toBe(true);
+      expect(isPng(yield* screenshot(firstTab.id))).toBe(true);
       const apart = yield* happens(
-        screenshot(opened.id).pipe(Effect.map((picture) => !same(firstPicture, picture))),
+        Effect.all([screenshot(firstTab.id), screenshot(opened.id)]).pipe(
+          Effect.map(([first, other]) => !same(first, other)),
+        ),
         "30 seconds",
       );
       expect(apart).toBe(true);
