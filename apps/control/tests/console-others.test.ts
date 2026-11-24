@@ -14,15 +14,35 @@ import * as Control from "./src/control.ts";
 import * as Dex from "./src/dex.ts";
 import { signedIn } from "./src/person.ts";
 import * as Proxy from "./src/proxy.ts";
-import { DIALOG, ENTER, choose, fromMenu, needs, pick, pressUntil, shot } from "./src/console.ts";
+import {
+  DIALOG,
+  ENTER,
+  ESCAPE,
+  choose,
+  fromMenu,
+  needs,
+  pick,
+  pressUntil,
+  rested,
+  shot,
+} from "./src/console.ts";
 
 suite(needs)("apps, providers and guests at the console, behind the proxy", (it) => {
   it.effect("an app sends a person to say what it gets, who signs in first and is sent back", () =>
     Effect.gen(function* () {
+      const control = yield* Control.Control;
       const proxy = yield* Proxy.Proxy;
       const viewer = yield* Viewer.Viewer;
       const fs = yield* FileSystem.FileSystem;
       const sana = yield* signedIn("Sana", "sana@example.test");
+      const bootstrap = yield* control.as(control.bootstrapToken);
+      const own = yield* bootstrap.accounts.createToken({
+        params: { id: sana.account.id },
+        payload: { name: "checks", scopes: ["workspaces:write", "tokens:write"] },
+      });
+      const asSana = yield* control.as(own.token);
+      const crawlers = yield* asSana.workspaces.create({ payload: { name: "Crawlers of Sana" } });
+      const reports = yield* asSana.workspaces.create({ payload: { name: "Reports of Sana" } });
       const registered = yield* request(proxy.url, "", "POST", "/oauth/register", {
         client_name: "An agent of the checks",
         redirect_uris: [`${proxy.url}/callback`],
@@ -67,12 +87,107 @@ suite(needs)("apps, providers and guests at the console, behind the proxy", (it)
       expect(yield* page.text("[data-console-consent]")).toContain(
         "Connect An agent of the checks?",
       );
+      const ticked = page.evaluate(
+        `[...document.querySelectorAll("[data-console-consent] [data-console-scope][data-checked]")].map((one) => one.dataset.consoleScope)`,
+      );
+      expect(yield* ticked).toEqual(["sessions:read"]);
+      // What may be given is told by what it is of; what only an admin does is not offered
+      // to someone who is none.
       expect(
         yield* page.evaluate(
-          `[...document.querySelectorAll("[data-console-consent] [data-console-scope][data-checked]")].map((one) => one.dataset.consoleScope)`,
+          `[...document.querySelectorAll("[data-console-scope-group]")].map((one) => one.dataset.consoleScopeGroup)`,
         ),
-      ).toEqual(["sessions:read"]);
+      ).toEqual(["Sessions and snapshots", "Workspaces and account"]);
+      yield* rested(page);
       yield* shot(page, fs, "console-consent");
+
+      // Writing something reads it: ticked, it ticks the reading, and with the reading
+      // unticked it is unticked as well.
+      const tick = (scope: string, then: ReadonlyArray<string>) =>
+        Effect.gen(function* () {
+          yield* page.click(`[data-console-scope="${scope}"]`);
+          yield* until(
+            `${then.join(", ")} being ticked`,
+            Effect.map(ticked, (now) => JSON.stringify(now) === JSON.stringify(then)),
+          );
+        });
+      yield* tick("sessions:write", ["sessions:read", "sessions:write"]);
+      yield* tick("sessions:read", []);
+      yield* tick("workspaces:write", ["workspaces:read", "workspaces:write"]);
+      yield* tick("workspaces:read", []);
+      yield* tick("sessions:read", ["sessions:read"]);
+      yield* tick("snapshots:write", ["sessions:read", "snapshots:read", "snapshots:write"]);
+
+      // What it reaches is chosen in one field: pressed, it opens a list with what is typed
+      // at its top, and nothing of the page moves for it.
+      const reach = "[data-console-consent-reach] [data-console-token-resources]";
+      const search = `document.querySelector("[data-console-token-resources-search]")`;
+      const chosen = (id: string) => `[data-console-token-resource-chosen="workspaces:${id}"]`;
+      expect(yield* page.text(reach)).toBe("Everything this account reaches");
+      expect(yield* page.evaluate(`!!document.querySelector('${reach} input')`)).toBe(false);
+      const allow = yield* page.box("[data-console-consent-allow]");
+      yield* page.click(reach);
+      yield* page.until(`document.activeElement === ${search}`);
+      yield* page.type("of sana");
+      for (const workspace of [crawlers, reports]) {
+        yield* page.click(`[data-console-token-resource="workspaces:${workspace.id}"]`);
+        yield* page.until(`!!document.querySelector('${chosen(workspace.id)}')`);
+      }
+      yield* rested(page);
+      yield* shot(page, fs, "console-consent-resources");
+      // Escape closes the list and nothing else, and the field has the focus again; a key
+      // opens it from there.
+      yield* page.key("Escape", "Escape", ESCAPE);
+      yield* page.until(
+        `!${search} && document.activeElement === document.querySelector('${reach}')`,
+      );
+      yield* page.key("Enter", "Enter", ENTER);
+      yield* page.until(`document.activeElement === ${search}`);
+      yield* page.key("Escape", "Escape", ESCAPE);
+      yield* page.until(`!${search}`);
+      // What was chosen is given up where it is shown.
+      yield* page.click(`${chosen(reports.id)} [data-slot="picker-chip-remove"]`);
+      yield* page.until(`!document.querySelector('${chosen(reports.id)}')`);
+      expect(yield* page.text(reach)).toBe("Workspace: Crawlers of Sana");
+      yield* rested(page);
+      expect(yield* page.box("[data-console-consent-allow]")).toEqual(allow);
+      const scheme = (of: Viewer.Page, value: string) =>
+        of.cdp.call("Emulation.setEmulatedMedia", {
+          features: [{ name: "prefers-color-scheme", value }],
+        });
+      yield* scheme(page, "dark");
+      yield* shot(page, fs, "console-consent-dark");
+      yield* scheme(page, "");
+
+      // On a phone a thing is named above what is ticked for it, and the page is no wider
+      // than the screen, with the list open as well.
+      const phone = yield* viewer.open(`${proxy.url}/oauth/authorize?${asked.toString()}`, {
+        width: 390,
+        height: 844,
+        mobile: true,
+      });
+      yield* phone.until(`!!document.querySelector("[data-console-consent-allow]")`);
+      yield* phone.tap(`[data-console-scope="sessions:write"]`);
+      yield* phone.until(
+        `document.querySelectorAll('[data-console-scope^="sessions:"][data-checked]').length === 2`,
+      );
+      yield* rested(phone);
+      yield* shot(phone, fs, "console-phone-consent");
+      yield* scheme(phone, "dark");
+      yield* shot(phone, fs, "console-phone-consent-dark");
+      yield* scheme(phone, "");
+      yield* phone.tap(reach);
+      yield* phone.until(
+        `!!document.querySelector('[data-console-token-resource="workspaces:${crawlers.id}"]')`,
+      );
+      yield* rested(phone);
+      yield* shot(phone, fs, "console-phone-consent-resources");
+      expect(yield* phone.evaluate(`document.documentElement.scrollWidth <= innerWidth`)).toBe(
+        true,
+      );
+      expect(phone.errors()).toEqual([]);
+      yield* phone.close;
+
       expect(page.errors()).toEqual([]);
       yield* page.click("[data-console-consent-allow]");
       yield* page.until(`location.pathname === "/callback"`);
@@ -98,6 +213,16 @@ suite(needs)("apps, providers and guests at the console, behind the proxy", (it)
             Schema.decodeUnknownEffect(Schema.Struct({ access_token: Schema.String })),
           ),
         );
+      // The grant holds what was ticked, the reading with the writing, and reaches what was
+      // left chosen.
+      expect((yield* asSana.grants.list()).map((grant) => [grant.scopes, grant.resources])).toEqual(
+        [
+          [
+            ["sessions:read", "snapshots:read", "snapshots:write"],
+            { workspaces: [crawlers.id], sessions: [], snapshots: [] },
+          ],
+        ],
+      );
       const agent = yield* Mcp.connect(proxy.url, tokens.access_token);
       yield* agent.call("sessions.list", {});
       expect((yield* Effect.flip(agent.call("sessions.create", {}))).reason).toMatch(

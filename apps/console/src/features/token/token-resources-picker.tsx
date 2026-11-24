@@ -1,18 +1,19 @@
 import {
   Combobox,
-  ComboboxChip,
-  ComboboxChips,
-  ComboboxChipsInput,
   ComboboxCollection,
-  ComboboxContent,
   ComboboxEmpty,
   ComboboxGroup,
   ComboboxItem,
   ComboboxLabel,
   ComboboxList,
-  ComboboxValue,
-  useComboboxAnchor,
 } from "@aperture-browser/ui/components/combobox";
+import {
+  PickerChip,
+  PickerContent,
+  PickerSearch,
+  PickerTrigger,
+} from "@aperture-browser/ui/components/picker";
+import { useRef } from "react";
 import { useSessionsQuery } from "#/features/session/session.queries.ts";
 import { useSnapshotsQuery } from "#/features/snapshot/snapshot.queries.ts";
 import { useWorkspacesQuery } from "#/features/workspace/workspace.queries.ts";
@@ -42,16 +43,28 @@ const option = (kind: ResourceKind, id: string, label: string): Option => ({
   value: `${kind}:${id}`,
 });
 
+/** What is chosen, as the API takes it; nothing, for all that the account reaches. */
+export const resourcesOf = (chosen: ReadonlyArray<ChosenResource>) => {
+  const ids = (kind: ResourceKind) =>
+    chosen.filter((one) => one.kind === kind).map((one) => one.id);
+  return chosen.length === 0
+    ? undefined
+    : { workspaces: ids("workspaces"), sessions: ids("sessions"), snapshots: ids("snapshots") };
+};
+
 type TokenResourcesPickerProps = {
   id: string;
+  /** None, for all that the account reaches. */
   chosen: ReadonlyArray<ChosenResource>;
-  invalid: boolean;
   onChange: (chosen: ReadonlyArray<ChosenResource>) => void;
 };
 
-/** Chooses the workspaces, sessions and snapshots a token reaches, among those there are. */
-export function TokenResourcesPicker({ id, chosen, invalid, onChange }: TokenResourcesPickerProps) {
-  const anchor = useComboboxAnchor();
+/**
+ * Chooses the workspaces, sessions and snapshots a token reaches, among those there are:
+ * all of them while none is chosen, so that there is no saying "only these" of none.
+ */
+export function TokenResourcesPicker({ id, chosen, onChange }: TokenResourcesPickerProps) {
+  const anchor = useRef<HTMLDivElement | null>(null);
   const workspaces = useWorkspacesQuery();
   const sessions = useSessionsQuery();
   const snapshots = useSnapshotsQuery();
@@ -73,7 +86,7 @@ export function TokenResourcesPicker({ id, chosen, invalid, onChange }: TokenRes
         option("snapshots", one.id, one.name ?? "Unnamed snapshot"),
       ),
     },
-  ];
+  ].filter((group) => group.items.length > 0);
   const options = groups.flatMap((group) => group.items);
   const selected = chosen.map(
     (one) =>
@@ -82,6 +95,8 @@ export function TokenResourcesPicker({ id, chosen, invalid, onChange }: TokenRes
       option(one.kind, one.id, one.id),
   );
   const asking = workspaces.isPending || sessions.isPending || snapshots.isPending;
+  const told = (next: ReadonlyArray<Option>) =>
+    onChange(next.map(({ kind, id }) => ({ kind, id })));
 
   return (
     <Combobox
@@ -102,36 +117,40 @@ export function TokenResourcesPicker({ id, chosen, invalid, onChange }: TokenRes
           details.allowPropagation();
           return;
         }
-        onChange(next.map(({ kind, id }) => ({ kind, id })));
+        told(next);
       }}
     >
-      <ComboboxChips
-        ref={anchor}
+      <PickerTrigger
+        id={id}
+        anchor={anchor}
         data-console-token-resources
+        placeholder="Everything this account reaches"
         title="A workspace stands for all the sessions and snapshots in it, those made later as well"
       >
-        <ComboboxValue>
-          {(values: Option[]) => (
-            <>
-              {values.map((one) => (
-                <ComboboxChip key={one.value} data-console-token-resource-chosen={one.value}>
-                  <span className="aperture:max-w-48 aperture:truncate">
-                    {KINDS[one.kind].one}: {one.label}
-                  </span>
-                </ComboboxChip>
-              ))}
-              <ComboboxChipsInput
-                id={id}
-                aria-invalid={invalid}
-                placeholder={
-                  values.length === 0 ? "Search workspaces, sessions and snapshots" : undefined
-                }
-              />
-            </>
-          )}
-        </ComboboxValue>
-      </ComboboxChips>
-      <ComboboxContent anchor={anchor}>
+        {selected.map((one) => (
+          <PickerChip
+            key={one.value}
+            data-console-token-resource-chosen={one.value}
+            title={one.id}
+            removeLabel={`Remove ${one.label}`}
+            onRemove={() => told(selected.filter((each) => each.value !== one.value))}
+          >
+            {KINDS[one.kind].one}: {one.label}
+          </PickerChip>
+        ))}
+      </PickerTrigger>
+      <PickerContent anchor={anchor}>
+        <PickerSearch
+          data-console-token-resources-search
+          aria-label="Search workspaces, sessions and snapshots"
+          placeholder="Search by name or id"
+          onKeyDown={(event) => {
+            // With nothing typed, it takes back the last that was chosen.
+            if (event.key === "Backspace" && event.currentTarget.value === "") {
+              told(selected.slice(0, -1));
+            }
+          }}
+        />
         <ComboboxEmpty>{asking ? "Asking for what there is…" : "Nothing found"}</ComboboxEmpty>
         <ComboboxList>
           {(group: Group) => (
@@ -139,7 +158,12 @@ export function TokenResourcesPicker({ id, chosen, invalid, onChange }: TokenRes
               <ComboboxLabel>{group.value}</ComboboxLabel>
               <ComboboxCollection>
                 {(one: Option) => (
-                  <ComboboxItem key={one.value} value={one} data-console-token-resource={one.value}>
+                  <ComboboxItem
+                    key={one.value}
+                    value={one}
+                    indicator="checkbox"
+                    data-console-token-resource={one.value}
+                  >
                     <span className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:flex-col">
                       <span className="aperture:truncate">{one.label}</span>
                       <span className="aperture:truncate aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
@@ -152,7 +176,7 @@ export function TokenResourcesPicker({ id, chosen, invalid, onChange }: TokenRes
             </ComboboxGroup>
           )}
         </ComboboxList>
-      </ComboboxContent>
+      </PickerContent>
     </Combobox>
   );
 }
