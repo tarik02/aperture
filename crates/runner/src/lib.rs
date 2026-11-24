@@ -1,4 +1,4 @@
-//! What the runner of one session and whoever starts it agree on: the spec the runner is
+//! What the runner of one session and whoever starts it agree on: the spec the runner is 
 //! given, the status it reports, and where both are kept in the session's runtime directory.
 //!
 //! The runner knows nothing of sessions beyond its own, nor of where the directories it is
