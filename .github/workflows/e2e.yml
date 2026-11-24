@@ -10,6 +10,12 @@ on:
       - labeled
   workflow_dispatch:
   workflow_call:
+    inputs:
+      built:
+        description: Whether the caller built the programs just before, so the cache has them
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -25,8 +31,10 @@ jobs:
   # built them before, and built here and put there where nobody did.
   programs:
     name: programs
-    # A label that is another's asks for nothing.
-    if: &asked github.event.action != 'labeled' || github.event.label.name == 'e2e'
+    # A label that is another's asks for nothing, and what the caller built is not built again.
+    if: >-
+      !inputs.built &&
+      (github.event.action != 'labeled' || github.event.label.name == 'e2e')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -47,7 +55,11 @@ jobs:
   e2e:
     name: e2e ${{ matrix.name }}
     needs: programs
-    if: *asked
+    # After the programs, built here or by the caller: a job that is passed over fails nothing.
+    if: >-
+      !cancelled() &&
+      needs.programs.result != 'failure' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'e2e')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -105,7 +117,11 @@ jobs:
   deployment:
     name: deployment
     needs: programs
-    if: *asked
+    # After the programs, built here or by the caller: a job that is passed over fails nothing.
+    if: >-
+      !cancelled() &&
+      needs.programs.result != 'failure' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'e2e')
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
