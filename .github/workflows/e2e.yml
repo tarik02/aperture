@@ -1,19 +1,21 @@
 name: e2e
 
-# Real sessions end to end, which takes a browser and a while: for what is pushed to the
-# branches releases are made of, for a pull request that asks for it with the `e2e` label,
-# for the pull request of a release, by hand, and for release-please.yml before it publishes.
+# Real sessions end to end, which takes a browser and a while. checks.yml runs this after it
+# has built the programs, for what asks for it; release-please.yml runs it before it
+# publishes. By itself it runs for a pull request that is given the `e2e` label after its
+# checks began, and by hand.
 on:
   pull_request:
     types:
-      - opened
       - labeled
-      - synchronize
-  push:
-    branches:
-      - master
   workflow_dispatch:
   workflow_call:
+    inputs:
+      built:
+        description: Whether the caller built the programs just before, so the cache has them
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -25,26 +27,39 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
+  # The programs, once for the jobs after this one: from the cache where whoever ran this
+  # built them before, and built here and put there where nobody did.
+  programs:
+    name: programs
+    # A label that is another's asks for nothing, and what the caller built is not built again.
+    if: >-
+      !inputs.built &&
+      (github.event.action != 'labeled' || github.event.label.name == 'e2e')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: cachix/install-nix-action@v31
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: aperture-browser
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ secrets.CACHIX_AUTH_TOKEN == '' }}
+          pushFilter: (-source$|-vendor|user-environment)
+
+      - name: Build
+        run: nix build .#aperture .#aperture-control --no-link --print-build-logs
+
   e2e:
     name: e2e ${{ matrix.name }}
-    # The commit a release is made of is pushed as well, and release-please.yml asks for
-    # these checks of it: the push asks for nothing then.
-    if: &asked >-
-      (
-        github.event_name == 'pull_request' &&
-        (
-          contains(github.event.pull_request.labels.*.name, 'e2e') ||
-          startsWith(github.head_ref, 'release-please--')
-        )
-      ) ||
-      (
-        github.event_name != 'pull_request' &&
-        !(
-          github.workflow == 'e2e' &&
-          github.event_name == 'push' &&
-          startsWith(github.event.head_commit.message, 'chore(master): release')
-        )
-      )
+    needs: programs
+    # After the programs, built here or by the caller: a job that is passed over fails nothing.
+    if: >-
+      !cancelled() &&
+      needs.programs.result != 'failure' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'e2e')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -101,7 +116,12 @@ jobs:
   # One machine set up by the NixOS modules alone, which is how a node is installed.
   deployment:
     name: deployment
-    if: *asked
+    needs: programs
+    # After the programs, built here or by the caller: a job that is passed over fails nothing.
+    if: >-
+      !cancelled() &&
+      needs.programs.result != 'failure' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'e2e')
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:

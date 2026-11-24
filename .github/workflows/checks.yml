@@ -183,3 +183,28 @@ jobs:
 
       - name: Start
         run: ${{ matrix.smoke }}
+
+  # Real sessions end to end, on the programs built above: for what is pushed to master,
+  # for a pull request that has the `e2e` label, for the pull request of a release, and by
+  # hand. The commit a release is made of is pushed as well, and release-please.yml asks
+  # for these checks of it: the push asks for nothing then.
+  e2e:
+    name: e2e
+    needs: nix
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'pull_request' &&
+        (
+          contains(github.event.pull_request.labels.*.name, 'e2e') ||
+          startsWith(github.head_ref, 'release-please--')
+        )
+      ) ||
+      (
+        github.event_name == 'push' &&
+        !startsWith(github.event.head_commit.message, 'chore(master): release')
+      )
+    uses: ./.github/workflows/e2e.yml
+    with:
+      built: true
+    secrets: inherit
