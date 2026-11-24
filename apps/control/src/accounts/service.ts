@@ -1,6 +1,7 @@
 import type { Caller, Scope, TokenResources } from "@aperture-browser/control-api";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
+import type * as Option from "effect/Option";
 import type * as DateTime from "effect/DateTime";
 import type * as Duration from "effect/Duration";
 import type {
@@ -36,6 +37,20 @@ export interface AccountsShape {
     /** For an account that was kept elsewhere before. */
     readonly from?: Brought | undefined;
   }) => Effect.Effect<Account, EmailTaken | AccountInvalid>;
+  /**
+   * Where the first admin is made, while nobody is a person here: an address of the
+   * console with a token in it that nobody guesses. The same for as long as the master
+   * key is, so that every start, and every program on one database, tells one link.
+   */
+  readonly firstAdminLink: () => Effect.Effect<Option.Option<string>>;
+  /**
+   * Makes the first person, an admin with the password they name, for whoever has the
+   * token of that link. Refused once anyone is a person, whatever the token.
+   */
+  readonly firstAdmin: (
+    token: string,
+    person: { readonly name: string; readonly email: string; readonly password: string },
+  ) => Effect.Effect<Account, Forbidden | EmailTaken | AccountInvalid>;
   /** A token with which the person of an account sets a password: a first one, or another. */
   readonly setupToken: (
     accountId: string,

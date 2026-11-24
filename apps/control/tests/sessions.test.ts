@@ -442,6 +442,14 @@ suite(needs)("sessions on a node that registered", (it) => {
 
       yield* ada.api.snapshots.delete({ params: { id: again.id } });
       expect(yield* ada.api.snapshots.list({ query: {} })).toEqual([]);
+      expect((yield* Effect.flip(ada.api.snapshots.get({ params: { id: again.id } })))._tag).toBe(
+        "SnapshotNotFound",
+      );
+      // Its record is kept, and says it is deleted.
+      const { sql } = yield* Control.Control;
+      expect(
+        yield* sql`SELECT deleted_at IS NULL AS live FROM snapshots WHERE id = ${again.id}`,
+      ).toEqual([{ live: false }]);
       expect((yield* Effect.flip(executor.client.snapshots.get(taken.id))).code).toBe("not_found");
     }),
   );
@@ -647,6 +655,15 @@ suite(needs)("sessions on a node that registered", (it) => {
       expect((yield* Effect.flip(ada.api.sessions.get(at)))._tag).toBe("SessionNotFound");
       expect(yield* ada.api.sessions.list({ query: {} })).toEqual([]);
       expect((yield* Effect.flip(executor.client.sessions.get(session))).code).toBe("not_found");
+      // Its record is kept, and nothing is done to it again: no ticket, no second delete.
+      const { sql } = yield* Control.Control;
+      expect(
+        yield* sql`SELECT deleted_at IS NULL AS live FROM sessions WHERE id = ${session}`,
+      ).toEqual([{ live: false }]);
+      expect((yield* Effect.flip(ada.api.sessions.delete(at)))._tag).toBe("SessionNotFound");
+      expect((yield* Effect.flip(ada.api.sessions.createTicket({ ...at, payload: {} })))._tag).toBe(
+        "SessionNotFound",
+      );
     }),
   );
 

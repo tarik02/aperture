@@ -507,6 +507,22 @@ suite(needs)("share links into a session", (it) => {
       expect(
         (yield* browse("POST", `/api/control/share/${link.id}`, guest.cookie, {})).status,
       ).toBe(401);
+      // The session and its link are kept, as is a link that was taken back: marked, and
+      // in nothing that is read.
+      const { sql } = yield* Control.Control;
+      expect(
+        yield* sql`
+          SELECT id::text FROM session_shares
+          WHERE id::text IN (${link.id}, ${watching.id}) AND deleted_at IS NOT NULL
+          ORDER BY created_at
+        `,
+      ).toEqual([{ id: watching.id }, { id: link.id }]);
+      expect(
+        yield* sql`SELECT deleted_at IS NULL AS live FROM sessions WHERE id = ${other}`,
+      ).toEqual([{ live: false }]);
+      expect((yield* Effect.flip(ada.api.shares.list({ params: { id: other } })))._tag).toBe(
+        "SessionNotFound",
+      );
     }),
   );
 });

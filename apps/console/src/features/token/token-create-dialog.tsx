@@ -21,9 +21,10 @@ import { Choice } from "#/components/choice.tsx";
 import { FreshDialog } from "#/components/fresh-dialog.tsx";
 import { TextField } from "#/components/text-field.tsx";
 import { useAccess } from "#/features/auth/access.ts";
-import { SCOPES } from "#/features/token/scopes.ts";
+import { SCOPES, ticked, withBrought } from "#/features/token/scopes.ts";
 import {
   type ChosenResource,
+  resourcesOf,
   TokenResourcesPicker,
 } from "#/features/token/token-resources-picker.tsx";
 import { useCreateTokenMutation } from "#/features/token/token.mutations.ts";
@@ -38,14 +39,6 @@ const EXPIRY = [
   { value: "never", label: "Never" },
 ] as const;
 type Expiry = (typeof EXPIRY)[number]["value"];
-
-const REACH = [
-  { value: "all", label: "All this account reaches" },
-  { value: "chosen", label: "Only chosen workspaces, sessions and snapshots" },
-] as const;
-
-const idsOf = (chosen: ReadonlyArray<ChosenResource>, kind: ChosenResource["kind"]) =>
-  chosen.filter((one) => one.kind === kind).map((one) => one.id);
 
 type TokenCreateDialogProps = {
   open: boolean;
@@ -89,7 +82,6 @@ function CreateForm({
   const access = useAccess();
   const create = useCreateTokenMutation(account?.id);
   const expiryId = useId();
-  const reachId = useId();
   const resourcesId = useId();
   // A scope that its account has nothing of holds a token to nothing more, and a token
   // makes none of its own account that does more than itself.
@@ -99,11 +91,11 @@ function CreateForm({
   const form = useForm({
     defaultValues: {
       name: "",
-      scopes: (initial?.scopes ?? []).filter((scope) => offered.some((one) => one.scope === scope)),
+      scopes: withBrought(
+        (initial?.scopes ?? []).filter((scope) => offered.some((one) => one.scope === scope)),
+      ),
       // None for a token that reaches all its account does.
-      resources: (initial === undefined || initial.resources.length === 0
-        ? null
-        : initial.resources) as ReadonlyArray<ChosenResource> | null,
+      resources: initial?.resources ?? ([] as ReadonlyArray<ChosenResource>),
       expiry: "30" as Expiry,
     },
     onSubmit: async ({ value }) => {
@@ -115,14 +107,7 @@ function CreateForm({
         const made = await create.mutateAsync({
           name: value.name.trim(),
           scopes: [first, ...others],
-          resources:
-            value.resources === null
-              ? undefined
-              : {
-                  workspaces: idsOf(value.resources, "workspaces"),
-                  sessions: idsOf(value.resources, "sessions"),
-                  snapshots: idsOf(value.resources, "snapshots"),
-                },
+          resources: resourcesOf(value.resources),
           expiresInDays: value.expiry === "never" ? undefined : Number(value.expiry),
         });
         onDone();
@@ -152,7 +137,7 @@ function CreateForm({
         )}
       </DialogHeader>
       {/* All it ever asks and says: what each scope does, and held to chosen resources. */}
-      <DialogBody height="calc(26.25rem + 5.5 * var(--control-height))">
+      <DialogBody height="calc(27.5rem + 4.5 * var(--control-height))">
         <form.Field name="name" validators={{ onSubmit: required("A name") }}>
           {(field) => <TextField field={field} label="Name" autoFocus autoComplete="off" />}
         </form.Field>
@@ -202,11 +187,7 @@ function CreateForm({
                         aria-invalid={said !== undefined}
                         checked={field.state.value.includes(one.scope)}
                         onCheckedChange={(checked) =>
-                          field.handleChange(
-                            SCOPES.map((each) => each.scope).filter((scope) =>
-                              scope === one.scope ? checked : field.state.value.includes(scope),
-                            ),
-                          )
+                          field.handleChange(ticked(field.state.value, one.scope, checked))
                         }
                       />
                       <span className="aperture:grid aperture:gap-0.5">
@@ -225,43 +206,17 @@ function CreateForm({
             );
           }}
         </form.Field>
-        <form.Field
-          name="resources"
-          validators={{
-            onSubmit: ({ value }) =>
-              value !== null && value.length === 0
-                ? "Choose at least one workspace, session or snapshot."
-                : undefined,
-          }}
-        >
-          {(field) => {
-            const said = field.state.meta.errors.find((error) => typeof error === "string");
-            return (
-              <Field data-console-token-reach data-invalid={said === undefined ? undefined : true}>
-                <FieldLabel htmlFor={reachId}>Resources</FieldLabel>
-                <Choice
-                  id={reachId}
-                  className="aperture:w-full"
-                  value={field.state.value === null ? "all" : "chosen"}
-                  options={REACH}
-                  onChange={(reach) =>
-                    field.handleChange(reach === "all" ? null : (field.state.value ?? []))
-                  }
-                />
-                {field.state.value === null ? null : (
-                  <TokenResourcesPicker
-                    id={resourcesId}
-                    chosen={field.state.value}
-                    invalid={said !== undefined}
-                    onChange={field.handleChange}
-                  />
-                )}
-                <FieldError ref={reveal} reserved>
-                  {said}
-                </FieldError>
-              </Field>
-            );
-          }}
+        <form.Field name="resources">
+          {(field) => (
+            <Field data-console-token-reach>
+              <FieldLabel htmlFor={resourcesId}>Resources</FieldLabel>
+              <TokenResourcesPicker
+                id={resourcesId}
+                chosen={field.state.value}
+                onChange={field.handleChange}
+              />
+            </Field>
+          )}
         </form.Field>
         <form.Field name="expiry">
           {(field) => (

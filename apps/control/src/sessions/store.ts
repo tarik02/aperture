@@ -43,7 +43,8 @@ export interface SessionsStoreShape {
   readonly proxyOf: (id: string) => Effect.Effect<Option.Option<string>>;
   readonly keepProxy: (id: string, sealed: string | null) => Effect.Effect<void>;
   readonly desire: (id: string, state: DesiredState) => Effect.Effect<void>;
-  readonly delete: (id: string) => Effect.Effect<void>;
+  /** Deletes a session's record and its share links: kept, and found by nothing again. */
+  readonly delete: (id: string, at: Date) => Effect.Effect<void>;
   /** Writes what a node said of a session that is on it; the node is in reach, then. */
   readonly observe: (nodeId: string, seen: Observation, now: Date) => Effect.Effect<void>;
   /** Takes a session off a node that has it no more. */

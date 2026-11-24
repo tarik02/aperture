@@ -994,6 +994,32 @@ export class SignInGroup extends HttpApiGroup.make("signIn")
     }),
   ) {}
 
+/** Whether the first admin is still to be made: whether nobody signs in here yet. */
+export const FirstAdminAwaited = Schema.Struct({ awaited: Schema.Boolean });
+
+export class FirstAdminGroup extends HttpApiGroup.make("firstAdmin")
+  .add(
+    HttpApiEndpoint.get("awaited", "/first-admin", { success: FirstAdminAwaited }),
+    HttpApiEndpoint.post("create", "/first-admin", {
+      payload: Schema.Struct({
+        /** What the link the control plane logged carries. */
+        token: Schema.NonEmptyString,
+        name: Schema.NonEmptyString,
+        email: Schema.NonEmptyString,
+        password: Schema.NonEmptyString,
+      }),
+      success: Account.pipe(HttpApiSchema.status(201)),
+      error: [Forbidden, EmailTaken, AccountInvalid],
+    }),
+  )
+  .annotateMerge(
+    OpenApi.annotations({
+      title: "First admin",
+      description:
+        "How the first person of a deployment is made, while there is none: with the token of the link the control plane logs when it starts, whoever opens the link names themselves and a password, and is an admin. Once anyone is a person here the token is good for nothing, and an admin makes the others.",
+    }),
+  ) {}
+
 /** Whether this program serves: nothing of what it knows, and for anyone who asks. */
 export const Health = Schema.Struct({ status: Schema.Literal("ok") });
 
@@ -1021,7 +1047,7 @@ export class Api extends HttpApi.make("control")
   )
   .middleware(Authorization)
   // After the middleware, so that it has none: it is asked before anyone is signed in.
-  .add(SignInGroup, HealthGroup)
+  .add(SignInGroup, FirstAdminGroup, HealthGroup)
   .prefix(PREFIX)
   .annotateMerge(
     OpenApi.annotations({

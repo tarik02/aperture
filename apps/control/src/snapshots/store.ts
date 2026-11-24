@@ -35,7 +35,8 @@ export interface SnapshotsStoreShape {
   ) => Effect.Effect<ReadonlyArray<Snapshot>>;
   /** Writes what a snapshot is called, said to be and tagged with; what is left out stays. */
   readonly describe: (id: string, said: SnapshotDescription) => Effect.Effect<void>;
-  readonly delete: (id: string) => Effect.Effect<void>;
+  /** Deletes a snapshot's record: it is kept, and found by nothing again. */
+  readonly delete: (id: string, at: Date) => Effect.Effect<void>;
 }
 
 export class SnapshotsStore extends Context.Service<SnapshotsStore, SnapshotsStoreShape>()(

@@ -215,7 +215,7 @@ export const makeGrants = Effect.fn("Grants.make")(function* () {
       code.value.codeChallenge !== proven
     ) {
       // A code that someone else tried was seen by someone else: what it was for is undone.
-      yield* store.deleteGrant(code.value.grantId);
+      yield* store.deleteGrant(code.value.grantId, yield* now);
       if (Option.isSome(grant)) {
         yield* taken(grant.value, "code_misused");
       }
@@ -238,7 +238,7 @@ export const makeGrants = Effect.fn("Grants.make")(function* () {
       // A token that got the next ones already is with someone it was not given to, and so
       // may the ones after it be: the grant ends, and the person is asked again.
       if (at.getTime() - spentAt.getTime() > Duration.toMillis(REUSE_GRACE)) {
-        yield* store.deleteGrant(grant.id);
+        yield* store.deleteGrant(grant.id, yield* now);
         yield* taken(grant, "token_reused");
       }
       return yield* new GrantRefused({ message: "the refresh token was used before" });
@@ -260,7 +260,7 @@ export const makeGrants = Effect.fn("Grants.make")(function* () {
     if (given.clientId !== undefined && given.clientId !== grant.value.clientId) {
       return yield* new GrantRefused({ message: "the token is another app's" });
     }
-    yield* store.deleteGrant(grant.value.id);
+    yield* store.deleteGrant(grant.value.id, yield* now);
     yield* taken(grant.value, "app");
   }, Effect.provide(crypto));
 
@@ -284,7 +284,7 @@ export const makeGrants = Effect.fn("Grants.make")(function* () {
     if (Option.isNone(grant)) {
       return yield* new GrantNotFound({ id });
     }
-    yield* store.deleteGrant(grant.value.id);
+    yield* store.deleteGrant(grant.value.id, yield* now);
     yield* taken(grant.value, "person");
   });
 

@@ -26,7 +26,8 @@ suite(database)("the database", (it) => {
       expect(applied.map(([, name]) => name)).toEqual(["initial"]);
 
       const tables = yield* sql`
-        SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'
+        SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
       `.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Tables)));
       expect(tables.map((table) => table.table_name).toSorted()).toEqual([
         "accounts",
@@ -47,23 +48,33 @@ suite(database)("the database", (it) => {
         "workspace_members",
         "workspaces",
       ]);
+      // Every table of what is someone's says when a row was deleted, and has a view of
+      // those that were not; the others are what is removed for good.
+      const marked = yield* sql`
+        SELECT table_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND column_name = 'deleted_at'
+          AND table_name NOT LIKE 'live\_%'
+      `.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Tables)));
+      expect(marked.map((table) => table.table_name).toSorted()).toEqual(
+        Database.SOFT_DELETED.toSorted(),
+      );
+      const views = yield* sql`
+        SELECT table_name FROM information_schema.views WHERE table_schema = 'public'
+      `.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Tables)));
+      expect(views.map((view) => view.table_name).toSorted()).toEqual(
+        Database.SOFT_DELETED.map((table) => `live_${table}`).toSorted(),
+      );
     }),
   );
 
   it.effect(
-    "a session or a snapshot is of a workspace or names its account, and a workspace's outlasts whoever made it",
+    "a session or a snapshot is of a workspace or names its account, and nothing it names is removed for good",
     () =>
       Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
         const maker = "00000000-0000-7000-8000-0000000000a1";
-        const owner = "00000000-0000-7000-8000-0000000000a2";
         const team = "00000000-0000-7000-8000-0000000000b1";
-        for (const [id, name] of [
-          [maker, "Maker"],
-          [owner, "Owner"],
-        ]) {
-          yield* sql`INSERT INTO accounts (id, name, admin, created_at) VALUES (${id}, ${name}, false, now())`;
-        }
+        yield* sql`INSERT INTO accounts (id, name, admin, created_at) VALUES (${maker}, 'Maker', false, now())`;
         yield* sql`INSERT INTO workspaces (id, name, created_at) VALUES (${team}, 'Team', now())`;
         const session = (id: string, account: string | null, workspace: string | null) => sql`
           INSERT INTO sessions (
@@ -80,23 +91,12 @@ suite(database)("the database", (it) => {
         expect((yield* Effect.flip(snapshot("nobodys", null, null)))._tag).toBe("SqlError");
         yield* session("made", maker, team);
         yield* snapshot("made", maker, team);
-        yield* session("unmade", null, team);
-        yield* snapshot("unmade", null, team);
-        yield* session("own", owner, null);
-        yield* snapshot("own", owner, null);
 
-        yield* sql`DELETE FROM accounts WHERE id = ${maker}`;
-        expect(
-          yield* sql`SELECT id, account_id, workspace_id FROM sessions WHERE id <> 'own' ORDER BY id`,
-        ).toEqual([
-          { id: "made", account_id: null, workspace_id: team },
-          { id: "unmade", account_id: null, workspace_id: team },
-        ]);
-        expect(yield* sql`SELECT account_id FROM snapshots WHERE id = 'made'`).toEqual([
-          { account_id: null },
-        ]);
-        // What is an account's own keeps the account.
-        expect((yield* Effect.flip(sql`DELETE FROM accounts WHERE id = ${owner}`))._tag).toBe(
+        // Nothing goes with a row that is removed for good, so none that is named is.
+        expect((yield* Effect.flip(sql`DELETE FROM accounts WHERE id = ${maker}`))._tag).toBe(
+          "SqlError",
+        );
+        expect((yield* Effect.flip(sql`DELETE FROM workspaces WHERE id = ${team}`))._tag).toBe(
           "SqlError",
         );
         yield* sql`DELETE FROM sessions`;
@@ -104,6 +104,31 @@ suite(database)("the database", (it) => {
         yield* sql`DELETE FROM workspaces`;
         yield* sql`DELETE FROM accounts`;
       }),
+  );
+
+  it.effect("what is deleted is in no view, and what it was known by is another's to have", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const node = (id: string) => sql`
+        INSERT INTO nodes (id, name, internal_url, operator_token_sealed, registered_at, last_seen_at)
+        VALUES (${id}, 'node-a', 'http://nowhere', 'sealed', now(), now())
+      `;
+      const first = "00000000-0000-7000-8000-0000000000c1";
+      const second = "00000000-0000-7000-8000-0000000000c2";
+      yield* node(first);
+      expect((yield* Effect.flip(node(second)))._tag).toBe("SqlError");
+      // Through the view, as the stores delete: the row stays, and is not seen there again.
+      yield* sql`UPDATE live_nodes SET deleted_at = now() WHERE id = ${first}`;
+      expect(yield* sql`SELECT id FROM live_nodes`).toEqual([]);
+      yield* sql`UPDATE live_nodes SET name = 'renamed' WHERE id = ${first}`;
+      yield* node(second);
+      expect(yield* sql`SELECT id FROM live_nodes`).toEqual([{ id: second }]);
+      expect(yield* sql`SELECT id, name FROM nodes ORDER BY id`).toEqual([
+        { id: first, name: "node-a" },
+        { id: second, name: "node-a" },
+      ]);
+      yield* sql`DELETE FROM nodes`;
+    }),
   );
 
   it.effect("one that is there already is left as it is", () =>

@@ -9,6 +9,8 @@ import * as Option from "effect/Option";
 import { accountOf } from "../accounts/caller.ts";
 import { Accounts } from "../accounts/service.ts";
 import { Forbidden } from "../errors.ts";
+import { Doer } from "../events/doer.ts";
+import { anonymous } from "../events/schemas.ts";
 import { Events } from "../events/service.ts";
 import { Grants } from "../grants/service.ts";
 import { Identity } from "../identity/service.ts";
@@ -22,6 +24,7 @@ import { Shares } from "../shares/service.ts";
 import type { Snapshot } from "../snapshots/schemas.ts";
 import { Snapshots } from "../snapshots/service.ts";
 import { type Joined, Workspaces } from "../workspaces/service.ts";
+import { doing } from "./doer.ts";
 import { originOf } from "./origin.ts";
 
 /** What a list is asked by for what is of no workspace. */
@@ -283,6 +286,29 @@ const signIn = HttpApiBuilder.group(
   Effect.fn(function* (handlers) {
     const identity = yield* Identity;
     return handlers.handle("providers", () => identity.providers());
+  }),
+);
+
+const firstAdmin = HttpApiBuilder.group(
+  Api,
+  "firstAdmin",
+  Effect.fn(function* (handlers) {
+    const accounts = yield* Accounts;
+    const settings = yield* Settings;
+    return handlers
+      .handle("awaited", () =>
+        Effect.map(accounts.firstAdminLink(), (link) => ({ awaited: Option.isSome(link) })),
+      )
+      .handle(
+        "create",
+        Effect.fn(function* ({ payload: { token, ...person } }) {
+          const request = yield* HttpServerRequest.HttpServerRequest;
+          // Whoever has the link is nobody yet: they are told by where they came from.
+          return yield* accounts
+            .firstAdmin(token, person)
+            .pipe(Effect.provideService(Doer, doing(settings, request, anonymous(person.email))));
+        }),
+      );
   }),
 );
 
@@ -626,6 +652,7 @@ const health = HttpApiBuilder.group(Api, "health", (handlers) =>
 export const layer = Layer.mergeAll(
   accounts,
   events,
+  firstAdmin,
   grants,
   health,
   nodes,

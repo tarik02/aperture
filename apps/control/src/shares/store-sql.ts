@@ -28,20 +28,20 @@ export const makeSharesStore = Effect.fn("SharesStore.make")(function* () {
 
   const listOf = Effect.fn("SharesStore.listOf")(function* (sessionId: string) {
     return yield* sql`
-      SELECT ${share} FROM session_shares WHERE session_id = ${sessionId}
+      SELECT ${share} FROM live_session_shares AS session_shares WHERE session_id = ${sessionId}
       ORDER BY created_at, id
     `.pipe(all(Share));
   });
 
   const listBy = Effect.fn("SharesStore.listBy")(function* (accountId: string) {
     return yield* sql`
-      SELECT ${share} FROM session_shares WHERE account_id = ${accountId}
+      SELECT ${share} FROM live_session_shares AS session_shares WHERE account_id = ${accountId}
       ORDER BY created_at, id
     `.pipe(all(Share));
   });
 
   const find = Effect.fn("SharesStore.find")(function* (id: string) {
-    return yield* sql`SELECT ${share} FROM session_shares WHERE id::text = ${id}`.pipe(
+    return yield* sql`SELECT ${share} FROM live_session_shares AS session_shares WHERE id::text = ${id}`.pipe(
       first(Share),
     );
   });
@@ -51,22 +51,27 @@ export const makeSharesStore = Effect.fn("SharesStore.make")(function* () {
     now: Date,
   ) {
     return yield* sql`
-      SELECT ${share} FROM session_shares
+      SELECT ${share} FROM live_session_shares AS session_shares
       WHERE token_hash = ${tokenHash} AND (expires_at IS NULL OR expires_at > ${now})
-        AND NOT EXISTS (
-          SELECT 1 FROM accounts
-          WHERE accounts.id = session_shares.account_id AND accounts.disabled_at IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM live_accounts AS accounts
+          WHERE accounts.id = session_shares.account_id AND accounts.disabled_at IS NULL
+        )
+        AND EXISTS (
+          SELECT 1 FROM live_sessions AS sessions WHERE sessions.id = session_shares.session_id
         )
     `.pipe(first(Share));
   });
 
-  const delete_ = Effect.fn("SharesStore.delete")(function* (id: string) {
-    yield* sql`DELETE FROM session_shares WHERE id::text = ${id}`.pipe(done);
+  const delete_ = Effect.fn("SharesStore.delete")(function* (id: string, at: Date) {
+    yield* sql`
+      UPDATE live_session_shares SET deleted_at = ${at} WHERE id::text = ${id}
+    `.pipe(done);
   });
 
   const used = Effect.fn("SharesStore.used")(function* (id: string, now: Date, since: Date) {
     yield* sql`
-      UPDATE session_shares SET last_used_at = ${now}
+      UPDATE live_session_shares SET last_used_at = ${now}
       WHERE id::text = ${id} AND (last_used_at IS NULL OR last_used_at <= ${since})
     `.pipe(done);
   });

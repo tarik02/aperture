@@ -67,7 +67,7 @@ export const makeSnapshots = Effect.fn("Snapshots.make")(function* () {
           asked(node.value),
         );
     }
-    yield* store.delete(snapshot.id);
+    yield* store.delete(snapshot.id, yield* now);
   });
 
   const take = Effect.fn("Snapshots.take")(function* (

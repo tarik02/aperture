@@ -63,8 +63,11 @@ export interface GrantsStoreShape {
   readonly insertGrant: (grant: NewGrant, code: NewCode) => Effect.Effect<void>;
   readonly listGrants: (accountId: string) => Effect.Effect<ReadonlyArray<Grant>>;
   readonly findGrant: (id: string) => Effect.Effect<Option.Option<Grant>>;
-  /** Removes a grant, and with it every code and token of it. */
-  readonly deleteGrant: (id: string) => Effect.Effect<void>;
+  /**
+   * Deletes a grant: it is kept, and found by nothing again. Every code and token of it
+   * is removed for good.
+   */
+  readonly deleteGrant: (id: string, at: Date) => Effect.Effect<void>;
   /** A code that is still good, by its digest. It is gone from then on: a code is used once. */
   readonly takeCode: (codeHash: string, now: Date) => Effect.Effect<Option.Option<Code>>;
   readonly insertToken: (token: NewToken) => Effect.Effect<void>;

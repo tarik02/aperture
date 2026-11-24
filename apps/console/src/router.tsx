@@ -11,6 +11,7 @@ import { PeoplePage } from "#/features/account/people-page.tsx";
 import { ServiceAccountTokensPage } from "#/features/account/service-account-tokens-page.tsx";
 import { ServiceAccountsPage } from "#/features/account/service-accounts-page.tsx";
 import { AccountHome, AccountPage } from "#/features/auth/account-page.tsx";
+import { FirstAdminPage } from "#/features/auth/first-admin-page.tsx";
 import { SecurityPage } from "#/features/auth/security-page.tsx";
 import { SignInPage } from "#/features/auth/sign-in-page.tsx";
 import { AUDIT_SEARCH, AuditPage } from "#/features/audit/audit-page.tsx";
@@ -63,6 +64,12 @@ const root = createRootRoute({ component: Root });
 const signed = createRoute({ getParentRoute: () => root, id: "signed", component: Signed });
 
 const invite = createRoute({ getParentRoute: () => root, path: "/invite", component: InvitePage });
+
+const firstAdmin = createRoute({
+  getParentRoute: () => root,
+  path: "/setup",
+  component: FirstAdminPage,
+});
 
 // Bare, and outside what asks who is signed in: a guest has no account.
 const share = createRoute({
@@ -267,6 +274,7 @@ export const router = createRouter({
   defaultNotFoundComponent: NotFound,
   routeTree: root.addChildren([
     invite,
+    firstAdmin,
     share,
     signed.addChildren([
       index,

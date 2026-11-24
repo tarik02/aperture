@@ -26,7 +26,6 @@ import {
   nameToken,
   needs,
   noteStarting,
-  pick,
   placed,
   pressUntil,
   rested,
@@ -142,9 +141,9 @@ suite(needs)("the console's sessions, behind the proxy", (it) => {
           `document.querySelector('[data-console-scope="sessions:read"]').hasAttribute("data-checked")`,
         );
         // It reaches all the account does, or only what is chosen: here the one session.
-        yield* pick(page, `[data-console-token-reach] [data-slot="select-trigger"]`, "Only chosen");
-        yield* page.until(`!!document.querySelector("[data-console-token-resources] input")`);
-        yield* page.click("[data-console-token-resources] input");
+        const search = `document.querySelector("[data-console-token-resources-search]")`;
+        yield* page.click("[data-console-token-resources]");
+        yield* page.until(`document.activeElement === ${search}`);
         yield* page.type("Checkout");
         const resource = `[data-console-token-resource="sessions:${id}"]`;
         yield* page.until(`!!document.querySelector('${resource}')`);
@@ -153,6 +152,8 @@ suite(needs)("the console's sessions, behind the proxy", (it) => {
           `!!document.querySelector('[data-console-token-resource-chosen="sessions:${id}"]')`,
         );
         yield* shot(page, fs, "console-token-resources");
+        yield* page.key("Escape", "Escape", ESCAPE);
+        yield* page.until(`!${search}`);
         yield* page.click(`[data-console-token-create] input[name="name"]`);
         yield* page.type("from the console");
         yield* shot(page, fs, "console-token-create");
@@ -816,16 +817,10 @@ suite(needs)("the console's sessions, behind the proxy", (it) => {
           `!!document.querySelector('[data-console-token-create] fieldset [data-slot="field-error"]')`,
         );
         token.push(yield* placed(page));
-        yield* pick(page, `[data-console-token-reach] [data-slot="select-trigger"]`, "Only chosen");
-        yield* page.until(`!!document.querySelector("[data-console-token-resources] input")`);
-        token.push(yield* placed(page));
-        // Nothing chosen is told as well: the dialog then says all it ever does.
-        yield* page.click(`${DIALOG} button[type="submit"]`);
         yield* page.until(
-          `document.querySelectorAll('[data-console-token-create] [data-slot="field-error"]').length === 3`,
+          `document.querySelectorAll('[data-console-token-create] [data-slot="field-error"]').length === 2`,
         );
         yield* shot(page, fs, "console-token-create-full");
-        token.push(yield* placed(page));
         // And what each scope does: it is as tall as holds the most it shows, so none of that
         // is scrolled to where the window has the room.
         yield* page.click("[data-console-scopes-explain]");

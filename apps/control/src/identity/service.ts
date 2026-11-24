@@ -1,7 +1,7 @@
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
-import type { EmailTaken, PersonNotFound } from "../errors.ts";
+import type { AccountInvalid, EmailTaken, PersonNotFound } from "../errors.ts";
 
 /**
  * Someone who signs in: known by an email address, and proven by what they sign in with,
@@ -43,12 +43,14 @@ export interface IdentityShape {
   readonly personOf: (headers: Headers) => Effect.Effect<Option.Option<Person>>;
   /**
    * Makes a person, who has nothing to sign in with until they set a password with a
-   * setup token, or a provider vouches for their address.
+   * setup token, or a provider vouches for their address; or who has the password that is
+   * given, where they named it themselves.
    */
   readonly create: (person: {
     readonly email: string;
     readonly name: string;
-  }) => Effect.Effect<Person, EmailTaken>;
+    readonly password?: string | undefined;
+  }) => Effect.Effect<Person, EmailTaken | AccountInvalid>;
   /** What each person signs in with, by their email address. */
   readonly methods: () => Effect.Effect<ReadonlyMap<string, SignInMethods>>;
   /**
@@ -56,7 +58,10 @@ export interface IdentityShape {
    * here: no one whose account is disabled does.
    */
   readonly signOut: (email: string) => Effect.Effect<void, PersonNotFound>;
-  /** Removes a person with all they signed in with; their address is anyone's again. */
+  /**
+   * Deletes a person: who they were is kept, marked, and all they signed in with is
+   * removed for good, so nothing signs them in again. Their address is anyone's again.
+   */
   readonly remove: (email: string) => Effect.Effect<void, PersonNotFound>;
   /** A token with which a person sets a password of their own: a first one, or another. */
   readonly setupToken: (email: string) => Effect.Effect<string, PersonNotFound>;

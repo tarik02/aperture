@@ -14,6 +14,7 @@ import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import type * as HttpMethod from "effect/http/HttpMethod";
 import * as HttpServer from "effect/http/HttpServer";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as References from "effect/References";
@@ -46,6 +47,11 @@ export interface ControlOptions {
     /** The settings name no provider: the suite's is there for an admin to add. */
     readonly unnamed?: boolean;
   };
+  /**
+   * Another control plane whose database and keys this one has: a second program of one
+   * deployment, or the same one started again.
+   */
+  readonly beside?: ControlService;
 }
 
 /** What a node says of itself in a keepalive, as JSON has it. */
@@ -81,6 +87,8 @@ export interface ControlService {
   readonly ticketKey: string;
   /** Its database, for what a check looks up there itself. */
   readonly sql: SqlClient.SqlClient;
+  /** What it warned of since it started, each as the line's message. */
+  readonly warned: () => ReadonlyArray<string>;
   /** Its API for whoever holds the token. */
   readonly as: (token: string) => Effect.Effect<Client>;
   /** A request whose answer is told whatever its status. */
@@ -109,23 +117,39 @@ export const KEEPALIVE = "/aperture.control.v1.NodeService/Keepalive";
 export const start = Effect.fn("Control.start")(function* (options: ControlOptions = {}) {
   const fs = yield* FileSystem.FileSystem;
   const http = yield* Effect.context<HttpClient.HttpClient>();
-  const postgres = yield* Postgres.start;
   const dir = yield* directory;
 
   // Effect signs nothing: the keys are the platform's own, which makes them or throws.
   const keys = yield* Effect.promise(() =>
     crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]),
   );
-  const ticketKey = `${dir}/ticket.pub.pem`;
+  const ticketKey = options.beside?.ticketKey ?? `${dir}/ticket.pub.pem`;
   const signingKey = `${dir}/ticket.pem`;
-  yield* fs.writeFileString(ticketKey, yield* Effect.promise(() => exportSPKI(keys.publicKey)));
-  yield* fs.writeFileString(signingKey, yield* Effect.promise(() => exportPKCS8(keys.privateKey)));
-
   const masterKey = `${dir}/master.key`;
-  yield* fs.writeFileString(
-    masterKey,
-    Base64.encode(crypto.getRandomValues(new Uint8Array(MASTER_KEY_BYTES))),
-  );
+  if (options.beside === undefined) {
+    yield* fs.writeFileString(ticketKey, yield* Effect.promise(() => exportSPKI(keys.publicKey)));
+    yield* fs.writeFileString(
+      signingKey,
+      yield* Effect.promise(() => exportPKCS8(keys.privateKey)),
+    );
+    yield* fs.writeFileString(
+      masterKey,
+      Base64.encode(crypto.getRandomValues(new Uint8Array(MASTER_KEY_BYTES))),
+    );
+  }
+  const shared =
+    options.beside === undefined
+      ? {
+          APERTURE_CONTROL_MASTER_KEY: masterKey,
+          APERTURE_CONTROL_DATABASE_URL: (yield* Postgres.start).url,
+          APERTURE_CONTROL_TICKET_KEY: signingKey,
+        }
+      : {
+          APERTURE_CONTROL_MASTER_KEY: options.beside.settings["APERTURE_CONTROL_MASTER_KEY"] ?? "",
+          APERTURE_CONTROL_DATABASE_URL:
+            options.beside.settings["APERTURE_CONTROL_DATABASE_URL"] ?? "",
+          APERTURE_CONTROL_TICKET_KEY: options.beside.settings["APERTURE_CONTROL_TICKET_KEY"] ?? "",
+        };
 
   const provider =
     options.sso === undefined ? Option.none() : yield* Effect.serviceOption(Dex.Address);
@@ -138,12 +162,10 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
   const port = yield* freePort;
   const settings: Record<string, string> = {
     APERTURE_CONTROL_LISTEN_PORT: String(port),
-    APERTURE_CONTROL_MASTER_KEY: masterKey,
+    ...shared,
     // Checks sign in more often from one address than anyone is let.
     APERTURE_CONTROL_RATE_LIMIT: String(options.rateLimit ?? false),
-    APERTURE_CONTROL_DATABASE_URL: postgres.url,
     APERTURE_CONTROL_BOOTSTRAP_TOKEN: BOOTSTRAP,
-    APERTURE_CONTROL_TICKET_KEY: signingKey,
     ...(options.console === true ? { APERTURE_CONTROL_CONSOLE_DIR: CONSOLE } : {}),
     // The suite's provider is on this machine, and speaks no TLS.
     ...(Option.isNone(provider) ? {} : { APERTURE_CONTROL_SSO_LOOPBACK_HTTP: "true" }),
@@ -171,6 +193,12 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
       : { APERTURE_CONTROL_NODE_SILENT_AFTER: options.nodeSilentAfter }),
   };
   const environment = ConfigProvider.fromEnvRecord(settings);
+  const warned: Array<string> = [];
+  const heard = Logger.make<unknown, void>(({ logLevel, message }) => {
+    if (logLevel === "Warn") {
+      warned.push([message].flat().map(String).join(" "));
+    }
+  });
   const running = yield* Layer.build(
     App.layer.pipe(
       Layer.provideMerge(Server.listen({ host: "127.0.0.1", port })),
@@ -178,13 +206,16 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
       Layer.provide(ConfigProvider.layer(environment)),
       // Every request it answers is a line otherwise.
       Layer.provide(Layer.succeed(References.MinimumLogLevel, "Warn")),
+      Layer.provide(Logger.layer([heard], { mergeWithExisting: true })),
     ),
   );
   const address = Context.get(running, HttpServer.HttpServer).address;
   const url = address._tag === "UnixPathAddress" ? "" : `http://127.0.0.1:${address.port}`;
 
   const sql = Context.get(
-    yield* Layer.build(PgClient.layer({ url: Redacted.make(postgres.url) })),
+    yield* Layer.build(
+      PgClient.layer({ url: Redacted.make(shared.APERTURE_CONTROL_DATABASE_URL) }),
+    ),
     PgClient.PgClient,
   );
 
@@ -194,6 +225,7 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
     settings,
     ticketKey,
     sql,
+    warned: () => [...warned],
     as: (token) => client(url, token).pipe(Effect.provide(http)),
     request: (token, method, path, body) =>
       request(url, token, method, path, body).pipe(Effect.provide(http)),
