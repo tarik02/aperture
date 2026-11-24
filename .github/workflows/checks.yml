@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - master
-      - v2
   workflow_dispatch:
 
 permissions:
@@ -97,6 +96,9 @@ jobs:
       - name: Verify nothing changed
         run: git diff --exit-code
 
+  # What the flake installs. Whatever is built here goes to the cache, where the jobs after
+  # this one, the next run and the machines that install a release take it from: a change
+  # that touches no program builds none again.
   nix:
     name: nix packages
     runs-on: ubuntu-24.04
@@ -109,7 +111,11 @@ jobs:
       - uses: cachix/cachix-action@v17
         with:
           name: aperture-browser
-          skipPush: true
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # A pull request from elsewhere has no token, and builds what it needs itself.
+          skipPush: ${{ secrets.CACHIX_AUTH_TOKEN == '' }}
+          # Sources and what images are assembled from are made again faster than fetched.
+          pushFilter: (-source$|-vendor|stream-aperture-|layers\.json|excludePaths|closure-info|user-environment)
 
       # A hash left as it was when pnpm-lock.yaml changed fails nowhere else: the
       # dependencies of before are taken from the store or a cache by it. Fetching them
@@ -128,32 +134,52 @@ jobs:
           .#aperture
           .#aperture-control
           .#aperture-migrate
+          .#aperture-keys
           .#checks.x86_64-linux.aperture-ffmpeg-features
           --no-link --print-build-logs
 
-      # The image is the package above and little more; it is started here as its users
-      # start it, which nothing else does.
-      - name: Build the image
-        run: |
-          nix build .#container --print-build-logs
-          ./result | gzip > aperture-session.tar.gz
+  # The images are the packages above and little more; they are started here as their
+  # users start them, which nothing else does.
+  images:
+    name: ${{ matrix.name }}
+    needs: nix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: session image
+            images: container
+            smoke: .github/scripts/smoke-image.sh container.tar.gz
+          # A whole deployment: the control plane's image and the node's, with the
+          # database and the proxy deploy/compose.yaml puts beside them, under Docker.
+          - name: deployment images
+            images: control-image node-image
+            smoke: .github/scripts/smoke-compose.sh control-image.tar.gz node-image.tar.gz
+    steps:
+      - uses: actions/checkout@v7.0.0
 
-      # The session's sandbox is made of user namespaces, which this runner's AppArmor
+      - uses: cachix/install-nix-action@v31
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: aperture-browser
+          skipPush: true
+
+      - name: Build
+        env:
+          IMAGES: ${{ matrix.images }}
+        run: |
+          for image in $IMAGES; do
+            nix build ".#$image" --print-build-logs
+            ./result | gzip --fast > "$image.tar.gz"
+          done
+
+      # A session's sandbox is made of user namespaces, which this runner's AppArmor
       # keeps from whoever is not root.
       - name: Let the sandbox make its namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
-      - name: Start the image and load a page in it
-        run: .github/scripts/smoke-image.sh aperture-session.tar.gz
-
-      # The same for a whole deployment: the control plane's image and the node's, with
-      # the database and the proxy deploy/compose.yaml puts beside them, under Docker.
-      - name: Build the images of a deployment
-        run: |
-          nix build .#control-image --print-build-logs
-          ./result | gzip > aperture-control.tar.gz
-          nix build .#node-image --print-build-logs
-          ./result | gzip > aperture-node.tar.gz
-
-      - name: Bring the deployment up and make a session in it
-        run: .github/scripts/smoke-compose.sh aperture-control.tar.gz aperture-node.tar.gz
+      - name: Start
+        run: ${{ matrix.smoke }}

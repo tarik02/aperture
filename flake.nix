@@ -198,6 +198,19 @@
           ];
         };
 
+        # What the programs alone are built of: a change of the console or the control plane
+        # builds none of them again.
+        programsSrc = lib.fileset.toSource {
+          root = ./.;
+          fileset = lib.fileset.unions [
+            ./Cargo.toml
+            ./Cargo.lock
+            ./buf.yaml
+            ./crates
+            ./proto
+          ];
+        };
+
         workspacePnpmDeps = pkgs.fetchPnpmDeps {
           pname = "aperture-workspace";
           inherit version src;
@@ -346,7 +359,8 @@
         # The programs as cargo builds them, which find nothing of what they run by themselves.
         apertureUnwrapped = pkgs.rustPlatform.buildRustPackage {
           pname = "aperture-unwrapped";
-          inherit version src;
+          inherit version;
+          src = programsSrc;
           cargoLock = {
             lockFile = ./Cargo.lock;
             allowBuiltinFetchGit = true;

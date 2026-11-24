@@ -62,7 +62,8 @@ services:
         - CMD
         - /bin/node
         - --eval
-        - fetch("http://127.0.0.1:7800/api/control/health").then((answer) => process.exit(answer.ok ? 0: 1), () => process.exit(1))
+        - >-
+          fetch("http://127.0.0.1:7800/api/control/health").then((answer) => process.exit(answer.ok ? 0 : 1), () => process.exit(1))
       interval: 2s
       timeout: 5s
       retries: 60
