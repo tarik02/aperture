@@ -188,15 +188,17 @@ suite(needs)("the companion, in a browser of someone's own", (it) => {
     `[...document.querySelectorAll('button')].find((one) => one.textContent.trim() === ${JSON.stringify(text)})`;
 
   /**
-   * Presses what an expression gives in the popup. A browser nobody looks at gives the
-   * popup less room than it is tall, and what is below is scrolled to, as a person does.
+   * Presses what an expression gives in a page of the browser's own making. A browser
+   * nobody looks at gives the popup, and the window it signs in with, less room than what
+   * they show is tall, and what is below is scrolled to, as a person does.
    */
-  const press = (element: string) =>
+  const pressIn = (page: Viewer.Page, element: string) =>
     Effect.gen(function* () {
-      yield* popup.until(`!!${element}`);
-      yield* popup.evaluate(`void ${element}.scrollIntoView({ block: "nearest" })`);
-      yield* popup.clickOn(element);
+      yield* page.until(`!!${element}`);
+      yield* page.evaluate(`void ${element}.scrollIntoView({ block: "nearest" })`);
+      yield* page.clickOn(element);
     });
+  const press = (element: string) => Effect.suspend(() => pressIn(popup, element));
 
   it.effect("someone signs in to a site and uses a page of it", () =>
     Effect.gen(function* () {
@@ -347,15 +349,16 @@ suite(needs)("the companion, in a browser of someone's own", (it) => {
         "60 seconds",
       );
 
-      // A session of the snapshot is signed in as the tab was.
+      // A session of the snapshot is signed in as the tab was. The console, which the
+      // browser was shown at the same host, left a cookie of its own beside the site's.
       const executor = yield* Executor.Executor;
       const made = yield* ada.api.sessions.create({ payload: { snapshotId: snapshot!.id } });
       const exported = yield* executor.session(made.id, "POST", "/storage-state", {
         origins: [site.url],
       });
-      expect((yield* read(exported, Exported)).cookies).toEqual([
-        expect.objectContaining({ name: "sid", value: "s3cret" }),
-      ]);
+      expect((yield* read(exported, Exported)).cookies).toEqual(
+        expect.arrayContaining([expect.objectContaining({ name: "sid", value: "s3cret" })]),
+      );
     }),
   );
 
@@ -437,7 +440,7 @@ suite(needs)("the companion, in a browser of someone's own", (it) => {
         ),
       ).toEqual(["sessions:read", "sessions:write", "snapshots:read", "snapshots:write"]);
       yield* shot(page, fs, "companion-consent");
-      yield* page.click("[data-console-consent-allow]");
+      yield* pressIn(page, `document.querySelector("[data-console-consent-allow]")`);
 
       // The code it is answered with is exchanged for tokens, which call the API as Ada.
       yield* until(
@@ -488,7 +491,10 @@ suite(needs)("the companion, in a browser of someone's own", (it) => {
         ada.api.grants.list().pipe(Effect.map((all) => all.length === 0)),
         "30 seconds",
       );
-      yield* until("the connection being forgotten", kept.pipe(Effect.map((all) => all.length === 1)));
+      yield* until(
+        "the connection being forgotten",
+        kept.pipe(Effect.map((all) => all.length === 1)),
+      );
       expect(yield* kept).toEqual(["token"]);
     }),
   );
