@@ -42,9 +42,9 @@ use crate::{
     egress::Egress,
     files::{self, Download, Progress, UPLOADS},
     pace::{Pace, Paced},
-    restore::{Restore, Restoring},
     pages::Pages,
     presence::{Identity, Presence},
+    restore::{Restore, Restoring},
     targets::{Mode, Tabs, Target},
 };
 

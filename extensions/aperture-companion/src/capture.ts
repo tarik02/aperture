@@ -67,9 +67,7 @@ export const capturePermissionOrigins = Effect.fnUntraced(function* (
 
 export const requestCapturePermissions = (tabs: readonly chrome.tabs.Tab[]) =>
   capturePermissionOrigins(tabs).pipe(
-    Effect.flatMap((origins) =>
-      requestOrigins(origins, "Access to the selected websites was not granted"),
-    ),
+    Effect.flatMap((origins) => requestOrigins(origins, "teleport")),
   );
 
 /** Captures the selected tabs; `activeTabId` is the one the session shows first. */

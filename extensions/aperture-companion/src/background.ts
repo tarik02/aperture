@@ -8,8 +8,10 @@ import {
   capturePermissionOrigins,
   requestCapturePermissions,
 } from "./capture.ts";
-import { chromeCall, CompanionError, getTab, hasOrigins, isWebURL } from "./chrome.ts";
+import { chromeCall, CompanionError, getTab, hasOrigins, isWebURL, notGiven } from "./chrome.ts";
 import {
+  CancelResult,
+  CommandFailed,
   CompanionMessage,
   type CompanionCommand,
   ConnectResult,
@@ -32,7 +34,9 @@ import {
   removeConnection,
   requireActiveConnection,
   requireSnapshotNameFree,
+  suspendSession,
   takeSnapshot,
+  waitForRestored,
   wasSnapshotTaken,
 } from "./connection.ts";
 import { connectionOperation } from "./connection-operation.ts";
@@ -45,6 +49,7 @@ import {
   type PendingCommand,
   type TeleportCheckpoint,
 } from "./pending-command.ts";
+import { cancelPending } from "./pending-access.ts";
 import { popupState } from "./popup-state.ts";
 import { defaultTeleportTags, type TeleportDestination } from "./schema.ts";
 import { teleportOperation, type TeleportStage } from "./teleport-operation.ts";
@@ -199,18 +204,35 @@ const teleportTabs = (
           label: command.label,
           tags: command.tags,
         });
-        progress = { ...base, sessionId, stage: snapshot ? "snapshotting" : "opening" };
+        // A session is opened as it is: its own page shows its state being put in, and
+        // this is the last that is done for it. A snapshot is taken of one that has it all.
+        progress = { ...base, sessionId, stage: snapshot ? "restoring" : "opening" };
         yield* saveTeleportCheckpoint(command.id, progress);
       }
       const { sessionId, warnings } = progress;
+      if (progress.stage === "restoring") {
+        yield* setStage("restoring");
+        yield* waitForRestored(
+          connection,
+          sessionId,
+          startedAt + Duration.toMillis(teleportLifetime),
+        ).pipe(
+          // What was made for the snapshot alone is not left behind without one.
+          Effect.tapError(() => Effect.ignore(deleteSession(connection, sessionId))),
+        );
+        progress = { ...progress, stage: "snapshotting" };
+        yield* saveTeleportCheckpoint(command.id, progress);
+      }
       if (progress.stage === "snapshotting") {
-        yield* setStage("creating-snapshot");
         // One that was being taken when the worker stopped may be there all the same.
         const taken =
           checkpoint?.stage === "snapshotting"
             ? yield* wasSnapshotTaken(connection, sessionId)
             : false;
         if (!taken) {
+          yield* setStage("suspending");
+          yield* suspendSession(connection, sessionId);
+          yield* setStage("creating-snapshot");
           yield* takeSnapshot(connection, sessionId, {
             name: snapshotName,
             description: command.description ?? "",
@@ -311,7 +333,10 @@ const resume = Effect.fnUntraced(function* (id: string) {
           new CompanionError({
             message:
               pending.teleport === undefined
-                ? "Access was not granted"
+                ? notGiven(
+                    pending.origins,
+                    pending.command.type === "teleport-tabs" ? "teleport" : "connect",
+                  )
                 : "The teleport took longer than 10 minutes. Check its session in Aperture.",
           }),
         )
@@ -458,6 +483,25 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }).pipe(
         Effect.catchCause((cause) =>
           respond(id, ListSnapshotsResult, { ok: false, error: commandError(cause) }),
+        ),
+      ),
+    );
+  } else if (command.value.type === "cancel") {
+    const { id, commandId } = command.value;
+    run(
+      cancelPending(commandId).pipe(
+        // Whoever sent the command that was taken back is answered as well.
+        Effect.tap((taken) =>
+          taken === null
+            ? Effect.void
+            : respond(commandId, CommandFailed, {
+                ok: false,
+                error: new CompanionError({ message: "Access was not given" }),
+              }),
+        ),
+        Effect.andThen(respond(id, CancelResult, { ok: true })),
+        Effect.catchCause((cause) =>
+          respond(id, CancelResult, { ok: false, error: commandError(cause) }),
         ),
       ),
     );

@@ -27,10 +27,13 @@ export function teleportCreatedStatus(
   destination: TeleportDestination,
   warnings: readonly string[],
 ): Status {
-  const resource = destination === "snapshot" ? "Snapshot" : "Session";
+  // A session is opened as soon as it is there, and is given its state on its own page.
+  const created =
+    destination === "snapshot"
+      ? "Snapshot created."
+      : "Session created. It is being restored on its page.";
   return {
-    message:
-      warnings.length === 0 ? `${resource} created.` : `${resource} created. ${warnings.join(" ")}`,
+    message: warnings.length === 0 ? created : `${created} ${warnings.join(" ")}`,
     kind: "neutral",
   };
 }
@@ -61,9 +64,13 @@ export function teleportProgressLabel(
       case "capturing":
         return "Capturing state…";
       case "creating-session":
+        return "Creating session…";
+      case "restoring":
         return "Restoring in Aperture…";
+      case "suspending":
+        return "Suspending the session…";
       case "creating-snapshot":
-        return "Creating snapshot…";
+        return "Taking the snapshot…";
       case "opening":
         return "Opening Aperture…";
     }

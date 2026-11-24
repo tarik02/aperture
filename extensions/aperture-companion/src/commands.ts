@@ -63,10 +63,17 @@ export const DisconnectCommand = Schema.Struct({
   id: NonEmptyString,
   connectionId: NonEmptyString,
 });
+/** Takes back a command that waits for access to sites, before it did anything. */
+export const CancelCommand = Schema.Struct({
+  type: Schema.Literal("cancel"),
+  id: NonEmptyString,
+  commandId: NonEmptyString,
+});
 export const CompanionMessage = Schema.Union([
   CompanionCommand,
   ListSnapshotsCommand,
   DisconnectCommand,
+  CancelCommand,
 ]);
 
 /** Why a command failed, as a tagged error the popup decodes back into its class. */
@@ -84,6 +91,11 @@ export type ConnectResult = typeof ConnectResult.Type;
 
 export const ListSnapshotsResult = Schema.Union([
   Schema.Struct({ ok: Schema.Literal(true), snapshots: Schema.Array(BaseSnapshot) }),
+  CommandFailed,
+]);
+
+export const CancelResult = Schema.Union([
+  Schema.Struct({ ok: Schema.Literal(true) }),
   CommandFailed,
 ]);
 

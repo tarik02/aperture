@@ -16,7 +16,7 @@ export const TeleportCheckpoint = Schema.Union([
   Schema.Struct({ ...teleportCheckpointBase, stage: Schema.Literal("creating") }),
   Schema.Struct({
     ...teleportCheckpointBase,
-    stage: Schema.Literals(["snapshotting", "deleting", "opening"]),
+    stage: Schema.Literals(["restoring", "snapshotting", "deleting", "opening"]),
     sessionId: NonEmptyString,
   }),
 ]);

@@ -31,10 +31,10 @@ use super::{
 use crate::{
     files::{self, Download},
     pace::Pace,
-    restore::Restore,
     pages::{self, Along, History},
     presence::{Identity, Mark, Membership, Phase, Present, Shown},
     proto::aperture::live::v1::{self as pb, client_message, server_message},
+    restore::Restore,
     targets::{Like, Mode, Target},
 };
 

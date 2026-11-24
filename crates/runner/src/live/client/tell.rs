@@ -9,10 +9,10 @@ use crate::{
     files::Progress,
     live::sound,
     pace::Pace,
-    restore::Restore,
     pages,
     presence::{Mark, Phase, Role, Shown},
     proto::aperture::live::v1::{self as pb, server_message},
+    restore::Restore,
 };
 
 impl Client {

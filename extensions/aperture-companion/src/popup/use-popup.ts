@@ -11,8 +11,15 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { useEffect, useState, type FormEvent } from "react";
 import { requestCapturePermissions } from "../capture.ts";
-import { chromeCall, CompanionError, isWebURL, type ChromeError } from "../chrome.ts";
 import {
+  chromeCall,
+  CompanionError,
+  isWebURL,
+  requestOrigins,
+  type ChromeError,
+} from "../chrome.ts";
+import {
+  CancelResult,
   ConnectResult,
   DisconnectResult,
   ListSnapshotsResult,
@@ -43,6 +50,8 @@ import {
   connectionOperation as storedConnectionOperation,
   type ConnectionOperation,
 } from "../connection-operation.ts";
+import { awaitingAccess } from "../pending-access.ts";
+import type { PendingCommand } from "../pending-command.ts";
 import { popupState, type PopupScreen, type PopupState } from "../popup-state.ts";
 import { defaultTeleportTags, type TeleportDestination } from "../schema.ts";
 import {
@@ -78,7 +87,23 @@ const loadSnapshots = Effect.fn("loadSnapshots")(function* (connectionId: string
   return result.snapshots;
 });
 
-type PendingAction = "connect" | "connection" | "remove" | "reorder" | "place" | "teleport";
+type PendingAction =
+  | "connect"
+  | "connection"
+  | "remove"
+  | "reorder"
+  | "place"
+  | "teleport"
+  | "access";
+
+/** Has the worker take back a command that waits for access, with all that tells of it. */
+const cancelCommand = Effect.fn("cancelCommand")(function* (commandId: string) {
+  const response = yield* chromeCall("runtime.sendMessage", () =>
+    chrome.runtime.sendMessage({ type: "cancel", id: crypto.randomUUID(), commandId }),
+  );
+  const result = yield* Schema.decodeUnknownEffect(CancelResult)(response);
+  if (!result.ok) return yield* result.error;
+});
 
 /** Everything the user has set up for the next teleport; persisted across popup reopenings. */
 export type TeleportDraft = Omit<PopupState, "connectionId" | "screen" | "tags"> & {
@@ -103,6 +128,8 @@ function initialDraft(currentTab: chrome.tabs.Tab | null): TeleportDraft {
  * Hands a command to the service worker, then asks for the access it waits for. Both calls
  * happen before the fiber first yields, while the click still counts as a user gesture.
  * Chromium may close the popup to ask; the worker then carries on with the command alone.
+ * Where the popup is still there to hear that the access was not given, the command is
+ * taken back at once: the worker would wait for a grant nobody is asked for any more.
  */
 const sendCommand = <A extends { readonly ok: true } | CommandFailed, I>(
   command: CompanionCommand,
@@ -116,7 +143,7 @@ const sendCommand = <A extends { readonly ok: true } | CommandFailed, I>(
       sent.catch(() => undefined);
       return sent;
     });
-    yield* requestAccess;
+    yield* requestAccess.pipe(Effect.tapError(() => Effect.ignore(cancelCommand(command.id))));
     const message = yield* chromeCall("runtime.sendMessage", () => response);
     const result = yield* Schema.decodeUnknownEffect(resultSchema)(message);
     if (isFailed(result)) return yield* Effect.fail(result.error);
@@ -141,6 +168,7 @@ export function usePopup() {
   const [connectionOperation, setConnectionOperation] = useState<ConnectionOperation | null>(null);
   const [teleportOperation, setTeleportOperation] = useState<TeleportOperation | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
+  const [awaiting, setAwaiting] = useState<PendingCommand | null>(null);
 
   const teleportRunning = isTeleportRunning(teleportOperation);
   const connectionRunning = isConnectionRunning(connectionOperation);
@@ -189,6 +217,32 @@ export function usePopup() {
       if (Exit.isFailure(exit)) setStatus(failureStatus(exit.cause));
     });
   }, [initialized, connection?.id, screen, draft]);
+
+  // A command of an earlier popup may still wait in the worker for sites nobody is asked
+  // for any more: the prompt was dismissed, or the popup closed over it. While this popup
+  // asks itself, the prompt is its own, and there is nothing to offer.
+  useEffect(() => {
+    // What is offered stays while the person's own answer to it is on its way.
+    if (pendingAction === "access") return;
+    if (!initialized || pendingAction !== null) {
+      setAwaiting(null);
+      return;
+    }
+    let current = true;
+    void Effect.runPromiseExit(awaitingAccess).then((exit) => {
+      if (current) setAwaiting(Exit.isSuccess(exit) ? exit.value : null);
+    });
+    return () => {
+      current = false;
+    };
+  }, [
+    initialized,
+    pendingAction,
+    teleportOperation?.id,
+    teleportOperation?.status,
+    connectionOperation?.id,
+    connectionOperation?.status,
+  ]);
 
   const initialize = Effect.gen(function* () {
     const [stored, storedConnection, storedDraft, active, restored, operation, login] =
@@ -555,6 +609,32 @@ export function usePopup() {
       setDraft(initialDraft(currentTab));
       actions.showScreen("home");
     },
+
+    /** Asks again for the sites a command waits for; the worker goes on once they are given. */
+    giveAccess: async () => {
+      if (awaiting === null) return;
+      const { command, origins } = awaiting;
+      await run(
+        "access",
+        requestOrigins(origins, command.type === "teleport-tabs" ? "teleport" : "connect").pipe(
+          Effect.tapError(() => Effect.ignore(cancelCommand(command.id))),
+        ),
+      );
+    },
+
+    /** Takes the command that waits for access back: nothing was done, and nothing is. */
+    cancelAccess: async () => {
+      if (awaiting === null) return;
+      const { command } = awaiting;
+      const cancelled = await run("access", cancelCommand(command.id));
+      if (cancelled) {
+        setStatus({
+          message:
+            command.type === "teleport-tabs" ? "Nothing was teleported." : "Nothing was connected.",
+          kind: "neutral",
+        });
+      }
+    },
   };
 
   return {
@@ -568,6 +648,8 @@ export function usePopup() {
     snapshots,
     draft,
     status,
+    awaiting,
+    askingAccess: pendingAction === "access",
     busy,
     canCreateSnapshot,
     selectedTabIds: selectedOrCurrentTabIds(),

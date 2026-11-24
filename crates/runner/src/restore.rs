@@ -11,7 +11,11 @@ pub enum Restore {
     None,
     /// A state is on its way or being put in: so many tabs, cookies and origins, which is
     /// none of each until the state has come.
-    Underway { tabs: u32, cookies: u32, origins: u32 },
+    Underway {
+        tabs: u32,
+        cookies: u32,
+        origins: u32,
+    },
     /// The state the session was to start with was not taken.
     Failed(String),
 }

@@ -76,9 +76,7 @@ export const connectionOriginPattern = (input: string) =>
 
 export const requestConnectionPermission = (input: string) =>
   connectionOriginPattern(input).pipe(
-    Effect.flatMap((pattern) =>
-      requestOrigins([pattern], "Access to the Aperture instance was not granted"),
-    ),
+    Effect.flatMap((pattern) => requestOrigins([pattern], "connect")),
   );
 
 const httpLayer = Layer.mergeAll(
@@ -369,7 +367,8 @@ export interface CreateSessionOptions {
 
 /**
  * Creates a session that starts with the captured state and returns its id. The session
- * is there once this returns: its browser has the state, and its tabs are open.
+ * is there once this returns, and is being restored: its browser is given the state
+ * after, which the session's own page shows.
  */
 export const createSession = Effect.fn("createSession")(function* (
   connection: Connection,
@@ -394,6 +393,43 @@ export const createSession = Effect.fn("createSession")(function* (
   return session.id;
 });
 
+/**
+ * Waits until the session has all of the state it was created with, which is when it
+ * runs. One whose browser did not take the state failed, and says why.
+ */
+export const waitForRestored = Effect.fn("waitForRestored")(function* (
+  connection: Connection,
+  sessionId: string,
+  deadline: number,
+) {
+  while (Date.now() < deadline) {
+    const session = yield* asConnection(connection, (api) =>
+      api.sessions.get({ params: { id: sessionId } }),
+    );
+    switch (session.observedState) {
+      case "running":
+        return;
+      case "starting":
+      case "restoring":
+        yield* Effect.sleep("1 second");
+        break;
+      case "failed":
+      case "gone":
+      case "suspended":
+      case "suspending":
+        return yield* new CompanionError({
+          message:
+            session.failure === null
+              ? `The session was not restored (${session.observedState}).`
+              : `The session was not restored: ${session.failure}`,
+        });
+    }
+  }
+  return yield* new CompanionError({
+    message: "Restoring the session took longer than 10 minutes. Check it in Aperture.",
+  });
+});
+
 /** Whether a snapshot of the session is there: one whose answer was lost was taken all the same. */
 export const wasSnapshotTaken = Effect.fn("wasSnapshotTaken")(function* (
   connection: Connection,
@@ -410,16 +446,21 @@ export interface TakeSnapshotOptions {
 }
 
 /**
- * Takes a snapshot of the session, at rest: its browser is stopped first, so that all it
- * was given is in its profile and it is not started again for nothing.
+ * Stops the session's browser before a snapshot is taken of it: all it was given is in
+ * its profile then, and it is not started again for nothing.
  */
+export const suspendSession = (connection: Connection, sessionId: string) =>
+  asConnection(connection, (api) => api.sessions.suspend({ params: { id: sessionId } })).pipe(
+    Effect.asVoid,
+  );
+
+/** Takes a snapshot of the session, which is at rest. */
 export const takeSnapshot = Effect.fn("takeSnapshot")(function* (
   connection: Connection,
   sessionId: string,
   options: TakeSnapshotOptions,
 ) {
   const description = options.description.trim();
-  yield* asConnection(connection, (api) => api.sessions.suspend({ params: { id: sessionId } }));
   yield* asConnection(connection, (api) =>
     api.snapshots.take({
       params: { id: sessionId },

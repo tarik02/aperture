@@ -48,16 +48,55 @@ export const getTab = (tabId: number) => chromeCall("tabs.get", () => chrome.tab
 export const openTab = (url: string) =>
   chromeCall("tabs.create", () => chrome.tabs.create({ url })).pipe(Effect.asVoid);
 
-/** Asks for access to the given origin patterns; fails with `message` when it is refused. */
+export const hasOrigins = (origins: readonly string[]) =>
+  chromeCall("permissions.contains", () => chrome.permissions.contains({ origins: [...origins] }));
+
+/** The hosts that origin patterns name, each once, for telling a person which sites. */
+export const hostsOf = (origins: readonly string[]) => [
+  ...new Set(
+    origins.map((pattern) => {
+      try {
+        return new URL(pattern.replace(/\/\*$/u, "/")).host;
+      } catch {
+        return pattern;
+      }
+    }),
+  ),
+];
+
+/** What access is asked for: to teleport pages, or to connect to an Aperture. */
+export type AccessFor = "teleport" | "connect";
+
+/** What a person is told when the sites that were asked for were not given. */
+export const notGiven = (origins: readonly string[], accessFor: AccessFor) =>
+  accessFor === "teleport"
+    ? `Access to ${hostsOf(origins).join(", ")} was not given, so nothing was teleported. Teleport again to be asked once more.`
+    : `Access to ${hostsOf(origins).join(", ")} was not given, so nothing was connected. Connect again to be asked once more.`;
+
+/** Which of the origin patterns the extension has no access to. */
+export const missingOrigins = (origins: readonly string[]) =>
+  Effect.forEach(origins, (origin) =>
+    hasOrigins([origin]).pipe(Effect.map((granted) => (granted ? [] : [origin]))),
+  ).pipe(Effect.map((missing) => missing.flat()));
+
+/**
+ * Asks the browser for access to the origin patterns, and fails unless all of it is had
+ * afterwards. A prompt that is refused or dismissed answers `false`; one the browser does
+ * not put up at all, as one that was not asked for from a press, rejects. Either way the
+ * person is told which sites were not given, and that nothing was done: what was asked
+ * for is taken whole or not at all, as pages without their sites' cookies would be put
+ * back broken.
+ */
 export const requestOrigins = Effect.fnUntraced(function* (
   origins: readonly string[],
-  message: string,
+  accessFor: AccessFor,
 ) {
   const granted = yield* chromeCall("permissions.request", () =>
     chrome.permissions.request({ origins: [...origins] }),
-  );
-  if (!granted) return yield* new CompanionError({ message });
+  ).pipe(Effect.orElseSucceed(() => false));
+  if (granted) return;
+  // What is not known to be given is not.
+  const missing = yield* missingOrigins(origins).pipe(Effect.orElseSucceed(() => origins));
+  if (missing.length === 0) return;
+  return yield* new CompanionError({ message: notGiven(missing, accessFor) });
 });
-
-export const hasOrigins = (origins: readonly string[]) =>
-  chromeCall("permissions.contains", () => chrome.permissions.contains({ origins: [...origins] }));

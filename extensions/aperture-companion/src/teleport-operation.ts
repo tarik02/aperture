@@ -9,6 +9,8 @@ export const TeleportStage = Schema.Literals([
   "requesting-access",
   "capturing",
   "creating-session",
+  "restoring",
+  "suspending",
   "creating-snapshot",
   "opening",
 ]);
