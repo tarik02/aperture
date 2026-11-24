@@ -1,4 +1,5 @@
 import type { Query, QueryClient } from "@tanstack/react-query";
+import * as Data from "effect/Data";
 import * as HttpClientError from "effect/http/HttpClientError";
 import { useEffect, useSyncExternalStore } from "react";
 
@@ -8,10 +9,8 @@ const SERVER_FAILED = 500;
  * What was asked of Aperture by something other than the API's client, and was not
  * answered: it was not reached, or failed to answer.
  */
-export class Unanswered extends Error {
-  constructor() {
-    super("Aperture is not answering. Try again in a moment.");
-  }
+export class Unanswered extends Data.TaggedError("Unanswered") {
+  override readonly message = "Aperture is not answering. Try again in a moment.";
 }
 
 /** Whether an answer's status is of a server that failed, and not a refusal of what was asked. */
