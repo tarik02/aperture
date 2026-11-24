@@ -1,5 +1,6 @@
 import { ShareRole } from "@aperture-browser/control-api";
 import * as Schema from "effect/Schema";
+import { failedToAnswer, Unanswered } from "#/lib/answering.ts";
 
 const Told = Schema.Struct({
   sessionId: Schema.String,
@@ -37,7 +38,12 @@ export const enter = async (
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(given),
+  }).catch(() => {
+    throw new Unanswered();
   });
+  if (failedToAnswer(answer.status)) {
+    throw new Unanswered();
+  }
   if (!answer.ok) {
     throw new LinkRefused(answer.status);
   }

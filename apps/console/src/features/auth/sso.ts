@@ -2,6 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { call } from "#/lib/api.ts";
 import { identity } from "#/lib/identity.ts";
 
+/** A provider people sign in through. */
+export type SignInProvider = NonNullable<ReturnType<typeof useProvidersQuery>["data"]>[number];
+
 /** The providers people sign in through, which anyone is told. */
 export function useProvidersQuery() {
   return useQuery({

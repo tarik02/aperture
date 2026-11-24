@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { every } from "#/lib/answering.ts";
 import { call } from "#/lib/api.ts";
 import { queryKeys } from "#/lib/query-keys.ts";
 
@@ -9,7 +10,7 @@ export function useNodesQuery() {
   return useQuery({
     queryKey: queryKeys.nodes,
     queryFn: () => call((api) => api.nodes.list()),
-    refetchInterval: ASKED_EVERY,
+    refetchInterval: every(ASKED_EVERY),
   });
 }
 

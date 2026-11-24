@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import * as Schema from "effect/Schema";
 import { useMay } from "#/features/auth/access.ts";
+import { every } from "#/lib/answering.ts";
 import { call } from "#/lib/api.ts";
 import { queryKeys } from "#/lib/query-keys.ts";
 
@@ -19,7 +20,7 @@ export function useSessionsQuery() {
     queryFn: listSessions,
     // Not asked for by a token that is refused them: the answer would be the same each time.
     enabled: useMay("sessions:read"),
-    refetchInterval: ASKED_EVERY,
+    refetchInterval: every(ASKED_EVERY),
   });
 }
 
@@ -27,7 +28,7 @@ export function useSessionQuery(id: string) {
   return useQuery({
     queryKey: queryKeys.session(id),
     queryFn: () => call((api) => api.sessions.get({ params: { id } })),
-    refetchInterval: ASKED_EVERY,
+    refetchInterval: every(ASKED_EVERY),
   });
 }
 
