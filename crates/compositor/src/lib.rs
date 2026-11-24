@@ -109,6 +109,9 @@ pub struct Frame {
     pub height: u32,
     /// How many pixels there are to each logical one.
     pub scale: f64,
+    /// Whether the window has drawn at the size it was given. A window that was given
+    /// another size since it last drew still has the one before, until it draws again.
+    pub sized: bool,
     /// Tightly packed premultiplied RGBA. Empty for a frame that stayed on the GPU, which
     /// one does unless someone asked for the window's [`Pixels`].
     pub rgba: Vec<u8>,
