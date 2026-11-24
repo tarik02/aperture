@@ -114,6 +114,7 @@ const handlers = ControlTools.toLayer(
             workspaceId: asked.workspace_id,
             proxy: asked.proxy,
             tags: asked.tags ?? {},
+            storageState: undefined,
           }),
         ).pipe(Effect.flatMap(tell.one)),
       "sessions.update": ({ session_id, label, tags }) =>

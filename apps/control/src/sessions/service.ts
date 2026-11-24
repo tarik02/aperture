@@ -26,6 +26,8 @@ export interface NewSessionOptions {
   readonly workspaceId: string | undefined;
   readonly proxy: ProxyConfig | undefined;
   readonly tags: Readonly<Record<string, string>>;
+  /** What the session's browser starts with, as its node takes it. */
+  readonly storageState: unknown;
 }
 
 /** What asking a session's node for something may come to. */
@@ -37,7 +39,8 @@ export interface SessionsShape {
    * Creates a session for the caller's account on a node that is alive, the one with the
    * fewest sessions first, and the next where that one does not answer. One created from
    * a snapshot goes to a node that has the snapshot: any that shares snapshots where it
-   * is shared, and the node it was taken on otherwise.
+   * is shared, and the node it was taken on otherwise. A storage state the node does not
+   * take makes no session.
    */
   readonly create: (
     caller: Caller,
