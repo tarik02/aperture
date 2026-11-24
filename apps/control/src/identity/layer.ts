@@ -30,6 +30,13 @@ const SIGN_UP = `${PATH}/sign-up/`;
 /** The route of better-auth's own an admin's making of a person goes through. */
 const MADE_BY_ADMIN = "/sign-up/email";
 const NOT_FOUND = 404;
+/**
+ * What stands for the address of a person who was deleted, where one person has one
+ * address: no two alike, and no address at all, so that no route that takes an address
+ * takes this and finds them by it.
+ */
+// In small letters, as an address is kept.
+const gone = (personId: string) => `deleted:${personId.toLowerCase()}`;
 /** What a person's password is kept under, among what they sign in with. */
 const PASSWORD = "credential";
 /** What an authenticator shows its codes under. */
@@ -121,6 +128,15 @@ export const makeIdentity = Effect.fn("Identity.make")(function* () {
       }),
       secret,
       database,
+      // A person who is deleted is kept, marked, without what let them in. Their address
+      // is told beside the mark and no longer where a person is found by it, which holds
+      // one address to one person: it is another's to have.
+      user: {
+        additionalFields: {
+          deletedAt: { type: "date", required: false, input: false },
+          deletedEmail: { type: "string", required: false, input: false },
+        },
+      },
       emailAndPassword: {
         enabled: true,
         // A person is made with a password nobody knows, and sets their own.
@@ -191,6 +207,11 @@ export const makeIdentity = Effect.fn("Identity.make")(function* () {
         session: {
           create: {
             before: async (session) => {
+              // Nothing of a deleted person is left to sign in with. Whatever would sign
+              // one in all the same signs in nobody.
+              if (await Effect.runPromise(deleted(session.userId))) {
+                throw refused("account_deleted", "This account is deleted.");
+              }
               const account = await Effect.runPromise(accounts.findByPerson(session.userId));
               if (Option.isSome(account) && account.value.disabledAt !== null) {
                 throw refused("account_disabled", "This account is disabled. Ask an admin.");
@@ -241,6 +262,16 @@ export const makeIdentity = Effect.fn("Identity.make")(function* () {
       telemetry: { enabled: false },
     } satisfies BetterAuthOptions;
   };
+
+  /** Whether someone is a person who was deleted. Asked of the table: no cache answers for it. */
+  const deleted = (personId: string) =>
+    Effect.promise(async () => {
+      const found = await database.query<{ deleted: boolean }>(
+        'SELECT "deletedAt" IS NOT NULL AS deleted FROM "user" WHERE id = $1',
+        [personId],
+      );
+      return found.rows[0]?.deleted === true;
+    });
 
   /** better-auth with those providers, once it asked each of them how it is reached. */
   const ready = (through: ReadonlyArray<ActiveProvider>) =>
@@ -438,9 +469,11 @@ export const makeIdentity = Effect.fn("Identity.make")(function* () {
       // Cookies that are not read sign nobody in.
       Effect.orElseSucceed(() => null),
     );
-    return Option.fromNullOr(session).pipe(
-      Option.map(({ user }): Person => ({ id: user.id, email: user.email, name: user.name })),
-    );
+    if (session === null || (yield* deleted(session.user.id))) {
+      return Option.none<Person>();
+    }
+    const { user } = session;
+    return Option.some<Person>({ id: user.id, email: user.email, name: user.name });
   });
 
   const create = Effect.fn("Identity.create")(function* (person: {
@@ -520,6 +553,7 @@ export const makeIdentity = Effect.fn("Identity.make")(function* () {
       id: Schema.String,
       email: Schema.String,
       twoFactorEnabled: Schema.optional(Schema.NullOr(Schema.Boolean)),
+      deletedAt: Schema.optional(Schema.NullOr(Schema.Unknown)),
     }),
   );
 
@@ -549,21 +583,23 @@ export const makeIdentity = Effect.fn("Identity.make")(function* () {
       (one) => one.userId,
     );
     return new Map(
-      (yield* Effect.orDie(Schema.decodeUnknownEffect(People)(people))).map((person) => {
-        const ways = (theirs[person.id] ?? []).map((one) => one.providerId);
-        return [
-          person.email,
-          {
-            password: ways.includes(PASSWORD),
-            secondFactor: person.twoFactorEnabled === true,
-            passkeys: held[person.id]?.length ?? 0,
-            providers: ways
-              .filter((way) => way !== PASSWORD)
-              .map((way) => named.get(way) ?? `${way} (removed)`)
-              .toSorted((one, other) => one.localeCompare(other)),
-          } satisfies SignInMethods,
-        ] as const;
-      }),
+      (yield* Effect.orDie(Schema.decodeUnknownEffect(People)(people)))
+        .filter((person) => (person.deletedAt ?? null) === null)
+        .map((person) => {
+          const ways = (theirs[person.id] ?? []).map((one) => one.providerId);
+          return [
+            person.email,
+            {
+              password: ways.includes(PASSWORD),
+              secondFactor: person.twoFactorEnabled === true,
+              passkeys: held[person.id]?.length ?? 0,
+              providers: ways
+                .filter((way) => way !== PASSWORD)
+                .map((way) => named.get(way) ?? `${way} (removed)`)
+                .toSorted((one, other) => one.localeCompare(other)),
+            } satisfies SignInMethods,
+          ] as const;
+        }),
     );
   });
 
@@ -586,13 +622,25 @@ export const makeIdentity = Effect.fn("Identity.make")(function* () {
     if (found === null) {
       return yield* new PersonNotFound({ email });
     }
+    const at = new Date(yield* Clock.currentTimeMillis);
+    const id = found.user.id;
     yield* Effect.promise(async () => {
       const { adapter, internalAdapter } = await current.auth.$context;
-      // What plugins keep of a person is not removed with them where nothing ties the two.
-      for (const model of ["twoFactor", "passkey"]) {
-        await adapter.deleteMany({ model, where: [{ field: "userId", value: found.user.id }] });
+      // Marked first: from here on nothing signs them in, whatever of theirs is still there.
+      await internalAdapter.updateUser(id, {
+        email: gone(id),
+        deletedEmail: found.user.email,
+        deletedAt: at,
+        emailVerified: false,
+        twoFactorEnabled: false,
+      });
+      await internalAdapter.deleteUserSessions(id);
+      // Their password and what providers know them by, their passkeys and second factor.
+      for (const model of ["account", "twoFactor", "passkey"]) {
+        await adapter.deleteMany({ model, where: [{ field: "userId", value: id }] });
       }
-      await internalAdapter.deleteUser(found.user.id);
+      // What was on its way to them: a setup token names whose it is.
+      await adapter.deleteMany({ model: "verification", where: [{ field: "value", value: id }] });
     });
   });
 

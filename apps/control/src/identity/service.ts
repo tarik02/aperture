@@ -58,7 +58,10 @@ export interface IdentityShape {
    * here: no one whose account is disabled does.
    */
   readonly signOut: (email: string) => Effect.Effect<void, PersonNotFound>;
-  /** Removes a person with all they signed in with; their address is anyone's again. */
+  /**
+   * Deletes a person: who they were is kept, marked, and all they signed in with is
+   * removed for good, so nothing signs them in again. Their address is anyone's again.
+   */
   readonly remove: (email: string) => Effect.Effect<void, PersonNotFound>;
   /** A token with which a person sets a password of their own: a first one, or another. */
   readonly setupToken: (email: string) => Effect.Effect<string, PersonNotFound>;

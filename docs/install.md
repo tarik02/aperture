@@ -223,7 +223,7 @@ A directory the nodes share works as well, as `file:///directory`. Without a sna
 | Shared snapshots and suspended sessions | The stores named by `APERTURE_SNAPSHOT_STORE` and `APERTURE_SESSION_STORE`, when set | |
 | Sockets and the state of running sessions | `/run/aperture-node` | Nothing: it is made again |
 
-Nothing that is deleted through the API or the console is removed from the database: an account, a workspace, a session's record, a token, a share link or a sign-in provider is marked deleted, found by nothing again, and its name or address is free for another. Removed for good are what a person signed in with (their password, passkeys and browser sessions), an app's codes and tokens, apps nobody ever connected, and events older than `APERTURE_CONTROL_EVENTS_KEEP`. Nothing purges what is marked.
+Nothing that is deleted through the API or the console is removed from the database: an account, a workspace, a session's record, a token, a share link or a sign-in provider is marked deleted, found by nothing again, and its name or address is free for another. A deleted person is kept the same way, with their name and the address they had, which no longer holds anyone else off it. Removed for good are what let them in (their password, passkeys, second factor, what providers knew them by, their browser sessions and any setup link not yet used), an app's codes and tokens, apps nobody ever connected, and events older than `APERTURE_CONTROL_EVENTS_KEEP`. Nothing purges what is marked.
 
 Back up the database and `/var/lib/aperture-keys` together. A node's directory holds overlayfs layers; copy it with a tool that keeps extended attributes and device files, with the node stopped.
 

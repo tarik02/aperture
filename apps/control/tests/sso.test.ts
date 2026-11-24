@@ -90,6 +90,44 @@ suite(needs({ sso: {} }))("signing in through a provider, which makes nobody a p
     }),
   );
 
+  it.effect(
+    "a person who is deleted is nobody to the provider, which makes nobody in their place",
+    () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const bootstrap = yield* control.as(control.bootstrapToken);
+        const [ada] = Dex.VERIFIED;
+        const was = (yield* bootstrap.accounts.list()).find((one) => one.email === ada.email);
+        const before = yield* signInThrough(control.url, "local", ada.email);
+        expect((yield* accountOf(before.cookie)).status).toBe(200);
+        yield* bootstrap.accounts.remove({ params: { id: was?.id ?? "" } });
+
+        // The same address and the same word of the provider's for who it is: it finds no
+        // person by either, and is not let to make one.
+        expect((yield* accountOf(before.cookie)).status).toBe(401);
+        const landed = yield* signInThrough(control.url, "local", ada.email);
+        expect(landed.at).toBe("/sign-in-refused?error=signup_disabled");
+        expect((yield* accountOf(landed.cookie)).status).toBe(401);
+        expect((yield* bootstrap.accounts.list()).some((one) => one.email === ada.email)).toBe(
+          false,
+        );
+        expect(
+          yield* control.sql`
+          SELECT "deletedAt" IS NOT NULL AS deleted FROM "user"
+          WHERE email = ${ada.email} OR "deletedEmail" = ${ada.email}
+        `,
+        ).toEqual([{ deleted: true }]);
+
+        // Made again by an admin, they are someone new, whom the provider signs in.
+        const made = yield* bootstrap.accounts.create({
+          payload: { name: "Ada again", email: ada.email },
+        });
+        expect(made.id).not.toBe(was?.id);
+        const again = yield* signInThrough(control.url, "local", ada.email);
+        expect((yield* accountOf(again.cookie)).body).toMatchObject({ id: made.id });
+      }),
+  );
+
   it.effect("someone no admin made a person is refused, and stays nobody", () =>
     Effect.gen(function* () {
       const control = yield* Control.Control;
@@ -189,6 +227,42 @@ suite(needs({ sso: { provision: true, domains: ["example.test"] } }))(
         const back = yield* signInThrough(control.url, "local", bob.email);
         expect((yield* accountOf(back.cookie)).status).toBe(200);
       }),
+    );
+
+    it.effect(
+      "a person who is deleted comes through it as someone new, and never as who they were",
+      () =>
+        Effect.gen(function* () {
+          const control = yield* Control.Control;
+          const bootstrap = yield* control.as(control.bootstrapToken);
+          const [, bob] = Dex.VERIFIED;
+          const was = (yield* bootstrap.accounts.list()).find((one) => one.email === bob.email);
+          const before = yield* signInThrough(control.url, "local", bob.email);
+          expect((yield* accountOf(before.cookie)).body).toMatchObject({ id: was?.id });
+          yield* bootstrap.accounts.remove({ params: { id: was?.id ?? "" } });
+          expect((yield* accountOf(before.cookie)).status).toBe(401);
+          // The password they set is nobody's.
+          expect(yield* withPassword(bob.email, NEW_PASSWORD)).toBe(401);
+
+          const landed = yield* signInThrough(control.url, "local", bob.email);
+          expect(landed.at).toBe("/-/sessions");
+          const now = yield* Schema.decodeUnknownEffect(Current)(
+            (yield* accountOf(landed.cookie)).body,
+          );
+          expect(now.id).not.toBe(was?.id);
+          expect(now).toMatchObject({ kind: "person", admin: false, email: bob.email });
+          expect(
+            (yield* bootstrap.accounts.list()).filter((one) => one.email === bob.email),
+          ).toEqual([expect.objectContaining({ id: now.id })]);
+          // Two people as what signs people in knows them: the one that was, and this one.
+          expect(
+            yield* control.sql`
+            SELECT "deletedAt" IS NULL AS live FROM "user"
+            WHERE email = ${bob.email} OR "deletedEmail" = ${bob.email} ORDER BY "createdAt"
+          `,
+          ).toEqual([{ live: false }, { live: true }]);
+          expect(yield* withPassword(bob.email, NEW_PASSWORD)).toBe(401);
+        }),
     );
 
     it.effect("an address of another domain is refused", () =>
