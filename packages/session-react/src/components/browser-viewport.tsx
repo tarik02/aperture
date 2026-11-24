@@ -147,7 +147,7 @@ function Restored({ restoring }: { restoring: Restoring }) {
       data-session-restoring={failed ? "failed" : "underway"}
       className="aperture:absolute aperture:inset-0 aperture:z-20 aperture:flex aperture:items-center aperture:justify-center aperture:bg-background/60 aperture:backdrop-blur-[2px]"
     >
-      <Empty className="aperture:max-w-sm aperture:flex-none aperture:rounded-xl aperture:border aperture:bg-card/95 aperture:shadow-sm">
+      <Empty className="aperture:max-w-sm aperture:flex-none aperture:rounded-xl aperture:border aperture:border-solid aperture:bg-card/95 aperture:shadow-sm">
         <EmptyHeader>
           <EmptyMedia variant="icon">{failed ? <History /> : <Spinner />}</EmptyMedia>
           <EmptyTitle>

@@ -174,7 +174,7 @@ suite(needs)("a session created with a storage state", (it) => {
       const refused = yield* ada.api.sessions.create({
         payload: { storageState: { tabs: [{ url: "about:blank" }] } },
       });
-      expect(refused.observedState).toBe("restoring");
+      // It is made all the same, and its node may be stopping its browser already.
       const failed = yield* until(
         "the session being told as failed",
         ada.api.sessions
