@@ -6,6 +6,7 @@ import type * as Cdp from "../src/cdp.ts";
 import { Executor } from "../src/executor.ts";
 import { firstTab } from "../src/network.ts";
 import * as Node from "../src/node.ts";
+import { program } from "../src/programs.ts";
 import * as Runner from "../src/runner.ts";
 import { suite } from "../src/suite.ts";
 import { until } from "../src/wait.ts";
@@ -208,7 +209,12 @@ suite(Runner.layer({ features: ["cdp"] }))("what a session's browser sees", (it)
       const [own = ""] = runner.files.split("/").filter((part) => part !== "");
       const roots = yield* lists(page, "");
       expect(roots).toEqual(expect.arrayContaining(["etc", "files", "profile"]));
-      expect(roots.filter((name) => ![...ROOTS, ...SYSTEMS, own].includes(name))).toEqual([]);
+      // The programs a browser is given are where they are outside, in a tree of their own.
+      const programs = (yield* program("aperture-browser-shim")).split("/").slice(1, -1);
+      const [given = ""] = programs;
+      expect(roots.filter((name) => ![...ROOTS, ...SYSTEMS, own, given].includes(name))).toEqual(
+        [],
+      );
       // Of what a machine keeps in `/var` and `/run`, how fonts are found and a GPU's drivers.
       const kept = yield* lists(page, "/var");
       expect(kept.filter((name) => name !== "cache")).toEqual([]);
@@ -221,7 +227,17 @@ suite(Runner.layer({ features: ["cdp"] }))("what a session's browser sees", (it)
       const someones = yield* Effect.filter(SOMEONES, (path) => fs.exists(path));
       expect(someones, "what this machine has that is someone's").not.toEqual([]);
       for (const path of someones) {
-        expect(yield* sentTo(page, path), path).toBe("net::ERR_FILE_NOT_FOUND");
+        if (path !== `/${given}`) {
+          expect(yield* sentTo(page, path), path).toBe("net::ERR_FILE_NOT_FOUND");
+          continue;
+        }
+        // Where the programs are below what is someone's, the way to them is all there is.
+        for (const [depth, next] of programs.entries()) {
+          if (depth > 0) {
+            const above = `/${programs.slice(0, depth).join("/")}`;
+            expect(yield* lists(page, above), above).toEqual([next]);
+          }
+        }
       }
     }),
   );
