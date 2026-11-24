@@ -59,6 +59,6 @@ Set once, in the repository's settings:
 
 The registry needs no secret: the image is pushed with `GITHUB_TOKEN`. After the first push, make the package `aperture-session` public in its settings.
 
-npm needs no secret either. Each of the five packages has a trusted publisher on npmjs.com: repository `tarik02/aperture`, workflow `npm.yml`, no environment. A package has to exist before it can have one, so a new name is published once by hand as `0.0.0-init.0` under the dist-tag `init`, as the others were.
+npm needs no secret either. Each of the five packages has a trusted publisher on npmjs.com: repository `tarik02/aperture`, workflow `npm.yml`, no environment. A package has to exist before it can have one, so a new name is published once by hand as `0.0.0-init.0` under the dist-tag `init`, as the others were. npm keeps a trusted publisher that has published nothing for two days, "pending validation", and drops it then: add one within two days of the release that first uses it.
 
 The first release leaves out what was on `master` before this rewrite by `bootstrap-sha` in `.github/release-please-config.json`, which is the last commit of before it. It is read for the first release only.
