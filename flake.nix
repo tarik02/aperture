@@ -4,6 +4,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    crane.url = "github:ipetkov/crane";
   };
 
   outputs =
@@ -11,12 +12,14 @@
       self,
       nixpkgs,
       flake-utils,
+      crane,
     }:
     flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" ] (
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
         lib = pkgs.lib;
+        craneLib = crane.mkLib pkgs;
         nodeRuntime = pkgs.nodejs_26;
         pnpmLatest = pkgs.pnpm_11.override {
           nodejs-slim = nodeRuntime;
@@ -384,32 +387,91 @@
           pkgs.libgbm
         ];
 
-        # The programs as cargo builds them, which find nothing of what they run by themselves.
-        apertureUnwrapped = pkgs.rustPlatform.buildRustPackage {
+        # What decides which crates the programs are made of beside their own: the lockfile,
+        # each manifest, and which targets a crate has, told by the files they begin at. What
+        # those files say decides nothing, and an empty one stands for each.
+        programsDependenciesSrc = lib.fileset.toSource {
+          root = ./.;
+          fileset = lib.fileset.unions (
+            [
+              ./Cargo.toml
+              ./Cargo.lock
+            ]
+            ++ lib.concatMap (
+              crate:
+              let
+                at = file: lib.fileset.maybeMissing (./crates + "/${crate}/${file}");
+              in
+              [
+                (at "Cargo.toml")
+                (at "src/lib.rs")
+                (at "src/main.rs")
+                (at "src/bin")
+              ]
+            ) (lib.attrNames (builtins.readDir ./crates))
+          );
+        };
+
+        programsVendor = craneLib.vendorCargoDeps {
+          src = programsDependenciesSrc;
+          # browse-script takes a file of browse-capture's by its place next to it in their
+          # repository, which is not its name among vendored crates.
+          overrideVendorGitCheckout =
+            packages: checkout:
+            let
+              capture = lib.findFirst (package: package.name == "browse-capture") null packages;
+            in
+            if capture == null then
+              checkout
+            else
+              checkout.overrideAttrs (old: {
+                postInstall = (old.postInstall or "") + ''
+                  ln -s browse-capture-${capture.version} $out/browse-capture
+                '';
+              });
+        };
+
+        programsBuild = {
           pname = "aperture-unwrapped";
           inherit version;
-          src = programsSrc;
-          cargoLock = {
-            lockFile = ./Cargo.lock;
-            allowBuiltinFetchGit = true;
-          };
+          cargoVendorDir = programsVendor;
+          strictDeps = true;
+          # buf is run by the programs' own build scripts alone. It is here for the
+          # dependencies as well, so that both are built with one environment and cargo
+          # takes what the first built for what the second needs.
           nativeBuildInputs = [
             pkgs.pkg-config
             pkgs.buf
           ];
           buildInputs = sessionLibraries;
-          env.APERTURE_WORKBENCH = "${workbench}/index.html";
-          preBuild = ''
-            # buf keeps a cache in the home directory.
-            export HOME=$TMPDIR
-            # browse-script takes a file of browse-capture's by its place next to it in their
-            # repository, which is not its place among vendored crates.
-            vendored=$NIX_BUILD_TOP/cargo-vendor-dir
-            capture=$(basename "$vendored"/browse-capture-*)
-            ln -s "$capture" "$vendored/browse-capture"
-          '';
           doCheck = false;
         };
+
+        # Every crate the programs take from elsewhere, built: most of what building the
+        # programs is, and the same until the lockfile, a manifest or the toolchain changes.
+        programsDependencies = craneLib.buildDepsOnly (
+          programsBuild
+          // {
+            src = programsDependenciesSrc;
+            # `cargo check` leaves nothing that `cargo build` takes.
+            cargoCheckCommand = "true";
+          }
+        );
+
+        # The programs as cargo builds them, which find nothing of what they run by themselves.
+        apertureUnwrapped = craneLib.buildPackage (
+          programsBuild
+          // {
+            src = programsSrc;
+            cargoArtifacts = programsDependencies;
+            # Of the programs alone: the dependencies are not built again for a change of the page.
+            env.APERTURE_WORKBENCH = "${workbench}/index.html";
+            preBuild = ''
+              # buf keeps a cache in the home directory.
+              export HOME=$TMPDIR
+            '';
+          }
+        );
 
         # The programs with what they run: the browser and its sandbox, ffmpeg, pasta, the
         # encoders. Each is still named by its option or its variable where another is wanted.
@@ -610,6 +672,7 @@
           default = aperture;
           inherit aperture container;
           aperture-unwrapped = apertureUnwrapped;
+          aperture-dependencies = programsDependencies;
           aperture-workbench = workbench;
           aperture-console = console;
           aperture-control = control;

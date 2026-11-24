@@ -39,7 +39,7 @@ jobs:
           name: aperture-browser
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           skipPush: ${{ secrets.CACHIX_AUTH_TOKEN == '' }}
-          pushFilter: (-source$|-vendor|user-environment)
+          pushFilter: (-source$|-vendor|-cargo-(src|package|git)-|linkLockedDeps|user-environment)
 
       - name: Build
         run: nix build .#aperture .#aperture-control --no-link --print-build-logs
@@ -68,7 +68,7 @@ jobs:
           name: aperture-browser
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           skipPush: ${{ secrets.CACHIX_AUTH_TOKEN == '' }}
-          pushFilter: (-source$|-vendor|user-environment)
+          pushFilter: (-source$|-vendor|-cargo-(src|package|git)-|linkLockedDeps|user-environment)
 
       - name: Let the sandbox make its namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
