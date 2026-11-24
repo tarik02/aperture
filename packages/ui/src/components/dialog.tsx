@@ -5,9 +5,68 @@ import { cn } from "../utils.ts";
 import { Button } from "./button.tsx";
 import { XIcon } from "lucide-react";
 import { usePortalContainer } from "../portal.tsx";
+import { ScrollArea } from "./scroll-area.tsx";
 
-function Dialog({ ...props }: DialogPrimitive.Root.Props) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />;
+/** What opens over a dialog from within it, while it is open: a list, a menu. */
+const POPUPS = [
+  '[data-slot="select-content"][data-open]',
+  '[data-slot="combobox-content"][data-open]',
+  '[data-slot$="menu-content"][data-open]',
+  '[data-slot="popover-content"][data-open]',
+].join(", ");
+
+/**
+ * The presses of Escape that found something open over a dialog. They are noted before
+ * anything hears them: what was open closes on the same press, and is closed by the time
+ * the dialog is asked to.
+ */
+const forPopup = new WeakSet<Event>();
+if (typeof window !== "undefined") {
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key === "Escape" && document.querySelector(POPUPS) !== null) {
+        forPopup.add(event);
+      }
+    },
+    true,
+  );
+}
+
+function Dialog({
+  onOpenChange,
+  dismissible = true,
+  ...props
+}: DialogPrimitive.Root.Props & {
+  /**
+   * Whether Escape and a press beside it close it. Not where it shows what is shown once:
+   * that is closed by a button of its own, and by nothing done in passing.
+   */
+  dismissible?: boolean;
+}) {
+  return (
+    <DialogPrimitive.Root
+      data-slot="dialog"
+      onOpenChange={(open, details) => {
+        if (
+          !open &&
+          !dismissible &&
+          (details.reason === "escape-key" || details.reason === "outside-press")
+        ) {
+          details.cancel();
+          return;
+        }
+        // Escape closes what opened last: a list that is open over the dialog, and not the
+        // dialog with what was typed into it.
+        if (!open && details.reason === "escape-key" && forPopup.has(details.event)) {
+          details.cancel();
+          return;
+        }
+        onOpenChange?.(open, details);
+      }}
+      {...props}
+    />
+  );
 }
 
 function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
@@ -27,6 +86,8 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
   return (
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
+      // Over a dialog it opened from as well: that one is behind it, and is seen to be.
+      forceRender
       className={cn(
         "aperture:fixed aperture:inset-0 aperture:isolate aperture:z-50 aperture:bg-black/10 aperture:duration-100 aperture:supports-backdrop-filter:backdrop-blur-xs aperture:data-open:animate-in aperture:data-open:fade-in-0 aperture:data-closed:animate-out aperture:data-closed:fade-out-0",
         className,
@@ -36,23 +97,48 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
   );
 }
 
+/** What a dialog is whichever way it stands: a column, a sheet at the foot on a phone. */
+const CONTENT =
+  // A column no taller than what is seen of the window: its header, its footer and
+  // what else stands in it take the room they need, whatever the size of what is
+  // pressed, and a `DialogBody` among them gives way and scrolls. With no body the
+  // whole of it scrolls. On a phone it is a sheet at the foot, above the keyboard.
+  "aperture:group/dialog aperture:fixed aperture:inset-x-0 aperture:bottom-(--keyboard-inset,0px) aperture:z-50 aperture:flex aperture:max-h-[calc(100dvh-0.75rem-env(safe-area-inset-top)-var(--keyboard-inset,0px)-var(--keyboard-top,0px))] aperture:w-full aperture:max-w-none aperture:flex-col aperture:gap-4 aperture:overflow-x-hidden aperture:overflow-y-auto aperture:rounded-t-xl aperture:bg-popover aperture:p-4 aperture:pb-(--dialog-pad-bottom) aperture:text-sm aperture:[--dialog-pad-bottom:max(1rem,env(safe-area-inset-bottom))] aperture:sm:[--dialog-pad-bottom:1rem] aperture:text-popover-foreground aperture:ring-1 aperture:ring-foreground/10 aperture:duration-100 aperture:outline-none aperture:data-closed:animate-out aperture:data-closed:fade-out-0 aperture:data-open:animate-in aperture:data-open:fade-in-0";
+
+/** In the middle of the window, where the window is wider than a phone's. */
+const MODAL =
+  "aperture:data-closed:slide-out-to-bottom-2 aperture:data-open:slide-in-from-bottom-2 aperture:sm:top-[calc(var(--keyboard-top,0px)+(100svh-var(--keyboard-top,0px)-var(--keyboard-inset,0px))/2)] aperture:sm:left-1/2 aperture:sm:bottom-auto aperture:sm:max-h-[calc(100svh-2rem-var(--keyboard-top,0px)-var(--keyboard-inset,0px))] aperture:sm:max-w-md aperture:sm:-translate-x-1/2 aperture:sm:-translate-y-1/2 aperture:sm:rounded-xl aperture:sm:data-closed:zoom-out-95 aperture:sm:data-open:zoom-in-95";
+
+/**
+ * At the window's right edge and as tall as what is seen of the window, where the window is
+ * wider than a phone's: its header and footer stay, and its body has what is left.
+ */
+const SIDE =
+  "aperture:max-sm:data-closed:slide-out-to-bottom-2 aperture:max-sm:data-open:slide-in-from-bottom-2 aperture:sm:top-[calc(var(--keyboard-top,0px)+env(safe-area-inset-top))] aperture:sm:right-[env(safe-area-inset-right)] aperture:sm:bottom-(--keyboard-inset,0px) aperture:sm:left-auto aperture:sm:max-h-none aperture:sm:max-w-lg aperture:sm:rounded-none aperture:sm:shadow-lg aperture:sm:duration-200 aperture:sm:data-closed:slide-out-to-right-8 aperture:sm:data-open:slide-in-from-right-8";
+
 function DialogContent({
   className,
   children,
   showCloseButton = true,
+  side,
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean;
+  /**
+   * Where it stands in a window wider than a phone's: at that edge, as tall as the window,
+   * for what shows or changes a thing among others, or has much in it. In the middle,
+   * without. On a phone it is a sheet at the foot either way.
+   */
+  side?: "right";
 }) {
   return (
     <DialogPortal>
-      <DialogOverlay />
+      {/* As long on its way as what it is behind. */}
+      <DialogOverlay className={side === undefined ? undefined : "aperture:sm:duration-200"} />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
-        className={cn(
-          "aperture:fixed aperture:inset-x-0 aperture:bottom-0 aperture:z-50 aperture:grid aperture:max-h-[calc(100svh-0.75rem)] aperture:w-full aperture:max-w-none aperture:gap-4 aperture:overflow-y-auto aperture:rounded-t-xl aperture:bg-popover aperture:p-4 aperture:text-sm aperture:text-popover-foreground aperture:ring-1 aperture:ring-foreground/10 aperture:duration-100 aperture:outline-none aperture:data-closed:animate-out aperture:data-closed:fade-out-0 aperture:data-closed:slide-out-to-bottom-2 aperture:data-open:animate-in aperture:data-open:fade-in-0 aperture:data-open:slide-in-from-bottom-2 aperture:sm:top-1/2 aperture:sm:left-1/2 aperture:sm:bottom-auto aperture:sm:max-h-[calc(100svh-2rem)] aperture:sm:max-w-sm aperture:sm:-translate-x-1/2 aperture:sm:-translate-y-1/2 aperture:sm:rounded-xl aperture:sm:data-closed:zoom-out-95 aperture:sm:data-open:zoom-in-95",
-          className,
-        )}
+        data-side={side}
+        className={cn(CONTENT, side === undefined ? MODAL : SIDE, className)}
         {...props}
       >
         {children}
@@ -62,7 +148,7 @@ function DialogContent({
             render={
               <Button
                 variant="ghost"
-                className="aperture:absolute aperture:top-2 aperture:right-2"
+                className="aperture:absolute aperture:top-2 aperture:right-2 aperture:pointer-coarse:top-1 aperture:pointer-coarse:right-1"
                 size="icon-sm"
               />
             }
@@ -80,7 +166,60 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("aperture:flex aperture:flex-col aperture:gap-2 aperture:pb-2", className)}
+      className={cn(
+        // Beside the button that closes it, where there is one.
+        "aperture:flex aperture:min-w-0 aperture:shrink-0 aperture:flex-col aperture:gap-2 aperture:pb-2 aperture:group-has-[>[data-slot=dialog-close]]/dialog:pr-8",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+/**
+ * What a dialog holds between its header and footer: the part of it that gives way where
+ * the window is short, and scrolls then. Its class is for how what it holds is laid out.
+ */
+function DialogBody({
+  className,
+  height,
+  style,
+  ...props
+}: Omit<React.ComponentProps<typeof ScrollArea>, "style"> & {
+  /**
+   * How tall it is whatever it holds, as a CSS length, where what it holds changes while the
+   * dialog is open: tabs, a list that loads or grows. The room for the tallest of what it
+   * shows, so that the dialog is as tall for each. Where what it holds is what is pressed,
+   * the length counts those in `--control-height`, which is more where a finger presses.
+   * Left out, it is as tall as what it holds. At a window's side the dialog is as tall as
+   * the window whatever it holds, and its body has what is left of that.
+   */
+  height?: string;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <ScrollArea
+      data-slot="dialog-body"
+      className={cn(
+        // Out to the dialog's edges, so the rings of what has the focus are not cut off; and
+        // further at its foot, where what stands out of the last thing it holds would
+        // have it scroll: the line kept for what a field's rules say, the room a finger
+        // has around a switch.
+        "aperture:-mx-4 aperture:-mt-1 aperture:-mb-2 aperture:flex aperture:min-h-0 aperture:flex-col",
+        height === undefined
+          ? "aperture:shrink aperture:grow-0 aperture:basis-auto"
+          : "aperture:shrink aperture:grow-0 aperture:basis-(--dialog-body-height)",
+        "aperture:sm:group-data-[side=right]/dialog:grow aperture:sm:group-data-[side=right]/dialog:basis-0",
+      )}
+      style={
+        height === undefined
+          ? style
+          : ({ "--dialog-body-height": height, ...style } as React.CSSProperties)
+      }
+      viewportClassName={cn(
+        "aperture:flex aperture:h-auto aperture:min-h-0 aperture:flex-1 aperture:flex-col aperture:gap-4 aperture:px-4 aperture:pt-1 aperture:pb-2",
+        className,
+      )}
       {...props}
     />
   );
@@ -98,7 +237,9 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "aperture:-mx-4 aperture:-mb-4 aperture:flex aperture:flex-col-reverse aperture:gap-2 aperture:rounded-b-xl aperture:border-t aperture:bg-muted/50 aperture:p-4 aperture:sm:flex-row aperture:sm:justify-end",
+        // On a phone it stays at the sheet's foot while what is above it scrolls, clear of
+        // the home indicator.
+        "aperture:-mx-4 aperture:-mb-(--dialog-pad-bottom) aperture:flex aperture:shrink-0 aperture:gap-2 aperture:max-sm:*:min-w-0 aperture:max-sm:*:flex-1 aperture:border-t aperture:bg-[color-mix(in_oklch,var(--popover),var(--muted)_50%)] aperture:p-4 aperture:pb-(--dialog-pad-bottom) aperture:max-sm:sticky aperture:max-sm:-bottom-(--dialog-pad-bottom) aperture:sm:justify-end aperture:sm:rounded-b-xl aperture:sm:group-data-[side=right]/dialog:mt-auto aperture:sm:group-data-[side=right]/dialog:rounded-none",
         className,
       )}
       {...props}
@@ -115,7 +256,10 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("aperture:text-base aperture:leading-none aperture:font-medium", className)}
+      className={cn(
+        "aperture:min-w-0 aperture:text-base aperture:leading-tight aperture:font-medium aperture:wrap-anywhere",
+        className,
+      )}
       {...props}
     />
   );
@@ -126,7 +270,7 @@ function DialogDescription({ className, ...props }: DialogPrimitive.Description.
     <DialogPrimitive.Description
       data-slot="dialog-description"
       className={cn(
-        "aperture:text-sm aperture:text-muted-foreground aperture:*:[a]:underline aperture:*:[a]:underline-offset-3 aperture:*:[a]:hover:text-foreground",
+        "aperture:min-w-0 aperture:text-sm aperture:text-muted-foreground aperture:wrap-anywhere aperture:*:[a]:underline aperture:*:[a]:underline-offset-3 aperture:*:[a]:hover:text-foreground",
         className,
       )}
       {...props}
@@ -136,6 +280,7 @@ function DialogDescription({ className, ...props }: DialogPrimitive.Description.
 
 export {
   Dialog,
+  DialogBody,
   DialogClose,
   DialogContent,
   DialogDescription,

@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package aperture.control.v1;
+
+import "google/protobuf/duration.proto";
+
+// What a node tells the control plane of itself, so that sessions are run on it.
+service NodeService {
+  // Says that the node is there and how it is reached, and is said again for as long as
+  // it is: the first registers the node under its name, each one after keeps it in use.
+  // A node that stops saying it gets no new sessions, and the ones it has are told as out
+  // of reach.
+  rpc Keepalive(KeepaliveRequest) returns (KeepaliveResponse);
+}
+
+message KeepaliveRequest {
+  // A registration token, which an admin of the control plane makes.
+  string registration_token = 1;
+  // The node's name, which no other node has. A node that comes back under its name is
+  // the node it was.
+  string name = 2;
+  // Where the control plane reaches the node's executor, such as `http://10.0.0.7:7900`.
+  string internal_url = 3;
+  // Where a load balancer in front of the nodes reaches it, when that is another address.
+  optional string balancer_url = 4;
+  // Where clients reach the node's sessions from outside, when they do.
+  optional string public_url = 5;
+  // The executor's operator token, with which the control plane drives it.
+  string operator_token = 6;
+}
+
+message KeepaliveResponse {
+  // The node as the control plane knows it.
+  string node_id = 1;
+  // How long to wait before saying it again.
+  google.protobuf.Duration again_after = 2;
+}

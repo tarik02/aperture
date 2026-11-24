@@ -1,0 +1,18 @@
+[package]
+name = "aperture-tunnel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bytes = "1"
+clap = { version = "4", features = ["derive", "env"] }
+fast-socks5 = "1"
+futures-util.workspace = true
+tokio.workspace = true
+tokio-tungstenite = { workspace = true, features = ["native-tls"] }
+tokio-util = { version = "0.7", features = ["io"] }
+tokio-yamux = "0.3"
+tracing.workspace = true
+tracing-subscriber.workspace = true

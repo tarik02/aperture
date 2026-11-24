@@ -1,33 +1,57 @@
-# Control plane
+# Control API
 
-`/api/*` is specified by the instance itself; this file holds only what the spec does not say.
-
-## Reading the spec
+`$APERTURE_URL/api/control/openapi.json` is the reference for every route. This file holds what the document leaves unsaid.
 
 ```bash
-curl -fsS "$APERTURE_BASE_URL/openapi.json" > /tmp/aperture-openapi.json
-jq '.paths | keys' /tmp/aperture-openapi.json
-jq '.paths["/api/sessions"].post | {description, "x-aperture-auth", "x-aperture-errors", requestBody}' /tmp/aperture-openapi.json
-jq '.components.schemas.CreateSession' /tmp/aperture-openapi.json
+api() { curl -fsS -H "Authorization: Bearer $APERTURE_TOKEN" -H 'Content-Type: application/json' "$@"; }
 ```
 
-Every operation carries `x-aperture-auth` (accepted authorities, required scopes, how the tenant is resolved) and `x-aperture-errors` (its stable error codes); `components.schemas.ErrorCode` is the complete code catalog. Errors are `{"error": {"code", "message"}}`; lists are newest-first pages with `meta.nextCursor` and `meta.hasMore`.
+`GET /api/control/health` answers `{"status":"ok"}` to anyone once the control plane serves.
 
-## Tokens and delegation
+## Errors
 
-A token created through the API or MCP is a delegate of its creator: it cannot hold a scope the creator lacks, belong to another tenant, or expire later than an expiring creator. `createdBy` (`type`, `id`, `name`) and `parentToken` on the token record say who made it; the older `createdByType`, `createdById` and `parentTokenId` are deprecated. The raw `apt_…` value appears once, in the creation response.
+A refusal is a JSON object with a `_tag` and that tag's own fields, with the HTTP status the document names:
 
-Tenant tokens carry `resourceMode: "all"` or `"allowlist"` with grants `{ "resourceType": "session" | "snapshot", "resourceId" }`. A restricted token sees only granted rows in lists (filtered before pagination) and gets `resource_access_denied` on direct access; it can create only another allowlist token whose grants are a subset of its own. Sessions it creates and snapshots it promotes are not added to its allowlist, but the `sessionToken` returned by create still works. System-admin tokens cannot be restricted.
+```json
+{"_tag": "SessionNotFound", "id": "…"}
+{"_tag": "Forbidden", "message": "this token is not for sessions:write"}
+```
 
-## Session lifecycle
+Something that is another account's is told as not found, never as forbidden.
 
-- `creating` → `running` → `suspended` ⇄ `running`; `deleted`, `failed` and `expired` are terminal unless reopened. `reopen` applies to retained `deleted` and `failed` sessions. A `suspended` session is never reopened: any browser call, MCP browser tool or authorized data-plane request wakes it, CDP discovery (`json/version`, `json/list`) included. A suspended session whose browser cannot be restored (its profile is gone, or the wake fails) turns `failed` instead of staying `suspended`; data-plane errors are typed ([CDP](live-session.md#cdp)).
-- `POST /api/sessions?waitForReady=false` returns the session and its credentials in `creating` while the browser starts.
-- Session reads include `cdpUrl` and `sessionToken` only while live access is retained; treat them as secrets. `session-token/rotate` invalidates every URL built with the old token.
-- `GET /sessions/:sessionId/browser/status` and the thumbnail routes read retained state without waking or touching retention. `source` is `live` for a running session, `persisted` for the page set saved at suspension (also when `thumbnails_persist_on_suspend` is off; then without thumbnails), `unavailable` when nothing was saved. Persisted target IDs are historical and may change after resume.
-- `GET /api/sessions/:sessionId/targets/:targetId/favicon` (and `/sessions/...` with a signed `token`, session token, or capability) serves a tab's icon as the browser loaded it, also passively. Each status page lists `faviconAvailable` and `faviconVersion`; `?v=<faviconVersion>` makes the response immutable, otherwise revalidate with `If-None-Match`. Session reads carry a signed `favicon.targetUrlTemplate`.
-- Promotion makes a snapshot from a session's filesystem; session files never enter it, and a session created from a snapshot starts with none. `force: true` may replace a deleted snapshot tombstone of the same name.
+## Sessions
 
-## Egress proxy
+- `desiredState` is what was asked (`running`, `suspended`); `observedState` is what the node says (`starting`, `running`, `suspending`, `suspended`, `failed`, `gone`). `failure` says why a session failed.
+- Deleting is final: the profile and files go with the session. Snapshots taken of it stay.
+- `path` is where the session's own routes are, below `$APERTURE_URL`. It changes when the session moves to another node; read it again after a `409` with `_tag: "SessionElsewhere"`.
+- Lists are whole arrays. Narrow them: `GET /sessions?tag=task=demo&state=running&label=shop&workspaceId=none`; `GET /snapshots?name=…&tag=…&workspaceId=…`. `tag=name` matches any value.
+- `PATCH /sessions/{id}` sets `label` and `tags`; the tags given take the place of the tags there were.
 
-Every session's browser egress goes through a session-local SOCKS5 proxy, so `--proxy-server` and `--proxy-bypass-list` are rejected in `browser.args`. The rule and upstream grammar is in the spec (`ProxyConfig`, `ProxyRule`, `ProxyUpstream`). `PUT /api/sessions/:id/proxy` and the MCP tool `sessions.update_proxy` replace the whole configuration. What it implies for an operator: `via: "local"` is the [local tunnel](live-session.md#local-tunnel) and fails until a client attaches one; the browser reaches a tunneled service as `localhost`, never as a loopback IP, because loopback bypasses the proxy; secrets are write-only, so a read of the proxy config cannot be replayed as a write.
+## Accounts and tokens
+
+An account is a person, who signs in, or a service, which has API tokens alone. Both hold sessions and snapshots and are let into workspaces. Making, changing, disabling and removing accounts takes an admin's token with the `admin` scope.
+
+A service account with a token, let into a workspace:
+
+```bash
+BOT=$(api -X POST "$APERTURE_URL/api/control/accounts" -d '{"name":"Crawler","kind":"service"}' | jq -r .id)
+api -X POST "$APERTURE_URL/api/control/accounts/$BOT/tokens" \
+  -d '{"name":"ci","scopes":["sessions:write","snapshots:read"],"expiresInDays":30}' | jq -r .token
+api -X PUT "$APERTURE_URL/api/control/workspaces/$WORKSPACE/members/$BOT" -d '{"role":"member"}'
+```
+
+- The `token` is told once, when it is made.
+- `POST /account/tokens` makes a token of the caller's own account (`tokens:write`); it cannot have a scope the caller's token lacks.
+- `resources: {"workspaces": [ids], "sessions": [ids], "snapshots": [ids]}` on a new token holds it to those: it sees and changes nothing else, makes sessions only in the workspaces named, and makes and revokes no tokens.
+- `PATCH /accounts/{id}` renames an account and says whether it is an admin (`{"name": …, "admin": …}`). `POST /accounts/{id}/disable` puts it out of use and everyone in a session as it out; `enable` undoes that.
+- A person is made with `{"name": …, "email": …}` and signs in after opening the setup link made from `POST /accounts/{id}/setup-token`: `$APERTURE_URL/invite#token=<token>`.
+
+## Workspaces
+
+- Any token is told the workspaces its account is in; who else is in one takes `workspaces:read`.
+- Renaming, deleting, admitting and dismissing take `workspaces:write` and being an admin of that workspace.
+- A workspace is deleted once no session and no snapshot is of it.
+
+## Events
+
+`GET /events` (`events:read`) lists what was done, newest first, as `{events, next}`; pass `next` back as `cursor`. Filters: `kind`, `resourceKind`, `resourceId`, `workspaceId`, `actor`, `since`, `until`, `limit` (at most 200). A token reads the events of its own account and of the workspaces that is in; an admin reads all.

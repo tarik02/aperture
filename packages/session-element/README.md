@@ -1,29 +1,26 @@
 # @aperture-browser/session-element
 
-Custom elements that embed a live [Aperture](https://github.com/tarik02/aperture) browser session in any page, isolated in Shadow DOM.
+`<aperture-session>`: one [Aperture](https://github.com/tarik02/aperture) session in any page, as a custom element with the workbench's tab strip, toolbar and menus in a shadow tree. It brings React with it and asks nothing of the page.
 
-- `<aperture-session>`: the session with its UI: tabs, toolbar and menus.
-- `<aperture-session-view>`: the session alone, with a JavaScript API for pages that build their own controls.
+```sh
+npm install @aperture-browser/session-element@beta
+```
+
+While Aperture is in beta its packages are under the dist-tag `beta`; a package has the version of the server it speaks to.
 
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/npm/@aperture-browser/session-element/dist/aperture-session.js"></script>
+<script type="module">
+  import "@aperture-browser/session-element";
+</script>
 
 <aperture-session
-  base-url="https://aperture.example"
-  token="apv_…"
-  style="display: block; height: 600px"
+  url="https://aperture.example.com/n/NODE/sessions/SESSION"
+  token="TICKET"
+  name="Ada"
+  theme="system"
+  hide="recordings files"
+  style="height: 100dvh"
 ></aperture-session>
 ```
 
-Documentation: https://aperture-browser-docs.pages.dev/docs/packages/session-element
-
-## Backend relay
-
-Both custom elements accept a typed `access` property:
-
-```js
-const element = document.querySelector("aperture-session-view");
-element.access = { kind: "relay", baseUrl: "/aperture", sessionId: "your-session-id" };
-```
-
-The same-origin backend authenticates the app user; no Aperture token or role belongs in the page. The property takes precedence over `token`/`base-url` attributes. Set it to `null` to return to attribute-based configuration. The existing token attributes remain a convenience for direct share links. Use `snapshot.role` only after `snapshot.connection === "connected"`; the authorized role comes from Aperture.
+`url` is the session's base and `token` a ticket your backend asked the control plane for. `hide` names the parts to leave out: `tabs navigation address-bar presence menus files recordings page-menu sound toaster`. From script, the `features` and `contributions` properties do the same and more, `session` is the session's client, and the `aperture-session` event tells when there is one.

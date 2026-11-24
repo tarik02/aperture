@@ -1,7 +1,9 @@
 import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { cva, type VariantProps } from "class-variance-authority";
+import type { ReactNode } from "react";
 
 import { cn } from "../utils.ts";
+import { Spinner } from "./spinner.tsx";
 
 const buttonVariants = cva(
   "aperture:group/button aperture:inline-flex aperture:shrink-0 aperture:items-center aperture:justify-center aperture:rounded-lg aperture:border aperture:border-transparent aperture:bg-clip-padding aperture:text-sm aperture:leading-none aperture:font-medium aperture:whitespace-nowrap aperture:transition-all aperture:outline-none aperture:select-none aperture:focus-visible:border-ring aperture:focus-visible:ring-3 aperture:focus-visible:ring-ring/50 aperture:active:not-aria-[haspopup]:translate-y-px aperture:disabled:pointer-events-none aperture:disabled:opacity-50 aperture:aria-invalid:border-destructive aperture:aria-invalid:ring-3 aperture:aria-invalid:ring-destructive/20 aperture:dark:aria-invalid:border-destructive/50 aperture:dark:aria-invalid:ring-destructive/40 aperture:[&_svg]:pointer-events-none aperture:[&_svg]:shrink-0 aperture:[&_svg:not([class*='size-'])]:size-4",
@@ -45,17 +47,47 @@ function Button({
   className,
   variant = "default",
   size = "default",
+  pending,
+  disabled,
+  children,
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+}: ButtonPrimitive.Props &
+  VariantProps<typeof buttonVariants> & {
+    /**
+     * Whether what it does is being done: it is pressed no more until that ends, and says
+     * so in place of what it says, as wide as it was.
+     */
+    pending?: boolean;
+  }) {
   // Exposed so dense toolbars can keep icon buttons square when they shrink their height.
   const iconOnly = size === "icon" || (size?.startsWith("icon-") ?? false);
   return (
     <ButtonPrimitive
       data-slot="button"
+      // What it is whatever slot it is given: the sizes for a finger go by it.
+      data-button=""
       data-icon-button={iconOnly ? "" : undefined}
-      className={cn(buttonVariants({ variant, size, className }))}
+      data-pending={pending === true ? "" : undefined}
+      aria-busy={pending === true ? true : undefined}
+      disabled={pending === true ? true : disabled}
+      className={cn(
+        buttonVariants({ variant, size, className }),
+        pending === undefined ? undefined : "aperture:relative",
+      )}
       {...props}
-    />
+    >
+      {pending === undefined ? (
+        children
+      ) : (
+        <>
+          {/* It keeps its room while it is not seen: the button stays as wide as it was. */}
+          <span className={cn("aperture:contents", pending && "aperture:invisible")}>
+            {children as ReactNode}
+          </span>
+          {pending ? <Spinner className="aperture:absolute aperture:size-4" /> : null}
+        </>
+      )}
+    </ButtonPrimitive>
   );
 }
 

@@ -1,0 +1,28 @@
+{
+  "name": "@aperture-browser/workbench",
+  "version": "1.0.0-beta.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vp build",
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@aperture-browser/session-client": "workspace:*",
+    "@aperture-browser/session-react": "workspace:*",
+    "@fontsource-variable/geist": "catalog:",
+    "effect": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "tailwindcss": "catalog:",
+    "vite": "catalog:",
+    "vite-plugin-singlefile": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

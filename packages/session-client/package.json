@@ -1,0 +1,55 @@
+{
+  "name": "@aperture-browser/session-client",
+  "version": "1.0.0-beta.0",
+  "description": "Framework-free client for one Aperture session: the live protocol, its picture and sound, browser input, and the session's HTTP routes.",
+  "homepage": "https://github.com/tarik02/aperture#readme",
+  "bugs": "https://github.com/tarik02/aperture/issues",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tarik02/aperture.git",
+    "directory": "packages/session-client"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./effect": "./src/effect.ts"
+  },
+  "publishConfig": {
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./effect": {
+        "types": "./dist/effect.d.ts",
+        "default": "./dist/effect.js"
+      }
+    },
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "generate": "buf generate ../.. --template buf.gen.yaml --path ../../proto/aperture/live/v1/live.proto",
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "catalog:"
+  },
+  "devDependencies": {
+    "@aperture-browser/shared": "workspace:*",
+    "@bufbuild/protoc-gen-es": "catalog:",
+    "effect": "catalog:",
+    "publint": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "catalog:peers"
+  }
+}

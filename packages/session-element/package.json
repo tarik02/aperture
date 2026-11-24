@@ -1,7 +1,7 @@
 {
   "name": "@aperture-browser/session-element",
-  "version": "0.0.0",
-  "description": "Custom elements that embed a live Aperture browser session in any page: <aperture-session> with the full session UI, and the headless <aperture-session-view>.",
+  "version": "1.0.0-beta.0",
+  "description": "A custom element that puts one Aperture session into any page: <aperture-session> with the workbench's tab strip, toolbar and menus.",
   "homepage": "https://github.com/tarik02/aperture#readme",
   "bugs": "https://github.com/tarik02/aperture/issues",
   "license": "MIT",
@@ -19,13 +19,11 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/aperture-session.js"
-    },
-    "./headless": {
-      "types": "./dist/headless.d.ts",
-      "default": "./dist/aperture-session-view.js"
     }
   },
   "publishConfig": {
+    "main": "./dist/aperture-session.js",
+    "types": "./dist/index.d.ts",
     "access": "public"
   },
   "scripts": {
@@ -38,8 +36,10 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "effect": "catalog:",
+    "publint": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "sonner": "catalog:",
     "tailwindcss": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"

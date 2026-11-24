@@ -80,11 +80,12 @@ function ComboboxContent({
   align = "start",
   alignOffset = 0,
   anchor,
+  collisionPadding,
   ...props
 }: ComboboxPrimitive.Popup.Props &
   Pick<
     ComboboxPrimitive.Positioner.Props,
-    "side" | "align" | "sideOffset" | "alignOffset" | "anchor"
+    "side" | "align" | "sideOffset" | "alignOffset" | "anchor" | "collisionPadding"
   >) {
   return (
     <ComboboxPrimitive.Portal container={usePortalContainer()}>
@@ -94,6 +95,7 @@ function ComboboxContent({
         align={align}
         alignOffset={alignOffset}
         anchor={anchor}
+        collisionPadding={collisionPadding}
         className="aperture:isolate aperture:z-50"
       >
         <ComboboxPrimitive.Popup
@@ -123,24 +125,53 @@ function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props) {
   );
 }
 
-function ComboboxItem({ className, children, ...props }: ComboboxPrimitive.Item.Props) {
+function ComboboxItem({
+  className,
+  children,
+  indicator = "check",
+  ...props
+}: ComboboxPrimitive.Item.Props & {
+  /**
+   * How it shows that it is chosen: by a check at its end, or by a box at its start that
+   * is ticked, where several are chosen and what is not chosen is to be seen as well.
+   */
+  indicator?: "check" | "checkbox";
+}) {
   return (
     <ComboboxPrimitive.Item
       data-slot="combobox-item"
       className={cn(
-        "aperture:relative aperture:flex aperture:w-full aperture:cursor-default aperture:items-center aperture:gap-2 aperture:rounded-md aperture:py-1 aperture:pr-8 aperture:pl-1.5 aperture:text-sm aperture:outline-hidden aperture:select-none aperture:data-highlighted:bg-accent aperture:data-highlighted:text-accent-foreground aperture:not-data-[variant=destructive]:data-highlighted:**:text-accent-foreground aperture:data-disabled:pointer-events-none aperture:data-disabled:opacity-50 aperture:[&_svg]:pointer-events-none aperture:[&_svg]:shrink-0 aperture:[&_svg:not([class*='size-'])]:size-4",
+        "aperture:group/combobox-item aperture:relative aperture:flex aperture:w-full aperture:cursor-default aperture:items-center aperture:gap-2 aperture:rounded-md aperture:py-1 aperture:pr-8 aperture:pl-1.5 aperture:text-sm aperture:outline-hidden aperture:select-none aperture:data-highlighted:bg-accent aperture:data-highlighted:text-accent-foreground aperture:not-data-[variant=destructive]:data-highlighted:**:text-accent-foreground aperture:data-disabled:pointer-events-none aperture:data-disabled:opacity-50 aperture:[&_svg]:pointer-events-none aperture:[&_svg]:shrink-0 aperture:[&_svg:not([class*='size-'])]:size-4",
+        indicator === "checkbox" && "aperture:pr-1.5",
         className,
       )}
       {...props}
     >
+      {indicator === "checkbox" && (
+        <span
+          aria-hidden
+          data-slot="combobox-item-checkbox"
+          // Told apart from the item it is in, also where that is highlighted: its edge is
+          // of what the words are written in, and what fills it ticked is as the kit's
+          // checkbox has it.
+          className="aperture:flex aperture:size-4 aperture:shrink-0 aperture:items-center aperture:justify-center aperture:rounded-[4px] aperture:border aperture:border-foreground/40 aperture:bg-background aperture:group-data-selected/combobox-item:border-primary aperture:group-data-selected/combobox-item:bg-primary"
+        >
+          <ComboboxPrimitive.ItemIndicator>
+            {/* Drawn in its own colour, whatever a highlighted item says its own are written in. */}
+            <CheckIcon className="aperture:pointer-events-none aperture:size-3.5 aperture:stroke-primary-foreground aperture:stroke-[3]" />
+          </ComboboxPrimitive.ItemIndicator>
+        </span>
+      )}
       {children}
-      <ComboboxPrimitive.ItemIndicator
-        render={
-          <span className="aperture:pointer-events-none aperture:absolute aperture:right-2 aperture:flex aperture:size-4 aperture:items-center aperture:justify-center" />
-        }
-      >
-        <CheckIcon className="aperture:pointer-events-none" />
-      </ComboboxPrimitive.ItemIndicator>
+      {indicator === "check" && (
+        <ComboboxPrimitive.ItemIndicator
+          render={
+            <span className="aperture:pointer-events-none aperture:absolute aperture:right-2 aperture:flex aperture:size-4 aperture:items-center aperture:justify-center" />
+          }
+        >
+          <CheckIcon className="aperture:pointer-events-none" />
+        </ComboboxPrimitive.ItemIndicator>
+      )}
     </ComboboxPrimitive.Item>
   );
 }

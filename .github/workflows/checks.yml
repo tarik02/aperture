@@ -1,0 +1,147 @@
+name: checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - v2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typescript:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: format
+            run: pnpm format:check
+          - name: lint
+            run: pnpm lint
+          - name: typecheck
+            run: pnpm typecheck
+          - name: build
+            run: pnpm build
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: pnpm/action-setup@v6.0.9
+        with:
+          version: 11.27.1
+
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: ${{ matrix.name }}
+        run: ${{ matrix.run }}
+
+  rust:
+    name: rust
+    runs-on: ubuntu-24.04
+    env:
+      # The programs are not kept: without debug information they build faster and fit the disk.
+      CARGO_PROFILE_DEV_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: cachix/install-nix-action@v31
+
+      - uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'flake.lock') }}
+          restore-keys: rust-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Format
+        run: nix develop --command cargo fmt --check
+
+      - name: Clippy
+        run: nix develop --command cargo clippy --workspace --all-targets -- --deny warnings
+
+      - name: Test
+        run: nix develop --command cargo test --workspace
+
+  generated:
+    name: generated code
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Generate
+        run: |
+          nix develop --command pnpm install --frozen-lockfile
+          nix develop --command pnpm --filter @aperture-browser/session-client generate
+          nix develop --command pnpm --filter @aperture-browser/executor-client generate
+          nix develop --command pnpm --filter @aperture-browser/control generate
+
+      - name: Verify nothing changed
+        run: git diff --exit-code
+
+  nix:
+    name: nix packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: cachix/install-nix-action@v31
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: aperture-browser
+          skipPush: true
+
+      # A hash left as it was when pnpm-lock.yaml changed fails nowhere else: the
+      # dependencies of before are taken from the store or a cache by it. Fetching them
+      # again is what tells.
+      - name: Verify the dependency hash
+        run: |
+          nix build .#aperture-control.pnpmDeps --no-link --print-build-logs
+          nix build --rebuild .#aperture-control.pnpmDeps --no-link --print-build-logs
+
+      - name: Evaluate
+        run: nix flake check --no-build --all-systems
+
+      - name: Build
+        run: >-
+          nix build
+          .#aperture
+          .#aperture-control
+          .#aperture-migrate
+          .#checks.x86_64-linux.aperture-ffmpeg-features
+          --no-link --print-build-logs
+
+      # The image is the package above and little more; it is started here as its users
+      # start it, which nothing else does.
+      - name: Build the image
+        run: |
+          nix build .#container --print-build-logs
+          ./result | gzip > aperture-session.tar.gz
+
+      # The session's sandbox is made of user namespaces, which this runner's AppArmor
+      # keeps from whoever is not root.
+      - name: Let the sandbox make its namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Start the image and load a page in it
+        run: .github/scripts/smoke-image.sh aperture-session.tar.gz

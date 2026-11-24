@@ -30,6 +30,8 @@ function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
     <SheetPrimitive.Backdrop
       data-slot="sheet-overlay"
       className={cn(
+        // Closed, it is in nobody's way, also while it is still fading.
+        "aperture:data-closed:pointer-events-none",
         "aperture:fixed aperture:inset-0 aperture:z-50 aperture:bg-black/10 aperture:transition-opacity aperture:duration-150 aperture:data-ending-style:opacity-0 aperture:data-starting-style:opacity-0 aperture:supports-backdrop-filter:backdrop-blur-xs",
         className,
       )}
@@ -43,18 +45,22 @@ function SheetContent({
   children,
   side = "right",
   showCloseButton = true,
+  keepMounted = false,
   ...props
 }: SheetPrimitive.Popup.Props & {
   side?: "top" | "right" | "bottom" | "left";
   showCloseButton?: boolean;
+  /** Whether what it holds stays while it is closed: dialogs opened from it outlive it then. */
+  keepMounted?: boolean;
 }) {
   return (
-    <SheetPortal>
+    <SheetPortal keepMounted={keepMounted}>
       <SheetOverlay />
       <SheetPrimitive.Popup
         data-slot="sheet-content"
         data-side={side}
         className={cn(
+          "aperture:data-closed:pointer-events-none",
           "aperture:fixed aperture:z-50 aperture:flex aperture:flex-col aperture:gap-4 aperture:bg-popover aperture:bg-clip-padding aperture:text-sm aperture:text-popover-foreground aperture:shadow-lg aperture:transition aperture:duration-200 aperture:ease-in-out aperture:data-ending-style:opacity-0 aperture:data-starting-style:opacity-0 aperture:data-[side=bottom]:inset-x-0 aperture:data-[side=bottom]:bottom-0 aperture:data-[side=bottom]:h-auto aperture:data-[side=bottom]:border-t aperture:data-[side=bottom]:data-ending-style:translate-y-[2.5rem] aperture:data-[side=bottom]:data-starting-style:translate-y-[2.5rem] aperture:data-[side=left]:inset-y-0 aperture:data-[side=left]:left-0 aperture:data-[side=left]:h-full aperture:data-[side=left]:w-3/4 aperture:data-[side=left]:border-r aperture:data-[side=left]:data-ending-style:translate-x-[-2.5rem] aperture:data-[side=left]:data-starting-style:translate-x-[-2.5rem] aperture:data-[side=right]:inset-y-0 aperture:data-[side=right]:right-0 aperture:data-[side=right]:h-full aperture:data-[side=right]:w-3/4 aperture:data-[side=right]:border-l aperture:data-[side=right]:data-ending-style:translate-x-[2.5rem] aperture:data-[side=right]:data-starting-style:translate-x-[2.5rem] aperture:data-[side=top]:inset-x-0 aperture:data-[side=top]:top-0 aperture:data-[side=top]:h-auto aperture:data-[side=top]:border-b aperture:data-[side=top]:data-ending-style:translate-y-[-2.5rem] aperture:data-[side=top]:data-starting-style:translate-y-[-2.5rem] aperture:data-[side=left]:sm:max-w-sm aperture:data-[side=right]:sm:max-w-sm",
           className,
         )}

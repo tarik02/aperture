@@ -1,0 +1,30 @@
+[package]
+name = "aperture-executor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+aperture-gateway.workspace = true
+aperture-runner.workspace = true
+aperture-store.workspace = true
+axum = { version = "0.8", features = ["ws"] }
+buffa = { version = "0.9", features = ["json"] }
+buffa-types = { version = "0.9", features = ["json"] }
+clap = { version = "4", features = ["derive", "env"] }
+connectrpc = { version = "0.9", features = ["axum"] }
+futures-util.workspace = true
+humantime = "2.4.0"
+libc.workspace = true
+parse-size = "1.1.0"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[build-dependencies]
+connectrpc-build = "0.9"

@@ -1,0 +1,63 @@
+@import "@aperture-browser/ui/styles.css";
+@import "./window-controls-overlay.css";
+@source "./";
+@source "../../../packages/session-react/src";
+
+#root {
+  height: 100%;
+  --aperture-font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 180ms;
+  animation-timing-function: ease-out;
+}
+
+/* A session's picture, softened on its card, grows into where the workbench shows the
+   session, and sharpens there. */
+::view-transition-group(session-picture) {
+  animation-duration: 280ms;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+::view-transition-old(session-picture) {
+  animation: 200ms both session-picture-out;
+}
+
+::view-transition-new(session-picture) {
+  animation: 280ms both session-picture-in;
+}
+
+@keyframes session-picture-in {
+  from {
+    opacity: 0;
+    filter: blur(14px);
+  }
+}
+
+@keyframes session-picture-out {
+  to {
+    opacity: 0;
+  }
+}
+
+[data-slot="sidebar"] [data-sidebar-collapse-label] {
+  min-width: 0;
+  max-width: 12rem;
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 1;
+  transform: translateX(0);
+  transition:
+    max-width 200ms ease-out,
+    opacity 160ms ease-out,
+    transform 200ms ease-out;
+}
+
+[data-slot="sidebar"][data-collapsible="icon"] [data-sidebar-collapse-label] {
+  max-width: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-0.25rem);
+}

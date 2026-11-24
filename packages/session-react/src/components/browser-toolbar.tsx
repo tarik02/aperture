@@ -1,374 +1,317 @@
-import { useState, type ReactNode } from "react";
 import {
-  ArrowLeft,
-  ArrowRight,
-  Loader2,
-  PanelBottom,
-  PanelRight,
-  RefreshCw,
-  Square,
-  Wrench,
-} from "lucide-react";
-import * as Effect from "effect/Effect";
-import * as Schedule from "effect/Schedule";
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import { ArrowLeft, ArrowRight, Check, Layers2, Loader2, Plus, RefreshCw, X } from "lucide-react";
 import { Button } from "@aperture-browser/ui/components/button";
 import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuGroup,
-  ContextMenuLabel,
-  ContextMenuRadioGroup,
-  ContextMenuRadioItem,
-  ContextMenuTrigger,
-} from "@aperture-browser/ui/components/context-menu";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@aperture-browser/ui/components/dropdown-menu";
 import { InputGroup, InputGroupInput } from "@aperture-browser/ui/components/input-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture-browser/ui/components/tooltip";
-import type { UseBrowserControlResult } from "../hooks/use-browser-control.ts";
-import { useFork } from "../effect.tsx";
-import type { ResolvedSessionFeatures } from "../features.ts";
+import { useInputState } from "../hooks/use-actions.ts";
+import { useAddress } from "../hooks/use-address.ts";
+import { useFinger, useShortWindow } from "../hooks/use-media.ts";
+import { useSession, useSessionSnapshot } from "../session.tsx";
+import { useWorkbench } from "../workbench/context.tsx";
+import { WorkbenchSlot } from "../workbench/slot.tsx";
 import { BrowserTabStrip } from "./browser-tab-strip.tsx";
-import { BrowserMenus } from "./browser-toolbar-menus.tsx";
-import type { DevToolsDock } from "./browser-devtools-pane.tsx";
-import type { CollaborationRole } from "@aperture-browser/live-session";
-import { CollaborationPresence } from "./collaboration-presence.tsx";
-import * as UrlPath from "@aperture-browser/api-client/url-path";
+import { SessionPresence } from "./session-presence.tsx";
 
-interface BrowserToolbarProps {
-  control: UseBrowserControlResult;
-  leading?: ReactNode;
-  trailing?: ReactNode;
-  toolbarLeading?: ReactNode;
-  toolbarTrailing?: ReactNode;
-  features: ResolvedSessionFeatures;
-  collaborationRole: CollaborationRole;
-  cdpUrl: string | null;
-  shareUrls: { editor: string; viewer: string } | null;
-  localCursorEnabled: boolean;
-  onLocalCursorChange: (enabled: boolean) => void;
-  paintingEnabled: boolean;
-  onPaintingEnabledChange: (enabled: boolean) => void;
-  devToolsOpen: boolean;
-  devToolsTargetIds: ReadonlySet<string>;
-  devToolsDock: DevToolsDock;
-  onDevToolsOpenChange: (open: boolean) => void;
-  onDevToolsDockChange: (dock: DevToolsDock) => void;
-  onSessionDetails?: () => void;
-  menuItems?: ReactNode;
-  shareMenuItems?: ReactNode;
-  menuFooterItems?: ReactNode;
-  targetFaviconUrl?: (targetId: string) => string | null | undefined;
-}
+/** The workbench's first row: the tab strip, and who is in the session. */
+export function WorkbenchTitlebar() {
+  const { features, contributions } = useWorkbench();
+  const open = useSessionSnapshot().connection.state === "open";
+  const contributed = contributions.some((one) => one.slot.startsWith("titlebar."));
+  const short = useShortWindow();
 
-export function BrowserToolbar({
-  control,
-  leading,
-  trailing,
-  toolbarLeading,
-  toolbarTrailing,
-  features,
-  collaborationRole,
-  cdpUrl,
-  shareUrls,
-  localCursorEnabled,
-  onLocalCursorChange,
-  paintingEnabled,
-  onPaintingEnabledChange,
-  devToolsOpen,
-  devToolsTargetIds,
-  devToolsDock,
-  onDevToolsOpenChange,
-  onDevToolsDockChange,
-  onSessionDetails,
-  menuItems,
-  shareMenuItems,
-  menuFooterItems,
-  targetFaviconUrl,
-}: BrowserToolbarProps) {
-  const [urlDraft, setUrlDraft] = useState<string | null>(null);
-
-  const displayUrl = control.activeTarget?.url ?? "";
-  const busy = control.phase === "connecting";
-  const connected = control.phase === "connected";
-  const browserMutationEnabled = connected && collaborationRole !== "viewer";
-  const drawingAvailable =
-    connected && control.collaboration.phase === "connected" && Boolean(control.activeTargetId);
-  const loading = control.activeTarget?.loading ?? false;
-  // Peers that do not report history availability keep both buttons enabled.
-  const canGoBack = control.activeTarget?.canGoBack ?? true;
-  const canGoForward = control.activeTarget?.canGoForward ?? true;
-  const runningRecordings = control.recordings.filter(
-    (recording) => recording.status === "starting" || recording.status === "running",
-  );
-  const hasRunningRecordings = runningRecordings.length > 0;
-  const recordingTargetIds = new Set(runningRecordings.map((recording) => recording.targetId));
-  const [recordingNow, setRecordingNow] = useState(Date.now());
-
-  useFork(
-    () =>
-      hasRunningRecordings
-        ? Effect.repeat(
-            Effect.sync(() => setRecordingNow(Date.now())),
-            Schedule.spaced(1000),
-          )
-        : undefined,
-    [hasRunningRecordings],
-  );
-
-  function handleNavigate(value: string) {
-    const nextUrl = value.trim();
-    if (!nextUrl) {
-      return;
-    }
-    control.navigate(normalizeUrl(nextUrl));
-    setUrlDraft(null);
+  // A window too short for two rows has what is here in the toolbar.
+  if (short || (!features.tabs && !features.presence && !contributed)) {
+    return null;
   }
-
-  const devToolsAvailable =
-    collaborationRole === "owner" && connected && Boolean(cdpUrl && control.activeTargetId);
-
   return (
-    <div className="aperture:flex aperture:min-w-0 aperture:flex-col aperture:bg-background">
-      {leading || trailing || features.tabs || features.presence ? (
-        <div
-          data-workbench-titlebar
-          className="aperture:flex aperture:min-w-0 aperture:shrink-0 aperture:items-stretch aperture:border-b aperture:bg-muted/35"
-        >
-          {leading}
-          {features.tabs ? (
-            <BrowserTabStrip
-              targets={control.targets}
-              activeTargetId={control.activeTargetId}
-              recordingTargetIds={recordingTargetIds}
-              devToolsTargetIds={devToolsTargetIds}
-              disabled={!connected}
-              mutationDisabled={!browserMutationEnabled}
-              onActivate={control.activateTarget}
-              onCreate={() => control.createTarget("about:blank")}
-              onDuplicate={control.duplicateTarget}
-              onClose={control.closeTarget}
-              onReload={control.reload}
-              onReorder={control.reorderTargets}
-              loadThumbnail={control.loadTargetThumbnail}
-              targetFaviconUrl={targetFaviconUrl}
-            />
-          ) : (
-            <div className="aperture:min-w-0 aperture:flex-1" />
-          )}
-          {features.presence ? (
-            <CollaborationPresence collaboration={control.collaboration} />
-          ) : null}
-          {trailing}
-        </div>
-      ) : null}
-      {toolbarLeading ||
-      toolbarTrailing ||
-      features.navigation ||
-      features.addressBar ||
-      features.drawing ||
-      features.devTools ||
-      features.menus ? (
-        <div
-          className="aperture:flex aperture:h-9 aperture:items-center aperture:gap-1 aperture:px-1.5"
-          data-workbench-toolbar
-        >
-          {toolbarLeading ? (
-            <div className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-0.5">
-              {toolbarLeading}
-            </div>
-          ) : null}
-          {features.navigation ? (
-            <div className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-0.5">
-              <ToolbarButton
-                label="Back"
-                disabled={!browserMutationEnabled || !canGoBack}
-                onClick={() => control.historyBack()}
-              >
-                <ArrowLeft />
-              </ToolbarButton>
-              <ToolbarButton
-                label="Forward"
-                disabled={!browserMutationEnabled || !canGoForward}
-                onClick={() => control.historyForward()}
-              >
-                <ArrowRight />
-              </ToolbarButton>
-              <ToolbarButton
-                label={loading ? "Stop loading" : "Reload"}
-                disabled={!browserMutationEnabled}
-                onClick={() => {
-                  if (loading) {
-                    control.stopLoading();
-                  } else if (control.activeTargetId) {
-                    control.reload(control.activeTargetId);
-                  }
-                }}
-              >
-                {loading ? <Square /> : <RefreshCw />}
-              </ToolbarButton>
-            </div>
-          ) : null}
-          {features.addressBar ? (
-            <InputGroup className="aperture:h-7 aperture:border-transparent aperture:bg-transparent aperture:transition-colors aperture:hover:border-input/50 aperture:hover:bg-muted/35 aperture:has-[[data-slot=input-group-control]:focus-visible]:border-input/70 aperture:has-[[data-slot=input-group-control]:focus-visible]:bg-background aperture:has-[[data-slot=input-group-control]:focus-visible]:ring-2 aperture:has-[[data-slot=input-group-control]:focus-visible]:ring-ring/20 aperture:dark:hover:bg-input/20">
-              <InputGroupInput
-                value={urlDraft ?? displayUrl}
-                onChange={(event) => setUrlDraft(event.target.value)}
-                onFocus={(event) => event.currentTarget.select()}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    handleNavigate(event.currentTarget.value);
-                  }
-                }}
-                placeholder="URL"
-                className="aperture:h-7 aperture:px-2 aperture:font-mono aperture:text-xs aperture:text-muted-foreground aperture:transition-colors aperture:focus-visible:text-foreground"
-                disabled={!browserMutationEnabled}
-              />
-            </InputGroup>
-          ) : (
-            <div className="aperture:min-w-0 aperture:flex-1" />
-          )}
-          {busy ? (
-            <Loader2 className="aperture:size-4 aperture:shrink-0 aperture:animate-spin aperture:text-muted-foreground" />
-          ) : null}
-          {/* DevTools lives in the browser menu; a button shows only while it is open. */}
-          {features.devTools && devToolsOpen ? (
-            <DevToolsButton
-              open={devToolsOpen}
-              dock={devToolsDock}
-              available={devToolsAvailable}
-              onOpenChange={onDevToolsOpenChange}
-              onDockChange={onDevToolsDockChange}
-            />
-          ) : null}
-          {toolbarTrailing ? (
-            <div className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-0.5">
-              {toolbarTrailing}
-            </div>
-          ) : null}
-          {features.menus ? (
-            <BrowserMenus
-              control={control}
-              cdpUrl={cdpUrl}
-              shareUrls={shareUrls}
-              busy={busy}
-              connected={connected}
-              localCursorEnabled={localCursorEnabled}
-              onLocalCursorChange={onLocalCursorChange}
-              onReconnect={() => control.reconnect()}
-              onSessionDetails={onSessionDetails}
-              menuItems={menuItems}
-              shareMenuItems={shareMenuItems}
-              menuFooterItems={menuFooterItems}
-              drawing={
-                features.drawing
-                  ? {
-                      enabled: paintingEnabled,
-                      available: drawingAvailable,
-                      onChange: onPaintingEnabledChange,
-                    }
-                  : null
-              }
-              devTools={
-                features.devTools
-                  ? {
-                      open: devToolsOpen,
-                      dock: devToolsDock,
-                      available: devToolsAvailable,
-                      onOpenChange: onDevToolsOpenChange,
-                      onDockChange: onDevToolsDockChange,
-                    }
-                  : null
-              }
-              now={recordingNow}
-            />
-          ) : null}
-        </div>
-      ) : null}
+    <div
+      data-workbench-titlebar=""
+      className="aperture:flex aperture:h-8 aperture:min-w-0 aperture:shrink-0 aperture:items-stretch aperture:border-b aperture:bg-muted/35 aperture:pointer-coarse:h-10"
+    >
+      <WorkbenchSlot name="titlebar.start" />
+      {features.tabs ? <BrowserTabStrip /> : <div className="aperture:min-w-0 aperture:flex-1" />}
+      {/* Who was here when a connection closed is not who is here now. */}
+      {features.presence && open ? <SessionPresence /> : null}
+      <WorkbenchSlot name="titlebar.end" />
     </div>
   );
 }
 
-function DevToolsButton({
-  open,
-  dock,
-  available,
-  onOpenChange,
-  onDockChange,
-}: {
-  open: boolean;
-  dock: DevToolsDock;
-  available: boolean;
-  onOpenChange: (open: boolean) => void;
-  onDockChange: (dock: DevToolsDock) => void;
-}) {
-  const label = open ? "Close DevTools" : "Open DevTools";
+export const CompactContext = createContext(false);
 
+/** Whether the toolbar is narrow: what has a place in the browser menu shows there alone. */
+export function useCompactToolbar(): boolean {
+  return useContext(CompactContext);
+}
+
+/**
+ * Whether the toolbar is narrow under a finger, whose buttons are larger: then only going
+ * back, the keyboard and the files keep a button, and the rest is in the browser menu.
+ */
+export function useCrowdedToolbar(): boolean {
+  return useFinger() && useContext(CompactContext);
+}
+
+/** Below this width the toolbar keeps the address bar its room by showing fewer buttons. */
+const COMPACT_BELOW = 520;
+
+/**
+ * The workbench's second row: navigation, the address, and the buttons at its end. Without
+ * children it is the usual arrangement of its parts.
+ */
+export function WorkbenchToolbar({ children }: { readonly children?: ReactNode }) {
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const compact = useNarrowerThan(toolbarRef, COMPACT_BELOW);
+  const { features, contributions } = useWorkbench();
+  const open = useSessionSnapshot().connection.state === "open";
+  const connecting = useSessionSnapshot().connection.state === "connecting";
+  const short = useShortWindow();
+  const shows =
+    children !== undefined ||
+    features.navigation ||
+    features.addressBar ||
+    features.menus ||
+    short ||
+    contributions.some((one) => one.slot === "toolbar.start" || one.slot === "toolbar.end");
+
+  if (!shows) {
+    return null;
+  }
   return (
-    <ContextMenu>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <ContextMenuTrigger
-              render={
-                <Button
-                  type="button"
-                  variant={open ? "secondary" : "ghost"}
-                  size="icon-sm"
-                  disabled={!open && !available}
-                  aria-label={label}
-                  aria-pressed={open}
-                  onClick={() => onOpenChange(!open)}
-                />
-              }
-            />
-          }
-        >
-          <Wrench />
-        </TooltipTrigger>
-        <TooltipContent side="bottom">{label}. Right-click to choose dock side.</TooltipContent>
-      </Tooltip>
-      <ContextMenuContent>
-        <ContextMenuGroup>
-          <ContextMenuLabel>Dock side</ContextMenuLabel>
-          <ContextMenuRadioGroup
-            value={dock}
-            onValueChange={(value) => {
-              switch (value) {
-                case "bottom":
-                  onDockChange("bottom");
-                  break;
-                case "right":
-                  onDockChange("right");
-                  break;
-              }
-            }}
-          >
-            <ContextMenuRadioItem value="bottom">
-              <PanelBottom />
-              Bottom
-            </ContextMenuRadioItem>
-            <ContextMenuRadioItem value="right">
-              <PanelRight />
-              Right
-            </ContextMenuRadioItem>
-          </ContextMenuRadioGroup>
-        </ContextMenuGroup>
-      </ContextMenuContent>
-    </ContextMenu>
+    <CompactContext.Provider value={compact}>
+      <div
+        ref={toolbarRef}
+        data-workbench-toolbar=""
+        data-compact={compact ? "" : undefined}
+        data-short={short ? "" : undefined}
+        className="aperture:flex aperture:h-9 aperture:min-w-0 aperture:shrink-0 aperture:items-center aperture:gap-1 aperture:border-b aperture:bg-background aperture:px-1.5 aperture:pointer-coarse:h-11 aperture:data-short:pl-0"
+      >
+        {children ?? (
+          <>
+            {short ? <WorkbenchSlot name="titlebar.start" /> : null}
+            {short && features.tabs ? <TabsMenu /> : null}
+            <WorkbenchSlot name="toolbar.start" />
+            {features.navigation ? <NavigationButtons /> : null}
+            {features.addressBar ? (
+              <AddressBar />
+            ) : (
+              <div className="aperture:min-w-0 aperture:flex-1" />
+            )}
+            {connecting ? (
+              <Loader2 className="aperture:size-4 aperture:shrink-0 aperture:animate-spin aperture:text-muted-foreground" />
+            ) : null}
+            <WorkbenchSlot name="toolbar.end" />
+            {short && features.presence && open ? <SessionPresence /> : null}
+            {short ? <WorkbenchSlot name="titlebar.end" /> : null}
+            {features.menus ? <ToolbarActions /> : null}
+          </>
+        )}
+      </div>
+    </CompactContext.Provider>
   );
 }
 
-function ToolbarButton({
+/** Back, forward and reload of the watched tab. */
+export function NavigationButtons() {
+  const session = useSession();
+  const input = useInputState();
+  const snapshot = useSessionSnapshot();
+  // Where a tab goes is no input to its page: it takes no lease.
+  const gives = input.changes && snapshot.selected !== undefined;
+  const watched = snapshot.targets.find((target) => target.tab === snapshot.selected);
+  const crowded = useCrowdedToolbar();
+
+  return (
+    <div className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-0.5">
+      <ToolbarButton
+        label="Back"
+        disabled={!gives || watched?.goesBack !== true}
+        onClick={() => session.go({ along: "back" })}
+      >
+        <ArrowLeft />
+      </ToolbarButton>
+      {crowded ? null : (
+        <>
+          <ToolbarButton
+            label="Forward"
+            disabled={!gives || watched?.goesForward !== true}
+            onClick={() => session.go({ along: "forward" })}
+          >
+            <ArrowRight />
+          </ToolbarButton>
+          <ToolbarButton
+            label="Reload"
+            disabled={!gives}
+            onClick={() => session.go({ along: "reload" })}
+          >
+            <RefreshCw />
+          </ToolbarButton>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** The watched tab's address, and the field to take it elsewhere. */
+export function AddressBar() {
+  const session = useSession();
+  const address = useAddress();
+
+  return (
+    <InputGroup className="aperture:h-7 aperture:min-w-0 aperture:pointer-coarse:h-10 aperture:border-transparent aperture:bg-transparent aperture:transition-colors aperture:hover:border-input/50 aperture:hover:bg-muted/35 aperture:has-[[data-slot=input-group-control]:focus-visible]:border-input/70 aperture:has-[[data-slot=input-group-control]:focus-visible]:bg-background aperture:has-[[data-slot=input-group-control]:focus-visible]:ring-2 aperture:has-[[data-slot=input-group-control]:focus-visible]:ring-ring/20 aperture:dark:hover:bg-input/20">
+      <InputGroupInput
+        data-workbench-address=""
+        aria-label="Address"
+        value={address.value}
+        onChange={(event) => address.type(event.target.value)}
+        onFocus={(event) => event.currentTarget.select()}
+        onBlur={address.reset}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            if (address.submit(event.currentTarget.value)) {
+              // The page is what the keyboard is for once it is on its way.
+              session.focus();
+            }
+          }
+          if (event.key === "Escape") {
+            address.reset();
+            event.currentTarget.blur();
+          }
+        }}
+        placeholder="URL"
+        inputMode="url"
+        autoCapitalize="off"
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
+        // A phone zooms into a field whose text is smaller than this.
+        className="aperture:h-7 aperture:px-2 aperture:font-mono aperture:text-xs aperture:text-muted-foreground aperture:transition-colors aperture:focus-visible:text-foreground aperture:pointer-coarse:h-10 aperture:pointer-coarse:text-base"
+        disabled={!address.navigates}
+      />
+    </InputGroup>
+  );
+}
+
+/**
+ * The tabs as a menu, for a window too short to keep a row of them: which is watched, the
+ * way to another, to close one and to open a new one.
+ */
+function TabsMenu() {
+  const session = useSession();
+  const snapshot = useSessionSnapshot();
+  const { changes } = useInputState();
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-label="Tabs"
+            data-workbench-tabs-menu=""
+            className="aperture:shrink-0 aperture:tabular-nums"
+          />
+        }
+      >
+        <Layers2 />
+        {snapshot.targets.length}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="aperture:w-72">
+        {snapshot.targets.map((target) => (
+          <div key={target.tab} className="aperture:flex aperture:items-center">
+            <DropdownMenuItem
+              className="aperture:min-w-0 aperture:flex-1"
+              onClick={() => session.select(target.tab)}
+            >
+              <Check
+                className={target.tab === snapshot.selected ? undefined : "aperture:invisible"}
+              />
+              <span className="aperture:truncate">{target.title || target.url || "New tab"}</span>
+            </DropdownMenuItem>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Close ${target.title || "tab"}`}
+              disabled={!changes}
+              onClick={() => session.closeTab(target.tab)}
+            >
+              <X />
+            </Button>
+          </div>
+        ))}
+        {snapshot.targets.length > 0 ? <DropdownMenuSeparator /> : null}
+        <DropdownMenuItem disabled={!changes} onClick={() => session.newTab()}>
+          <Plus />
+          New tab
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** The buttons at the toolbar's end, which are what is contributed to `toolbar.actions`. */
+export function ToolbarActions() {
+  return (
+    <div
+      data-workbench-menus=""
+      className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-0.5"
+    >
+      <WorkbenchSlot name="toolbar.actions" />
+    </div>
+  );
+}
+
+function useNarrowerThan(ref: RefObject<HTMLElement | null>, width: number): boolean {
+  const [narrower, setNarrower] = useState(false);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (element === null) {
+      return undefined;
+    }
+    const measure = () => setNarrower(element.clientWidth < width);
+    measure();
+    const sizes = new ResizeObserver(measure);
+    sizes.observe(element);
+    return () => sizes.disconnect();
+  }, [ref, width]);
+
+  return narrower;
+}
+
+/** A button of the toolbar, with its name as a tooltip. */
+export function ToolbarButton({
   label,
   disabled,
   onClick,
   children,
+  ...props
 }: {
   label: string;
   disabled?: boolean;
   onClick?: () => void;
-  children: React.ReactNode;
-}) {
+  children: ReactNode;
+} & Omit<ComponentProps<typeof Button>, "children" | "onClick" | "disabled">) {
   return (
     <Tooltip>
       <TooltipTrigger
@@ -377,8 +320,10 @@ function ToolbarButton({
             type="button"
             variant="ghost"
             size="icon-sm"
+            aria-label={label}
             disabled={disabled}
             onClick={onClick}
+            {...props}
           />
         }
       >
@@ -387,33 +332,4 @@ function ToolbarButton({
       <TooltipContent side="bottom">{label}</TooltipContent>
     </Tooltip>
   );
-}
-
-function normalizeUrl(value: string): string {
-  const trimmed = value.trim();
-  if (isLocalHost(trimmed)) {
-    return `http://${trimmed}`;
-  }
-  if (
-    /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ||
-    /^(about|chrome|devtools|data|file):/i.test(trimmed)
-  ) {
-    return trimmed;
-  }
-  if (isLikelyHost(trimmed)) {
-    return `https://${trimmed}`;
-  }
-  return UrlPath.make`https://www.google.com/search?q=${trimmed}`;
-}
-
-function isLocalHost(value: string): boolean {
-  return (
-    /^localhost(?::\d+)?(?:[/?#].*)?$/i.test(value) ||
-    /^127(?:\.\d{1,3}){3}(?::\d+)?(?:[/?#].*)?$/.test(value) ||
-    /^[a-z0-9-]+:\d+(?:[/?#].*)?$/i.test(value)
-  );
-}
-
-function isLikelyHost(value: string): boolean {
-  return !/\s/.test(value) && /^[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:[/:?#].*)?$/i.test(value);
 }

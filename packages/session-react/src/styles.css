@@ -4,6 +4,7 @@
 @import "tw-animate-css/prefix";
 @import "@aperture-browser/ui/tokens.css";
 @import "@aperture-browser/ui/theme.css";
+@import "@aperture-browser/ui/touch.css";
 @import "./preflight.css";
 
 /* With the aperture prefix these would be emitted as --aperture-font-*, shadowing the
@@ -24,4 +25,6 @@
   );
 }
 @source "./";
-@source "../../ui/src/components";
+/* Only the toolkit's components the session uses: the others' classes would be dead weight
+   in every page that embeds it. */
+@source "../../ui/src/components/{avatar,badge,button,context-menu,dialog,drawer,dropdown-menu,empty,hover-card,input,input-group,popover,scroll-area,sheet,sonner,tooltip}.tsx";

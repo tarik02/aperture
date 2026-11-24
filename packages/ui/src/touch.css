@@ -1,0 +1,57 @@
+/* Where a finger is the pointer, what is pressed is at least 40px tall, whatever size it
+   was drawn at for a mouse. In the components layer: a utility on one of them still wins.
+   What stands small among other things says so with `data-touch-dense`, and is pressed
+   around it by its own means. */
+@layer components {
+  /* How tall what is pressed is, for what is sized to hold a number of them. */
+  .aperture-root {
+    --control-height: 2rem;
+  }
+
+  @media (pointer: coarse) {
+    .aperture-root {
+      --control-height: 2.5rem;
+    }
+
+    [data-button]:not([data-touch-dense]),
+    [data-slot="toggle"],
+    [data-slot="input"],
+    [data-slot="input-group"],
+    [data-slot="select-trigger"],
+    [data-slot="combobox-trigger"],
+    [data-slot="tabs-trigger"],
+    [data-slot="sidebar-menu-button"],
+    [data-slot="select-item"],
+    [data-slot="combobox-item"],
+    [data-slot$="-menu-item"],
+    [data-slot$="-menu-sub-trigger"],
+    [data-slot$="-menu-checkbox-item"],
+    [data-slot$="-menu-radio-item"] {
+      min-height: 2.5rem;
+    }
+
+    /* As wide as well: one that says nothing on a phone but its icon is narrow there. */
+    [data-button]:not([data-touch-dense]) {
+      min-width: 2.5rem;
+    }
+
+    [data-slot="tabs-list"] {
+      min-height: calc(2.5rem + 6px);
+    }
+
+    /* Small marks keep their size and are pressed around them as well. */
+    [data-slot="checkbox"],
+    [data-slot="switch"],
+    [data-slot="radio-group-item"] {
+      position: relative;
+    }
+
+    [data-slot="checkbox"]::after,
+    [data-slot="switch"]::after,
+    [data-slot="radio-group-item"]::after {
+      content: "";
+      position: absolute;
+      inset: -0.75rem;
+    }
+  }
+}

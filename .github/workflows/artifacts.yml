@@ -1,0 +1,77 @@
+name: artifacts
+
+# What a pull request builds, to try without building it: the container image and the
+# packages. For a pull request that asks for it with the `build-artifacts` label, and by hand.
+on:
+  pull_request:
+    types:
+      - labeled
+      - synchronize
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: artifacts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: container image
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'build-artifacts')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Build
+        run: |
+          nix build .#container --print-build-logs
+          ./result | gzip > aperture-session.tar.gz
+
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: aperture-session-image
+          path: aperture-session.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  packages:
+    name: packages
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'build-artifacts')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: pnpm/action-setup@v6.0.9
+        with:
+          version: 11.27.1
+
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Build
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Pack
+        run: |
+          mkdir packed
+          for package in control-api executor-client session-client session-react session-element; do
+            pnpm --dir "packages/$package" pack --pack-destination "$PWD/packed"
+          done
+
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: aperture-packages
+          path: packed/*.tgz
+          if-no-files-found: error
+          retention-days: 14

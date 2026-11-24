@@ -7,8 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: release-please-${{ github.ref }}
@@ -16,13 +15,17 @@ concurrency:
 
 jobs:
   release-please:
-    name: release PR / stable release
+    name: release PR / release
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
-      version: ${{ steps.release.outputs.version }}
+      version: ${{ steps.channel.outputs.version }}
+      channel: ${{ steps.channel.outputs.channel }}
     steps:
+      # What GITHUB_TOKEN opens starts no workflows; the app's token lets the release's
+      # pull request have its checks.
       - name: Create GitHub App token
         id: app-token
         uses: actions/create-github-app-token@v3.2.0
@@ -38,105 +41,48 @@ jobs:
           config-file: .github/release-please-config.json
           manifest-file: .github/.release-please-manifest.json
 
-  stable:
-    name: stable artifacts
-    needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.0
-        with:
-          fetch-depth: 0
-          ref: ${{ needs.release-please.outputs.tag_name }}
-
-      - uses: actions/setup-go@v6.5.0
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - uses: pnpm/action-setup@v6.0.9
-        with:
-          version: 11.27.1
-
-      - uses: actions/setup-node@v6.4.0
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Install native dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes \
-            libei-dev \
-            libgstreamer1.0-dev \
-            libgstreamer-plugins-base1.0-dev \
-            pkg-config
-
-      - name: Upload release artifacts
-        uses: goreleaser/goreleaser-action@v7.2.3
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --clean
+      # A prerelease moves the tag named as it is, `beta` for 1.0.0-beta.2; `latest` is
+      # a stable release's alone.
+      - name: Name the channel
+        id: channel
+        if: steps.release.outputs.release_created == 'true'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  extensions:
-    name: extension zips
-    needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.0
-        with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
-
-      - uses: pnpm/action-setup@v6.0.9
-        with:
-          version: 11.27.1
-
-      - uses: actions/setup-node@v6.4.0
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Build and upload extension zips
+          TAG: ${{ steps.release.outputs.tag_name }}
         run: |
-          pnpm install --frozen-lockfile
-          node scripts/release-extensions.ts "$VERSION" "$RUNNER_TEMP/extensions"
-          shopt -s nullglob
-          zips=("$RUNNER_TEMP"/extensions/*.zip)
-          if [ ${#zips[@]} -gt 0 ]; then
-            gh release upload "$TAG" "${zips[@]}" --clobber
+          version="${TAG#v}"
+          channel=latest
+          if [[ "$version" == *-* ]]; then
+            channel="${version#*-}"
+            channel="${channel%%.*}"
           fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.release-please.outputs.tag_name }}
-          VERSION: ${{ needs.release-please.outputs.version }}
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
 
-  docker:
-    name: stable docker image
+  # Nothing of a release is published from a tree whose sessions do not run.
+  e2e:
+    name: e2e
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
+    uses: ./.github/workflows/e2e.yml
+
+  publish:
+    name: publish
+    needs:
+      - release-please
+      - e2e
     permissions:
-      contents: read
-      packages: write
-      id-token: write
+      actions: write
       attestations: write
-    uses: ./.github/workflows/docker-image.yml
+      contents: write
+      id-token: write
+      packages: write
+    uses: ./.github/workflows/publish.yml
     secrets:
       CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
     with:
       version: ${{ needs.release-please.outputs.version }}
-      ref: ${{ needs.release-please.outputs.tag_name }}
-      tags: |
+      tag: ${{ needs.release-please.outputs.tag_name }}
+      image-tags: |
         ${{ needs.release-please.outputs.version }}
-        latest
+        ${{ needs.release-please.outputs.channel }}
+      release: true

@@ -16,7 +16,7 @@ import { Skeleton } from "./skeleton.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip.tsx";
 import { PanelLeftIcon } from "lucide-react";
 
-const SIDEBAR_WIDTH_MOBILE = "min(15rem, 85vw)";
+const SIDEBAR_WIDTH_MOBILE = "min(17rem, 85vw)";
 const PEEK_OPEN_DELAY_MS = 120;
 const PEEK_CLOSE_DELAY_MS = 280;
 
@@ -37,7 +37,15 @@ function Sidebar({
   peekOnHover?: boolean;
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
-  const peek = useSidebarPeek(peekOnHover && collapsible === "offcanvas" && state === "collapsed");
+  const peek = useSidebarPeek(
+    peekOnHover && collapsible === "offcanvas" && (isMobile ? !openMobile : state === "collapsed"),
+  );
+  // A narrow window has the sidebar as a sheet, which the edge opens like its button does.
+  React.useEffect(() => {
+    if (isMobile && peek.open) {
+      setOpenMobile(true);
+    }
+  }, [isMobile, peek.open, setOpenMobile]);
 
   if (collapsible === "none") {
     return (
@@ -57,12 +65,30 @@ function Sidebar({
   if (isMobile) {
     return (
       <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
+        {peek.enabled ? (
+          <div
+            aria-hidden
+            data-slot="sidebar-peek-zone"
+            className="aperture:fixed aperture:inset-y-0 aperture:z-10 aperture:w-1.5 aperture:data-[side=left]:left-0 aperture:data-[side=right]:right-0"
+            data-side={side}
+            // A finger at the edge is a swipe of the browser's, not a pointer that rests.
+            onPointerEnter={(event) =>
+              event.pointerType === "mouse" ? peek.handlers.onPointerEnter() : undefined
+            }
+            onPointerMove={(event) =>
+              event.pointerType === "mouse" ? peek.handlers.onPointerMove() : undefined
+            }
+            onPointerLeave={peek.handlers.onPointerLeave}
+          />
+        ) : null}
         <SheetContent
           dir={dir}
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
-          className="aperture:w-(--sidebar-width) aperture:bg-sidebar aperture:p-0 aperture:text-sidebar-foreground aperture:[&>button]:hidden"
+          // What it holds opens dialogs, which stay when it has closed for them.
+          keepMounted
+          className="aperture:w-(--sidebar-width) aperture:bg-sidebar aperture:p-0 aperture:pt-[env(safe-area-inset-top)] aperture:pb-[env(safe-area-inset-bottom)] aperture:pl-[env(safe-area-inset-left)] aperture:text-sidebar-foreground aperture:[&>button]:hidden"
           style={
             {
               "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
@@ -147,6 +173,8 @@ function Sidebar({
 function useSidebarPeek(enabled: boolean) {
   const [open, setOpen] = React.useState(false);
   const timer = React.useRef<number | null>(null);
+  /** Whether it is out, or on its way out. */
+  const wanted = React.useRef(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   const clear = () => {
@@ -157,6 +185,7 @@ function useSidebarPeek(enabled: boolean) {
   };
   const schedule = (next: boolean) => {
     clear();
+    wanted.current = next;
     timer.current = window.setTimeout(
       () => {
         timer.current = null;
@@ -174,6 +203,7 @@ function useSidebarPeek(enabled: boolean) {
   React.useEffect(() => {
     if (!enabled) {
       clear();
+      wanted.current = false;
       setOpen(false);
     }
   }, [enabled]);
@@ -185,6 +215,13 @@ function useSidebarPeek(enabled: boolean) {
     containerRef,
     handlers: {
       onPointerEnter: () => schedule(true),
+      // React tells of no entering where what the pointer was over before is gone from
+      // the page, as what a page shows while it loads is: a pointer that moves here is here.
+      onPointerMove: () => {
+        if (!wanted.current) {
+          schedule(true);
+        }
+      },
       onPointerLeave: () => schedule(false),
     },
   };

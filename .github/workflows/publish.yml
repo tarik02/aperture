@@ -1,0 +1,275 @@
+name: publish
+
+# What a release or a nightly gives whoever installs it: the session's image for both
+# architectures and the packages on npm, and for a release the same images as its files.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The version everything is built as
+        required: true
+        type: string
+      tag:
+        description: The release's git tag, which is what is built
+        required: true
+        type: string
+      image-tags:
+        description: Newline-separated tags of the image
+        required: true
+        type: string
+      release:
+        description: >-
+          Whether this is a release and no nightly: its programs go to the Cachix cache and
+          its images to the release as files
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      CACHIX_AUTH_TOKEN:
+        description: Token for pushing to the aperture-browser Cachix cache
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}-session
+
+jobs:
+  image:
+    name: image ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Write the version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: .github/scripts/set-version.sh "$VERSION"
+
+      - name: Resolve what is cached
+        id: cached
+        run: |
+          {
+            echo "paths<<EOF"
+            for package in aperture aperture-control aperture-migrate; do
+              nix eval --raw ".#$package.outPath"
+              echo
+            done
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # A release's programs only: a nightly's change with every commit and would fill
+      # the cache, and the image is made of them.
+      - uses: cachix/cachix-action@v17
+        with:
+          name: aperture-browser
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ !inputs.release || secrets.CACHIX_AUTH_TOKEN == '' }}
+          pathsToPush: ${{ steps.cached.outputs.paths }}
+
+      - uses: docker/login-action@v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build the image
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          nix build .#container --print-build-logs
+          ./result | gzip > "aperture-session-$VERSION-linux-$ARCH.tar.gz"
+
+      # An image that does not start is not pushed. The session's sandbox is made of user
+      # namespaces, which this runner's AppArmor keeps from whoever is not root.
+      - name: Start the image and load a page in it
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          .github/scripts/smoke-image.sh "aperture-session-$VERSION-linux-$ARCH.tar.gz"
+
+      - name: Build what the modules install
+        if: inputs.release
+        run: nix build .#aperture .#aperture-control .#aperture-migrate --no-link --print-build-logs
+
+      - name: Push the image
+        id: push
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          docker load < "aperture-session-$VERSION-linux-$ARCH.tar.gz"
+          docker tag "aperture-session:$VERSION" "$IMAGE:$VERSION-$ARCH"
+          docker push "$IMAGE:$VERSION-$ARCH"
+          repo_digest="$(docker image inspect "$IMAGE:$VERSION-$ARCH" --format '{{json .RepoDigests}}' | jq -r --arg image "$IMAGE" '.[] | select(startswith($image + "@"))' | head -n 1)"
+          echo "digest=${repo_digest#*@}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0.24.0
+        with:
+          image: ${{ env.IMAGE }}@${{ steps.push.outputs.digest }}
+          format: spdx-json
+          artifact-name: aperture-session-${{ inputs.version }}-linux-${{ matrix.arch }}-sbom
+          output-file: aperture-session-${{ inputs.version }}-linux-${{ matrix.arch }}.spdx.json
+          upload-release-assets: false
+
+      - name: Attest SBOM
+        uses: actions/attest@v4.2.1
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          sbom-path: aperture-session-${{ inputs.version }}-linux-${{ matrix.arch }}.spdx.json
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Attest build provenance
+        uses: actions/attest@v4.2.1
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Sign the image
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: cosign sign --yes "$IMAGE@$DIGEST"
+
+      - uses: actions/upload-artifact@v7.0.1
+        if: inputs.release
+        with:
+          name: release-files-${{ matrix.arch }}
+          path: |
+            aperture-session-${{ inputs.version }}-linux-${{ matrix.arch }}.tar.gz
+            aperture-session-${{ inputs.version }}-linux-${{ matrix.arch }}.spdx.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  manifest:
+    name: image manifest
+    needs: image
+    runs-on: ubuntu-24.04
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    steps:
+      - uses: docker/login-action@v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish the manifest
+        id: publish
+        env:
+          TAGS: ${{ inputs.image-tags }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          tag_args=()
+          first_tag=""
+          while IFS= read -r tag; do
+            if [[ -n "$tag" ]]; then
+              if [[ -z "$first_tag" ]]; then
+                first_tag="$tag"
+              fi
+              tag_args+=(--tag "$IMAGE:$tag")
+            fi
+          done <<< "$TAGS"
+
+          docker buildx imagetools create \
+            "${tag_args[@]}" \
+            "$IMAGE:$VERSION-amd64" \
+            "$IMAGE:$VERSION-arm64"
+
+          docker buildx imagetools inspect "$IMAGE:$first_tag"
+          digest="$(docker buildx imagetools inspect "$IMAGE:$first_tag" --format '{{json .Manifest}}' | jq -r '.digest')"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Attest build provenance
+        uses: actions/attest@v4.2.1
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Sign the manifest
+        env:
+          DIGEST: ${{ steps.publish.outputs.digest }}
+        run: cosign sign --yes "$IMAGE@$DIGEST"
+
+  files:
+    name: release files
+    needs: image
+    if: inputs.release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: release-files-*
+          merge-multiple: true
+          path: files
+
+      - name: Upload to the release
+        working-directory: files
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          sha256sum -- * > SHA256SUMS
+          gh release upload "$TAG" ./* --clobber
+
+  # Last, what is on npm being there for good. It is npm.yml that publishes, which is the
+  # one workflow npm trusts, whoever asks for it.
+  npm:
+    name: start npm
+    needs:
+      - manifest
+      - files
+    # A nightly has no files, and is published without them.
+    if: >-
+      !cancelled() &&
+      needs.manifest.result == 'success' &&
+      (needs.files.result == 'success' || needs.files.result == 'skipped')
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - name: Start npm.yml at the tag
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: gh workflow run npm.yml --ref "$TAG"

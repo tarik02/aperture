@@ -1,12 +1,7 @@
-.DS_Store
+/target
 /result
-/dist/
-/vendor/
+.DS_Store
 node_modules/
 apps/*/dist/
 packages/*/dist/
-apps/web/.output/
-extensions/*/dist/
-extensions/aperture-companion/public/icon-*.png
-.scaffold-tmp/
-.data/
+/test-failures

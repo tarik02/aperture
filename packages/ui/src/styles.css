@@ -3,6 +3,7 @@
 @import "@fontsource-variable/geist";
 @import "./tokens.css";
 @import "./theme.css";
+@import "./touch.css";
 @source "./components";
 
 @layer base {
@@ -16,5 +17,20 @@
 
   body {
     @apply aperture:h-full aperture:min-h-svh aperture:overflow-hidden aperture:bg-background aperture:text-foreground;
+  }
+}
+
+/*
+ * Whoever asked for less motion: nothing fades, grows or slides into place, and what
+ * changes is changed at once. What turns to say that something is being done still turns.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *:not([data-slot="spinner"]),
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

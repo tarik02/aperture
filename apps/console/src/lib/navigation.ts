@@ -1,0 +1,91 @@
+import type { Scope } from "@aperture-browser/control-api";
+import type { LucideIcon } from "lucide-react";
+import {
+  AppWindow,
+  Bot,
+  Building2,
+  CircleUser,
+  Layers,
+  LogIn,
+  ScrollText,
+  Server,
+  Ticket,
+  Users,
+} from "lucide-react";
+
+export type NavItem = {
+  title: string;
+  to:
+    | "/-/sessions"
+    | "/-/snapshots"
+    | "/-/workspaces"
+    | "/-/account"
+    | "/-/nodes"
+    | "/-/registration-tokens"
+    | "/-/people"
+    | "/-/service-accounts"
+    | "/-/sign-in-providers"
+    | "/-/audit";
+  icon: LucideIcon;
+  group: "workspace" | "account" | "admin";
+  /** Where it stands for whoever is no admin, who is shown no group of an admin's. */
+  otherwise?: "account";
+  /** What whoever is signed in has to be let do for it to be shown; anyone, without. */
+  needs?: Scope;
+};
+
+export const primaryNavItems: NavItem[] = [
+  {
+    title: "Sessions",
+    to: "/-/sessions",
+    icon: AppWindow,
+    group: "workspace",
+    needs: "sessions:read",
+  },
+  {
+    title: "Snapshots",
+    to: "/-/snapshots",
+    icon: Layers,
+    group: "workspace",
+    needs: "snapshots:read",
+  },
+  { title: "Workspaces", to: "/-/workspaces", icon: Building2, group: "workspace" },
+  // What is the account's own, each kind of it a tab of one page.
+  { title: "Account", to: "/-/account", icon: CircleUser, group: "account" },
+  { title: "Nodes", to: "/-/nodes", icon: Server, group: "admin", needs: "admin" },
+  {
+    title: "Registration tokens",
+    to: "/-/registration-tokens",
+    icon: Ticket,
+    group: "admin",
+    needs: "admin",
+  },
+  { title: "People", to: "/-/people", icon: Users, group: "admin", needs: "admin" },
+  {
+    title: "Service accounts",
+    to: "/-/service-accounts",
+    icon: Bot,
+    group: "admin",
+    needs: "admin",
+  },
+  {
+    title: "Sign-in providers",
+    to: "/-/sign-in-providers",
+    icon: LogIn,
+    group: "admin",
+    needs: "admin",
+  },
+  // An admin reads everyone's; anyone else their own account's and their workspaces'.
+  {
+    title: "Audit",
+    to: "/-/audit",
+    icon: ScrollText,
+    group: "admin",
+    otherwise: "account",
+    needs: "events:read",
+  },
+];
+
+export function resolveNavItem(pathname: string) {
+  return primaryNavItems.find((item) => pathname === item.to || pathname.startsWith(`${item.to}/`));
+}

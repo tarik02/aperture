@@ -1,5 +1,5 @@
 {
-  description = "aperture chromium session supervisor";
+  description = "aperture browser sessions";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -12,84 +12,16 @@
       nixpkgs,
       flake-utils,
     }:
-    flake-utils.lib.eachDefaultSystem (
+    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" ] (
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
         lib = pkgs.lib;
         nodeRuntime = pkgs.nodejs_26;
-
-        goLatest = pkgs.go_1_26;
-
         pnpmLatest = pkgs.pnpm_11.override {
           nodejs-slim = nodeRuntime;
           version = "11.27.1";
           hash = "sha256-1Q+IQeZ+8LHYLnyQskBlbHygTV8aoz8GEIAHyB/XZ2Y=";
-        };
-
-        buildGoModule = pkgs.buildGoModule.override {
-          go = goLatest;
-        };
-
-        sourceVersion = self.shortRev or self.dirtyShortRev or "dev";
-
-        deployVersion =
-          if builtins.pathExists ./.aperture-deploy-version then
-            builtins.readFile ./.aperture-deploy-version
-          else
-            sourceVersion;
-
-        sourceRevision =
-          if builtins.pathExists ./.aperture-source-revision then
-            builtins.readFile ./.aperture-source-revision
-          else if self ? rev then
-            self.rev
-          else if self ? dirtyRev then
-            lib.removeSuffix "-dirty" self.dirtyRev
-          else
-            "unknown";
-
-        isPackageSourceExcluded =
-          path:
-          let
-            root = (toString ./.) + "/";
-            rel = lib.removePrefix root (toString path);
-          in
-          rel == "result"
-          || rel == "node_modules"
-          || lib.hasPrefix "node_modules/" rel
-          || rel == "packages/browser-state/node_modules"
-          || lib.hasPrefix "packages/browser-state/node_modules/" rel
-          || rel == "packages/api-schema/node_modules"
-          || lib.hasPrefix "packages/api-schema/node_modules/" rel
-          || rel == "apps/restore-worker/node_modules"
-          || lib.hasPrefix "apps/restore-worker/node_modules/" rel
-          || rel == "apps/restore-worker/dist"
-          || lib.hasPrefix "apps/restore-worker/dist/" rel
-          || rel == "extensions/aperture-companion/node_modules"
-          || lib.hasPrefix "extensions/aperture-companion/node_modules/" rel
-          || rel == "extensions/aperture-companion/dist"
-          || lib.hasPrefix "extensions/aperture-companion/dist/" rel
-          || rel == "extensions/tab-window-enforcer/node_modules"
-          || lib.hasPrefix "extensions/tab-window-enforcer/node_modules/" rel
-          || rel == "extensions/tab-window-enforcer/dist"
-          || lib.hasPrefix "extensions/tab-window-enforcer/dist/" rel
-          || rel == "apps/web/node_modules"
-          || lib.hasPrefix "apps/web/node_modules/" rel
-          || rel == "apps/web/dist"
-          || lib.hasPrefix "apps/web/dist/" rel
-          || rel == "apps/web/.output"
-          || lib.hasPrefix "apps/web/.output/" rel
-          || rel == ".scaffold-tmp"
-          || lib.hasPrefix ".scaffold-tmp/" rel
-          || rel == ".data"
-          || lib.hasPrefix ".data/" rel
-          || rel == "vendor"
-          || lib.hasPrefix "vendor/" rel;
-
-        src = lib.cleanSourceWith {
-          src = ./.;
-          filter = path: type: lib.cleanSourceFilter path type && !isPackageSourceExcluded path;
         };
 
         browserFonts = [
@@ -149,226 +81,6 @@
           ln -s ${pkgs.adwaita-icon-theme}/share/icons/Adwaita $out/default
         '';
 
-        runtimeGstreamer =
-          (pkgs.gst_all_1.gstreamer.override {
-            enableDocumentation = false;
-            withIntrospection = false;
-          }).overrideAttrs
-            (oldAttrs: {
-              postInstall = (oldAttrs.postInstall or "") + ''
-                rm -f $out/libexec/gstreamer-1.0/gst-plugins-doc-cache-generator
-              '';
-            });
-
-        runtimeGstPluginsBase =
-          (pkgs.gst_all_1.gst-plugins-base.override {
-            gstreamer = runtimeGstreamer;
-            withIntrospection = false;
-            enableX11 = false;
-            enableWayland = true;
-            enableAlsa = false;
-            enableGl = false;
-            enableCdparanoia = false;
-            enableDocumentation = false;
-          }).overrideAttrs
-            (oldAttrs: {
-              mesonFlags = (oldAttrs.mesonFlags or [ ]) ++ [
-                "-Dauto_features=disabled"
-                "-Dapp=enabled"
-                "-Dvideoconvertscale=enabled"
-                "-Dvideorate=enabled"
-              ];
-            });
-
-        runtimeGstPluginsGood =
-          (pkgs.gst_all_1.gst-plugins-good.override {
-            gst-plugins-base = runtimeGstPluginsBase;
-            enableJack = false;
-            enableX11 = false;
-            enableWayland = false;
-            enableDocumentation = false;
-          }).overrideAttrs
-            (oldAttrs: {
-              mesonFlags = (oldAttrs.mesonFlags or [ ]) ++ [
-                "-Dauto_features=disabled"
-                "-Dmatroska=enabled"
-                "-Drtp=enabled"
-                "-Dudp=enabled"
-                "-Dvideocrop=enabled"
-                "-Dvpx=enabled"
-              ];
-            });
-
-        runtimeGstPluginsBad =
-          (pkgs.gst_all_1.gst-plugins-bad.override {
-            gst-plugins-base = runtimeGstPluginsBase;
-            enableZbar = false;
-            faacSupport = false;
-            opencvSupport = false;
-            lcevcdecSupport = false;
-            ldacbtSupport = false;
-            webrtcAudioProcessingSupport = false;
-            ajaSupport = false;
-            openh264Support = false;
-            enableGplPlugins = false;
-            bluezSupport = false;
-            microdnsSupport = false;
-            enableDocumentation = false;
-            guiSupport = false;
-          }).overrideAttrs
-            (oldAttrs: {
-              mesonFlags = (oldAttrs.mesonFlags or [ ]) ++ [
-                "-Dauto_features=disabled"
-                "-Dopenaptx=disabled"
-                "-Dva=enabled"
-                "-Dvideoparsers=enabled"
-              ];
-            });
-
-        runtimePipewire =
-          (pkgs.pipewire.override {
-            gst_all_1 = pkgs.gst_all_1 // {
-              gstreamer = runtimeGstreamer;
-              gst-plugins-base = runtimeGstPluginsBase;
-            };
-            enableSystemd = false;
-            vulkanSupport = false;
-            bluezSupport = false;
-            zeroconfSupport = false;
-            raopSupport = false;
-            rocSupport = false;
-            x11Support = false;
-            ffadoSupport = false;
-          }).overrideAttrs
-            (oldAttrs: {
-              outputs = [
-                "out"
-                "jack"
-                "dev"
-              ];
-              mesonFlags =
-                builtins.filter (flag: !lib.hasPrefix "-Dinstalled_test_prefix=" flag) (oldAttrs.mesonFlags or [ ])
-                ++ [
-                  "-Dauto_features=disabled"
-                  "-Dalsa=disabled"
-                  "-Davb=disabled"
-                  "-Dcompress-offload=disabled"
-                  "-Ddocs=disabled"
-                  "-Decho-cancel-webrtc=disabled"
-                  "-Dexamples=disabled"
-                  "-Dffmpeg=disabled"
-                  "-Dgstreamer=enabled"
-                  "-Dgstreamer-device-provider=disabled"
-                  "-Dinstalled_tests=disabled"
-                  "-Dlibcamera=disabled"
-                  "-Dlibmysofa=disabled"
-                  "-Dlibpulse=disabled"
-                  "-Dlogind=disabled"
-                  "-Dman=disabled"
-                  "-Dopus=disabled"
-                  "-Dpipewire-alsa=disabled"
-                  "-Dpipewire-v4l2=disabled"
-                  "-Dpw-cat-ffmpeg=disabled"
-                  "-Dselinux=disabled"
-                  "-Dsystemd-user-service=disabled"
-                  "-Dtests=disabled"
-                  "-Dudev=disabled"
-                  "-Dv4l2=disabled"
-                ];
-              doInstallCheck = false;
-            });
-
-        runtimeWirePlumber =
-          (pkgs.wireplumber.override {
-            pipewire = runtimePipewire;
-            enableDocs = false;
-            enableGI = false;
-          }).overrideAttrs
-            (oldAttrs: {
-              nativeBuildInputs = (oldAttrs.nativeBuildInputs or [ ]) ++ [ pkgs.python3 ];
-              mesonFlags = (oldAttrs.mesonFlags or [ ]) ++ [
-                "-Ddbus-tests=false"
-                "-Dsystemd=disabled"
-                "-Dsystemd-system-service=false"
-                "-Dsystemd-user-service=false"
-                "-Dtests=false"
-                "-Dtools=false"
-              ];
-            });
-
-        mkRuntimeMesa =
-          mesaPackage:
-          pkgs.runCommand "mesa-${mesaPackage.version}"
-            {
-              nativeBuildInputs = [ pkgs.patchelf ];
-            }
-            ''
-              cp -a ${mesaPackage}/. $out/
-              chmod -R u+w $out
-              rm -f \
-                $out/bin/mesa-overlay-control.py \
-                $out/bin/mesa-screenshot-control.py
-
-              if [[ ''${#out} -ne ${toString (builtins.stringLength (toString mesaPackage))} ]]; then
-                echo "runtime and source Mesa paths must have equal lengths" >&2
-                exit 1
-              fi
-
-              while IFS= read -r -d "" file; do
-                rpath="$(patchelf --print-rpath "$file" 2>/dev/null || true)"
-                if [[ "$rpath" == *'${mesaPackage}'* ]]; then
-                  patchelf --set-rpath "''${rpath//'${mesaPackage}'/$out}" "$file"
-                fi
-              done < <(find $out -type f -print0)
-
-              while IFS= read -r -d "" file; do
-                sed -i "s|${mesaPackage}|$out|g" "$file"
-              done < <(grep -lRZ -F '${mesaPackage}' $out)
-
-              if grep -qR -F '${mesaPackage}' $out; then
-                echo "runtime Mesa still references the unpruned package" >&2
-                exit 1
-              fi
-            '';
-
-        # The stock build from cache.nixos.org: the GPU drivers need LLVM anyway, so a
-        # custom build only dropped the software drivers, for a ~40 minute compile per image.
-        gpuMesa = mkRuntimeMesa pkgs.mesa;
-
-        intelMesa = mkRuntimeMesa (
-          (pkgs.mesa.override {
-            galliumDrivers = [
-              "crocus"
-              "iris"
-            ];
-            vulkanDrivers = [ ];
-            vulkanLayers = [ ];
-            enablePatentEncumberedCodecs = false;
-            withValgrind = false;
-          }).overrideAttrs
-            (oldAttrs: {
-              outputs = [ "out" ];
-              nativeBuildInputs = (oldAttrs.nativeBuildInputs or [ ]) ++ [ pkgs.mesa.cross_tools ];
-              mesonFlags = (oldAttrs.mesonFlags or [ ]) ++ [
-                "-Dteflon=false"
-                "-Dgallium-extra-hud=false"
-                "-Dgallium-rusticl=false"
-                "-Dgallium-va=disabled"
-                "-Dintel-rt=disabled"
-                "-Dllvm=disabled"
-                "-Dmesa-clc=system"
-                "-Dprecomp-compiler=system"
-                "-Dtools="
-                "-Dinstall-mesa-clc=false"
-                "-Dinstall-precomp-compiler=false"
-              ];
-              postInstall = "";
-              postFixup = builtins.replaceStrings [ "$opencl/lib/libRusticlOpenCL.so" ] [ "" ] (
-                oldAttrs.postFixup or ""
-              );
-            })
-        );
-
         runtimeChromium =
           pkgs.runCommand "aperture-chromium-${pkgs.chromium.version}"
             {
@@ -388,10 +100,17 @@
                 --set XCURSOR_PATH ${browserCursorPath} \
                 --set XCURSOR_THEME default \
                 --set XCURSOR_SIZE 24 \
+                --prefix XDG_DATA_DIRS : ${
+                  # A dialog of the toolkit's own, such as one the session did not take
+                  # over, ends the browser when it finds no settings schemas.
+                  lib.concatMapStringsSep ":" (schemas: "${schemas}/share/gsettings-schemas/${schemas.name}") [
+                    pkgs.gtk3
+                    pkgs.gsettings-desktop-schemas
+                  ]
+                } \
                 --prefix LD_LIBRARY_PATH : ${
                   lib.makeLibraryPath [
                     pkgs.libva
-                    runtimePipewire
                     pkgs.wayland
                     pkgs.gtk3
                     pkgs.krb5.lib
@@ -427,8 +146,9 @@
               export HOME=$TMPDIR
               encoders=$(ffmpeg -hide_banner -encoders)
               grep -qw libx264 <<<"$encoders" || { echo "ffmpeg lacks libx264" >&2; exit 1; }
+              grep -qw aac <<<"$encoders" || { echo "ffmpeg lacks aac" >&2; exit 1; }
               filters=$(ffmpeg -hide_banner -filters)
-              for filter in ass mpdecimate showinfo perspective select setpts fps; do
+              for filter in ass perspective select setpts fps aselect asetpts aresample trim pad setsar interleave; do
                 grep -Eq "^ [A-Z.]+ +$filter +" <<<"$filters" || { echo "ffmpeg lacks the $filter filter" >&2; exit 1; }
               done
               export FONTCONFIG_FILE=${browserFontsConf}
@@ -448,848 +168,328 @@
               touch $out
             '';
 
-        patchedWeston =
-          (pkgs.weston.override {
-            demoSupport = false;
-            jpegSupport = false;
-            lcmsSupport = false;
-            luaSupport = false;
-            pangoSupport = false;
-            pipewireSupport = true;
-            pipewire = runtimePipewire;
-            rdpSupport = false;
-            remotingSupport = false;
-            vncSupport = false;
-            vulkanSupport = false;
-            webpSupport = false;
-            xwaylandSupport = false;
-          }).overrideAttrs
-            (oldAttrs: {
-              patches = (oldAttrs.patches or [ ]) ++ [
-                (builtins.toFile "weston-pipewire-head-destroy.patch" ''
-                  diff --git a/libweston/backend-pipewire/pipewire.c b/libweston/backend-pipewire/pipewire.c
-                  --- a/libweston/backend-pipewire/pipewire.c
-                  +++ b/libweston/backend-pipewire/pipewire.c
-                  @@ -1249,6 +1249,7 @@ pipewire_output_set_gbm_format(struct weston_output *base, const char *gbm_forma
+        gstPlugins = [
+          pkgs.gst_all_1.gstreamer
+          pkgs.gst_all_1.gst-plugins-base
+          pkgs.gst_all_1.gst-plugins-good # matroskamux
+          pkgs.gst_all_1.gst-plugins-bad # h264parse, nvcodec, va, openh264
+          pkgs.gst_all_1.gst-plugins-ugly # x264enc
+        ];
 
-                   static const struct weston_pipewire_output_api api = {
-                   ${"\t"}pipewire_head_create,
-                  +${"\t"}pipewire_head_destroy,
-                   ${"\t"}pipewire_output_set_size,
-                   ${"\t"}pipewire_output_set_gbm_format,
-                   };
-
-                  diff --git a/include/libweston/backend-pipewire.h b/include/libweston/backend-pipewire.h
-                  --- a/include/libweston/backend-pipewire.h
-                  +++ b/include/libweston/backend-pipewire.h
-                  @@ -54,6 +54,12 @@ struct weston_pipewire_output_api {
-                   ${"\t"}void (*head_create)(struct weston_backend *backend,
-                   ${"\t"}${"\t"}${"\t"}    const char *name,
-                   ${"\t"}${"\t"}${"\t"}    const struct pipewire_config *config);
-                  +
-                  +${"\t"}/** Destroy a PipeWire head created by head_create.
-                  +${"\t"} *
-                  +${"\t"} * The head must not be attached to an output.
-                  +${"\t"} */
-                  +${"\t"}void (*head_destroy)(struct weston_head *head);
-
-                   ${"\t"}/** Set the size and frame rate of a PipeWire output to the specified value.
-                   ${"\t"} *
-                '')
-              ];
-            });
-
-        s6OverlayVersion = "3.2.3.1";
-        s6OverlayArch =
-          if pkgs.stdenv.hostPlatform.system == "x86_64-linux" then
-            {
-              archive = "x86_64";
-              hash = "sha256-7XL9s6vxlkctEhsCa+1jtG80Q1B70s5n32vRh/fU3Ao=";
-            }
-          else if pkgs.stdenv.hostPlatform.system == "aarch64-linux" then
-            {
-              archive = "aarch64";
-              hash = "sha256-x5tcx+XkBfbhrhRmqBYKyE0puGYU4eAf8PsR3IMv7hs=";
-            }
-          else
-            null;
-
-        s6OverlayNoarch = pkgs.fetchurl {
-          url = "https://github.com/just-containers/s6-overlay/releases/download/v${s6OverlayVersion}/s6-overlay-noarch.tar.xz";
-          hash = "sha256-Q9mdJm/v4yzcFRCWOqreshHMhFC2CvJ4F7ZK9FDJNL4=";
+        version = (lib.importTOML ./Cargo.toml).workspace.package.version;
+        # What the programs and the page are built of, so that nothing else builds them again.
+        src = lib.fileset.toSource {
+          root = ./.;
+          fileset = lib.fileset.unions [
+            ./Cargo.toml
+            ./Cargo.lock
+            ./buf.yaml
+            ./crates
+            ./proto
+            ./apps
+            ./packages
+            # A member of the workspace, so the lockfile names it; its checks are not built.
+            ./e2e/package.json
+            ./package.json
+            ./pnpm-lock.yaml
+            ./pnpm-workspace.yaml
+            ./tsconfig.base.json
+            ./vite.config.ts
+          ];
         };
 
-        s6OverlayRootfs =
-          if pkgs.stdenv.hostPlatform.isLinux then
-            pkgs.runCommand "s6-overlay-rootfs-${s6OverlayVersion}"
-              {
-                nativeBuildInputs = [
-                  pkgs.gnutar
-                  pkgs.xz
-                ];
-              }
-              ''
-                mkdir -p $out
-                tar -C $out --no-same-owner --no-same-permissions -Jxf ${s6OverlayNoarch}
-                tar -C $out --no-same-owner --no-same-permissions -Jxf ${
-                  pkgs.fetchurl {
-                    url = "https://github.com/just-containers/s6-overlay/releases/download/v${s6OverlayVersion}/s6-overlay-${s6OverlayArch.archive}.tar.xz";
-                    hash = s6OverlayArch.hash;
-                  }
-                }
-              ''
-          else
-            null;
-
-        # Workspace packages the aperture build installs.
-        apertureWorkspaces = [
-          "@aperture-browser/restore-worker"
-          "@aperture-browser/tab-window-enforcer"
-          "@aperture-browser/api-schema"
-          "@aperture-browser/browser-state"
-          "@aperture-browser/api-client"
-          "@aperture-browser/live-session"
-          "@aperture-browser/session-react"
-          "@aperture-browser/ui"
-          "@aperture-browser/web"
-        ];
-
-        # The companion and the workspace packages it imports.
-        companionWorkspaces = [
-          "@aperture-browser/companion"
-          "@aperture-browser/api-schema"
-          "@aperture-browser/browser-state"
-          "@aperture-browser/api-client"
-          "@aperture-browser/ui"
-        ];
-
-        # One fetch of the pnpm workspace, shared by every package built from it.
         workspacePnpmDeps = pkgs.fetchPnpmDeps {
           pname = "aperture-workspace";
-          version = deployVersion;
-          inherit src;
+          inherit version src;
           pnpm = pnpmLatest;
           fetcherVersion = 4;
-          pnpmWorkspaces = lib.unique (apertureWorkspaces ++ companionWorkspaces);
-          hash = "sha256-X6X6CQdAiw8G7iuCr8rxOeQoBaaZk/zZw/bLKbc/uQs=";
+          hash = "sha256-smDglXxKqvDM6Azft6prNQ0l4RCALcd6b2zV35IZeG8=";
         };
 
-        # The Aperture Companion browser extension, unpacked.
-        apertureCompanion = pkgs.stdenvNoCC.mkDerivation {
-          pname = "aperture-companion";
-          version = deployVersion;
-          inherit src;
-
-          pnpmWorkspaces = companionWorkspaces;
+        # The page that shows a session: one HTML file with everything it needs in it, which the
+        # gateway takes into the programs.
+        workbench = pkgs.stdenvNoCC.mkDerivation {
+          pname = "aperture-workbench";
+          inherit version src;
           pnpmDeps = workspacePnpmDeps;
-
           nativeBuildInputs = [
             nodeRuntime
             pnpmLatest
             pkgs.pnpmConfigHook
           ];
-
           env.CI = "true";
-
           buildPhase = ''
             runHook preBuild
             # pnpm 11.27.1 shims use `command -p`, which finds nothing in the sandbox.
             find . -path '*/node_modules/.bin/*' -type f -exec sed -i 's/command -p //g' {} +
-            pnpm --filter @aperture-browser/companion build
+            pnpm --filter @aperture-browser/workbench build
             runHook postBuild
           '';
-
           installPhase = ''
             runHook preInstall
-            mkdir -p $out/share/aperture/aperture-companion
-            cp -R extensions/aperture-companion/dist/. $out/share/aperture/aperture-companion/
+            install -Dm644 apps/workbench/dist/index.html $out/index.html
             runHook postInstall
           '';
         };
 
-        aperture =
-          (buildGoModule {
-            pname = "aperture";
-            version = deployVersion;
-            inherit src;
-            vendorHash = "sha256-LWbVaB5LEfdXZiu/AcWnaksJ0aP/Shtc/hcr9lU+0cQ=";
-
-            subPackages = [
-              "cmd/aperture-server"
-              "cmd/aperture-extension-native-host"
-              "cmd/aperture-mount-session"
-              "cmd/aperture-unmount-session"
-              "cmd/browser-session-wrapper"
-            ];
-
-            pnpmWorkspaces = apertureWorkspaces;
-            pnpmDeps = workspacePnpmDeps;
-
-            nativeBuildInputs = [
-              pkgs.makeWrapper
-              nodeRuntime
-              pnpmLatest
-              pkgs.pnpmConfigHook
-              pkgs.pkg-config
-            ];
-
-            buildInputs = with pkgs; [
-              runtimeGstreamer
-              runtimeGstPluginsBase
-              libxkbcommon
-              pixman
-              wayland.dev
-              patchedWeston
-            ];
-
-            env.CI = "true";
-            env.CGO_ENABLED = "1";
-
-            ldflags = [
-              "-s"
-              "-w"
-              "-X github.com/aperture/aperture/internal/version.Version=${deployVersion}"
-              "-X github.com/aperture/aperture/internal/version.Commit=${sourceRevision}"
-            ];
-
-            preBuild = ''
-              # pnpm 11.27.1 shims use `command -p`, which finds nothing in the sandbox.
-              find . -path '*/node_modules/.bin/*' -type f -exec sed -i 's/command -p //g' {} +
-              pnpm --filter @aperture-browser/restore-worker build
-              pnpm --filter @aperture-browser/tab-window-enforcer build
-              pnpm --filter @aperture-browser/web build
-              test -f apps/web/dist/client/index.html
-            '';
-
-            # Vendor derivation only needs Go modules, not frontend dependencies.
-            overrideModAttrs = oldAttrs: {
-              nativeBuildInputs = builtins.filter (
-                drv: drv != pkgs.pnpmConfigHook && drv != pnpmLatest && drv != nodeRuntime
-              ) (oldAttrs.nativeBuildInputs or [ ]);
-              preBuild = "";
-              pnpmDeps = null;
-            };
-
-            doCheck = true;
-            # The recording edit test renders with the packaged ffmpeg.
-            nativeCheckInputs = [ runtimeFfmpeg ];
-
-            postInstall = ''
-              # Node runtime: the restore worker bundle plus the Playwright packages it
-              # depends on, copied flat out of the pnpm-installed node_modules.
-              mkdir -p $out/share/aperture/restore-worker/node_modules/@playwright
-              cp -r apps/restore-worker/dist $out/share/aperture/restore-worker/
-              cp -rL apps/restore-worker/node_modules/playwright apps/restore-worker/node_modules/playwright-core \
-                $out/share/aperture/restore-worker/node_modules/
-              cp -rL apps/restore-worker/node_modules/@playwright/mcp $out/share/aperture/restore-worker/node_modules/@playwright/
-              # Playwright MCP runs beside the browser and shares its view of the session
-              # files, but over CDP Playwright assumes a remote browser: it inlines file
-              # contents for uploads and refuses files over 50 MB. Marking the connection
-              # local makes it pass file paths to Chromium instead.
-              chmod u+w $out/share/aperture/restore-worker/node_modules/playwright-core/lib/coreBundle.js
-              substituteInPlace $out/share/aperture/restore-worker/node_modules/playwright-core/lib/coreBundle.js \
-                --replace-fail "headers: config.browser.cdpHeaders," "headers: config.browser.cdpHeaders, isLocal: true,"
-              makeWrapper ${nodeRuntime}/bin/node $out/bin/aperture-browser-restore \
-                --add-flags $out/share/aperture/restore-worker/dist/restore.mjs
-              makeWrapper ${nodeRuntime}/bin/node $out/bin/playwright-mcp \
-                --add-flags $out/share/aperture/restore-worker/node_modules/@playwright/mcp/cli.js
-              mkdir -p $out/lib/weston
-              mkdir -p $TMPDIR/aperture-wayland-protocols
-              ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
-                ${pkgs.wayland-protocols}/share/wayland-protocols/staging/fractional-scale/fractional-scale-v1.xml \
-                $TMPDIR/aperture-wayland-protocols/fractional-scale-v1-protocol.c
-              ${pkgs.wayland-scanner.bin}/bin/wayland-scanner server-header \
-                ${pkgs.wayland-protocols}/share/wayland-protocols/staging/fractional-scale/fractional-scale-v1.xml \
-                $TMPDIR/aperture-wayland-protocols/fractional-scale-v1-server-protocol.h
-              ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
-                ${pkgs.wayland-protocols}/share/wayland-protocols/staging/cursor-shape/cursor-shape-v1.xml \
-                $TMPDIR/aperture-wayland-protocols/cursor-shape-v1-protocol.c
-              ${pkgs.wayland-scanner.bin}/bin/wayland-scanner server-header \
-                ${pkgs.wayland-protocols}/share/wayland-protocols/staging/cursor-shape/cursor-shape-v1.xml \
-                $TMPDIR/aperture-wayland-protocols/cursor-shape-v1-server-protocol.h
-              ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
-                ${pkgs.wayland-protocols}/share/wayland-protocols/stable/viewporter/viewporter.xml \
-                $TMPDIR/aperture-wayland-protocols/viewporter-protocol.c
-              ${pkgs.wayland-scanner.bin}/bin/wayland-scanner server-header \
-                ${pkgs.wayland-protocols}/share/wayland-protocols/stable/viewporter/viewporter.xml \
-                $TMPDIR/aperture-wayland-protocols/viewporter-server-protocol.h
-              ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
-                ${pkgs.wayland-protocols}/share/wayland-protocols/stable/tablet/tablet-v2.xml \
-                $TMPDIR/aperture-wayland-protocols/tablet-v2-protocol.c
-              ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
-                ${pkgs.wayland-protocols}/share/wayland-protocols/unstable/text-input/text-input-unstable-v3.xml \
-                $TMPDIR/aperture-wayland-protocols/text-input-unstable-v3-protocol.c
-              ${pkgs.wayland-scanner.bin}/bin/wayland-scanner server-header \
-                ${pkgs.wayland-protocols}/share/wayland-protocols/unstable/text-input/text-input-unstable-v3.xml \
-                $TMPDIR/aperture-wayland-protocols/text-input-unstable-v3-server-protocol.h
-              $CC -shared -fPIC \
-                -I$TMPDIR/aperture-wayland-protocols \
-                -DAPERTURE_XCURSOR_PATH='"${browserCursorPath}"' \
-                native/weston-aperture-shell/aperture-weston-shell.c \
-                $TMPDIR/aperture-wayland-protocols/cursor-shape-v1-protocol.c \
-                $TMPDIR/aperture-wayland-protocols/fractional-scale-v1-protocol.c \
-                $TMPDIR/aperture-wayland-protocols/viewporter-protocol.c \
-                $TMPDIR/aperture-wayland-protocols/tablet-v2-protocol.c \
-                $TMPDIR/aperture-wayland-protocols/text-input-unstable-v3-protocol.c \
-                -o $out/lib/weston/aperture-weston-shell.so \
-                $(pkg-config --cflags --libs weston libweston-${lib.versions.major patchedWeston.version} wayland-server wayland-client wayland-cursor pixman-1 xkbcommon)
-
-              mkdir -p $out/share/aperture/extensions/tab-window-enforcer
-              cp extensions/tab-window-enforcer/dist/* $out/share/aperture/extensions/tab-window-enforcer/
-
-              mkdir -p $out/lib/systemd/user
-              cp ${./packaging/systemd-user}/*.service $out/lib/systemd/user/
-              cp ${./packaging/systemd-user}/*.timer $out/lib/systemd/user/ 2>/dev/null || true
-              cp ${./packaging/systemd-user}/*.socket $out/lib/systemd/user/ 2>/dev/null || true
-              install -m 0644 ${builtins.toFile "aperture-template.service" ''
-                [Unit]
-                Description=Aperture Chromium session supervisor (%i)
-                After=graphical-session.target
-                PartOf=graphical-session.target
-
-                [Service]
-                Type=simple
-                Environment=APERTURE_DEPLOY_BLUE_URL=http://127.0.0.1:28080
-                Environment=APERTURE_DEPLOY_GREEN_URL=http://127.0.0.1:28082
-                Environment=APERTURE_DEPLOY_VERSION=@deployVersion@
-                EnvironmentFile=-%h/.config/aperture/aperture.env
-                EnvironmentFile=-%t/aperture/api/%i.env
-                Environment=APERTURE_DEPLOY_COLOR=%i
-                ExecStart=@runtimeShell@ -c 'export PATH="@apertureBinDir@:/run/wrappers/bin:/run/current-system/sw/bin:''${HOME}/.nix-profile/bin:''${PATH}"; case "%i" in blue) export APERTURE_DEPLOY_COLOR=blue APERTURE_LISTEN_ADDRESS=127.0.0.1:28080 ;; green) export APERTURE_DEPLOY_COLOR=green APERTURE_LISTEN_ADDRESS=127.0.0.1:28082 ;; *) echo "invalid aperture deploy color: %i" >&2; exit 64 ;; esac; exec @apertureBin@ serve --config /etc/aperture/aperture.toml'
-                Restart=on-failure
-                RestartSec=5
-
-                [Install]
-                WantedBy=default.target
-              ''} $out/lib/systemd/user/aperture@.service
-
-              substituteInPlace $out/lib/systemd/user/browser-session@.service \
-                --replace-fail '@browserSessionWrapper@' $out/bin/browser-session-wrapper
-              substituteInPlace $out/lib/systemd/user/aperture.service \
-                --replace-fail '@runtimeShell@' ${pkgs.runtimeShell}
-              substituteInPlace $out/lib/systemd/user/aperture@.service \
-                --replace-fail '@runtimeShell@' ${pkgs.runtimeShell} \
-                --replace-fail '@apertureBinDir@' $out/bin \
-                --replace-fail '@apertureBin@' $out/bin/aperture-server \
-                --replace-fail '@deployVersion@' ${deployVersion}
-              substituteInPlace $out/lib/systemd/user/aperture-gc.service \
-                --replace-fail '@apertureBin@' $out/bin/aperture-server
-              substituteInPlace $out/lib/systemd/user/aperture-traefik.service \
-                --replace-fail '@runtimeShell@' ${pkgs.runtimeShell} \
-                --replace-fail '@staticConfigTemplate@' $out/share/aperture/traefik/static.yaml.template \
-                --replace-fail '@traefikBin@' ${pkgs.traefik}/bin/traefik
-
-              wrapProgram $out/bin/browser-session-wrapper \
-                --prefix PATH : $out/bin:${
-                  lib.makeBinPath [
-                    pkgs.bubblewrap
-                    runtimeGstreamer
-                    patchedWeston
-                    runtimePipewire
-                    runtimeWirePlumber
-                  ]
-                }
-
-              mkdir -p $out/share/aperture/traefik
-              cp ${./packaging/traefik/static.yaml.template} $out/share/aperture/traefik/static.yaml.template
-
-              mkdir -p $out/share/aperture/sudoers
-              cp ${./packaging/sudoers/aperture-mount-helpers} $out/share/aperture/sudoers/aperture-mount-helpers
-              substituteInPlace $out/share/aperture/sudoers/aperture-mount-helpers \
-                --replace-fail '@mountSessionHelper@' $out/bin/aperture-mount-session \
-                --replace-fail '@unmountSessionHelper@' $out/bin/aperture-unmount-session
-            '';
-
-            meta = with pkgs.lib; {
-              description = "chromium session supervisor";
-              license = licenses.mit;
-              mainProgram = "aperture-server";
-            };
-          }).overrideAttrs
-            (oldAttrs: {
-              checkPhase = ''
-                runHook preCheck
-                go test ./...
-                runHook postCheck
-              '';
-            });
-
-        apertureDev = buildGoModule {
-          pname = "aperture-dev";
-          version = sourceVersion;
-          inherit src;
-          vendorHash = "sha256-LWbVaB5LEfdXZiu/AcWnaksJ0aP/Shtc/hcr9lU+0cQ=";
-          subPackages = [ "cmd/aperture-dev" ];
-          env.CGO_ENABLED = "0";
-          doCheck = false;
-          overrideModAttrs = _: {
-            name = "aperture-${deployVersion}-go-modules";
-          };
-        };
-
-        apertureCli = buildGoModule {
-          pname = "aperture-cli";
-          version = deployVersion;
-          inherit src;
-          vendorHash = "sha256-LWbVaB5LEfdXZiu/AcWnaksJ0aP/Shtc/hcr9lU+0cQ=";
-          subPackages = [ "cmd/aperture" ];
-          env.CGO_ENABLED = "0";
-          doCheck = false;
-          ldflags = [
-            "-s"
-            "-w"
-            "-X github.com/aperture/aperture/internal/version.Version=${deployVersion}"
-            "-X github.com/aperture/aperture/internal/version.Commit=${sourceRevision}"
+        # The console as a directory of static files, for whatever serves it.
+        console = pkgs.stdenvNoCC.mkDerivation {
+          pname = "aperture-console";
+          inherit version src;
+          pnpmDeps = workspacePnpmDeps;
+          nativeBuildInputs = [
+            nodeRuntime
+            pnpmLatest
+            pkgs.pnpmConfigHook
           ];
-          overrideModAttrs = _: {
-            name = "aperture-${deployVersion}-go-modules";
-          };
-          meta.mainProgram = "aperture";
+          env.CI = "true";
+          buildPhase = ''
+            runHook preBuild
+            find . -path '*/node_modules/.bin/*' -type f -exec sed -i 's/command -p //g' {} +
+            pnpm --filter @aperture-browser/console build
+            runHook postBuild
+          '';
+          installPhase = ''
+            runHook preInstall
+            cp -r apps/console/dist $out
+            runHook postInstall
+          '';
         };
 
-        gpuDriverPackages = [
-          gpuMesa
-        ]
-        ++ lib.optionals pkgs.stdenv.hostPlatform.isx86_64 [
-          pkgs.intel-media-driver
-          pkgs.intel-vaapi-driver
+        # The control plane: one file of this workspace's own code, beside what it takes
+        # from the registry, which is left as pnpm lays it out.
+        control = pkgs.stdenvNoCC.mkDerivation {
+          pname = "aperture-control";
+          inherit version src;
+          pnpmDeps = workspacePnpmDeps;
+          nativeBuildInputs = [
+            nodeRuntime
+            pnpmLatest
+            pkgs.pnpmConfigHook
+            pkgs.makeWrapper
+          ];
+          env.CI = "true";
+          buildPhase = ''
+            runHook preBuild
+            find . -path '*/node_modules/.bin/*' -type f -exec sed -i 's/command -p //g' {} +
+            pnpm --filter @aperture-browser/control build
+            # What only builds and checks it is not what runs it.
+            pnpm install --offline --frozen-lockfile --prod --filter @aperture-browser/control
+            runHook postBuild
+          '';
+          installPhase = ''
+            runHook preInstall
+            lib=$out/lib/aperture-control
+            mkdir -p $lib/apps/control
+            cp -r node_modules $lib/node_modules
+            cp -r apps/control/node_modules apps/control/dist apps/control/package.json $lib/apps/control/
+            makeWrapper ${lib.getExe nodeRuntime} $out/bin/aperture-control \
+              --add-flags --enable-source-maps \
+              --add-flags $lib/apps/control/dist/main.mjs \
+              --set-default APERTURE_CONTROL_CONSOLE_DIR ${console}
+            runHook postInstall
+          '';
+          # The links pnpm makes to packages of the workspace that were left out lead nowhere.
+          dontCheckForBrokenSymlinks = true;
+          meta.mainProgram = "aperture-control";
+        };
+
+        # What moves a v1 installation into v2, packed as the control plane is: it writes
+        # with the control plane's own code, and is told what the control plane is told.
+        migrate = pkgs.stdenvNoCC.mkDerivation {
+          pname = "aperture-migrate";
+          inherit version src;
+          pnpmDeps = workspacePnpmDeps;
+          nativeBuildInputs = [
+            nodeRuntime
+            pnpmLatest
+            pkgs.pnpmConfigHook
+            pkgs.makeWrapper
+          ];
+          env.CI = "true";
+          buildPhase = ''
+            runHook preBuild
+            find . -path '*/node_modules/.bin/*' -type f -exec sed -i 's/command -p //g' {} +
+            pnpm --filter @aperture-browser/migrate build
+            # What only builds and checks it is not what runs it.
+            pnpm install --offline --frozen-lockfile --prod --filter @aperture-browser/migrate
+            runHook postBuild
+          '';
+          installPhase = ''
+            runHook preInstall
+            lib=$out/lib/aperture-migrate
+            mkdir -p $lib/apps/migrate
+            cp -r node_modules $lib/node_modules
+            cp -r apps/migrate/node_modules apps/migrate/dist apps/migrate/package.json $lib/apps/migrate/
+            # `cp` copies what overlayfs keeps in a session's profile, which is coreutils' to do.
+            makeWrapper ${lib.getExe nodeRuntime} $out/bin/aperture-migrate \
+              --prefix PATH : ${lib.makeBinPath [ pkgs.coreutils ]} \
+              --add-flags --enable-source-maps \
+              --add-flags $lib/apps/migrate/dist/main.mjs
+            runHook postInstall
+          '';
+          # The links pnpm makes to packages of the workspace that were left out lead nowhere.
+          dontCheckForBrokenSymlinks = true;
+          meta.mainProgram = "aperture-migrate";
+        };
+
+        sessionLibraries = [
+          pkgs.libxkbcommon
+          pkgs.pixman
+          pkgs.openssl
+          pkgs.gst_all_1.gstreamer
+          pkgs.gst_all_1.gst-plugins-base
+          pkgs.libglvnd
+          pkgs.libgbm
         ];
 
-        defaultDriverPackages = lib.optionals pkgs.stdenv.hostPlatform.isx86_64 [
-          intelMesa
-          pkgs.intel-media-driver
-          pkgs.intel-vaapi-driver
-        ];
+        # The programs as cargo builds them, which find nothing of what they run by themselves.
+        apertureUnwrapped = pkgs.rustPlatform.buildRustPackage {
+          pname = "aperture-unwrapped";
+          inherit version src;
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+            allowBuiltinFetchGit = true;
+          };
+          nativeBuildInputs = [
+            pkgs.pkg-config
+            pkgs.buf
+          ];
+          buildInputs = sessionLibraries;
+          env.APERTURE_WORKBENCH = "${workbench}/index.html";
+          preBuild = ''
+            # buf keeps a cache in the home directory.
+            export HOME=$TMPDIR
+            # browse-script takes a file of browse-capture's by its place next to it in their
+            # repository, which is not its place among vendored crates.
+            vendored=$NIX_BUILD_TOP/cargo-vendor-dir
+            capture=$(basename "$vendored"/browse-capture-*)
+            ln -s "$capture" "$vendored/browse-capture"
+          '';
+          doCheck = false;
+        };
 
-        softwareGstreamerPluginPath = lib.makeSearchPath "lib/gstreamer-1.0" [
-          runtimeGstreamer.out
-          runtimeGstPluginsBase
-          runtimeGstPluginsGood
-          runtimePipewire
-        ];
-
-        gpuGstreamerPluginPath = lib.makeSearchPath "lib/gstreamer-1.0" [
-          runtimeGstreamer.out
-          runtimeGstPluginsBase
-          runtimeGstPluginsGood
-          runtimeGstPluginsBad
-          runtimePipewire
-        ];
-
-        defaultGstreamerPluginPath =
-          if pkgs.stdenv.hostPlatform.isx86_64 then
-            gpuGstreamerPluginPath
-          else
-            softwareGstreamerPluginPath;
-
-        mkDockerRootfs =
-          {
-            variant,
-            gpuMode,
-            compositorRenderer,
-            gstreamerPluginPath,
-          }:
-          if pkgs.stdenv.hostPlatform.isLinux then
-            pkgs.runCommand "aperture-docker-rootfs-${variant}" { } ''
-              mkdir -p $out
-              cp -R ${./packaging/docker/rootfs}/. $out/
-              chmod -R u+w $out
-              mkdir -p $out/etc/aperture
-              substitute ${./packaging/docker/aperture.toml} $out/etc/aperture/aperture.toml \
-                --replace-fail '@DEPLOY_VERSION@' '${deployVersion}' \
-                --replace-fail '@GPU_MODE@' '${gpuMode}' \
-                --replace-fail '@WESTON@' '${patchedWeston}' \
-                --replace-fail '@COMPOSITOR_RENDERER@' '${compositorRenderer}' \
-                --replace-fail '@GSTREAMER@' '${runtimeGstreamer}' \
-                --replace-fail '@GSTREAMER_PLUGIN_PATH@' '${gstreamerPluginPath}' \
-                --replace-fail '@CHROMIUM@' '${runtimeChromium}' \
-                --replace-fail '@FFMPEG@' '${runtimeFfmpeg}'
-              substitute ${./packaging/traefik/static.yaml.template} $out/etc/aperture/traefik.yaml \
-                --replace-fail '@ENTRYPOINT_ADDRESS@' ':8080' \
-                --replace-fail '@DYNAMIC_CONFIG_DIR@' '/run/aperture/traefik/dynamic'
+        # The programs with what they run: the browser and its sandbox, ffmpeg, pasta, the
+        # encoders. Each is still named by its option or its variable where another is wanted.
+        aperture =
+          pkgs.runCommand "aperture-${version}"
+            {
+              nativeBuildInputs = [ pkgs.makeWrapper ];
+              meta.mainProgram = "aperture-runner";
+            }
             ''
-          else
-            null;
-
-        mkDockerImage =
-          {
-            variant,
-            tagSuffix,
-            gpuMode,
-            compositorRenderer,
-            gstreamerPluginPath,
-            hardware,
-            driverPackages ? [ ],
-            development ? false,
-          }:
-          let
-            devViteServiceRun = pkgs.writeText "aperture-vite-run" ''
-              #!/command/with-contenv sh
-              set -eu
-              exec 2>&1
-
-              : "''${APERTURE_DEV_PROXY_TARGET:?APERTURE_DEV_PROXY_TARGET is required}"
-
-              cd /workspace
-              export CI=true
-              export PNPM_CONFIG_STORE_DIR=/workspace/.data/pnpm-store
-
-              pnpm --dir /workspace \
-                install --frozen-lockfile
-              pnpm --dir /workspace/apps/web generate-routes
-              exec pnpm --dir /workspace/apps/web dev \
-                --host 0.0.0.0 \
-                --port 3000 \
-                --strictPort \
-                --clearScreen false
+              mkdir -p $out/bin
+              for program in aperture-runner aperture-executor; do
+                makeWrapper ${apertureUnwrapped}/bin/$program $out/bin/$program \
+                  --set-default APERTURE_BWRAP ${lib.getExe pkgs.bubblewrap} \
+                  --set-default APERTURE_PASTA ${lib.getExe' pkgs.passt "pasta"} \
+                  --set-default APERTURE_TAR ${lib.getExe pkgs.gnutar} \
+                  --set-default APERTURE_ZSTD ${lib.getExe pkgs.zstd} \
+                  --set-default APERTURE_CHROMIUM ${lib.getExe' runtimeChromium "chromium"} \
+                  --set-default APERTURE_FFMPEG ${lib.getExe' runtimeFfmpeg "ffmpeg"} \
+                  --set-default APERTURE_CURSOR_THEME ${browserCursorPath}/default \
+                  --set-default FONTCONFIG_FILE ${browserFontsConf} \
+                  --set-default APERTURE_GST_PLUGIN_PATH ${lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" gstPlugins} \
+                  --prefix LD_LIBRARY_PATH : ${
+                    # libEGL is found when the compositor starts; vendor drivers come from the system.
+                    lib.makeLibraryPath [
+                      pkgs.libglvnd
+                      pkgs.libgbm
+                    ]
+                  }
+              done
+              ln -s ${apertureUnwrapped}/bin/aperture-tunnel $out/bin/aperture-tunnel
             '';
-            dockerRootfs = mkDockerRootfs {
-              inherit
-                variant
-                gpuMode
-                compositorRenderer
-                gstreamerPluginPath
-                ;
-            };
-            vaDriverPath = lib.makeSearchPath "lib/dri" driverPackages;
-          in
-          if pkgs.stdenv.hostPlatform.isLinux then
-            pkgs.dockerTools.buildLayeredImage {
-              name = "aperture";
-              tag = "${deployVersion}${tagSuffix}";
-              maxLayers = 120;
-              contents = [
-                aperture
-                pkgs.traefik
-                runtimeChromium
-                pkgs.bashInteractive
-                pkgs.coreutils
-                pkgs.curl
-                pkgs.findutils
-                pkgs.gnugrep
-                pkgs.gnused
-                pkgs.sudo
-                (lib.getOutput "out" pkgs.fontconfig)
-                pkgs.cacert
-              ]
-              ++ lib.optionals development [
-                nodeRuntime
-                pnpmLatest
-              ]
-              ++ browserFonts
-              ++ driverPackages;
-              extraCommands = ''
-                cp -R --preserve=mode,timestamps --no-preserve=ownership ${s6OverlayRootfs}/. .
-                chmod u+w .
-                chmod -R u+w etc
-                cp -R --preserve=mode,timestamps --no-preserve=ownership ${dockerRootfs}/. .
-                chmod u+w .
-                chmod -R u+w etc
-                ${lib.optionalString development ''
-                  mkdir -p etc/services.d/vite
-                  cp ${devViteServiceRun} etc/services.d/vite/run
-                  chmod 0755 etc/services.d/vite/run
-                ''}
 
-                mkdir -p etc/aperture home/aperture run usr/local/bin usr/share/licenses/aperture var/lib/aperture tmp
-                cp ${./LICENSE} usr/share/licenses/aperture/LICENSE
-                chmod 0644 etc/aperture/aperture.toml
-                chmod 0755 \
-                  etc/cont-init.d/00-aperture \
-                  etc/services.d/aperture/run \
-                  etc/services.d/gc/run \
-                  etc/services.d/traefik/run
-
-                cat > etc/passwd <<'EOF'
-                root:x:0:0:root:/root:/bin/sh
-                aperture:x:1000:1000:Aperture:/home/aperture:/bin/sh
-                nobody:x:65534:65534:Nobody:/:/sbin/nologin
-                EOF
-                cat > etc/group <<'EOF'
-                root:x:0:
-                aperture:x:1000:
-                nobody:x:65534:
-                EOF
-                cat > etc/nsswitch.conf <<'EOF'
-                passwd: files
-                group: files
-                hosts: files dns
-                EOF
-                rm -f etc/sudoers
-                rm -rf etc/sudoers.d
-                mkdir -p etc/sudoers.d
-                mkdir -p etc/pam.d
-                cat > etc/sudoers <<'EOF'
-                Defaults env_reset
-                Defaults secure_path="/usr/local/bin:${
-                  lib.makeBinPath [
-                    aperture
-                    pkgs.coreutils
-                    pkgs.sudo
-                  ]
-                }"
-                root ALL=(ALL:ALL) ALL
-                @includedir /etc/sudoers.d
-                EOF
-                cat > etc/sudoers.d/aperture <<'EOF'
-                aperture ALL=(root) NOPASSWD: /bin/aperture-mount-session *
-                aperture ALL=(root) NOPASSWD: /bin/aperture-unmount-session *
-                EOF
-                cat > etc/pam.d/sudo <<'EOF'
-                auth required ${pkgs.pam}/lib/security/pam_permit.so
-                account required ${pkgs.pam}/lib/security/pam_permit.so
-                session required ${pkgs.pam}/lib/security/pam_permit.so
-                EOF
-                chmod 0440 etc/sudoers etc/sudoers.d/aperture
-                chmod 0644 etc/pam.d/sudo
-                cp ${pkgs.sudo}/bin/sudo usr/local/bin/sudo
-                rm -f bin/sudo
-                ln -s ../usr/local/bin/sudo bin/sudo
-                chmod 1777 tmp
-              '';
-              fakeRootCommands = ''
-                chmod 4755 package/admin/s6-overlay-helpers-0.1.2.2/command/s6-overlay-suexec
-                chmod 4755 usr/local/bin/sudo
-              '';
-              config = {
-                Entrypoint = [ "/init" ];
-                WorkingDir = "/var/lib/aperture";
-                Env = [
-                  "HOME=/home/aperture"
-                  "XDG_RUNTIME_DIR=/run/aperture/user"
-                  "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
-                  "PATH=/command:/usr/local/bin:${
-                    lib.makeBinPath (
-                      [
-                        aperture
-                        pkgs.traefik
-                        runtimeChromium
-                        pkgs.bashInteractive
-                        pkgs.coreutils
-                        pkgs.curl
-                        pkgs.findutils
-                        pkgs.gnugrep
-                        pkgs.gnused
-                        pkgs.sudo
-                      ]
-                      ++ lib.optionals development [
-                        nodeRuntime
-                        pnpmLatest
-                      ]
-                    )
-                  }"
-                  "S6_BEHAVIOUR_IF_STAGE2_FAILS=2"
-                  "S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0"
-                  "S6_KILL_GRACETIME=30000"
-                  "S6_SERVICES_GRACETIME=30000"
-                ]
-                ++ lib.optionals hardware [
-                  "LIBGL_DRIVERS_PATH=${builtins.head driverPackages}/lib/dri"
-                  "LIBVA_DRIVERS_PATH=${vaDriverPath}"
-                  "__EGL_VENDOR_LIBRARY_FILENAMES=${builtins.head driverPackages}/share/glvnd/egl_vendor.d/50_mesa.json"
-                ];
-                ExposedPorts = {
-                  "8080/tcp" = { };
-                }
-                // lib.optionalAttrs development {
-                  "3000/tcp" = { };
-                }
-                // lib.genAttrs (map (port: "${toString port}/udp") (lib.range 50000 50010)) (_: { });
-                Healthcheck = {
-                  Test = [
-                    "CMD"
-                    "curl"
-                    "-fsS"
-                    "http://127.0.0.1:${if development then "3000" else "8080"}/api/health"
-                  ];
-                  Interval = 10000000000;
-                  Timeout = 3000000000;
-                  Retries = 12;
-                  StartPeriod = 15000000000;
-                };
-                Volumes = {
-                  "/var/lib/aperture" = { };
-                };
-                Labels = {
-                  "io.aperture.image.variant" = variant;
-                  "org.opencontainers.image.title" = "Aperture";
-                  "org.opencontainers.image.description" = "Chromium session supervisor";
-                  "org.opencontainers.image.source" = "https://github.com/tarik02/aperture";
-                  "org.opencontainers.image.documentation" =
-                    "https://aperture-browser-docs.pages.dev/docs/docker";
-                  "org.opencontainers.image.licenses" = "MIT";
-                  "org.opencontainers.image.revision" = sourceRevision;
-                  "org.opencontainers.image.version" = deployVersion;
-                };
-              };
-            }
-          else
-            null;
-
-        defaultDockerImage = mkDockerImage {
-          variant = "default";
-          tagSuffix = "";
-          gpuMode = "software";
-          compositorRenderer = "pixman";
-          gstreamerPluginPath = defaultGstreamerPluginPath;
-          hardware = pkgs.stdenv.hostPlatform.isx86_64;
-          driverPackages = defaultDriverPackages;
-        };
-
-        gpuDockerImage = mkDockerImage {
-          variant = "gpu";
-          tagSuffix = "-gpu";
-          gpuMode = "hardware";
-          compositorRenderer = "gl";
-          gstreamerPluginPath = gpuGstreamerPluginPath;
-          hardware = true;
-          driverPackages = gpuDriverPackages;
-        };
-
-        devDockerImage = mkDockerImage {
-          variant = "dev";
-          tagSuffix = "-dev";
-          gpuMode = "software";
-          compositorRenderer = "pixman";
-          gstreamerPluginPath = defaultGstreamerPluginPath;
-          hardware = pkgs.stdenv.hostPlatform.isx86_64;
-          driverPackages = defaultDriverPackages;
-          development = true;
-        };
-
-        devGPUDockerImage = mkDockerImage {
-          variant = "dev-gpu";
-          tagSuffix = "-dev-gpu";
-          gpuMode = "hardware";
-          compositorRenderer = "gl";
-          gstreamerPluginPath = gpuGstreamerPluginPath;
-          hardware = true;
-          driverPackages = gpuDriverPackages;
-          development = true;
-        };
-
-        mkDevContainerApp =
-          {
-            name,
-            image,
-            imageRef,
-            gpu,
-          }:
-          pkgs.writeShellApplication {
-            inherit name;
-            runtimeInputs = [
-              pkgs.passt
-              pkgs.podman
-              pkgs.skopeo
+        # One session in a container: `aperture-runner serve`, with its directory at /data.
+        # Its browser is sandboxed inside the container, with a /proc of its own, which a
+        # container runtime does not let it mount over the one it masks: under podman it
+        # runs with `--security-opt unmask=ALL`. A browser with a network of its own takes
+        # `--device /dev/net/tun` as well.
+        container = pkgs.dockerTools.streamLayeredImage {
+          name = "aperture-session";
+          tag = version;
+          contents = [
+            aperture
+            pkgs.dockerTools.fakeNss
+          ];
+          extraCommands = ''
+            mkdir -p data tmp run
+            chmod 1777 tmp
+          '';
+          config = {
+            Entrypoint = [
+              (lib.getExe aperture)
+              "serve"
             ];
-            text = ''
-              export APERTURE_DEV_IMAGE_ARCHIVE=${lib.escapeShellArg (toString image)}
-              export APERTURE_DEV_IMAGE_REF=${lib.escapeShellArg imageRef}
-              export APERTURE_DEV_TRAEFIK_TEMPLATE=${lib.escapeShellArg (toString ./packaging/traefik/static.yaml.template)}
-              export APERTURE_DEV_GPU=${if gpu then "1" else "0"}
-              exec ${apertureDev}/bin/aperture-dev "$@"
-            '';
+            Env = [
+              "APERTURE_DATA=/data"
+              "APERTURE_LISTEN=0.0.0.0:7900"
+              "APERTURE_RUNTIME_DIR=/run/aperture"
+            ];
+            ExposedPorts."7900/tcp" = { };
+            Volumes."/data" = { };
+            # A registry shows the image under the repository its source label names.
+            Labels = {
+              "org.opencontainers.image.source" = "https://github.com/tarik02/aperture";
+              "org.opencontainers.image.version" = version;
+              "org.opencontainers.image.licenses" = "MIT";
+            };
           };
-
-        devContainerApp =
-          if pkgs.stdenv.hostPlatform.isLinux then
-            mkDevContainerApp {
-              name = "aperture-dev";
-              image = devDockerImage;
-              imageRef = "localhost/aperture:${deployVersion}-dev";
-              gpu = false;
-            }
-          else
-            null;
-
-        devGPUContainerApp =
-          if pkgs.stdenv.hostPlatform.isLinux then
-            mkDevContainerApp {
-              name = "aperture-dev-gpu";
-              image = devGPUDockerImage;
-              imageRef = "localhost/aperture:${deployVersion}-dev-gpu";
-              gpu = true;
-            }
-          else
-            null;
-
+        };
       in
       {
         devShells.default = pkgs.mkShell {
           packages = [
-            goLatest
-            pkgs.golangci-lint
-            pkgs.gopls
-            pkgs.goreleaser
+            pkgs.cargo
+            pkgs.rustc
+            pkgs.clippy
+            pkgs.rustfmt
+            pkgs.rust-analyzer
+            pkgs.buf
+            pkgs.postgresql
+            pkgs.traefik
+            pkgs.dex-oidc
+            pkgs.pkg-config
             nodeRuntime
             pnpmLatest
-            pkgs.pkg-config
-            pkgs.sqlite
-            pkgs.traefik
-            pkgs.chromium
-            runtimeFfmpeg
-            runtimeGstreamer
-            pkgs.gst_all_1.gst-plugins-base
-            pkgs.bubblewrap
-            pkgs.libxkbcommon
-            pkgs.pixman
-            pkgs.wayland.dev
-            patchedWeston
           ];
+          buildInputs = sessionLibraries;
+          # libEGL is found when the compositor starts; vendor drivers come from the system.
+          LD_LIBRARY_PATH = lib.makeLibraryPath [
+            pkgs.libglvnd
+            pkgs.libgbm
+          ];
+          APERTURE_BWRAP = lib.getExe pkgs.bubblewrap;
+          APERTURE_PASTA = lib.getExe' pkgs.passt "pasta";
+          APERTURE_TAR = lib.getExe pkgs.gnutar;
+          APERTURE_ZSTD = lib.getExe pkgs.zstd;
+          APERTURE_CHROMIUM = lib.getExe' runtimeChromium "chromium";
+          APERTURE_FFMPEG = lib.getExe' runtimeFfmpeg "ffmpeg";
+          APERTURE_CURSOR_THEME = "${browserCursorPath}/default";
+          APERTURE_GST_PLUGIN_PATH = lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" gstPlugins;
         };
 
         packages = {
           default = aperture;
-          aperture = aperture;
-          aperture-cli = apertureCli;
-          aperture-companion = apertureCompanion;
-          patched-weston = patchedWeston;
-        }
-        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          inherit aperture container;
+          aperture-unwrapped = apertureUnwrapped;
+          aperture-workbench = workbench;
+          aperture-console = console;
+          aperture-control = control;
+          aperture-migrate = migrate;
           aperture-chromium = runtimeChromium;
           aperture-ffmpeg = runtimeFfmpeg;
-          aperture-docker = defaultDockerImage;
-          aperture-docker-gpu = gpuDockerImage;
-          # The custom builds the Docker images need, which cache.nixos.org doesn't have.
-          # CI caches them between runs.
-          docker-build-deps = pkgs.linkFarmFromDrvs "docker-build-deps" (
-            [
-              runtimeGstreamer
-              runtimeGstPluginsBase
-              runtimeGstPluginsGood
-              runtimeGstPluginsBad
-              runtimePipewire
-              runtimeWirePlumber
-              patchedWeston
-            ]
-            ++ lib.optionals pkgs.stdenv.hostPlatform.isx86_64 [ intelMesa ]
-          );
-        };
-
-        apps = lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-          dev = {
-            type = "app";
-            program = "${devContainerApp}/bin/aperture-dev";
-            meta.description = "Run the software-rendered development container";
-          };
-          dev-gpu = {
-            type = "app";
-            program = "${devGPUContainerApp}/bin/aperture-dev-gpu";
-            meta.description = "Run the GPU development container";
-          };
         };
 
         checks = {
-          default = aperture;
-          aperture-companion = apertureCompanion;
-          aperture-dev = apertureDev;
-        }
-        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
           aperture-ffmpeg-features = ffmpegFeatureCheck;
+          # One machine with everything on it, set up by the modules alone.
+          deployment = pkgs.testers.runNixOSTest (import ./nix/tests/deployment.nix { inherit self; });
         };
       }
     )
     // {
-      nixosModules.aperture = import ./packaging/nix/module.nix { inherit self; };
+      nixosModules = import ./nix/modules { inherit self; };
     };
 }

@@ -1,0 +1,30 @@
+@import "@aperture-browser/session-react/styles.css";
+@import "./fonts.css";
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+#root {
+  box-sizing: border-box;
+  /* Less what the on-screen keyboard covers, where the browser does not take that off. */
+  height: calc(100dvh - var(--keyboard-inset, 0px));
+  overflow: hidden;
+  /* Clear of what a phone's screen has at its edges: the page is laid out under them. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+}
+
+body {
+  /* What shows before the session's own background does, in either theme. */
+  background: Canvas;
+  /* A drag or a pinch on the picture is the session's, not a scroll of this page. */
+  overscroll-behavior: none;
+}
+
+#root {
+  --aperture-font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+}
