@@ -263,6 +263,15 @@ impl Listen {
 }
 
 impl Listening {
+    /// The address it listens at, with the port the system chose where it was asked for
+    /// port 0; none for a Unix socket.
+    pub fn address(&self) -> Option<SocketAddr> {
+        match self {
+            Self::Address(listener) => listener.local_addr().ok(),
+            Self::Socket(_) => None,
+        }
+    }
+
     /// Serves the routes until `stopped` is.
     pub async fn serve<F>(self, routes: Router, stopped: F) -> io::Result<()>
     where

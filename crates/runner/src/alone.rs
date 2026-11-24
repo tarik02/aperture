@@ -33,7 +33,8 @@ pub struct Serve {
     /// one run to the next. Made when there is none.
     #[arg(long, env = "APERTURE_DATA")]
     data: PathBuf,
-    /// An address, or a Unix socket as `unix:PATH`.
+    /// An address, or a Unix socket as `unix:PATH`. At port 0 the system chooses one, and
+    /// the address is written to `address` in the session's directory.
     #[arg(long, env = "APERTURE_LISTEN", default_value = "127.0.0.1:7900")]
     listen: Listen,
     /// The session's id, for whoever gives it one: tickets have to name it then. The
@@ -132,6 +133,7 @@ impl Serve {
             Front {
                 origins: self.cors_origins,
                 listen: self.listen,
+                address_file: within("address"),
                 listening: Mutex::new(None),
                 keys: Mutex::new(Some(keys)),
             },
@@ -142,6 +144,8 @@ impl Serve {
 /// Where a session that runs on its own is reached, and by whom.
 pub struct Front {
     listen: Listen,
+    /// Where the address it listens at is written, once it is taken.
+    address_file: PathBuf,
     /// From when the address is taken until the session is served.
     listening: Mutex<Option<Listening>>,
     origins: Vec<Origin>,
@@ -160,6 +164,11 @@ impl Front {
             .bind()
             .await
             .with_context(|| format!("failed to listen on {}", self.listen))?;
+        if let Some(address) = listening.address() {
+            fs::write(&self.address_file, format!("{address}\n")).with_context(|| {
+                format!("failed to write {}", self.address_file.display())
+            })?;
+        }
         *self.listening.lock().expect("not poisoned") = Some(listening);
         Ok(())
     }
