@@ -2,7 +2,7 @@ import * as UrlPath from "@aperture-browser/shared/url-path";
 import * as Effect from "effect/Effect";
 import { type Address, headers, route } from "./address.ts";
 import { SessionError } from "./errors.ts";
-import type { Target } from "./model.ts";
+import type { Pace, Target } from "./model.ts";
 
 /** A file put into the session for its browser to take. */
 export interface Uploaded {
@@ -39,7 +39,10 @@ export interface RecordingBurst {
   readonly max_tail_ms: number;
 }
 
-/** What a recording says, as it starts, about the edit made when it stops. */
+/**
+ * How an edit of a recording is made: said as the recording stops, and again for every edit
+ * that is made of it after.
+ */
 export interface RecordingOptions {
   /** `bursts` keeps only the stretches around what the automation did. */
   readonly capture: "continuous" | "bursts";
@@ -48,20 +51,30 @@ export interface RecordingOptions {
   /** Marks clicks with a ripple. */
   readonly ripple: boolean;
   readonly burst: RecordingBurst;
-  /** How automation moves the pointer while the recording runs. */
-  readonly pace: "instant" | "fast" | "slow";
   /** The share of the picture that must change for something to have happened: 0 to 1. */
   readonly motion_threshold: number;
+  /** The edited video's frames a second: 1 to 60, which is the most the raw video has. */
+  readonly fps: number;
 }
 
-export interface StartRecording extends Partial<Omit<RecordingOptions, "burst">> {
+/** What is said of an edit; what is left out is as the session has it by default. */
+export interface EditRecording extends Partial<Omit<RecordingOptions, "burst">> {
+  readonly burst?: Partial<RecordingBurst>;
+}
+
+export interface StartRecording {
   /** The tab to record; the newest one when left out. */
   readonly tab?: number;
-  readonly burst?: Partial<RecordingBurst>;
+  /** Go on with whichever tab the session's automation acts on. */
+  readonly follow?: boolean;
 }
 
 export interface RecordingEdit {
   readonly state: "editing" | "finished" | "failed";
+  /** What it is made with: what the recording was stopped or last edited again with. */
+  readonly options: RecordingOptions;
+  /** When it was made, which tells one edit of a recording from the one before. */
+  readonly made_at_ms: number | null;
   /** The edited video's file, relative to the session's files, once it is made. */
   readonly file: string | null;
   /** What happened, where in the raw video and where in the edited one. */
@@ -91,7 +104,8 @@ export interface Recording {
   readonly duration_ms: number | null;
   readonly bytes: number | null;
   readonly failure: string | null;
-  readonly options: RecordingOptions;
+  /** It goes on with whichever tab the session's automation acts on. */
+  readonly follow: boolean;
   /** The edit, once the recording stopped; none where the session cannot make one. */
   readonly edit: RecordingEdit | null;
 }
@@ -262,9 +276,37 @@ export const startRecording = Effect.fn("SessionHttp.startRecording")(
     json<Recording>(address, "/recordings", { method: "POST", json: options }),
 );
 
+/** Stops a recording. Its edit is made after, with `options`. */
 export const stopRecording = Effect.fn("SessionHttp.stopRecording")(
-  (address: Address, id: string) =>
-    json<Recording>(address, UrlPath.make`/recordings/${id}/stop`, { method: "POST" }),
+  (address: Address, id: string, options: EditRecording = {}) =>
+    json<Recording>(address, UrlPath.make`/recordings/${id}/stop`, {
+      method: "POST",
+      json: options,
+    }),
+);
+
+/**
+ * Makes the edit of a stopped recording again, of the same raw video and with `options`. It
+ * takes the place of the edit there is once it is made. Refused while an edit of the
+ * recording is being made, and for a recording whose raw video is gone.
+ */
+export const editRecording = Effect.fn("SessionHttp.editRecording")(
+  (address: Address, id: string, options: EditRecording = {}) =>
+    json<Recording>(address, UrlPath.make`/recordings/${id}/edit`, {
+      method: "POST",
+      json: options,
+    }),
+);
+
+export const getPace = Effect.fn("SessionHttp.getPace")((address: Address) =>
+  json<{ readonly pace: Pace }>(address, "/pace").pipe(Effect.map((told) => told.pace)),
+);
+
+/** Sets the session's pace, for every recording and whoever watches. */
+export const setPace = Effect.fn("SessionHttp.setPace")((address: Address, pace: Pace) =>
+  json<{ readonly pace: Pace }>(address, "/pace", { method: "PUT", json: { pace } }).pipe(
+    Effect.map((told) => told.pace),
+  ),
 );
 
 /** Has a running recording go on with another tab, in the same video. */

@@ -15,6 +15,7 @@ import {
 } from "../components/phone-menu.tsx";
 import { PictureItems, PointersItem, ViewportItems } from "../components/picture-menu.tsx";
 import {
+  AutomationPaceItem,
   KeptItems,
   RecordingSettingsItems,
   RecordItem,
@@ -118,6 +119,13 @@ export const workbenchContributions: readonly WorkbenchContribution[] = [
     component: CopyUrlItem,
   },
   {
+    id: "browser.pace",
+    slot: "menu.browser",
+    group: "session",
+    order: 850,
+    component: AutomationPaceItem,
+  },
+  {
     id: "browser.appearance",
     slot: "menu.browser",
     group: "session",
@@ -156,6 +164,13 @@ export const workbenchContributions: readonly WorkbenchContribution[] = [
     group: "session",
     order: 700,
     component: PhoneRecordingItem,
+  },
+  {
+    id: "phone.pace",
+    slot: "menu.phone",
+    group: "session",
+    order: 750,
+    component: AutomationPaceItem,
   },
   { id: "phone.view", slot: "menu.phone", group: "view", order: 900, component: PhoneViewItem },
   {

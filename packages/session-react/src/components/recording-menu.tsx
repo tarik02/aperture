@@ -5,11 +5,18 @@ import {
   CircleAlert,
   CircleCheck,
   Film,
+  Gauge,
   Images,
   Loader2,
   Square,
 } from "lucide-react";
-import type { Recording, StartRecording, Target } from "@aperture-browser/session-client";
+import type {
+  EditRecording,
+  Pace,
+  Recording,
+  RecordingOptions,
+  Target,
+} from "@aperture-browser/session-client";
 import {
   DropdownMenuCheckboxItem,
   DropdownMenuItem,
@@ -18,6 +25,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuSub,
   DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
 } from "@aperture-browser/ui/components/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture-browser/ui/components/tooltip";
 import { keptOf, recordingIsEdited, recordingRuns, type Kept } from "../hooks/use-recordings.ts";
@@ -39,38 +47,45 @@ const LISTED = 6;
 
 const SETTINGS_KEY = "aperture.session.recording";
 
-/** What a new recording is started with, as this browser remembers it. */
-export interface RecordingSettings {
+/** How an edit is made, as the workbench offers it. */
+export interface EditSettings {
   readonly capture: "continuous" | "bursts";
   readonly idle: "keep" | "cut" | "speed";
-  readonly pace: "instant" | "fast" | "slow";
   readonly ripple: boolean;
+  readonly fps: 30 | 60;
+}
+
+/** What a recording is started and stopped with, as this browser remembers it. */
+export interface RecordingSettings extends EditSettings {
+  /** A new recording goes on with whichever tab automation acts on. */
+  readonly follow: boolean;
 }
 
 const DEFAULT_SETTINGS: RecordingSettings = {
+  follow: false,
   capture: "continuous",
   idle: "keep",
-  pace: "fast",
   ripple: false,
+  fps: 60,
 };
 
 const CAPTURES = { continuous: "Continuous", bursts: "Bursts" } as const;
 const IDLES = { keep: "Keep", cut: "Cut", speed: "Speed up" } as const;
-const PACES = { instant: "Instant", fast: "Fast", slow: "Slow" } as const;
+const RATES = [30, 60] as const;
 
 const isSettings = (value: unknown): value is RecordingSettings => {
   if (typeof value !== "object" || value === null) {
     return false;
   }
-  const { capture, idle, pace, ripple } = value as Record<string, unknown>;
+  const { follow, capture, idle, ripple, fps } = value as Record<string, unknown>;
   return (
+    typeof follow === "boolean" &&
     typeof capture === "string" &&
     capture in CAPTURES &&
     typeof idle === "string" &&
     idle in IDLES &&
-    typeof pace === "string" &&
-    pace in PACES &&
-    typeof ripple === "boolean"
+    typeof ripple === "boolean" &&
+    RATES.some((rate) => rate === fps)
   );
 };
 
@@ -78,15 +93,28 @@ export function useRecordingSettings() {
   return useStored(SETTINGS_KEY, DEFAULT_SETTINGS, isSettings);
 }
 
-function startOptions(tab: number, settings: RecordingSettings): StartRecording {
+/** What the session is asked for an edit made as `settings` say. */
+export function editOptions(settings: EditSettings): EditRecording {
   const bursts = settings.capture === "bursts";
   return {
-    tab,
     capture: settings.capture,
     // Bursts keep only what happens, so there are no quiet stretches to shorten.
     idle: bursts || settings.idle === "keep" ? null : settings.idle,
-    pace: settings.pace,
     ripple: settings.ripple,
+    fps: settings.fps,
+  };
+}
+
+/** What the workbench offers of the options an edit was made with. */
+export function editSettings(options: RecordingOptions | undefined): EditSettings {
+  if (options === undefined) {
+    return DEFAULT_SETTINGS;
+  }
+  return {
+    capture: options.capture,
+    idle: options.idle ?? "keep",
+    ripple: options.ripple,
+    fps: options.fps > 30 ? 60 : 30,
   };
 }
 
@@ -111,7 +139,7 @@ export function RecordItem() {
     if (watched === undefined) {
       return;
     }
-    recordings.start(startOptions(watched.tab, settings)).catch((cause: unknown) => {
+    recordings.start({ tab: watched.tab, follow: settings.follow }).catch((cause: unknown) => {
       showNotice({
         level: "error",
         message: "The recording did not start",
@@ -139,9 +167,11 @@ export function RunningRecordingItems() {
   const running = recordings.recordings.filter(recordingRuns);
   const now = useNow(running.length > 0);
   const allowed = snapshot.features.recordings.write;
+  const [settings] = useRecordingSettings();
 
+  // One press: the edit is made as this browser last chose, which the menu shows below.
   const stop = (recording: Recording) => {
-    recordings.stop(recording.id).catch((cause: unknown) => {
+    recordings.stop(recording.id, editOptions(settings)).catch((cause: unknown) => {
       showNotice({
         level: "error",
         message: "The recording did not stop",
@@ -295,14 +325,110 @@ export function ScreenshotItem() {
   );
 }
 
-/** How the next recording is made. */
+/** How a new recording is made, and how the one that stops is edited. */
 export function RecordingSettingsItems() {
   const [settings, onChange] = useRecordingSettings();
-  const bursts = settings.capture === "bursts";
 
   return (
     <>
       <DropdownMenuLabel>New recording</DropdownMenuLabel>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <DropdownMenuCheckboxItem
+              checked={settings.follow}
+              closeOnClick={false}
+              onCheckedChange={(follow) => onChange({ ...settings, follow })}
+            />
+          }
+        >
+          Follow automation
+        </TooltipTrigger>
+        <TooltipContent side="left">
+          The recording goes on with whichever tab automation acts on, in the same video.
+        </TooltipContent>
+      </Tooltip>
+      <DropdownMenuLabel>When a recording stops</DropdownMenuLabel>
+      <EditSettingsItems
+        settings={settings}
+        onChange={(edit) => onChange({ ...settings, ...edit })}
+      />
+    </>
+  );
+}
+
+/** The session's pace: how automation moves the pointer in what is recorded. */
+export function AutomationPaceItem() {
+  const { features } = useWorkbench();
+  const session = useSession();
+  const snapshot = useSessionSnapshot();
+
+  if (!features.recordings) {
+    return null;
+  }
+  const set = (pace: Pace) => {
+    session.pace.set(pace).catch((cause: unknown) => {
+      showNotice({
+        level: "error",
+        message: "The pace was not set",
+        description: failureText(cause),
+      });
+    });
+  };
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger disabled={!snapshot.features.recordings.write}>
+        <Gauge />
+        <span className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:justify-between aperture:gap-3">
+          <span data-menu-title="" className="aperture:shrink-0">
+            Automation pace
+          </span>
+          <span className="aperture:truncate aperture:text-muted-foreground">
+            {PACES[snapshot.pace]}
+          </span>
+        </span>
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="aperture:w-64">
+        <DropdownMenuRadioGroup
+          aria-label="Automation pace"
+          value={snapshot.pace}
+          onValueChange={(value) => {
+            if (value === "instant" || value === "fast" || value === "slow") {
+              set(value);
+            }
+          }}
+        >
+          <DropdownMenuRadioItem value="instant" closeOnClick={false}>
+            <Described title="Instant">The pointer jumps straight to each action.</Described>
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="fast" closeOnClick={false}>
+            <Described title="Fast">
+              In a recorded tab the pointer travels there, quickly but so that the eye can follow.
+            </Described>
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="slow" closeOnClick={false}>
+            <Described title="Slow">Unhurried travel and longer pauses, for demos.</Described>
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
+}
+
+const PACES = { instant: "Instant", fast: "Fast", slow: "Slow" } as const;
+
+/** How an edit is made: what a recording is stopped with, or edited again with. */
+export function EditSettingsItems({
+  settings,
+  onChange,
+}: {
+  settings: EditSettings;
+  onChange: (settings: EditSettings) => void;
+}) {
+  const bursts = settings.capture === "bursts";
+
+  return (
+    <>
       <DropdownMenuSub>
         <SettingSubTrigger name="Capture" value={CAPTURES[settings.capture]} />
         <DropdownMenuSubContent className="aperture:w-64">
@@ -357,28 +483,23 @@ export function RecordingSettingsItems() {
         </DropdownMenuSubContent>
       </DropdownMenuSub>
       <DropdownMenuSub>
-        <SettingSubTrigger name="Automation pace" value={PACES[settings.pace]} />
-        <DropdownMenuSubContent className="aperture:w-64">
+        <SettingSubTrigger name="Frame rate" value={`${settings.fps} fps`} />
+        <DropdownMenuSubContent className="aperture:w-44">
           <DropdownMenuRadioGroup
-            aria-label="Automation pace"
-            value={settings.pace}
+            aria-label="Frame rate"
+            value={String(settings.fps)}
             onValueChange={(value) => {
-              if (value === "instant" || value === "fast" || value === "slow") {
-                onChange({ ...settings, pace: value });
+              const fps = RATES.find((rate) => String(rate) === value);
+              if (fps !== undefined) {
+                onChange({ ...settings, fps });
               }
             }}
           >
-            <DropdownMenuRadioItem value="instant" closeOnClick={false}>
-              <Described title="Instant">The pointer jumps straight to each action.</Described>
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="fast" closeOnClick={false}>
-              <Described title="Fast">
-                The pointer travels there, quickly but so that the eye can follow.
-              </Described>
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="slow" closeOnClick={false}>
-              <Described title="Slow">Unhurried travel and longer pauses, for demos.</Described>
-            </DropdownMenuRadioItem>
+            {RATES.map((rate) => (
+              <DropdownMenuRadioItem key={rate} value={String(rate)} closeOnClick={false}>
+                {rate} fps
+              </DropdownMenuRadioItem>
+            ))}
           </DropdownMenuRadioGroup>
         </DropdownMenuSubContent>
       </DropdownMenuSub>

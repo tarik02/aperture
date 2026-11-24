@@ -14,7 +14,7 @@ use tokio::{
 
 use super::Journal;
 use crate::live::{
-    edit::plan::Segment,
+    edit::{Raw, plan::Segment},
     encode,
     sound::{self, Sound},
     stream::{Packet, Subscription},
@@ -23,15 +23,6 @@ use crate::live::{
 /// How long the last frame gets to come when a recording is stopped.
 const LAST_FRAME_WITHIN: Duration = Duration::from_secs(1);
 const FINISH_WITHIN: gst::ClockTime = gst::ClockTime::from_seconds(10);
-
-/// What the raw video turned out to be.
-pub(super) struct Raw {
-    pub duration: Duration,
-    /// When its frames that showed a change came, in its own time.
-    pub changed_at_ms: Vec<i64>,
-    /// The sizes its picture has, each from when it has it.
-    pub segments: Vec<Segment>,
-}
 
 /// The sound of the tab a recording is of.
 pub(super) struct Heard {
@@ -67,7 +58,6 @@ pub(super) async fn record(
     mut stopped: oneshot::Receiver<()>,
     mut moved: mpsc::UnboundedReceiver<Moved>,
     journal: Arc<Journal>,
-    motion_threshold: f64,
 ) -> anyhow::Result<Raw> {
     let Moved {
         mut subscription,
@@ -76,7 +66,7 @@ pub(super) async fn record(
     } = on;
     let mut first = None;
     let mut last = Duration::ZERO;
-    let mut changed_at_ms = Vec::new();
+    let mut changed = Vec::new();
     let mut segments: Vec<Segment> = Vec::new();
     // Until a keyframe comes, at the start and after frames were missed, nothing that
     // comes can be decoded.
@@ -109,10 +99,10 @@ pub(super) async fn record(
                 height,
             });
         }
-        // Something happened where enough of the picture changed.
-        let whole = f64::from(packet.size.0) * f64::from(packet.size.1);
-        if packet.changed > 0 && packet.changed as f64 >= whole * motion_threshold {
-            changed_at_ms.push(last.as_millis() as i64);
+        // How much of the picture must change for something to have happened is for
+        // each edit to say.
+        if packet.changed > 0 {
+            changed.push((last.as_millis() as i64, packet.changed));
         }
         writer.write(packet, last)
     };
@@ -199,8 +189,8 @@ pub(super) async fn record(
     drop(pixels);
     tokio::task::spawn_blocking(move || writer.finish()).await??;
     Ok(Raw {
-        duration: last,
-        changed_at_ms,
+        duration_ms: last.as_millis() as i64,
+        changed,
         segments,
     })
 }

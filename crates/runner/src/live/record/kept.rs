@@ -5,22 +5,38 @@ use std::path::{Path, PathBuf};
 use tracing::warn;
 
 use super::{DIRECTORY, EditState, Recording, State};
+use crate::live::edit::Raw;
 
 /// Where what is told of a recording is kept, next to its files.
 fn kept_path(files: &Path, id: &str) -> PathBuf {
     files.join(DIRECTORY).join(format!("{id}.recording.json"))
 }
 
-/// Keeps what is told of a recording, whole or not at all.
+/// Where what a recording's edits take of its raw video is kept, next to the video.
+pub(super) fn raw_path(files: &Path, id: &str) -> PathBuf {
+    files.join(DIRECTORY).join(format!("{id}.raw.json"))
+}
+
+/// Writes a file whole or not at all.
+fn write(path: &Path, told: serde_json::Result<Vec<u8>>) -> std::io::Result<()> {
+    let partial = path.with_extension("part");
+    std::fs::write(&partial, told.map_err(std::io::Error::other)?)?;
+    std::fs::rename(&partial, path)
+}
+
+/// Keeps what is told of a recording.
 pub(super) fn keep(files: &Path, recording: &Recording) {
     let path = kept_path(files, &recording.id);
-    let partial = path.with_extension("part");
-    let written = serde_json::to_vec_pretty(recording)
-        .map_err(std::io::Error::other)
-        .and_then(|told| std::fs::write(&partial, told))
-        .and_then(|()| std::fs::rename(&partial, &path));
-    if let Err(err) = written {
+    if let Err(err) = write(&path, serde_json::to_vec_pretty(recording)) {
         warn!(recording = %recording.id, "a recording was not kept for the next run: {err}");
+    }
+}
+
+/// Keeps what the edits of a recording take of its raw video: the first one, and those
+/// made again later, in this run of the session or in another.
+pub(super) fn keep_raw(files: &Path, id: &str, raw: &Raw) {
+    if let Err(err) = write(&raw_path(files, id), serde_json::to_vec(raw)) {
+        warn!(recording = %id, "what a recording's edits take was not kept: {err}");
     }
 }
 

@@ -38,11 +38,12 @@ use tracing::warn;
 use self::{
     files::FilesTool,
     tab::TabSession,
-    tools::{RecordingTool, TabsTool},
+    tools::{PaceTool, RecordingTool, TabsTool},
 };
 use crate::{
     cdp,
-    live::{edit::plan::Pace, record::Recordings},
+    live::record::Recordings,
+    pace::{Pace, Paced},
     presence::{Identity, Membership, Presence},
     targets::Target,
 };
@@ -68,6 +69,7 @@ const READS_ONLY: &[&str] = &[
     "network",
     "wait_for",
     "recording",
+    "pace",
     "files",
 ];
 
@@ -77,7 +79,8 @@ const INSTRUCTIONS: &str = "A browser session. Its pages are tabs: `tabs` lists 
     pages as on a desktop or as on a phone, which `tabs` tells and sets. Read a page with \
     `snapshot`, which gives elements refs that `click`, `fill` and the other tools take, or \
     look at it with `screenshot`. `recording` films a tab into the session's files, which \
-    `files` lists. People may be watching the session and using it too.";
+    `files` lists, and `pace` says how your pointer moves in what is filmed. People may be \
+    watching the session and using it too.";
 
 /// The session's tools, and what they act on.
 ///
@@ -107,6 +110,7 @@ impl Automation {
         targets: watch::Receiver<Vec<Target>>,
         shown: crate::targets::Tabs,
         recordings: Recordings,
+        pace: Paced,
         files: PathBuf,
         presence: &Arc<Presence>,
     ) -> Self {
@@ -114,6 +118,7 @@ impl Automation {
             browser,
             targets: targets.clone(),
             recordings: recordings.clone(),
+            pace: pace.clone(),
             tabs: Mutex::default(),
             presence: presence.clone(),
         });
@@ -123,6 +128,7 @@ impl Automation {
                 shown,
             }),
             Arc::new(RecordingTool(recordings.clone())),
+            Arc::new(PaceTool(pace)),
             Arc::new(FilesTool(files.clone())),
         ];
         let theirs = browse_page::tools()
@@ -190,7 +196,7 @@ impl Automation {
     }
 
     /// A scroll of the page to one of its edges, as a scroll by the distance there. To an
-    /// edge, the page is put there in one step, which a recording at a pace would show as
+    /// edge, the page is put there in one step, which a recording would show as
     /// a jump; by a distance, the wheel turns in steps. None for a scroll that is to go as
     /// it is.
     async fn travel_to_edge(&self, browser: &Acting, arguments: &Value) -> Option<Value> {
@@ -320,6 +326,7 @@ struct Session {
     browser: cdp::Client,
     targets: watch::Receiver<Vec<Target>>,
     recordings: Recordings,
+    pace: Paced,
     tabs: Mutex<Tabs>,
     presence: Arc<Presence>,
 }
@@ -397,6 +404,7 @@ impl Session {
             self.browser.clone(),
             self.targets.clone(),
             self.recordings.clone(),
+            self.pace.clone(),
             target.id,
             self.presence.clone(),
         )
@@ -515,13 +523,14 @@ impl Browser for Session {
         bail!("this session cannot hand a tab to a person yet")
     }
 
-    /// Input goes at once, unless the tab is being recorded at a pace: the pointer then
-    /// travels to where it acts, along a path the eye can follow.
+    /// Input goes at once, unless the tab is being recorded and the session's pace is not
+    /// `instant`: the pointer then travels to where it acts, along a path the eye can
+    /// follow.
     async fn human_input(&self, tab: TabId) -> bool {
-        self.target_of(tab)
-            .ok()
-            .and_then(|target| self.recordings.pace(&target.id))
-            .is_some_and(|pace| pace != Pace::Instant)
+        self.pace.get() != Pace::Instant
+            && self
+                .target_of(tab)
+                .is_ok_and(|target| self.recordings.records(&target.id))
     }
 
     async fn read_only(&self, _tab: TabId) -> bool {

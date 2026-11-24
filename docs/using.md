@@ -45,6 +45,27 @@ From TypeScript, [`@aperture-browser/control-api`](../packages/control-api) is t
 
 A session is running once its `observedState` is `running`. Its own routes (`/targets`, `/files`, `/cdp`, `/mcp` and the rest) are below `$APERTURE_URL<path>`, and take the same API token; [`session.md`](../skills/aperture/references/session.md) lists them.
 
+## Recording a tab
+
+A recording is a tab's raw video, with the pointer in it, and a journal of what automation did meanwhile. Nothing about the cut is said when it starts. It is said when it stops, and the edit is made of the raw video then: a second video, with a timeline that maps one to the other.
+
+| Option | What it does | Default |
+|---|---|---|
+| `capture` | `continuous` keeps the tab from start to stop; `bursts` keeps only the stretches around what automation did | `continuous` |
+| `idle` | `cut` leaves out the stretches in which nothing happens, `speed` plays them faster; continuous capture only | none |
+| `ripple` | Marks clicks | `false` |
+| `fps` | The edit's frames a second, 1 to 60. The raw video has 60 at most, so more would only repeat them | `60` |
+| `motion_threshold` | The share of the picture, 0 to 1, that must change for something to have happened | `0.0002` |
+| `burst` | A burst's sizes in ms: `lead_ms`, `tail_ms`, `settle_ms`, `max_tail_ms` | `500`, `800`, `400`, `3000` |
+
+The raw video stays, so the edit is made again with other options whenever the cut is wrong. The new edit takes the place of the one before, under the same file name, and the recording tells which options made the one there is (`edit.options`, `edit.made_at_ms`). It is refused while an edit of that recording is being made, and for a recording whose raw video was removed from the session's files. Recordings of the session's earlier runs are edited again as well.
+
+- **In the workbench**, **Stop recording** in the recording menu stops with what that browser last chose under **When a recording stops**, in the same menu. A finished recording has **Edit again…** in its player.
+- **Over MCP**, `recording` with `action: "stop"` takes the options, and `action: "edit"` makes the edit again.
+- **Over HTTP**, `POST /recordings/{id}/stop` and `POST /recordings/{id}/edit` take them as a JSON body.
+
+How automation moves the pointer in a recorded tab is not a recording's but the session's: its **pace**, `instant`, `fast` (the default) or `slow`. Every recording that runs shares it, everyone in the session sees the same, and it stays over a suspend. Set it with the `pace` tool, `PUT /pace`, or **Automation pace** in the workbench's menu. A tab nothing records gets automation's input at once whatever the pace is. The pointer's way is in the raw video, so a later edit does not change it.
+
 ## Embedding a session
 
 A page of yours shows a session with a ticket. Your backend holds the API token and asks for the ticket; the page never sees the token.
