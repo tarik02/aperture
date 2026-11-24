@@ -165,9 +165,8 @@ impl Front {
             .await
             .with_context(|| format!("failed to listen on {}", self.listen))?;
         if let Some(address) = listening.address() {
-            fs::write(&self.address_file, format!("{address}\n")).with_context(|| {
-                format!("failed to write {}", self.address_file.display())
-            })?;
+            fs::write(&self.address_file, format!("{address}\n"))
+                .with_context(|| format!("failed to write {}", self.address_file.display()))?;
         }
         *self.listening.lock().expect("not poisoned") = Some(listening);
         Ok(())
