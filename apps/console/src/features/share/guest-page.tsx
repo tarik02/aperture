@@ -6,9 +6,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
+import { NotAnswering } from "#/components/not-answering.tsx";
 import { TextField } from "#/components/text-field.tsx";
 import { AuthCard } from "#/features/auth/auth-card.tsx";
 import { enter, LinkRefused } from "#/features/share/guest.ts";
+import { notAnswering, useUnanswered } from "#/lib/answering.ts";
 import { useDocumentTitle } from "#/lib/document-title.ts";
 import { required } from "#/lib/validation.ts";
 
@@ -60,6 +62,7 @@ export function GuestPage({ shareId }: { shareId: string }) {
     retry: false,
     refetchInterval: (query) => (query.state.status === "error" ? false : ASKED_EVERY_MS),
   });
+  const unanswered = useUnanswered(link);
   const naming = useMutation({
     mutationFn: (name: string) => enter(shareId, { token: secret, name }),
     onSuccess: (told) => queries.setQueryData(key, told),
@@ -74,7 +77,11 @@ export function GuestPage({ shareId }: { shareId: string }) {
     window.apertureSession = session ?? undefined;
   }, []);
 
-  if (link.isError) {
+  if (unanswered) {
+    return <NotAnswering />;
+  }
+  // What was shown before stays while Aperture does not answer whether it still may be.
+  if (link.isError && !notAnswering(link.error)) {
     return (
       <Said note="refused">
         {link.error instanceof LinkRefused ? link.error.message : "The link was not looked up."}

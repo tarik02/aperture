@@ -6,6 +6,7 @@ import {
   Outlet,
 } from "@tanstack/react-router";
 import { AppShell } from "#/components/app-shell.tsx";
+import { NotAnswering } from "#/components/not-answering.tsx";
 import { NotFound, Only, RouteError } from "#/components/route-state.tsx";
 import { PeoplePage } from "#/features/account/people-page.tsx";
 import { ServiceAccountTokensPage } from "#/features/account/service-account-tokens-page.tsx";
@@ -33,6 +34,7 @@ import { WorkspacesPage } from "#/features/workspace/workspaces-page.tsx";
 import { useAccess } from "#/features/auth/access.ts";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
 import { InvitePage } from "#/features/auth/invite-page.tsx";
+import { notAnswering, useUnanswered } from "#/lib/answering.ts";
 import { useDeployWatch } from "#/lib/deploy-watch.ts";
 import { useKeyboardInset } from "@aperture-browser/ui/keyboard-inset";
 import { listSearch } from "#/lib/list-search.ts";
@@ -45,10 +47,15 @@ function Signed() {
   const account = useAccountQuery();
   // What was open for whoever was signed in before is not left open for the next.
   const changes = useSignChanges();
-  if (account.isPending) {
-    return null;
+  const unanswered = useUnanswered(account);
+  // Refused: nobody is signed in. Whoever was not answered may still be.
+  if (account.isError && !notAnswering(account.error)) {
+    return <SignInPage />;
   }
-  return account.isError ? <SignInPage /> : <Outlet key={changes} />;
+  if (account.data !== undefined) {
+    return <Outlet key={changes} />;
+  }
+  return unanswered ? <NotAnswering /> : null;
 }
 
 /** What every page has: the window it is in, and word of a newer build. */

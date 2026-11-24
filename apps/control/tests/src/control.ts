@@ -87,6 +87,8 @@ export interface ControlService {
   readonly ticketKey: string;
   /** Its database, for what a check looks up there itself. */
   readonly sql: SqlClient.SqlClient;
+  /** The server its database is on, for a check of what becomes of it without one. */
+  readonly database: Postgres.PostgresService;
   /** What it warned of since it started, each as the line's message. */
   readonly warned: () => ReadonlyArray<string>;
   /** Its API for whoever holds the token. */
@@ -137,11 +139,12 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
       Base64.encode(crypto.getRandomValues(new Uint8Array(MASTER_KEY_BYTES))),
     );
   }
+  const database = options.beside?.database ?? (yield* Postgres.start);
   const shared =
     options.beside === undefined
       ? {
           APERTURE_CONTROL_MASTER_KEY: masterKey,
-          APERTURE_CONTROL_DATABASE_URL: (yield* Postgres.start).url,
+          APERTURE_CONTROL_DATABASE_URL: database.url,
           APERTURE_CONTROL_TICKET_KEY: signingKey,
         }
       : {
@@ -225,6 +228,7 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
     settings,
     ticketKey,
     sql,
+    database,
     warned: () => [...warned],
     as: (token) => client(url, token).pipe(Effect.provide(http)),
     request: (token, method, path, body) =>

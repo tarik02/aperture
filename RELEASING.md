@@ -47,7 +47,7 @@ Every push to `master` that is not a release's commit is published by `nightly.y
 ## What is checked
 
 - `checks.yml`, on every pull request and on pushes to `master`: formatting, lint, types, the builds, the Rust checks, the generated code, and `nix packages`, which builds what the flake installs and fetches the pnpm dependencies again, so that a `workspacePnpmDeps` hash left behind by a change of `pnpm-lock.yaml` fails. What it builds goes to the Cachix cache, so the next run builds only what changed; `session image` and `deployment images` then start the images as their users do.
-- `e2e.yml`, on pushes to `master`, on a release's pull request, on a pull request labelled `e2e`, and before anything of a release is published: real sessions end to end, and the NixOS modules on a virtual machine (`nix/tests`).
+- `e2e.yml`, which `checks.yml` runs after `nix packages` for pushes to `master`, for a release's pull request and for a pull request labelled `e2e`, and `release-please.yml` runs before anything of a release is published: real sessions end to end, and the NixOS modules on a machine of their own, on the programs `nix packages` put into the cache. A label given after the checks began starts it by itself.
 
 ## What the workflows need
 
