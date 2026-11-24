@@ -225,14 +225,15 @@ suite(session)("how a tab's pages are shown, with a desktop, a phone and the aut
       );
       const stage = yield* ada.box("[data-aperture-stage]");
       expect(yield* snapshot(ada, "watched.height")).toBe(stage.height);
-      // No bands beside the picture or above and below it, once it is drawn at its size.
-      const picture = yield* until(
+      // No bands beside the picture or above and below it, once it is drawn at its size:
+      // until a picture of that size has come, the one there is has the place its own shape
+      // gives it, which may be as tall as the stage and not as wide.
+      yield* until(
         "the picture filling its stage",
         ada
           .box("[data-aperture-surface=video]")
-          .pipe(Effect.map((box) => box.height === stage.height && box)),
+          .pipe(Effect.map((box) => box.height === stage.height && box.width === stage.width)),
       );
-      expect(picture.width).toBe(stage.width);
 
       const now = yield* until(
         "the page being a phone's",
