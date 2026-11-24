@@ -495,6 +495,8 @@
           contents = [
             aperture
             pkgs.dockerTools.fakeNss
+            # The executor trusts whom the system does when it speaks to a control plane.
+            pkgs.dockerTools.caCertificates
           ];
           extraCommands = ''
             mkdir -p data tmp run
@@ -504,6 +506,7 @@
             Entrypoint = [ (lib.getExe' aperture "aperture-executor") ];
             Env = [
               "HOME=/data"
+              "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
               "APERTURE_DATA_DIR=/data"
               "APERTURE_LISTEN=0.0.0.0:7900"
               "APERTURE_RUNTIME_DIR=/run/aperture"

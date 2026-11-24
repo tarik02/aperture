@@ -24,7 +24,9 @@ done
 ended() {
   if [[ $? -ne 0 ]]; then
     "${compose[@]}" ps --all || true
-    "${compose[@]}" logs --tail 80 || true
+    for part in keys postgres control node proxy; do
+      "${compose[@]}" logs --tail 40 "$part" || true
+    done
   fi
   "${compose[@]}" down --volumes > /dev/null 2>&1 || true
 }
@@ -55,7 +57,7 @@ call() {
 }
 
 curl -fsS -m 10 "$url/" | grep -q '<title>Aperture</title>'
-until_answers 'length >= 1' 120 -H "Authorization: Bearer $bootstrap" "$api/nodes"
+until_answers '.[0].alive and .[0].offers != null' 120 -H "Authorization: Bearer $bootstrap" "$api/nodes"
 
 account="$(call "$bootstrap" POST /accounts -d '{"name":"ops"}' | jq -er .id)"
 token="$(call "$bootstrap" POST "/accounts/$account/tokens" -d '{"name":"check","scopes":["sessions:write"]}' | jq -er .token)"
