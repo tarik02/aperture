@@ -837,6 +837,109 @@ suite(Control.layer())("accounts and their tokens", (it) => {
   );
 
   it.effect(
+    "what is removed is kept in the database and found by nothing, and what it had is another's",
+    () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const http = yield* HttpClient.HttpClient;
+        const { sql } = control;
+        const bootstrap = yield* control.as(control.bootstrapToken);
+        const email = "hal@example.test";
+        const hal = yield* signedIn("Hal", email);
+        const at = { params: { id: hal.account.id } };
+        const held = yield* bootstrap.accounts.createToken({
+          ...at,
+          payload: { name: "held", scopes: Control.ALL_SCOPES },
+        });
+        const root = yield* Control.account("Root-keeping", true);
+        const team = yield* root.api.workspaces.create({ payload: { name: "Hal's team" } });
+        const seat = { params: { id: team.id, accountId: hal.account.id } };
+        yield* root.api.workspaces.admit({ ...seat, payload: { role: "member" } });
+        // Put out and let in again: the pair is nobody's while nobody has it.
+        yield* root.api.workspaces.dismiss(seat);
+        yield* root.api.workspaces.admit({ ...seat, payload: { role: "admin" } });
+        expect(
+          yield* sql`
+            SELECT role, deleted_at IS NULL AS live FROM workspace_members
+            WHERE account_id = ${hal.account.id} ORDER BY deleted_at NULLS LAST
+          `,
+        ).toEqual([
+          { role: "member", live: false },
+          { role: "admin", live: true },
+        ]);
+
+        yield* root.api.accounts.remove(at);
+        // All of it is there still, and says since when it is not.
+        for (const kept of [
+          sql`SELECT deleted_at FROM accounts WHERE id = ${hal.account.id}`,
+          sql`SELECT deleted_at FROM api_tokens WHERE id = ${held.id}`,
+          sql`SELECT deleted_at FROM workspace_members WHERE account_id = ${hal.account.id}`,
+        ]) {
+          const rows = yield* kept;
+          expect(rows.length).toBeGreaterThan(0);
+          expect(rows.every((row) => row["deleted_at"] !== null)).toBe(true);
+        }
+        // What they signed in with is not: nobody is that person again.
+        expect(yield* sql`SELECT id FROM "user" WHERE email = ${email}`).toEqual([]);
+        expect((yield* Effect.flip(root.api.accounts.get(at)))._tag).toBe("AccountNotFound");
+        expect((yield* Effect.flip(root.api.accounts.tokensOf(at)))._tag).toBe("AccountNotFound");
+        expect(
+          (yield* Effect.flip(
+            root.api.workspaces.ofAccount({ params: { accountId: hal.account.id } }),
+          ))._tag,
+        ).toBe("AccountNotFound");
+        expect((yield* Effect.flip(bootstrap.accounts.lookup({ query: { email } })))._tag).toBe(
+          "PersonNotFound",
+        );
+        expect((yield* Effect.flip((yield* control.as(held.token)).accounts.current()))._tag).toBe(
+          "Unauthorized",
+        );
+        expect(yield* root.api.workspaces.members({ params: { id: team.id } })).toEqual([
+          expect.objectContaining({ accountId: root.account.id }),
+        ]);
+
+        // Someone else is made with the address, signs in with it, and is nobody they were.
+        const again = yield* signedIn("Hal again", email);
+        expect(again.account.id).not.toBe(hal.account.id);
+        const whose = (cookie: string) =>
+          http.execute(
+            HttpClientRequest.get(`${control.url}/api/control/account`).pipe(
+              HttpClientRequest.setHeader("cookie", cookie),
+            ),
+          );
+        expect(yield* (yield* whose(again.cookie)).json).toMatchObject({ id: again.account.id });
+        expect((yield* whose(hal.cookie)).status).toBe(401);
+        expect(
+          (yield* bootstrap.accounts.list())
+            .filter((one) => one.email === email)
+            .map((one) => one.id),
+        ).toEqual([again.account.id]);
+
+        // A workspace that is deleted is kept likewise, with who was in it.
+        yield* root.api.workspaces.delete({ params: { id: team.id } });
+        expect((yield* root.api.workspaces.list()).map((one) => one.id)).not.toContain(team.id);
+        expect(
+          (yield* Effect.flip(root.api.workspaces.members({ params: { id: team.id } })))._tag,
+        ).toBe("WorkspaceNotFound");
+        expect(
+          (yield* Effect.flip(
+            root.api.workspaces.rename({ params: { id: team.id }, payload: { name: "Back" } }),
+          ))._tag,
+        ).toBe("WorkspaceNotFound");
+        expect(
+          yield* sql`
+            SELECT name, deleted_at IS NULL AS live FROM workspaces WHERE id = ${team.id}
+          `,
+        ).toEqual([{ name: "Hal's team", live: false }]);
+        expect(
+          yield* sql`
+            SELECT 1 FROM workspace_members WHERE workspace_id = ${team.id} AND deleted_at IS NULL
+          `,
+        ).toEqual([]);
+      }),
+  );
+
+  it.effect(
     "whoever says who is in a workspace finds a person by their whole address, and nobody else does",
     () =>
       Effect.gen(function* () {

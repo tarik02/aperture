@@ -27,7 +27,8 @@ export interface SharesStoreShape {
    * and made by an account that is not disabled.
    */
   readonly findByTokenHash: (tokenHash: string, now: Date) => Effect.Effect<Option.Option<Share>>;
-  readonly delete: (id: string) => Effect.Effect<void>;
+  /** Deletes a link: it is kept, and found by nothing again. */
+  readonly delete: (id: string, at: Date) => Effect.Effect<void>;
   /** Notes that a guest came with a link, unless that was noted after `since`. */
   readonly used: (id: string, now: Date, since: Date) => Effect.Effect<void>;
 }

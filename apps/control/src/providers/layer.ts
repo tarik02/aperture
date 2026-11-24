@@ -555,7 +555,7 @@ export const makeProviders = Effect.fn("Providers.make")(function* () {
 
   const remove = Effect.fn("Providers.remove")(function* (id: string) {
     const was = yield* changeable(id);
-    yield* store.delete(id);
+    yield* store.delete(id, yield* now);
     yield* events.record({ kind: "provider.removed", resource: resource(was) });
   });
 

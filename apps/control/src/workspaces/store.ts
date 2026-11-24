@@ -17,12 +17,16 @@ export interface WorkspacesStoreShape {
   /** The workspaces an account is in, each with what the account does there. */
   readonly of: (accountId: string) => Effect.Effect<ReadonlyArray<Membership>>;
   readonly rename: (id: string, name: string) => Effect.Effect<void>;
-  /** Removes a workspace and who was in it. One that still has sessions or snapshots stays. */
-  readonly delete: (id: string) => Effect.Effect<boolean>;
+  /**
+   * Deletes a workspace and who was in it: kept, and found by nothing again. One that
+   * still has sessions or snapshots stays.
+   */
+  readonly delete: (id: string, at: Date) => Effect.Effect<boolean>;
   readonly members: (id: string) => Effect.Effect<ReadonlyArray<WorkspaceMember>>;
   /** Puts an account into a workspace, or changes what it does there. */
   readonly admit: (id: string, accountId: string, role: WorkspaceRole) => Effect.Effect<void>;
-  readonly dismiss: (id: string, accountId: string) => Effect.Effect<void>;
+  /** Puts an account out of a workspace. That it was in is kept, and lets it into nothing. */
+  readonly dismiss: (id: string, accountId: string, at: Date) => Effect.Effect<void>;
 }
 
 export class WorkspacesStore extends Context.Service<WorkspacesStore, WorkspacesStoreShape>()(

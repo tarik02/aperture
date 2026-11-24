@@ -36,7 +36,7 @@ export interface AccountsStoreShape {
   readonly insertForPerson: (
     account: NewAccount & { readonly person: NonNullable<NewAccount["person"]> },
   ) => Effect.Effect<Account>;
-  /** Whether any account is a person's: whether anyone signs in here. */
+  /** Whether any account is or ever was a person's, those that were deleted among them. */
   readonly anyPerson: () => Effect.Effect<boolean>;
   /**
    * Does what makes the first person, where no account is a person's, and tells what it
@@ -60,11 +60,12 @@ export interface AccountsStoreShape {
   /** Disables an account from then on, or with no moment puts it in use again. */
   readonly setDisabled: (id: string, at: Date | null) => Effect.Effect<Option.Option<Account>>;
   /**
-   * Removes an account with its API tokens, its grants, the share links it made and its
-   * places in workspaces. What it made in workspaces stays theirs, with nobody said to have
-   * made it. Not one that has sessions or snapshots of its own.
+   * Deletes an account with its API tokens, its grants, the share links it made and its
+   * places in workspaces: none of them is found again, and all of them are kept. What it
+   * made in workspaces stays theirs, with nobody said to have made it. Not one that has
+   * sessions or snapshots of its own.
    */
-  readonly delete: (id: string) => Effect.Effect<void>;
+  readonly delete: (id: string, at: Date) => Effect.Effect<void>;
   readonly insertToken: (token: NewApiToken) => Effect.Effect<ApiToken>;
   /** An account's tokens, those taken back among them. */
   readonly listTokens: (accountId: string) => Effect.Effect<ReadonlyArray<ApiToken>>;

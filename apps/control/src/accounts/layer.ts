@@ -432,7 +432,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
     }
     // Its links go with it, and nobody is told which they were afterwards.
     const links = yield* shares.listBy(id);
-    yield* store.delete(id);
+    yield* store.delete(id, yield* now);
     yield* dismiss(id, links);
     yield* events.record({
       kind: "account.removed",

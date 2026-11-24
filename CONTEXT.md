@@ -85,7 +85,7 @@ Where a session is reached through a proxy that stands before the nodes, below t
 The one secret a control plane is given beside its database: what it has to read again, such as a node's operator token, is kept sealed with a key made of it. It is not in the database, and stays the same for as long as what was sealed is to be read.
 
 **Account**:
-Whose sessions, snapshots and API tokens are, in the control plane. An admin account also makes accounts and registration tokens, disables accounts and removes them. An account is removed once it has no session and no snapshot of its own, and its API tokens, its grants, the share links it made and its places in workspaces go with it, and the guests of those links are put out; what it made in workspaces stays theirs.
+Whose sessions, snapshots and API tokens are, in the control plane. An admin account also makes accounts and registration tokens, disables accounts and removes them. An account is removed once it has no session and no snapshot of its own, and its API tokens, its grants, the share links it made and its places in workspaces go with it, and the guests of those links are put out; what it made in workspaces stays theirs. Removed, it and what went with it are kept, marked deleted and found by nothing again: so it is with everything the control plane deletes. What a removed person signed in with is not kept, and their address is another's to have.
 _Avoid_: Tenant, user
 
 **Disabled**:

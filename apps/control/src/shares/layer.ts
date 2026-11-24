@@ -200,7 +200,7 @@ export const makeShares = Effect.fn("Shares.make")(function* () {
     if (Option.isNone(share)) {
       return yield* new ShareNotFound({ id });
     }
-    yield* store.delete(id);
+    yield* store.delete(id, yield* now);
     yield* dismiss(share.value);
     yield* events.record({
       kind: "share.revoked",

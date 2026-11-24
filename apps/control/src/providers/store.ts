@@ -41,7 +41,8 @@ export interface ProvidersStoreShape {
     id: string,
     changed: ChangedProvider,
   ) => Effect.Effect<Option.Option<StoredProvider>>;
-  readonly delete: (id: string) => Effect.Effect<void>;
+  /** Deletes a provider: it is kept, and what it was known by is another's to have. */
+  readonly delete: (id: string, at: Date) => Effect.Effect<void>;
   /** How many times the providers were changed: another number than before, after any change. */
   readonly revision: () => Effect.Effect<number>;
 }

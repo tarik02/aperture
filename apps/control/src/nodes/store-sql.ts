@@ -27,14 +27,14 @@ export const makeNodesStore = Effect.fn("NodesStore.make")(function* () {
 
   const listRegistrationTokens = Effect.fn("NodesStore.listRegistrationTokens")(function* () {
     return yield* sql`
-      SELECT ${kept} FROM registration_tokens ORDER BY created_at, id
+      SELECT ${kept} FROM live_registration_tokens ORDER BY created_at, id
     `.pipe(all(RegistrationToken));
   });
 
   const findRegistrationToken = Effect.fn("NodesStore.findRegistrationToken")(function* (
     id: string,
   ) {
-    return yield* sql`SELECT ${kept} FROM registration_tokens WHERE id = ${id}`.pipe(
+    return yield* sql`SELECT ${kept} FROM live_registration_tokens WHERE id = ${id}`.pipe(
       first(RegistrationToken),
     );
   });
@@ -42,7 +42,7 @@ export const makeNodesStore = Effect.fn("NodesStore.make")(function* () {
   const findRegistrationTokenByHash = Effect.fn("NodesStore.findRegistrationTokenByHash")(
     function* (tokenHash: string) {
       return yield* sql`
-        SELECT ${kept} FROM registration_tokens WHERE token_hash = ${tokenHash}
+        SELECT ${kept} FROM live_registration_tokens WHERE token_hash = ${tokenHash}
       `.pipe(first(RegistrationToken));
     },
   );
@@ -52,7 +52,7 @@ export const makeNodesStore = Effect.fn("NodesStore.make")(function* () {
     now: Date,
   ) {
     yield* sql`
-      UPDATE registration_tokens SET revoked_at = ${now} WHERE id = ${id} AND revoked_at IS NULL
+      UPDATE live_registration_tokens SET revoked_at = ${now} WHERE id = ${id} AND revoked_at IS NULL
     `.pipe(done);
   });
 
@@ -69,7 +69,7 @@ export const makeNodesStore = Effect.fn("NodesStore.make")(function* () {
         ${node.publicUrl}, ${node.operatorTokenSealed}, ${node.registrationTokenId},
         ${node.now}, ${node.now}
       )
-      ON CONFLICT (name) DO NOTHING
+      ON CONFLICT (name) WHERE deleted_at IS NULL DO NOTHING
       RETURNING *
     `.pipe(first(NodeRecord));
   });
@@ -80,7 +80,7 @@ export const makeNodesStore = Effect.fn("NodesStore.make")(function* () {
     node: Parameters<NodesStoreShape["seen"]>[2],
   ) {
     return yield* sql`
-      UPDATE nodes SET
+      UPDATE live_nodes SET
         internal_url = ${node.internalUrl},
         balancer_url = ${node.balancerUrl},
         public_url = ${node.publicUrl},
@@ -95,50 +95,54 @@ export const makeNodesStore = Effect.fn("NodesStore.make")(function* () {
 
   const release = Effect.fn("NodesStore.release")(function* (id: string) {
     return yield* sql`
-      UPDATE nodes SET operator_token_sealed = ${RELEASED} WHERE id = ${id} RETURNING *
+      UPDATE live_nodes SET operator_token_sealed = ${RELEASED} WHERE id = ${id} RETURNING *
     `.pipe(first(NodeRecord));
   });
 
   const describe = Effect.fn("NodesStore.describe")(function* (id: string, offers: Offers) {
-    yield* sql`UPDATE nodes SET offers = ${encodeOffers(offers)}::jsonb WHERE id = ${id}`.pipe(
+    yield* sql`UPDATE live_nodes SET offers = ${encodeOffers(offers)}::jsonb WHERE id = ${id}`.pipe(
       done,
     );
   });
 
   const noteSilent = Effect.fn("NodesStore.noteSilent")(function* (since: Date, now: Date) {
     return yield* sql`
-      UPDATE nodes SET silent_at = ${now}
+      UPDATE live_nodes SET silent_at = ${now}
       WHERE last_seen_at <= ${since} AND silent_at IS NULL
       RETURNING *
     `.pipe(all(NodeRecord));
   });
 
   const list = Effect.fn("NodesStore.list")(function* () {
-    return yield* sql`SELECT * FROM nodes ORDER BY registered_at, id`.pipe(all(NodeRecord));
+    return yield* sql`SELECT * FROM live_nodes AS nodes ORDER BY registered_at, id`.pipe(
+      all(NodeRecord),
+    );
   });
 
   const find = Effect.fn("NodesStore.find")(function* (id: string) {
-    return yield* sql`SELECT * FROM nodes WHERE id = ${id}`.pipe(first(NodeRecord));
+    return yield* sql`SELECT * FROM live_nodes AS nodes WHERE id = ${id}`.pipe(first(NodeRecord));
   });
 
   const findByName = Effect.fn("NodesStore.findByName")(function* (name: string) {
-    return yield* sql`SELECT * FROM nodes WHERE name = ${name}`.pipe(first(NodeRecord));
+    return yield* sql`SELECT * FROM live_nodes AS nodes WHERE name = ${name}`.pipe(
+      first(NodeRecord),
+    );
   });
 
   const seenSince = Effect.fn("NodesStore.seenSince")(function* (since: Date) {
     return yield* sql`
-      SELECT * FROM nodes WHERE last_seen_at > ${since} ORDER BY registered_at, id
+      SELECT * FROM live_nodes AS nodes WHERE last_seen_at > ${since} ORDER BY registered_at, id
     `.pipe(all(NodeRecord));
   });
 
   const candidates = Effect.fn("NodesStore.candidates")(function* (since: Date) {
     return yield* sql`
       SELECT nodes.*
-      FROM nodes
-      LEFT JOIN sessions ON sessions.node_id = nodes.id
+      FROM live_nodes AS nodes
       WHERE nodes.last_seen_at > ${since} AND nodes.offers IS NOT NULL
-      GROUP BY nodes.id
-      ORDER BY count(sessions.id), nodes.registered_at, nodes.id
+      ORDER BY
+        (SELECT count(*) FROM live_sessions AS sessions WHERE sessions.node_id = nodes.id),
+        nodes.registered_at, nodes.id
     `.pipe(all(NodeRecord));
   });
 

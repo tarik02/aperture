@@ -185,4 +185,32 @@ suite(Control.layer())("the first admin where the bootstrap token made a person"
       expect(links(later)).toEqual([]);
     }).pipe(Effect.scoped),
   );
+
+  it.effect("nor once the only person is deleted: a link from an old log stays dead", () =>
+    Effect.gen(function* () {
+      const control = yield* Control.Control;
+      const token = tokenOf(links(control)[0] ?? "");
+      const bootstrap = yield* control.as(control.bootstrapToken);
+      const people = (yield* bootstrap.accounts.list()).filter((one) => one.kind === "person");
+      yield* Effect.forEach(people, (one) => bootstrap.accounts.remove({ params: { id: one.id } }));
+      expect((yield* bootstrap.accounts.list()).filter((one) => one.kind === "person")).toEqual([]);
+
+      const anyone = yield* control.as("");
+      expect(yield* anyone.firstAdmin.awaited()).toEqual({ awaited: false });
+      const refused = yield* Effect.flip(
+        anyone.firstAdmin.create({
+          payload: {
+            token,
+            name: "Eli",
+            email: "eli@example.test",
+            password: "a password of Eli's own",
+          },
+        }),
+      );
+      expect(refused._tag).toBe("Forbidden");
+      expect((yield* bootstrap.accounts.list()).filter((one) => one.kind === "person")).toEqual([]);
+      const later = yield* Control.start({ beside: control });
+      expect(links(later)).toEqual([]);
+    }).pipe(Effect.scoped),
+  );
 });
