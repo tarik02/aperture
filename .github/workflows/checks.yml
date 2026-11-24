@@ -145,3 +145,15 @@ jobs:
 
       - name: Start the image and load a page in it
         run: .github/scripts/smoke-image.sh aperture-session.tar.gz
+
+      # The same for a whole deployment: the control plane's image and the node's, with
+      # the database and the proxy deploy/compose.yaml puts beside them, under Docker.
+      - name: Build the images of a deployment
+        run: |
+          nix build .#control-image --print-build-logs
+          ./result | gzip > aperture-control.tar.gz
+          nix build .#node-image --print-build-logs
+          ./result | gzip > aperture-node.tar.gz
+
+      - name: Bring the deployment up and make a session in it
+        run: .github/scripts/smoke-compose.sh aperture-control.tar.gz aperture-node.tar.gz

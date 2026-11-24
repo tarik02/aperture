@@ -10,7 +10,8 @@ The version is written in `Cargo.toml` (`[workspace.package]`), in `Cargo.lock` 
 |---|---|
 | The session's image, for `linux/amd64` and `linux/arm64`, signed, with provenance and an SBOM | `ghcr.io/tarik02/aperture-session:<version>`, and `:beta` or `:latest` |
 | The npm packages `control-api`, `executor-client`, `session-client`, `session-react`, `session-element` of `@aperture-browser`, with provenance | npm, under the dist-tag `beta` or `latest` |
-| The same images as files for `docker load`, their SBOMs, and `SHA256SUMS` | the GitHub release |
+| The control plane's image and the node's, for the same two, signed: what `deploy/compose.yaml` puts together | `ghcr.io/tarik02/aperture-control` and `ghcr.io/tarik02/aperture-node`, with the same tags |
+| The session's image as files for `docker load`, their SBOMs, and `SHA256SUMS` | the GitHub release |
 | The programs, the control plane and the migrator as Nix builds them | the `aperture-browser` Cachix cache |
 | The changes | `CHANGELOG.md` and the GitHub release |
 

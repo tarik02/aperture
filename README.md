@@ -54,7 +54,7 @@ On NixOS, one machine with everything on it is one option. With `github:tarik02/
 
 | | |
 |---|---|
-| [Install](docs/install.md) | NixOS modules, the container image, keys and tokens, first sign-in, TLS, nodes, data, health |
+| [Install](docs/install.md) | NixOS modules, Docker Compose, the container image, keys and tokens, first sign-in, TLS, nodes, data, health |
 | [Configuration](docs/configuration.md) | Every setting an operator sets, with its type and default |
 | [Using](docs/using.md) | MCP for agents, the REST API, embedding a session, share links |
 | [Upgrading from v1](docs/upgrading-from-v1.md) | What changed, and the one-time migrator |
@@ -73,7 +73,7 @@ Published to npm under `@aperture-browser`, with the dist-tag `beta` for a beta:
 | [`@aperture-browser/session-client`](packages/session-client) | Framework-free client for one session: live protocol, picture, sound, input |
 | [`@aperture-browser/executor-client`](packages/executor-client) | Effect client for one executor, for whoever runs nodes without a control plane |
 
-The session's image is `ghcr.io/tarik02/aperture-session`.
+The session's image is `ghcr.io/tarik02/aperture-session`; a deployment's are `ghcr.io/tarik02/aperture-control` and `ghcr.io/tarik02/aperture-node`, put together by [`deploy/compose.yaml`](deploy/compose.yaml).
 
 ## Licence
 
