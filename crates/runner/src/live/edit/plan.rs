@@ -528,10 +528,24 @@ fn last_input_end(events: &[Event], call: Span) -> Option<i64> {
 }
 
 /// Cuts, or speeds up, the stretches in which nothing happens: no change in the picture and
-/// no journal entry, apart from a little padding.
+/// no journal entry, apart from a little padding. A call counts where it starts: what it
+/// did is in the picture and in its input, and a call that waits, for the page or for a
+/// tab someone else drives, shows nothing while it does. A caption counts for as long as
+/// it asked to be read, at normal speed, as it does in bursts: cut or sped up, it would be
+/// gone before it is read.
 fn idle_pieces(mode: Idle, events: &[Event], active: &[Span], total: i64) -> Vec<Piece> {
     let mut busy = active.to_vec();
-    busy.extend(events.iter().map(Event::span));
+    busy.extend(events.iter().map(|event| match event.kind.as_str() {
+        "call" => Span {
+            start: event.at_ms,
+            end: event.at_ms,
+        },
+        "caption" => Span {
+            start: event.at_ms,
+            end: event.at_ms + (event.number("duration_ms") as i64).max(0),
+        },
+        _ => event.span(),
+    }));
     let busy = merge_spans(&busy, IDLE_KEEP_MS, total);
 
     let mut pieces = Vec::new();
@@ -1011,4 +1025,106 @@ fn subtitles(cues: &[Cue], ripples: &[Ripple], video: Video) -> String {
         );
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn event(kind: &str, at_ms: i64, end_ms: i64, fields: Value) -> Event {
+        let Value::Object(fields) = fields else {
+            panic!("fields are an object");
+        };
+        Event {
+            kind: kind.to_owned(),
+            at_ms,
+            end_ms,
+            fields,
+        }
+    }
+
+    fn click(at_ms: i64, end_ms: i64, pressed_ms: i64) -> [Event; 2] {
+        [
+            event("call", at_ms, end_ms, json!({ "tool": "click" })),
+            event("press", pressed_ms, pressed_ms, json!({ "x": 10, "y": 10 })),
+        ]
+    }
+
+    fn video(duration_ms: i64) -> Video {
+        Video {
+            duration_ms,
+            width: 1280,
+            height: 720,
+        }
+    }
+
+    /// A caption between two clicks, with nothing else moving in the picture: from a
+    /// recording whose caption showed for a third of a second.
+    fn captioned() -> (Vec<Event>, Vec<Span>) {
+        let mut events = Vec::new();
+        events.extend(click(1000, 1500, 1400));
+        events.push(event(
+            "caption",
+            10_000,
+            10_000,
+            json!({ "text": "the chart, saved", "duration_ms": 3000 }),
+        ));
+        events.extend(click(20_000, 20_500, 20_400));
+        let active = vec![
+            Span {
+                start: 1400,
+                end: 1600,
+            },
+            Span {
+                start: 20_400,
+                end: 20_600,
+            },
+        ];
+        (events, active)
+    }
+
+    #[test]
+    fn a_caption_is_kept_for_as_long_as_it_shows() {
+        let (events, active) = captioned();
+        for idle in [Idle::Cut, Idle::Speed] {
+            let pieces = idle_pieces(idle, &events, &active, 30_000);
+            for at in (10_000..13_000).step_by(100) {
+                let piece = piece_at(&pieces, at).expect("the caption's picture is kept");
+                assert_eq!(piece.speed, 1.0, "{idle:?} at {at}");
+            }
+            let (cues, _, _) = effects(&pieces, &events, false, video(30_000));
+            let [cue] = &cues[..] else {
+                panic!("one caption is shown");
+            };
+            assert_eq!(cue.end - cue.start, 3000, "{idle:?}");
+        }
+    }
+
+    #[test]
+    fn a_still_picture_while_a_call_waits_is_idle() {
+        let mut events = Vec::new();
+        events.extend(click(37_189, 37_888, 37_700));
+        // The call waited for the tab most of its time, and acted at its end.
+        events.extend(click(44_095, 48_972, 48_819));
+        for at in (48_766..48_962).step_by(15) {
+            events.push(event("move", at, at, json!({ "x": 10, "y": 10 })));
+        }
+        let active = vec![
+            Span {
+                start: 37_190,
+                end: 37_900,
+            },
+            Span {
+                start: 48_773,
+                end: 49_606,
+            },
+        ];
+        let pieces = idle_pieces(Idle::Cut, &events, &active, 52_000);
+        for at in (44_500..48_400).step_by(100) {
+            assert_eq!(piece_at(&pieces, at), None, "kept at {at}");
+        }
+        for at in [37_700, 44_095, 48_819, 49_500] {
+            assert!(piece_at(&pieces, at).is_some(), "cut at {at}");
+        }
+    }
 }

@@ -54,7 +54,7 @@ A recording is a tab's raw video, with the pointer in it, and a journal of what 
 | Option | What it does | Default |
 |---|---|---|
 | `capture` | `continuous` keeps the tab from start to stop; `bursts` keeps only the stretches around what automation did | `continuous` |
-| `idle` | `cut` leaves out the stretches in which nothing happens, `speed` plays them faster; continuous capture only | none |
+| `idle` | `cut` leaves out the stretches in which nothing happens, `speed` plays them faster; a caption is kept at normal speed for as long as it shows; continuous capture only | none |
 | `ripple` | Marks clicks | `false` |
 | `fps` | The edit's frames a second, 1 to 60. The raw video has 60 at most, so more would only repeat them | `60` |
 | `motion_threshold` | The share of the picture, 0 to 1, that must change for something to have happened | `0.0002` |
