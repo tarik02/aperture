@@ -13,6 +13,7 @@ import * as SessionsStoreSql from "@aperture-browser/control/src/sessions/store-
 import * as Settings from "@aperture-browser/control/src/settings/layer.ts";
 import * as SharesStoreSql from "@aperture-browser/control/src/shares/store-sql.ts";
 import * as SnapshotsStoreSql from "@aperture-browser/control/src/snapshots/store-sql.ts";
+import * as V1Credentials from "@aperture-browser/control/src/v1-credentials/layer.ts";
 import * as Vault from "@aperture-browser/control/src/vault/layer.ts";
 import * as WorkspacesStoreSql from "@aperture-browser/control/src/workspaces/store-sql.ts";
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
@@ -28,6 +29,7 @@ const stores = Layer.mergeAll(
   SharesStoreSql.layer,
   SnapshotsStoreSql.layer,
   WorkspacesStoreSql.layer,
+  V1Credentials.layer.pipe(Layer.provide(AccountsStoreSql.layer)),
 ).pipe(Layer.provideMerge(Database.layer));
 
 /**

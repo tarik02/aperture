@@ -178,21 +178,18 @@ suite(needs)("a v1 installation moved into v2", (it) => {
     Effect.gen(function* () {
       const v1 = yield* Fixture.V1;
       before = yield* Fixture.digest(v1.dir);
-      const planned = yield* migrating(
-        {
-          node: Option.none(),
-          nodeStore: Option.none(),
-          tokens: undefined,
-          secretsFile: Option.none(),
-        },
-        (migrator) => migrator.plan(),
-      );
-      expect(
-        planned.conflicts.map((conflict) => `${conflict.what} ${conflict.label}`).sort(),
-      ).toEqual(["node none", ...TOKENS.map((name) => `token ${name}`)]);
-      const applied = yield* Effect.flip(
-        migrating({ tokens: undefined }, (migrator) => migrator.apply()),
-      );
+      const unsaid = {
+        node: Option.none(),
+        nodeStore: Option.none(),
+        tokens: "keep",
+        secretsFile: Option.none(),
+      } as const;
+      const planned = yield* migrating(unsaid, (migrator) => migrator.plan());
+      // Its tokens are kept as they were, which needs nowhere to write a secret.
+      expect(planned.conflicts.map((conflict) => `${conflict.what} ${conflict.label}`)).toEqual([
+        "node none",
+      ]);
+      const applied = yield* Effect.flip(migrating(unsaid, (migrator) => migrator.apply()));
       expect(applied._tag).toBe("NotMappable");
       expect((yield* (yield* admin).accounts.list()).length).toBe(0);
     }),
@@ -285,7 +282,7 @@ suite(needs)("a v1 installation moved into v2", (it) => {
               name: person.name,
               admin: person.admin,
               disabled: person.disabledAt !== null,
-              // Nobody's password came along: each sets one with a setup link.
+              // The recording has no password of anyone's: each sets one with a setup link.
               password: person.signIn?.password,
             }))
             .sort((a, b) => (a.email ?? "").localeCompare(b.email ?? "")),
@@ -648,9 +645,15 @@ suite(needs)("a v1 installation moved into v2", (it) => {
         Effect.provideService(SqlClient.SqlClient, sql),
       );
       expect(tables.length).toBeGreaterThan(10);
-      expect(tables.map((table) => table.name).filter((name) => /moved|v1/u.test(name))).toEqual(
-        [],
-      );
+      // The control plane's table of v1's tokens is empty: these were made anew.
+      expect(tables.map((table) => table.name).filter((name) => /moved|v1/u.test(name))).toEqual([
+        "v1_api_tokens",
+      ]);
+      expect(
+        yield* sql`SELECT * FROM v1_api_tokens`.pipe(
+          Effect.provideService(SqlClient.SqlClient, sql),
+        ),
+      ).toEqual([]);
     }),
   );
 

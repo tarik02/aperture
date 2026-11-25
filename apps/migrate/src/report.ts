@@ -3,9 +3,9 @@ import type { Named, Plan, Step } from "./plan.ts";
 const said = (step: Step) => {
   switch (step.kind) {
     case "person":
-      return `person ${step.name} <${step.email}>${step.admin ? ", an admin" : ""}${step.disabledAt === null ? "" : ", disabled"}: sets a password with a setup link`;
+      return `person ${step.name} <${step.email}>${step.admin ? ", an admin" : ""}${step.disabledAt === null ? "" : ", disabled"}: ${step.password === null ? "sets a password with a setup link" : "signs in with their password of v1"}${step.secondFactor === null ? "" : ", and their second factor"}`;
     case "bearer":
-      return `service account ${step.name}${step.admin ? ", an admin" : ""}: the bearer of the tokens made anew`;
+      return `service account ${step.name}${step.admin ? ", an admin" : ""}: the bearer of the tokens moved`;
     case "workspace":
       return `workspace ${step.name}`;
     case "member":
@@ -15,7 +15,7 @@ const said = (step: Step) => {
     case "session":
       return `session ${step.label ?? step.id}, ${step.workspaceId === null ? "its owner's own" : "its workspace's"}, suspended${step.wasRunning ? ": it ran when v1 stopped, and is as its browser left it" : ""}`;
     case "token":
-      return `token ${step.name}, anew: ${step.scopes.join(" ")}${step.resources === null ? "" : `, held to ${step.resources.sessions.length} sessions and ${step.resources.snapshots.length} snapshots`}`;
+      return `token ${step.name}, ${step.digest === null ? "anew" : "as it was"}: ${step.scopes.join(" ")}${step.resources === null ? "" : `, held to ${step.resources.sessions.length} sessions and ${step.resources.snapshots.length} snapshots`}`;
   }
 };
 

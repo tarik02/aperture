@@ -96,6 +96,9 @@ catalogs:
     '@vitejs/plugin-react':
       specifier: ^6.0.3
       version: 6.3.0
+    bcryptjs:
+      specifier: 3.0.3
+      version: 3.0.3
     better-auth:
       specifier: 1.7.25
       version: 1.7.25
@@ -300,6 +303,9 @@ importers:
       '@effect/sql-pg':
         specifier: 'catalog:'
         version: 4.0.0(effect@4.0.0)
+      bcryptjs:
+        specifier: 'catalog:'
+        version: 3.0.3
       better-auth:
         specifier: 'catalog:'
         version: 1.7.25(@tanstack/react-start@1.169.7(@voidzero-dev/vite-plus-core@0.2.4(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(typescript@5.4.5)(yaml@2.9.1))(esbuild@0.28.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(pg@8.23.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(vitest@4.1.10)(vue@3.5.46(typescript@5.4.5))
@@ -425,6 +431,9 @@ importers:
       '@effect/sql-sqlite-node':
         specifier: 'catalog:'
         version: 4.0.0(effect@4.0.0)
+      bcryptjs:
+        specifier: 'catalog:'
+        version: 3.0.3
       better-auth:
         specifier: 'catalog:'
         version: 1.7.25(@tanstack/react-start@1.169.7(@voidzero-dev/vite-plus-core@0.2.4(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(typescript@6.0.3)(yaml@2.9.1))(esbuild@0.28.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(pg@8.23.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(vitest@4.1.10)(vue@3.5.46(typescript@6.0.3))
@@ -3428,6 +3437,10 @@ packages:
   baseline-browser-mapping@2.11.39:
     resolution: {integrity: sha512-Q9buOYhr2ggrEZpImICecZTJHCCd8yXkRUokFlUEQ8uiD6oP82F4W4jWnhOHZYV+wlvrC51V7Wy0ULyWjil5Wg==}
     engines: {node: '>=6.0.0'}
+    hasBin: true
+
+  bcryptjs@3.0.3:
+    resolution: {integrity: sha512-GlF5wPWnSa/X5LKM1o0wz0suXIINz1iHRLvTS+sLyi7XPbe5ycmYI3DlZqVGZZtDgl4DmasFg7gOB3JYbphV5g==}
     hasBin: true
 
   better-auth@1.7.25:
@@ -8437,6 +8450,8 @@ snapshots:
   bail@2.0.2: {}
 
   baseline-browser-mapping@2.11.39: {}
+
+  bcryptjs@3.0.3: {}
 
   better-auth@1.7.25(@tanstack/react-start@1.169.7(@voidzero-dev/vite-plus-core@0.2.4(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(typescript@5.4.5)(yaml@2.9.1))(esbuild@0.28.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(pg@8.23.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(vitest@4.1.10)(vue@3.5.46(typescript@5.4.5)):
     dependencies:

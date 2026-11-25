@@ -2,12 +2,14 @@ import { suite } from "@aperture-browser/e2e/src/suite.ts";
 import { expect } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Hex from "effect/encoding/Hex";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as Schema from "effect/Schema";
 import * as Control from "./src/control.ts";
 import { cookiesOf, signedIn } from "./src/person.ts";
 import { totp } from "./src/totp.ts";
+import { V1_PASSWORD, V1_PASSWORD_DIGEST, V1_TOKEN_DIGEST, V1_TOKEN_SECRET } from "./src/v1.ts";
 
 const OpenApi = Schema.Struct({
   openapi: Schema.String,
@@ -1193,6 +1195,83 @@ suite(Control.layer())("accounts and their tokens", (it) => {
           payload: { role: "member" },
         });
         expect((yield* places(robot.id)).length).toBe(2);
+      }),
+  );
+
+  it.effect(
+    "a token and a password of Aperture v1 work as they did, and are v2's own once used",
+    () =>
+      Effect.gen(function* () {
+        const control = yield* Control.Control;
+        const http = yield* HttpClient.HttpClient;
+        const { sql } = control;
+        const bootstrap = yield* control.as(control.bootstrapToken);
+        // As `aperture-migrate` keeps them, with digests v1's own libraries made.
+        const email = "ines@example.test";
+        const ines = yield* bootstrap.accounts.create({ payload: { name: "Ines", email } });
+        const tokenId = "01a20451-db73-7464-b8a6-a2feec7bb696";
+        const bearer = `apt_${tokenId}_${V1_TOKEN_SECRET}`;
+        yield* sql`
+          INSERT INTO api_tokens (id, account_id, name, token_hash, created_at, scopes)
+          VALUES (${tokenId}, ${ines.id}, 'from v1', ${`v1:${tokenId}`}, now(), '["sessions:read"]')
+        `;
+        yield* sql`INSERT INTO v1_api_tokens (token_id, digest) VALUES (${tokenId}, ${V1_TOKEN_DIGEST})`;
+        const [person] = yield* sql<{
+          readonly id: string;
+        }>`SELECT id FROM "user" WHERE email = ${email}`;
+        yield* sql`
+          INSERT INTO account (id, "accountId", "providerId", "userId", password, "createdAt", "updatedAt")
+          VALUES ('from-v1', ${person!.id}, 'credential', ${person!.id}, ${V1_PASSWORD_DIGEST}, now(), now())
+        `;
+        const digestOfToken = sql<{ readonly digest: string }>`
+          SELECT token_hash AS digest FROM api_tokens WHERE id = ${tokenId}
+        `.pipe(Effect.map(([row]) => row?.digest));
+        const left = sql`SELECT * FROM v1_api_tokens`.pipe(Effect.map((rows) => rows.length));
+
+        // A token whose secret is not the one v1 made is none, and nothing is changed by it.
+        const wrong = yield* control.request(
+          `apt_${tokenId}_${V1_TOKEN_SECRET}x`,
+          "GET",
+          "/api/control/account",
+        );
+        expect(wrong.status).toBe(401);
+        expect(yield* left).toBe(1);
+
+        const held = yield* control.as(bearer);
+        expect(yield* held.accounts.current()).toMatchObject({
+          id: ines.id,
+          scopes: ["sessions:read"],
+        });
+        // Found by its digest from then on, as any token of v2.
+        const hashed = Hex.encode(
+          new Uint8Array(
+            yield* Effect.promise(() =>
+              crypto.subtle.digest("SHA-256", new TextEncoder().encode(bearer)),
+            ),
+          ),
+        );
+        expect(yield* digestOfToken).toBe(hashed);
+        expect(yield* left).toBe(0);
+        expect((yield* held.accounts.current()).id).toBe(ines.id);
+
+        const signIn = (password: string) =>
+          http.execute(
+            HttpClientRequest.post(`${control.url}/api/auth/sign-in/email`).pipe(
+              HttpClientRequest.setHeader("origin", control.url),
+              HttpClientRequest.bodyJsonUnsafe({ email, password }),
+            ),
+          );
+        const passwordKept = sql<{ readonly password: string }>`
+          SELECT password FROM account WHERE "userId" = ${person!.id}
+        `.pipe(Effect.map(([row]) => row?.password ?? ""));
+        expect((yield* signIn("not hers")).status).toBe(401);
+        expect(yield* passwordKept).toBe(V1_PASSWORD_DIGEST);
+        expect((yield* signIn(V1_PASSWORD)).status).toBe(200);
+        const replaced = yield* passwordKept;
+        expect(replaced).not.toMatch(/^\$argon2id\$/u);
+        expect((yield* signIn(V1_PASSWORD)).status).toBe(200);
+        expect((yield* signIn("not hers")).status).toBe(401);
+        expect(yield* passwordKept).toBe(replaced);
       }),
   );
 

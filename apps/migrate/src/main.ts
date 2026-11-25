@@ -38,11 +38,11 @@ const flags = {
     Flag.withDescription("That node's APERTURE_DATA_DIR, on this machine"),
     Flag.optional,
   ),
-  tokens: Flag.Literals("tokens", ["reissue", "drop"]).pipe(
+  tokens: Flag.Literals("tokens", ["keep", "reissue", "drop"]).pipe(
     Flag.withDescription(
-      "What becomes of v1's API tokens, none of which v2 can check: new ones in their place, or none",
+      "What becomes of v1's API tokens: each works as it did, a new one is in its place, or none is",
     ),
-    Flag.optional,
+    Flag.withDefault("keep"),
   ),
   secretsFile: Flag.String("secrets-file").pipe(
     Flag.withDescription(
@@ -60,7 +60,6 @@ type Flags = Command.Command.Config.Infer<typeof flags>;
 
 const asked = (given: Flags): App.Asked => ({
   ...given,
-  tokens: Option.getOrUndefined(given.tokens),
   sessions: Option.getOrUndefined(given.sessions),
 });
 

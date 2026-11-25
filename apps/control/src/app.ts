@@ -41,6 +41,7 @@ import * as SessionsStoreSql from "./sessions/store-sql.ts";
 import * as Snapshots from "./snapshots/layer.ts";
 import * as SnapshotsStoreSql from "./snapshots/store-sql.ts";
 import * as Tickets from "./tickets/layer.ts";
+import * as V1Credentials from "./v1-credentials/layer.ts";
 import * as Vault from "./vault/layer.ts";
 import * as Workspaces from "./workspaces/layer.ts";
 import * as WorkspacesStoreSql from "./workspaces/store-sql.ts";
@@ -56,6 +57,7 @@ export const stores = Layer.mergeAll(
   SharesStoreSql.layer,
   SnapshotsStoreSql.layer,
   WorkspacesStoreSql.layer,
+  V1Credentials.layer.pipe(Layer.provide(AccountsStoreSql.layer)),
 ).pipe(Layer.provide(Database.layer));
 
 /** What the control plane knows and does, whoever asks: over HTTP, or by itself. */
@@ -108,6 +110,7 @@ const serving = Layer.mergeAll(
   ),
   Following.layer,
   FirstAdmin.layer,
+  V1Credentials.announce,
   Forgetting.layer,
   EventsForgetting.layer,
 ).pipe(Layer.provide(services));

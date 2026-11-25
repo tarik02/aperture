@@ -1,8 +1,8 @@
 # Upgrading from v1
 
-v2 is a rewrite. It shares no API, no protocol and no credential with v1, and there is no compatibility layer: nothing in v2 answers v1's routes, takes v1's tokens or speaks v1's session protocol. That was decided, not left undone.
+v2 is a rewrite. It shares no API and no protocol with v1, and there is no compatibility layer: nothing in v2 answers v1's routes or speaks v1's session protocol. That was decided, not left undone.
 
-What does carry over is **data**. A one-time migrator moves accounts, tenants, snapshots and sessions into v2 and keeps their ids. Everything that talks to Aperture (scripts, MCP configurations, embedding pages, agents' skills) is changed by hand, with this page as the map.
+What does carry over is **data**. A one-time migrator moves accounts, tenants, snapshots and sessions into v2 and keeps their ids. It also keeps, for a while, what people and scripts prove themselves with: v1's API tokens, passwords and second factors go on working, so that nobody is handed new ones on the day of the move ([below](#v1s-credentials-kept-for-a-while)). Everything that talks to Aperture (scripts, MCP configurations, embedding pages, agents' skills) is still changed by hand, with this page as the map.
 
 ## v1 concept → v2 concept
 
@@ -15,7 +15,7 @@ What does carry over is **data**. A one-time migrator moves accounts, tenants, s
 | Membership with scopes per tenant | Role `member` or `admin` per workspace | |
 | Tenant token | Service account with API tokens, let into workspaces | A token is always some account's |
 | System-admin token, choosing a tenant with `X-Aperture-Tenant-Id` | An admin's token, or the bootstrap token | No header: `workspaceId` is a field of the request |
-| API token `apt_…` | API token `apc_…` | Reissued; see below |
+| API token `apt_…` | API token `apc_…` | An `apt_…` token keeps working, for a while; new ones are `apc_…`. See below |
 | Session token `aps_…`, one per session | Ticket: signed, short-lived, any number, each with its own access | Nothing durable to store. Ask for a fresh one |
 | Editor and viewer capabilities `ape_…`, `apv_…` | Share links, `watch` or `control`, named, expiring, revocable | A guest gets the workbench alone |
 | Roles `owner`, `editor`, `viewer` | Access by area: `input`, `tabs`, `lease`, `sound`, `clipboard`, `uploads`, `downloads`, `recordings`, `proxy`, `mcp`, `cdp`, `tunnel` | |
@@ -33,7 +33,7 @@ What does carry over is **data**. A one-time migrator moves accounts, tenants, s
 - **Deployment.** v1 was one program and one image. v2 is the control plane, a proxy and one or more nodes, installed by the flake's NixOS modules. There is no single image of all of v2.
 - **The image changed name and meaning.** v1's `ghcr.io/tarik02/aperture` was the whole server. v2 publishes `ghcr.io/tarik02/aperture-session`, which is one session with no control plane. Pulling the old name gets v1, for as long as it is there. See [Container image](install.md#container-image).
 - **The database.** SQLite becomes PostgreSQL. The migrator reads the first and writes the second.
-- **Sign-in.** No password, passkey, second factor or provider identity is moved. An admin gives each person a setup link; providers are configured again ([Configuration](configuration.md#sign-in-providers)), and a provider's client needs the new redirect address `<publicUrl>/api/auth/callback/<id>`.
+- **Sign-in.** A person's password and authenticator come along, and sign them in as in v1. Recovery codes, passkeys and provider identities do not: whoever had recovery codes makes new ones, a passkey is added again, a person with no password gets a setup link from an admin, and providers are configured again ([Configuration](configuration.md#sign-in-providers)). A provider's client needs the new redirect address `<publicUrl>/api/auth/callback/<id>`.
 - **Web sessions, OAuth clients and grants** are not moved. Everyone signs in again, and every MCP client that used OAuth registers and is approved again.
 - **The command-line client is gone.** v1's `aperture` CLI was a client of v1's API and has no successor. `aperture-tunnel` stays, with a v2 address and credential.
 - **Addresses.** The API moved from `/api/*` to `/api/control/*`, its description from `/openapi.json` to `/api/control/openapi.json`, health from `/api/health` to `/api/control/health`. A session's own routes moved from `/sessions/<id>/…` to `/n/<node>/sessions/<id>/…`, and that path changes when a session moves to another node: read `path` from the session. The console keeps `/-/sessions/<id>`, so saved links to a migrated session still open it.
@@ -45,8 +45,7 @@ What does carry over is **data**. A one-time migrator moves accounts, tenants, s
 ```sh
 nix run github:tarik02/aperture/v<version>#aperture-migrate -- plan \
   --v1-database /var/lib/aperture/aperture.db \
-  --node node-a --node-store /var/lib/aperture-node \
-  --tokens reissue --secrets-file ./v1-tokens.jsonl
+  --node node-a --node-store /var/lib/aperture-node
 ```
 
 `plan` moves nothing. It prints what would be made, what is left in v1 and why, what is moved and is not quite what it was, and what is in the way, and exits 1 while anything is in the way. `apply`, with the same flags, does what the plan says a step at a time; run again, it goes on where it stopped.
@@ -60,20 +59,44 @@ Before running it:
 
 | It moves | As |
 |---|---|
-| Users with an email address | Accounts, with the same id, name, address, admin and disabled state, and no way to sign in until they open a setup link |
+| Users with an email address | Accounts, with the same id, name, address, admin and disabled state, their password and their authenticator. One who had no password signs in once they open a setup link |
 | Shared tenants | Workspaces with the tenant's id and name. A member who had `tenant:write` is its admin |
 | Personal tenants | Nothing of their own: what they had becomes their owner's |
 | Snapshots | Snapshots on the node named, with name, description and tags, the profile copied whole |
 | Sessions, with their routing and files | **Suspended** sessions on the node named. One that was running when v1 stopped comes back as after a crash. `--sessions drop` leaves them all behind |
-| API tokens | With `--tokens reissue`, **new** tokens with the old ids, scopes and restrictions, their secrets written to `--secrets-file`. With `--tokens drop`, none. Without the flag every live token is in the way |
+| API tokens | Tokens with the old ids, scopes and restrictions. By default (`--tokens keep`) each is the token it was, and its `apt_…` secret works. With `--tokens reissue` they are **new** tokens instead, their secrets written to `--secrets-file`; with `--tokens drop`, there are none |
 
-It does not move: passwords, passkeys, second factors, provider identities, invitations, web sessions, OAuth clients and grants, session tokens and sharing capabilities, events, and whatever v1 had already deleted. v1's recordings come along as plain files of their sessions and are not in v2's list of recordings.
+It does not move: recovery codes, passkeys, provider identities, invitations, web sessions, OAuth clients and grants, session tokens and sharing capabilities, events, and whatever v1 had already deleted. v1's recordings come along as plain files of their sessions and are not in v2's list of recordings.
 
-**Tokens cannot be carried over**, only replaced. v1 keeps a token as a bcrypt digest of part of it and v2 finds a token by the SHA-256 of all of it, so nothing v1 has can be turned into a token v2 accepts. Hand each holder their new token from the secrets file, then delete the file. A tenant's tokens, which were nobody's, are borne by a service account named `<tenant> tokens (from v1)`.
+A tenant's tokens, which were nobody's, are borne by a service account named `<tenant> tokens (from v1)`. With `--tokens reissue`, hand each holder their new token from the secrets file, then delete the file.
 
 **Ids are kept.** A person, a workspace and a token have v1's UUID as it is; a snapshot and a session have it without its dashes, which is how v2 writes them everywhere.
 
 [`apps/migrate/README.md`](../apps/migrate/README.md) has every flag, and what becomes of each thing in full.
+
+## v1's credentials, kept for a while
+
+v1 and v2 keep secrets differently: v1 a token as a bcrypt digest of the part after its id and a password as Argon2id, v2 a token as the SHA-256 of all of it and a password as better-auth's scrypt. So what the migrator brings along is kept as v1 kept it, apart from v2's own, and checked as v1 checked it **once**: the first time a token is used or a person signs in with their password, it is kept as v2 keeps its own, and nothing of v1's is left of it. A second factor needs no such step: its secret was v1's in the clear, and the migrator seals it as v2 seals one.
+
+This is **temporary by design**. Some beta after this one removes it, the table `v1_api_tokens` with it, and then a v1 token nobody used is none, and a person who never signed in since needs a setup link. Before then:
+
+- Have every holder of an `apt_…` token use it once, or better, make an `apc_…` token in its place and revoke the old one.
+- Have everyone with a password sign in once.
+
+The control plane says at every start how much is left, until nothing is:
+
+```
+kept as Aperture v1 kept them, until they are first used: 3 API tokens, 2 passwords
+```
+
+Revoked and expired tokens are not counted. The same, asked of the database:
+
+```sql
+SELECT count(*) FROM v1_api_tokens;
+SELECT count(*) FROM account WHERE "providerId" = 'credential' AND password LIKE '$argon2id$%';
+```
+
+Recovery codes are not among what is kept: v1 kept only a SHA-256 of each, which no code can be got back from, and v2 checks them otherwise. Whoever has a second factor makes new ones in the console.
 
 ## For an API consumer
 
@@ -81,7 +104,7 @@ Nothing works unchanged. In the order a script meets it:
 
 | | v1 | v2 |
 |---|---|---|
-| Token | `apt_…` | `apc_…`, reissued |
+| Token | `apt_…` | `apc_…`. A migrated `apt_…` token works [for a while](#v1s-credentials-kept-for-a-while) |
 | Scopes | `sessions:read/write`, `snapshots:read/write`, `tenant:write`, `tenants:write`, `system:admin` | `sessions:read/write`, `snapshots:read/write`, `workspaces:read/write`, `tokens:write`, `events:read`, `admin` |
 | Base path | `/api` | `/api/control` |
 | Errors | `{"error": {"code", "message"}}` | `{"_tag": "SessionNotFound", …}`, with fields of the tag's own |

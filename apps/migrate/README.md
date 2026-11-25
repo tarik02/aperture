@@ -25,8 +25,7 @@ writes v2 with the control plane's own code, and a node's store on this machine.
 ```sh
 aperture-migrate plan \
   --v1-database /var/lib/aperture/aperture.db \
-  --node node-a --node-store /var/lib/aperture-v2 \
-  --tokens reissue --secrets-file ./v1-tokens.jsonl
+  --node node-a --node-store /var/lib/aperture-v2
 
 aperture-migrate apply …the same flags…
 ```
@@ -44,8 +43,8 @@ schema first.
 | `--v1-cold-root` | v1's `cold_root`, where its snapshots and its sessions' files are; the database's directory without |
 | `--v1-store-root` | v1's `store_root`, where its sessions' profiles are; the cold root without |
 | `--node`, `--node-store` | the node that takes the snapshots and sessions, by the name it registered with, and its `APERTURE_DATA_DIR` |
-| `--tokens reissue\|drop` | see below; without it every live token is in the way |
-| `--secrets-file` | where the new tokens' secrets go, a line of JSON each, mode 0600 |
+| `--tokens keep\|reissue\|drop` | see below; `keep` without it |
+| `--secrets-file` | with `--tokens reissue`, where the new tokens' secrets go, a line of JSON each, mode 0600 |
 | `--sessions drop` | leaves v1's sessions behind, with their files and recordings; without it they are moved |
 
 ## Ids
@@ -66,7 +65,7 @@ then no more.
 
 | v1 | v2 |
 | --- | --- |
-| user with an email address | a person's account: same id, name, address, admin, disabled. No password, passkey or second factor comes along: an admin gives each a setup link. One whose address v2 already has is that account, which stays as it is, id and all |
+| user with an email address | a person's account: same id, name, address, admin, disabled, with their password and their authenticator. See below. No passkey comes along, nor a recovery code; one who had no password is given a setup link by an admin. One whose address v2 already has is that account, which stays as it is, id and all, and signs in as it does |
 | shared tenant | a workspace with the tenant's id and name; a member whose scopes had `tenant:write` is its admin |
 | personal tenant | nothing: what it had is its owner's own |
 | snapshot | a snapshot on the node named, with its name, description and tags. A shared tenant's is the workspace's, and names no account as its maker: v1 says of none who made it. A personal tenant's is its owner's own. The profile is copied whole, as one layer |
@@ -74,22 +73,32 @@ then no more.
 | session that was running when v1 stopped | the same, as its browser left it |
 | session's routing | the session's routing: upstreams and rules are written alike in both. A rule whose match names an IPv6 address is left out and told in the plan |
 | session's files, recordings among them | the session's files, under the same paths |
-| API token | with `--tokens reissue`, a **new** token with v1's id, its scopes and the sessions and snapshots it was held to. See below for whose it is |
+| API token | a token with v1's id, its scopes and the sessions and snapshots it was held to: the same token with `--tokens keep`, a **new** one with `--tokens reissue`. See below for whose it is |
 
 Left in v1, and told in the plan: deleted tenants, snapshots and sessions, sessions v1
-never finished creating, revoked and expired tokens, passwords, second factors, passkeys,
-provider identities, invitations, web sessions, OAuth clients, grants and tokens, session
-tokens and sharing capabilities (v2 lets into a session by tickets and share links),
-events and audit events.
+never finished creating, revoked and expired tokens, recovery codes, passkeys, provider
+identities, invitations, web sessions, OAuth clients, grants and tokens, session tokens
+and sharing capabilities (v2 lets into a session by tickets and share links), events and
+audit events.
 
-**Tokens.** v1 keeps a token as a bcrypt digest of part of it, and v2 finds a token by
-the SHA-256 of all of it, so no v1 token works in v2 and none can be made to from what v1
-has. Whoever holds one is given a new one from the secrets file.
+**Passwords, second factors and tokens.** v1 keeps a token as a bcrypt digest of what
+follows its id, and v2 finds a token by the SHA-256 of all of it; v1 keeps a password as
+Argon2id, and v2 as scrypt. So with `--tokens keep` a token is written as v2's with v1's
+digest beside it, in the control plane's table `v1_api_tokens`, and a password as v1's
+digest. The control plane checks each as v1 did the first time it is used, and from then
+on keeps it as its own (`apps/control/src/v1-credentials/`). An authenticator's secret,
+which v1 kept as it is, is sealed as v2 seals one and needs nothing more; v1's recovery
+codes, of which it kept only a SHA-256, cannot come along. This is for a while: a later
+beta removes what reads v1's digests, after which a token or a password nobody used is
+none. The control plane logs at every start how many are left;
+[Upgrading from v1](../../docs/upgrading-from-v1.md#v1s-credentials-kept-for-a-while)
+says what to do before then. With `--tokens reissue`, whoever holds a token is given a
+new one from the secrets file instead.
 
 A token of v2 is always some account's. A shared tenant's were nobody's, so a service
 account bears them: `<tenant> tokens (from v1)`, a member of the workspace, and its admin
 where one of the tokens had `tenant:write`. It is made only for a tenant that has tokens
-to make anew, has the tenant's id, and is of nothing else: the tenant's snapshots and
+to move, has the tenant's id, and is of nothing else: the tenant's snapshots and
 sessions are the workspace's. A system administrator's tokens are of the admin service
 account `Admin tokens (from v1)`, whose id is made of v1's installation id. A personal
 tenant's are its owner's own, and reach what their owner reaches: the workspaces they are
@@ -128,10 +137,12 @@ snapshot, which has all of that in its profile.
 
 ## Checks
 
-`pnpm test` here runs the mapping's own checks and one end to end: a v1 that
-`tests/fixture/record.sh` recorded from a real v1 (run from its image, signed in to a
+`pnpm test` here runs the mapping's own checks and two end to end. The first moves a v1
+that `tests/fixture/record.sh` recorded from a real v1 (run from its image, signed in to a
 site, with a suspended session that has a file, a recording and routing, one of a
-personal tenant, and one left running above a snapshot) is moved into a control plane on
-a database of its own and a node from `target/debug`. A session created from the migrated
-snapshot is signed in, and the migrated sessions resume signed in, with their pages and
-files.
+personal tenant, and one left running above a snapshot) into a control plane on a
+database of its own and a node from `target/debug`, with its tokens made anew. A session
+created from the migrated snapshot is signed in, and the migrated sessions resume signed
+in, with their pages and files. The second moves the same v1 with its tokens kept, given
+passwords, a second factor and a token whose secret is known, made by v1's own libraries,
+and signs in and calls with them.

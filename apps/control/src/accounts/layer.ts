@@ -33,6 +33,7 @@ import * as Secrets from "../secrets.ts";
 import { guestsOf, type Share } from "../shares/schemas.ts";
 import { SharesStore } from "../shares/store.ts";
 import { Settings } from "../settings/service.ts";
+import { V1Credentials } from "../v1-credentials/service.ts";
 import { Vault } from "../vault/service.ts";
 import { after, now } from "../time.ts";
 import { accountOf, reaches } from "./caller.ts";
@@ -79,6 +80,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
   const settings = yield* Settings;
   const events = yield* Events;
   const vault = yield* Vault;
+  const v1 = yield* V1Credentials;
   const crypto = yield* Effect.context<Crypto.Crypto>();
   const bootstrap = yield* Secrets.hash(Redacted.value(settings.bootstrapToken));
 
@@ -480,6 +482,7 @@ export const makeAccounts = Effect.fn("Accounts.make")(function* () {
   }, Effect.provide(crypto));
 
   const identify = Effect.fn("Accounts.identify")(function* (bearer: string) {
+    yield* v1.convertToken(bearer);
     const hashed = yield* Secrets.hash(bearer);
     // Digests are compared, so how long it takes tells nothing of the token.
     if (hashed === bootstrap) {
