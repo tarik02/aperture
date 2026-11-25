@@ -373,9 +373,11 @@ impl Handle {
     }
 
     /// Tags the next window that opens with `tag`, so whoever is about to make the client
-    /// open one can tell it from the others. One window is expected at a time.
-    pub fn expect(&self, tag: String) {
-        self.submit(move |state| state.expected = Some(tag));
+    /// open one can tell it from the others. One window is expected at a time. Done once
+    /// the compositor has the tag: a window the client is asked to open after it would
+    /// otherwise come to the compositor first now and then, and open untagged.
+    pub async fn expect(&self, tag: String) -> Result<(), Error> {
+        self.call(move |state| state.expected = Some(tag)).await
     }
 
     /// Stops expecting the window tagged `tag`, when it has not opened yet.

@@ -541,7 +541,7 @@ impl Inner {
     async fn handle(&self, kind: Kind) -> anyhow::Result<()> {
         match kind {
             Kind::Prepare { nonce } => {
-                self.compositor.expect(nonce);
+                self.compositor.expect(nonce).await?;
                 Ok(())
             }
             Kind::Cancel { nonce } => {
