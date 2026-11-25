@@ -251,7 +251,8 @@ impl Client {
                         return Ok(());
                     }
                     self.send_targets().await?;
-                    if self.select(None).await? {
+                    // A client watches nothing before its hello says which tab it would.
+                    if self.greeted && self.select(None).await? {
                         self.send_selected().await?;
                     }
                 }
