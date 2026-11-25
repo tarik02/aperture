@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Mcp from "../src/mcp.ts";
 import * as Runner from "../src/runner.ts";
+import * as Site from "../src/site.ts";
 import { suite } from "../src/suite.ts";
 import { type Page, ready, snapshot, Viewer } from "../src/viewer.ts";
 import * as ViewerLive from "../src/viewer.ts";
@@ -27,7 +28,13 @@ import {
   selectTab,
 } from "../src/workbench.ts";
 
-const session = Layer.mergeAll(Runner.layer({ features: EVERY_FEATURE }), ViewerLive.layer);
+const session = Layer.mergeAll(
+  Runner.layer({
+    features: EVERY_FEATURE,
+    args: ["--egress-allow", "127.0.0.1", "--egress-allow", "::1"],
+  }),
+  ViewerLive.layer,
+);
 
 const LINKED = "https://example.com/?from=link";
 
@@ -243,6 +250,41 @@ suite(session)("the workbench's menus and the clipboard", (it) => {
         yield* escape(page);
         expect(yield* comes(page, "s.menu === undefined")).toBe(true);
       }),
+  );
+
+  it.effect("a right click in a frame of another site shows the page menu with Copy", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        let port = 0;
+        const site = yield* Site.serve(
+          Site.by((request) =>
+            request.url === "/framed"
+              ? Site.html(
+                  `<body style="margin:0"><p style="margin:0;font-size:30px">framed words</p></body>`,
+                )
+              : Site.html(
+                  `<title>framing</title><body style="margin:0"><iframe src="http://localhost:${port}/framed" onload="document.title = 'framed'" style="position:absolute;left:100px;top:400px;width:400px;height:100px;border:0"></iframe></body>`,
+                ),
+          ),
+        );
+        port = site.port;
+        const framing = yield* openByAutomation(mcp, `${site.url}/`);
+        expect(yield* selectTab(page, framing)).toBe(true);
+        const framed = `s.targets.some((target) => target.tab === ${framing} && target.title === "framed")`;
+        expect(yield* comes(page, framed, "20 seconds")).toBe(true);
+
+        // "framed", a word of the frame's, in the tab.
+        yield* doubleClickPicture(page, 140, 417);
+        yield* clickPicture(page, 140, 417, "right");
+        expect(yield* comes(page, "s.menu !== undefined")).toBe(true);
+        expect(String(yield* snapshot(page, "s.menu.text ?? null")).trim()).toBe("framed");
+        yield* page.rests(menuItem("Copy"));
+        yield* escape(page);
+        expect(yield* comes(page, "s.menu === undefined")).toBe(true);
+        expect(yield* closeTab(page, framing)).toBe(true);
+        expect(yield* selectTab(page, linking)).toBe(true);
+      }),
+    ),
   );
 
   it.effect("the browser menu offers to copy from the session", () =>
