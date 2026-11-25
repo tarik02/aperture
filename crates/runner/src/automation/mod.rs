@@ -48,7 +48,8 @@ use crate::{
     targets::Target,
 };
 
-const TAB_READY_WITHIN: Duration = Duration::from_secs(15);
+/// Long enough for a tab the extension did not give a window to be opened again in one.
+const TAB_READY_WITHIN: Duration = Duration::from_secs(25);
 const LOAD_WITHIN: Duration = Duration::from_secs(30);
 /// A caller is in the session until they called nothing for this long: an agent thinks
 /// between its calls, and is not gone meanwhile.
@@ -141,6 +142,7 @@ impl Automation {
         let session = Arc::new(Session {
             browser,
             targets: targets.clone(),
+            shown: shown.clone(),
             recordings: recordings.clone(),
             pace: pace.clone(),
             tabs: Mutex::default(),
@@ -345,6 +347,7 @@ async fn settle(callers: Weak<Mutex<HashMap<String, Calling>>>) {
 struct Session {
     browser: cdp::Client,
     targets: watch::Receiver<Vec<Target>>,
+    shown: crate::targets::Tabs,
     recordings: Recordings,
     pace: Paced,
     tabs: Mutex<Tabs>,
@@ -466,10 +469,12 @@ impl Browser for Session {
             .context("the browser opened no tab")?
             .to_owned();
 
-        // The page is a target once the extension gave it a window of its own.
+        // The page is a target once the extension gave it a window of its own, or once it
+        // was opened again in one where the extension did not.
         let mut targets = self.targets.clone();
         let ready = async {
             loop {
+                let id = self.shown.known_as(&id);
                 if targets
                     .borrow_and_update()
                     .iter()
@@ -485,6 +490,7 @@ impl Browser for Session {
         timeout(TAB_READY_WITHIN, ready)
             .await
             .context("the new tab did not get a window of its own")?;
+        let id = self.shown.known_as(&id);
         let opened = self
             .targets
             .borrow()

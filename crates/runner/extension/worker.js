@@ -194,6 +194,13 @@ const tap = async (tab) => {
   }
 };
 
+// A profile keeps the worker of the build that ran in it last, whose script has another
+// name, as the active one until this one takes its place. Chromium refuses to start that
+// one, whose script the manifest no longer names, and this one would wait behind it for
+// as long as a page of the extension it holds is open, such as the one that holds the
+// taps: every event until the browser restarts would go to a worker that never starts.
+self.addEventListener("install", () => self.skipWaiting());
+
 // Chromium only delivers the events that woke the worker to listeners added while the
 // script first runs, so these are added here, at once.
 chrome.runtime.onConnect.addListener((taps) => {

@@ -19,6 +19,11 @@ export interface RunnerOptions {
   readonly features?: readonly string[];
   /** More arguments for `aperture-runner serve`. */
   readonly args?: readonly string[];
+  /**
+   * A directory of the check's own, for a session that starts with what is below it: the
+   * session's data is `session` below it, its profile `session/profile`.
+   */
+  readonly dir?: string;
 }
 
 /** A target as the session's `targets` route tells it. */
@@ -71,7 +76,7 @@ export const start = Effect.fn("Runner.start")(function* (options: RunnerOptions
   const fs = yield* FileSystem.FileSystem;
   const http = yield* HttpClient.HttpClient;
   const webSockets = yield* Socket.WebSocketConstructor;
-  const dir = yield* directory;
+  const dir = options.dir ?? (yield* directory);
   const features = (options.features ?? []).flatMap((feature) => ["--feature", feature]);
   const runner = yield* run(yield* program("aperture-runner"), [
     "serve",
