@@ -1,6 +1,6 @@
 import { cn } from "@aperture-browser/ui/utils";
 import { AppWindow } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type Session, useSessionTargetsQuery } from "#/features/session/session.queries.ts";
 
 /** Where the picture of what a session shows is: now, while it runs, and last, while it rests. */
@@ -27,11 +27,53 @@ type SessionPictureProps = {
   markClassName?: string;
 };
 
+/**
+ * The picture at the address, once it has come: the one before stays until then, so that a
+ * picture asked for anew does not blink out while it loads. One that does not come leaves the
+ * one before where there is one.
+ */
+function useLoaded(source: string | undefined) {
+  const [loaded, setLoaded] = useState<string>();
+  const shown = useRef<string>(undefined);
+  useEffect(() => {
+    if (source === undefined) {
+      return undefined;
+    }
+    // Fetched in place of preloaded: a picture its session will not have kept is asked for
+    // anew when an image is pointed at it, and blinks out all the same.
+    const asking = new AbortController();
+    void fetch(source, { signal: asking.signal })
+      .then((answer) => (answer.ok ? answer.blob() : undefined))
+      .then((picture) => {
+        if (picture === undefined || asking.signal.aborted) {
+          return;
+        }
+        const before = shown.current;
+        shown.current = URL.createObjectURL(picture);
+        setLoaded(shown.current);
+        // Let go once the new one is drawn in its place.
+        if (before !== undefined) {
+          requestAnimationFrame(() => requestAnimationFrame(() => URL.revokeObjectURL(before)));
+        }
+      })
+      .catch(() => undefined);
+    return () => asking.abort();
+  }, [source]);
+  useEffect(
+    () => () => {
+      if (shown.current !== undefined) {
+        URL.revokeObjectURL(shown.current);
+      }
+    },
+    [],
+  );
+  return loaded;
+}
+
 /** A session's picture, and a mark in its place where it has none. */
 export function SessionPicture({ source, className, markClassName }: SessionPictureProps) {
-  // Which address gave no picture: another one is tried anew.
-  const [missing, setMissing] = useState<string>();
-  if (source === undefined || missing === source) {
+  const loaded = useLoaded(source);
+  if (loaded === undefined) {
     return (
       <span
         className={cn(
@@ -46,8 +88,7 @@ export function SessionPicture({ source, className, markClassName }: SessionPict
   return (
     <img
       alt=""
-      src={source}
-      onError={() => setMissing(source)}
+      src={loaded}
       className={cn("aperture:size-full aperture:object-cover aperture:object-top", className)}
     />
   );
