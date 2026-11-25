@@ -310,6 +310,11 @@ export function usePopup() {
         if (connected === undefined) break;
         setConnections(stored);
         setConnection(connected);
+        // With the connection, not after what is loaded for it: the popup saves what it shows
+        // as it changes, and one that closes in between would reopen with the new connection
+        // on the form it was done with, and the teleport drafted for the one before.
+        setScreen("home");
+        setDraft(initialDraft(active));
         setCurrentTab(active);
         setConnectionDraft((current) => ({ ...current, token: "" }));
         yield* loadBrowserContext(connected, active);

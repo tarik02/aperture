@@ -127,16 +127,50 @@ export class NoPort extends Schema.TaggedError<NoPort>()("NoPort", {
   }
 }
 
-/** A port nothing listens on right now. */
-export const freePort = NodeSocketServer.make({ port: 0, host: "127.0.0.1" }).pipe(
-  Effect.scoped,
-  Effect.mapError((error) => new NoPort({ reason: error.message })),
-  Effect.flatMap(({ address }) =>
-    address._tag === "UnixPathAddress"
-      ? Effect.fail(new NoPort({ reason: "the probe listens on a path" }))
-      : Effect.succeed(address.port),
-  ),
+/**
+ * The ports handed out: below those the kernel gives out by itself, 32768 and up as Linux
+ * has it, to the near end of each connection made and to whatever listens on any port. A
+ * port of those that was found free may be taken by a connection of anything on the
+ * machine before what it was found for listens on it.
+ */
+const FIRST_PORT = 10_000;
+/** Each worker of a run has ports of its own, so that no two hand out the same one. */
+const PORTS_EACH = 1_400;
+const WORKERS_MOST = 16;
+/** Where the ports of the worker this runs in begin. */
+const firstOfWorker = Config.Int("VITEST_POOL_ID").pipe(
+  Effect.map((id) => (id >= 1 ? (id - 1) % WORKERS_MOST : 0)),
+  Effect.orElseSucceed(() => 0),
+  Effect.map((worker) => FIRST_PORT + worker * PORTS_EACH),
 );
+/**
+ * Where this worker goes on from: a file's modules are loaded anew, and what the file
+ * before started may still be ending on the ports it was handed.
+ */
+let handed = Math.floor(Math.random() * PORTS_EACH);
+
+/** Whether nothing listens on a port right now. */
+const unused = (port: number) =>
+  NodeSocketServer.make({ port, host: "127.0.0.1" }).pipe(
+    Effect.scoped,
+    Effect.as(true),
+    Effect.catch(() => Effect.succeed(false)),
+  );
+
+/** A port nothing listens on right now, and that nothing is given unless it asks for it. */
+export const freePort = Effect.gen(function* () {
+  const first = yield* firstOfWorker;
+  for (let tried = 0; tried < PORTS_EACH; tried += 1) {
+    const port = first + (handed % PORTS_EACH);
+    handed += 1;
+    if (yield* unused(port)) {
+      return port;
+    }
+  }
+  return yield* new NoPort({
+    reason: `something listens on each of ${first}–${first + PORTS_EACH - 1}`,
+  });
+});
 
 /** A directory of the scope's own, gone when it ends. Its path is short: sockets go below it. */
 export const directory = Effect.gen(function* () {
