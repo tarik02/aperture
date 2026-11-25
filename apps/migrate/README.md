@@ -66,7 +66,7 @@ then no more.
 | v1 | v2 |
 | --- | --- |
 | user with an email address | a person's account: same id, name, address, admin, disabled, with their password and their authenticator. See below. No passkey comes along, nor a recovery code; one who had no password is given a setup link by an admin. One whose address v2 already has is that account, which stays as it is, id and all, and signs in as it does |
-| shared tenant | a workspace with the tenant's id and name; a member whose scopes had `tenant:write` is its admin |
+| shared tenant | a workspace with the tenant's id and name; a member whose scopes had `tenant:write` is its admin, and a system administrator, who acted in every shared tenant without being a member, is an admin of each |
 | personal tenant | nothing: what it had is its owner's own |
 | snapshot | a snapshot on the node named, with its name, description and tags. A shared tenant's is the workspace's, and names no account as its maker: v1 says of none who made it. A personal tenant's is its owner's own. The profile is copied whole, as one layer |
 | session that is suspended, or failed with its profile kept | a suspended session on the node named, with its label and tags, the workspace's or its owner's own as a snapshot is. See below |
@@ -100,7 +100,9 @@ account bears them: `<tenant> tokens (from v1)`, a member of the workspace, and 
 where one of the tokens had `tenant:write`. It is made only for a tenant that has tokens
 to move, has the tenant's id, and is of nothing else: the tenant's snapshots and
 sessions are the workspace's. A system administrator's tokens are of the admin service
-account `Admin tokens (from v1)`, whose id is made of v1's installation id. A personal
+account `Admin tokens (from v1)`, whose id is made of v1's installation id; v1 kept such a
+token out of everyone's personal tenant, and an admin's token of v2 reaches what is each
+person's own as well, which the plan says. A personal
 tenant's are its owner's own, and reach what their owner reaches: the workspaces they are
 in as well, which the plan says of each such token, since v2 holds no token to what is
 its account's own.

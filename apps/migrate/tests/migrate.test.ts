@@ -63,10 +63,10 @@ const OWN = "alice's own";
 /** Where the site was when the fixture was recorded, which v1's tabs still name. */
 const RECORDED_SITE = "http://127.0.0.1:18081";
 /**
- * Three people, two workspaces, three service accounts for the tokens, four members, a
+ * Three people, two workspaces, three service accounts for the tokens, five members, a
  * snapshot, three sessions, five tokens.
  */
-const STEPS = 21;
+const STEPS = 22;
 const TOKENS = ["alice-own", "ci", "default-reader", "one-snapshot", "provisioning"];
 
 const Created = Schema.Struct({ targetId: Schema.String });
@@ -214,7 +214,7 @@ suite(needs)("a v1 installation moved into v2", (it) => {
         person: 3,
         workspace: 2,
         bearer: 3,
-        member: 4,
+        member: 5,
         snapshot: 1,
         session: 3,
         token: 5,
@@ -228,6 +228,7 @@ suite(needs)("a v1 installation moved into v2", (it) => {
         expect.arrayContaining(["tenant Gone", "snapshot dropped", "token old"]),
       );
       expect(planned.notes.map((note) => `${note.what} ${note.label}`)).toEqual([
+        "token provisioning",
         "token alice-own",
       ]);
       // Left behind where that is said, and then no node is asked for on their account.
@@ -343,12 +344,14 @@ suite(needs)("a v1 installation moved into v2", (it) => {
         // One of its tokens says who is in the workspace, which is an admin's to say.
         "Team tokens (from v1) admin",
       ]);
+      // A system administrator of v1 acted in every shared tenant as an admin of it, and
+      // was a member of none.
       const other = workspaces.find((workspace) => workspace.name === "default")!;
       expect(
-        (yield* api.workspaces.members({ params: { id: other.id } })).map(
-          (member) => `${member.name} ${member.role}`,
-        ),
-      ).toEqual(["default tokens (from v1) member"]);
+        (yield* api.workspaces.members({ params: { id: other.id } }))
+          .map((member) => `${member.name} ${member.role}`)
+          .sort(),
+      ).toEqual(["Alice admin", "default tokens (from v1) member"]);
     }),
   );
 
@@ -483,6 +486,84 @@ suite(needs)("a v1 installation moved into v2", (it) => {
       const root = yield* control.as(yield* secretOf("provisioning"));
       expect((yield* root.accounts.list()).length).toBe(6);
       expect((yield* root.accounts.current()).name).toBe("Admin tokens (from v1)");
+    }),
+  );
+
+  it.effect("each token reaches what it reached in v1", () =>
+    Effect.gen(function* () {
+      const control = yield* Control.Control;
+      const api = yield* admin;
+      const snapshot = yield* inV1("snapshots", SNAPSHOT);
+      /** What a token is told, or the error it is told instead. */
+      const told = <A, E extends { readonly _tag: string }, R>(
+        asked: Effect.Effect<A, E, R>,
+        seen: (answer: A) => unknown,
+      ) => asked.pipe(Effect.match({ onFailure: (failed) => failed._tag, onSuccess: seen }));
+      const reach = Effect.fn(function* (token: string) {
+        const held = yield* control.as(token);
+        return {
+          workspaces: (yield* held.workspaces.list()).map((workspace) => workspace.name).sort(),
+          snapshots: yield* told(held.snapshots.list({ query: {} }), (all) =>
+            all.map((one) => one.name),
+          ),
+          sessions: yield* told(held.sessions.list({ query: {} }), (all) =>
+            all.map((session) => `${session.label}`).sort(),
+          ),
+          snapshot: yield* told(
+            held.snapshots.get({ params: { id: nodeId(snapshot.id) } }),
+            () => "found",
+          ),
+        };
+      });
+      const everything = {
+        workspaces: [TEAM, "default"].sort(),
+        snapshots: [SNAPSHOT],
+        sessions: [LEFT_RUNNING, OWN, SIGNED_IN].sort(),
+        snapshot: "found",
+      };
+      // A system administrator's token reached every tenant, as an admin's does.
+      expect(yield* reach(yield* secretOf("provisioning"))).toEqual(everything);
+      // A tenant's token reaches its workspace, and nothing of another.
+      expect(yield* reach(yield* secretOf("ci"))).toEqual({
+        workspaces: [TEAM],
+        snapshots: [SNAPSHOT],
+        sessions: [LEFT_RUNNING, SIGNED_IN].sort(),
+        snapshot: "found",
+      });
+      expect(yield* reach(yield* secretOf("default-reader"))).toEqual({
+        workspaces: ["default"],
+        snapshots: "Forbidden",
+        sessions: [],
+        snapshot: "Forbidden",
+      });
+      // One held to a snapshot reaches that snapshot and nothing else of its tenant.
+      expect(yield* reach(yield* secretOf("one-snapshot"))).toEqual({
+        workspaces: [],
+        snapshots: [SNAPSHOT],
+        sessions: "Forbidden",
+        snapshot: "found",
+      });
+      // A token of a person, as they make one in v2, that is held to less than an admin's:
+      // a system administrator of v1 reaches every workspace in it, and a member of a tenant
+      // that tenant's.
+      const personal = Effect.fn(function* (email: string) {
+        const user = yield* inV1("users", email);
+        const made = yield* api.accounts.createToken({
+          params: { id: user.id },
+          payload: {
+            name: "after the move",
+            scopes: ["sessions:write", "snapshots:read", "workspaces:read"],
+          },
+        });
+        return made.token;
+      });
+      expect(yield* reach(yield* personal("alice@example.com"))).toEqual(everything);
+      expect(yield* reach(yield* personal("bob@example.com"))).toEqual({
+        workspaces: [TEAM],
+        snapshots: [SNAPSHOT],
+        sessions: [LEFT_RUNNING, SIGNED_IN].sort(),
+        snapshot: "found",
+      });
     }),
   );
 

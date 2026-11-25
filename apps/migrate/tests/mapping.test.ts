@@ -331,6 +331,79 @@ describe("what v1 has, as v2 has it", () => {
       { kind: "bearer", id: installId(INSTALL), admin: true },
       { kind: "token", accountId: installId(INSTALL) },
     ]);
+    expect(planned.notes).toEqual([]);
+    // It reached no personal tenant in v1, and an admin's token of v2 reaches what is anyone's.
+    const withPeople = plan(
+      {
+        ...NOTHING,
+        tenants: [tenant("alices", "alice")],
+        users: [user("alice")],
+        tokens: [token("root", null, ["system:admin"])],
+      },
+      FRESH,
+      SAID,
+      NOW,
+    );
+    expect(withPeople.notes).toMatchObject([{ what: "token", label: "root" }]);
+  });
+
+  it("a system administrator of v1 is an admin of every shared workspace, as they acted in each", () => {
+    const planned = plan(
+      {
+        ...NOTHING,
+        tenants: [tenant("alices", "alice"), tenant("team"), tenant("default")],
+        users: [{ ...user("alice"), isSystemAdmin: true }, user("bob")],
+        memberships: [
+          { tenantId: "team", userId: "alice", scopes: ["sessions:read"], createdAt: AT },
+          { tenantId: "team", userId: "bob", scopes: ["sessions:read"], createdAt: AT },
+        ],
+        tokens: [
+          token("own", "alices", ["sessions:read"]),
+          token("bobs", "default", ["sessions:read"]),
+        ],
+      },
+      FRESH,
+      SAID,
+      NOW,
+    );
+    expect(planned.conflicts).toEqual([]);
+    expect(
+      planned.steps.flatMap((step) =>
+        step.kind === "member" ? [`${step.accountId} ${step.workspaceId} ${step.role}`] : [],
+      ),
+    ).toEqual([
+      "default default member",
+      "alice team admin",
+      "bob team member",
+      "alice default admin",
+    ]);
+    // Her personal tenant's token is her own, and reaches those workspaces as well.
+    expect(planned.notes).toMatchObject([{ what: "token", label: "own" }]);
+    // Moved again, she is in them already.
+    const again = plan(
+      {
+        ...NOTHING,
+        tenants: [tenant("team")],
+        users: [{ ...user("alice"), isSystemAdmin: true }],
+      },
+      after(
+        FRESH,
+        plan(
+          {
+            ...NOTHING,
+            tenants: [tenant("team")],
+            users: [{ ...user("alice"), isSystemAdmin: true }],
+          },
+          FRESH,
+          SAID,
+          NOW,
+        ).steps,
+      ),
+      SAID,
+      NOW,
+    );
+    expect(again.steps).toEqual([]);
+    expect(again.moved).toBe(3);
   });
 
   it("a token that was revoked or ran out is left, and one of a scope v2 lacks is in the way", () => {
