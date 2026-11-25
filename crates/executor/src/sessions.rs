@@ -998,7 +998,7 @@ impl Sessions {
         if signalled.is_some() {
             info!(session = %id, "session suspended");
         }
-        Ok(signalled)
+        Ok(signalled.is_some())
     }
 
     /// Stops the runners that an earlier executor left without the state they are found by,
