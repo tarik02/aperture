@@ -25,6 +25,10 @@ service ExecutorService {
   // Sets the session's own limits in place of those it had. How long it may sit idle holds
   // at once; what it may use holds from when its browser next starts.
   rpc UpdateSessionLimits(UpdateSessionLimitsRequest) returns (UpdateSessionLimitsResponse);
+  // Sets what the session offers in place of what it was created with, as it is created
+  // with. It is told at once, and holds from when its browser next starts: a browser that
+  // runs keeps what it started with, its automation's included.
+  rpc UpdateSessionFeatures(UpdateSessionFeaturesRequest) returns (UpdateSessionFeaturesResponse);
   // Stops the session and removes its profile and files. Snapshots taken of it stay.
   rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
   // The node's sessions as they change: each as it is now, then each again when what
@@ -347,6 +351,14 @@ message UpdateSessionLimitsRequest {
 }
 
 message UpdateSessionLimitsResponse {}
+
+message UpdateSessionFeaturesRequest {
+  string id = 1;
+  // Left out, the session offers all the executor's sessions do.
+  optional Features features = 2;
+}
+
+message UpdateSessionFeaturesResponse {}
 
 message DeleteSessionRequest {
   string id = 1;

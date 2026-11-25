@@ -221,6 +221,12 @@ impl Store {
         write_record(&self.session_dir(id).join("session.json"), &session)
     }
 
+    pub fn set_session_options(&self, id: &str, options: Option<serde_json::Value>) -> Result<()> {
+        let mut session = self.session(id)?;
+        session.options = options;
+        write_record(&self.session_dir(id).join("session.json"), &session)
+    }
+
     pub fn set_session_revision(&self, id: &str, revision: &str) -> Result<()> {
         let mut session = self.session(id)?;
         session.revision = Some(revision.to_owned());

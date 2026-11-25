@@ -67,6 +67,30 @@ export const featuresOn = (
 };
 
 /**
+ * Whether a session offers what its settings leave it, as its node tells: what they say,
+ * or all the node offers where they say nothing. Nothing to hold it to on a node that does
+ * not tell what it offers.
+ */
+export const offersAsSaid = (
+  told: ReadonlyArray<proto.Feature>,
+  wanted: { readonly on: ReadonlyArray<proto.Feature> } | undefined,
+  offered: ReadonlyArray<string> | undefined,
+) => {
+  if (offered === undefined) {
+    return true;
+  }
+  const expected = new Set(
+    wanted?.on ??
+      offered.flatMap((feature) => {
+        const named = proto.Feature[feature.toUpperCase() as keyof typeof proto.Feature];
+        return named === undefined ? [] : [named];
+      }),
+  );
+  const has = new Set(told);
+  return has.size === expected.size && [...has].every((feature) => expected.has(feature));
+};
+
+/**
  * Refuses a lifetime past the most a setting lets something last: one that never runs out
  * where there is a most, and one longer than it.
  */

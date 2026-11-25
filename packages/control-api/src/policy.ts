@@ -206,6 +206,7 @@ export const SETTINGS = {
     levels: LEVELS,
     fallback: null,
     variable: "APERTURE_CONTROL_RECORDING_RETENTION",
+    deletes: true,
   },
   /** How long a share link is good for at most; one that never runs out is refused. */
   shareLinkMaxLifetime: {

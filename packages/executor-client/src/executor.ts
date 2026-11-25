@@ -10,6 +10,7 @@ import {
   type CreateSessionRequestSchema,
   type CreateSnapshotRequestSchema,
   ExecutorService,
+  type FeaturesSchema,
   type LimitsSchema,
   type ProxyConfigSchema,
 } from "./gen/aperture/executor/v1/executor_pb.ts";
@@ -26,6 +27,7 @@ export type CreateSession = MessageInitShape<typeof CreateSessionRequestSchema>;
 export type CreateSnapshot = MessageInitShape<typeof CreateSnapshotRequestSchema>;
 export type ProxyConfigInit = MessageInitShape<typeof ProxyConfigSchema>;
 export type LimitsInit = MessageInitShape<typeof LimitsSchema>;
+export type FeaturesInit = MessageInitShape<typeof FeaturesSchema>;
 
 // The executor always sends the message a response is made for.
 const sent = <A>(value: A | undefined, what: string) =>
@@ -97,6 +99,14 @@ export const make = (address: Address) => {
        */
       setLimits: (id: string, limits: LimitsInit) =>
         asked((signal) => client.updateSessionLimits({ id, limits }, { signal })).pipe(
+          Effect.asVoid,
+        ),
+      /**
+       * Sets what the session offers, as it is created with; all the node's sessions do,
+       * without. Its browser has it from when it next starts.
+       */
+      setFeatures: (id: string, features: FeaturesInit | undefined) =>
+        asked((signal) => client.updateSessionFeatures({ id, features }, { signal })).pipe(
           Effect.asVoid,
         ),
       /** Stops the session and removes its profile and files. Snapshots taken of it stay. */

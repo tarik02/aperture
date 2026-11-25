@@ -18,7 +18,7 @@ use std::{
 
 use aperture_gateway::Refused;
 use aperture_runner::{
-    Cdp, Features, Live, Network, Phase, Profile, Status, is_alive,
+    Cdp, Feature, Features, Live, Network, Phase, Profile, Status, is_alive,
     options::{Directories, Setup},
     proxy, read_status,
 };
@@ -253,8 +253,8 @@ impl Sessions {
     }
 
     /// Removes the recordings and screenshots that were kept longer than their sessions keep
-    /// them, for as long as the executor runs. A file that is still being written to was
-    /// changed a moment ago, and stays.
+    /// them, each whole, for as long as the executor runs. Those of a session whose runner
+    /// is busy recording, editing or downloading stay until it is not.
     pub async fn forget_recordings(self: Arc<Self>) {
         loop {
             sleep(RECORDINGS_CHECK).await;
@@ -269,6 +269,13 @@ impl Sessions {
                 let Some(keep) = session.limits.keep_recordings() else {
                     continue;
                 };
+                let live = session
+                    .status
+                    .as_ref()
+                    .is_some_and(|status| status.live.is_some());
+                if live && self.is_busy(&session).await {
+                    continue;
+                }
                 let Ok(paths) = self.store.session_paths(&session.record.id) else {
                     continue;
                 };
@@ -437,6 +444,26 @@ impl Sessions {
             shared.put_session(&self.store.session(id)?).await?;
         }
         info!(session = %id, ?limits, "session limits set");
+        Ok(())
+    }
+
+    /// Sets what the session offers, of what the executor's sessions do; none for all of
+    /// it. Its browser has it from when it next starts.
+    pub async fn set_features(&self, id: &str, features: Option<Vec<Feature>>) -> Result<()> {
+        let record = self.store.session(id)?;
+        let _busy = self.busy(id).await;
+        let options = Asked {
+            features,
+            ..kept_options(record.options)?
+        };
+        options.check(&self.config.setup).map_err(Error::Options)?;
+        let kept = (options != Asked::default())
+            .then(|| serde_json::to_value(&options).expect("options are serializable"));
+        self.store.set_session_options(id, kept)?;
+        if let Some(shared) = &self.config.shared_sessions {
+            shared.put_session(&self.store.session(id)?).await?;
+        }
+        info!(session = %id, features = ?options.features, "session features set");
         Ok(())
     }
 
@@ -1113,32 +1140,85 @@ fn now_ms() -> u64 {
         .map_or(0, |since| since.as_millis() as u64)
 }
 
-/// Removes the files of a directory that were last changed longer ago than they are kept.
+/// What is kept of one recording or screenshot: its files, which are named by its id.
+struct Kept {
+    files: Vec<PathBuf>,
+    /// How long ago the newest of them was last changed.
+    newest: Duration,
+    /// Whether what is told of it says it is still being recorded or edited.
+    made: bool,
+}
+
+/// Removes the recordings and screenshots of a directory whose files were all last changed
+/// longer ago than they are kept: each with all its files, and what is told of it last. One
+/// whose record says it is still being recorded or edited, or cannot be read, stays.
 async fn forget_older(directory: &Path, keep: Duration, session: &str) {
     let Ok(mut entries) = tokio::fs::read_dir(directory).await else {
         return;
     };
+    let mut kept: HashMap<String, Kept> = HashMap::new();
     while let Ok(Some(entry)) = entries.next_entry().await {
         let Ok(meta) = entry.metadata().await else {
             continue;
         };
-        let old = meta
+        if !meta.is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let id = name.split_once('.').map_or(name.as_str(), |(id, _)| id);
+        // A file whose age is not told is taken as one changed now.
+        let age = meta
             .modified()
             .ok()
             .and_then(|at| at.elapsed().ok())
-            .is_some_and(|age| age > keep);
-        if !meta.is_file() || !old {
+            .unwrap_or(Duration::ZERO);
+        let one = kept.entry(id.to_owned()).or_insert(Kept {
+            files: Vec::new(),
+            newest: Duration::MAX,
+            made: false,
+        });
+        one.newest = one.newest.min(age);
+        if name.ends_with(".recording.json") && still_made(&entry.path()).await {
+            one.made = true;
+        }
+        one.files.push(entry.path());
+    }
+    for (id, mut one) in kept {
+        if one.made || one.newest <= keep {
             continue;
         }
-        match tokio::fs::remove_file(entry.path()).await {
-            Ok(()) => {
-                info!(session, file = %entry.path().display(), "recording kept long enough removed")
-            }
-            Err(err) => {
-                warn!(session, file = %entry.path().display(), "failed to remove a recording: {err}")
+        one.files
+            .sort_by_key(|file| file.to_string_lossy().ends_with(".recording.json"));
+        let mut removed = true;
+        for file in &one.files {
+            if let Err(err) = tokio::fs::remove_file(file).await {
+                warn!(session, file = %file.display(), "failed to remove a recording's file: {err}");
+                removed = false;
+                break;
             }
         }
+        if removed {
+            info!(session, recording = %id, "recording kept long enough removed");
+        }
     }
+}
+
+/// Whether what is told of a recording says it is still being recorded or edited; one that
+/// cannot be read is taken to be.
+async fn still_made(told: &Path) -> bool {
+    let Ok(read) = tokio::fs::read(told).await else {
+        return true;
+    };
+    let Ok(told) = serde_json::from_slice::<serde_json::Value>(&read) else {
+        return true;
+    };
+    let state = |of: Option<&serde_json::Value>| {
+        of.and_then(|of| of.get("state"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    };
+    state(Some(&told)).as_deref() == Some("recording")
+        || state(told.get("edit")).as_deref() == Some("editing")
 }
 
 /// The limits a session's record keeps; none of its own when it keeps none.

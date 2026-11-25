@@ -12,6 +12,7 @@ import type { Session } from "../sessions/schemas.ts";
 import { Sessions } from "../sessions/service.ts";
 import { type ExpiryDue, SessionsStore } from "../sessions/store.ts";
 import { ago, now } from "../time.ts";
+import { featuresOn, offersAsSaid } from "./data.ts";
 import { holds, limitsOf } from "./limits.ts";
 import { type Effective, Policy } from "./service.ts";
 import { PolicyStore } from "./store.ts";
@@ -102,13 +103,17 @@ export const makeLifecycle = Effect.fn("Lifecycle.make")(function* () {
           if (session === undefined || session.nodeId !== node.id) {
             return Effect.void;
           }
-          const wanted = limitsOf(
-            effectiveOf(placeOf(session)),
-            node.offers?.holdsResources === true,
+          const effective = effectiveOf(placeOf(session));
+          const wanted = limitsOf(effective, node.offers?.holdsResources === true);
+          const features = featuresOn(node.offers?.features, effective);
+          return Effect.andThen(
+            holds(told.limits, wanted, node.offers?.limits)
+              ? Effect.void
+              : executor.sessions.setLimits(told.id, wanted).pipe(asked(node)),
+            offersAsSaid(told.features, features, node.offers?.features)
+              ? Effect.void
+              : executor.sessions.setFeatures(told.id, features).pipe(asked(node)),
           );
-          return holds(told.limits, wanted, node.offers?.limits)
-            ? Effect.void
-            : executor.sessions.setLimits(told.id, wanted).pipe(asked(node));
         },
         { discard: true },
       );
