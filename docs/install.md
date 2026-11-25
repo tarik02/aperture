@@ -129,6 +129,16 @@ echo "$APERTURE_URL/invite#token=$TOKEN"
 
 Whoever opens the link that prints sets a password for that account. A person made so ends the logged link as any other does.
 
+The bootstrap token is no account's, and what an account does it cannot: making a session with it is refused with `Forbidden: this is an account's to do, and this token is of none`. Make a service account and a token of its own for that, with the bootstrap token or as an admin in the console (**Service accounts**):
+
+```sh
+SERVICE=$(api -X POST "$APERTURE_URL/api/control/accounts" -d '{"name":"ops"}' | jq -r .id)
+TOKEN=$(api -X POST "$APERTURE_URL/api/control/accounts/$SERVICE/tokens" \
+  -d '{"name":"ops","scopes":["sessions:write"]}' | jq -r .token)
+curl -fsS -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -X POST "$APERTURE_URL/api/control/sessions" -d '{}'
+```
+
 The bootstrap token keeps working for as long as the control plane is given it. Keep it as you keep a root password; what is done with it is in the events as done by the bootstrap token.
 
 ### TLS
@@ -286,10 +296,15 @@ echo 'APERTURE_URL=http://localhost' > .env
 docker compose up --detach --wait
 ```
 
+Under podman (its socket, with `docker compose` or `podman compose`), add `APERTURE_UNMASK=unmask=ALL` to `.env` first. podman does not take the `systempaths=unconfined` the file gives Docker, and without it no session starts: the node logs `bwrap: Can't mount proc on /proc: Operation not permitted`. Docker refuses `unmask=ALL`, so one file cannot carry both.
+
 | In `.env` | Default | |
 |---|---|---|
 | `APERTURE_URL` | required | Where people reach it, such as `https://aperture.example.com`. Signing in takes requests from pages of that origin alone |
 | `APERTURE_LISTEN` | `:80` | Where the proxy listens on the machine |
+| `APERTURE_CONTROL_PORT` | `7800` | The loopback port the control plane listens on, where the node and the proxy reach it |
+| `APERTURE_NODE_PORT` | `7900` | The loopback port the node listens on |
+| `APERTURE_UNMASK` | `systempaths=unconfined` | What lets the node's sandbox mount its own `/proc`: `unmask=ALL` under podman |
 | `APERTURE_VERSION` | `beta` | The images' tag: `beta`, or a version such as `1.0.0-beta.1` |
 | `APERTURE_NODE` | `node` | The node's name |
 | `APERTURE_RTC_PORTS` | `60000-60999` | The UDP ports sessions' video and sound use. Open them to whoever watches a session |
@@ -314,8 +329,8 @@ docker run --rm --volume aperture_keys:/keys:ro busybox cat /keys/bootstrap-toke
 
 What it asks of the machine:
 
-- **The machine's own network** for the control plane, the node and the proxy. A session's video and sound go to whoever watches it straight from the node, from the addresses the node finds on its interfaces, and a container's own network has none anyone outside reaches. They talk over loopback, on ports `7800` and `7900`, and the proxy alone listens where others reach it. PostgreSQL listens on no address: the control plane is given its socket.
-- **A sandbox inside the node's container**, as for the [container image](#container-image): the file gives the node `seccomp=unconfined`, `apparmor=unconfined` and `systempaths=unconfined`, and nothing else. Under podman, `unmask=ALL` takes the place of the three. Where the host forbids user namespaces to unprivileged users (Ubuntu 23.10 and newer, `kernel.apparmor_restrict_unprivileged_userns`), browsers do not start.
+- **The machine's own network** for the control plane, the node and the proxy. A session's video and sound go to whoever watches it straight from the node, from the addresses the node finds on its interfaces, and a container's own network has none anyone outside reaches. They talk over loopback, on ports `7800` and `7900` unless `APERTURE_CONTROL_PORT` and `APERTURE_NODE_PORT` say otherwise, and the proxy alone listens where others reach it. PostgreSQL listens on no address: the control plane is given its socket.
+- **A sandbox inside the node's container**, as for the [container image](#container-image): the file gives the node `seccomp=unconfined`, `apparmor=unconfined` and `systempaths=unconfined`, and nothing else. Under podman, `unmask=ALL` takes the place of the last, set with `APERTURE_UNMASK=unmask=ALL` as above. Where the host forbids user namespaces to unprivileged users (Ubuntu 23.10 and newer, `kernel.apparmor_restrict_unprivileged_userns`), browsers do not start.
 - **Linux**, on `amd64` or `arm64`. Docker Desktop's machine is not the one people reach.
 - **TLS in front** is yours to add, as under [TLS](#tls): move the proxy to a local port with `APERTURE_LISTEN=127.0.0.1:8080`, and tell Traefik to trust what stands before it with `TRAEFIK_ENTRYPOINTS_WEB_FORWARDEDHEADERS_TRUSTEDIPS` in the proxy's `environment`.
 

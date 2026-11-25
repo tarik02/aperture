@@ -8,6 +8,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fs,
+    io::{Read, Seek, SeekFrom},
     os::unix::fs::DirBuilderExt,
     path::{Path, PathBuf},
     process::Stdio,
@@ -37,6 +38,8 @@ use crate::{
 const START_WITHIN: Duration = Duration::from_secs(120);
 const STOP_WITHIN: Duration = Duration::from_secs(60);
 const POLL: Duration = Duration::from_millis(50);
+/// How much of what a runner wrote the executor logs when its session fails to start.
+const RUNNER_LINES_LOGGED: usize = 20;
 /// How often sessions are looked at for having sat idle too long.
 const IDLE_CHECK: Duration = Duration::from_secs(10);
 
@@ -859,7 +862,10 @@ impl Sessions {
             // goes with the session.
             .current_dir(&runtime)
             .stdin(Stdio::null())
-            .stdout(log.try_clone().map_err(|err| Error::Io(log_path, err))?)
+            .stdout(
+                log.try_clone()
+                    .map_err(|err| Error::Io(log_path.clone(), err))?,
+            )
             .stderr(log)
             // A group of its own: signals to the executor's group, such as Ctrl+C in a
             // terminal, are not for the sessions.
@@ -869,7 +875,24 @@ impl Sessions {
         info!(session = %id, "session starting");
         // Whoever started it uses it.
         self.touch(id, 0);
-        self.await_running(id, Some(child)).await?;
+        match self.await_running(id, Some(child)).await {
+            Ok(()) => {}
+            Err(Error::Start { id, mut reason }) => {
+                // The reason is what the runner saw; why its browser exited is in what the
+                // browser and its sandbox wrote, which is in the session's log alone.
+                let output = last_lines(&log_path, RUNNER_LINES_LOGGED);
+                if output.contains("Can't mount proc on /proc") {
+                    reason.push_str(
+                        "; the sandbox could not mount /proc, which the container masks: \
+                         give the node's container systempaths=unconfined under Docker or \
+                         unmask=ALL under podman",
+                    );
+                }
+                warn!(session = %id, "session failed to start: {reason}; its runner wrote last:\n{output}");
+                return Err(Error::Start { id, reason });
+            }
+            Err(err) => return Err(err),
+        }
         self.store.set_session_asleep(id, false)?;
         Ok(())
     }
@@ -1015,6 +1038,23 @@ fn refused(err: Error) -> Refused {
 fn checked(proxy: proxy::Config) -> Result<serde_json::Value> {
     proxy.compile().map_err(Error::Proxy)?;
     Ok(serde_json::to_value(proxy).expect("a configuration is serializable"))
+}
+
+/// The last `count` lines of the file, as far as its last 64 KiB hold them; none where it
+/// cannot be read.
+fn last_lines(path: &Path, count: usize) -> String {
+    let mut bytes = Vec::new();
+    let read = fs::File::open(path).and_then(|mut file| {
+        let length = file.metadata()?.len();
+        file.seek(SeekFrom::Start(length.saturating_sub(64 * 1024)))?;
+        file.read_to_end(&mut bytes)
+    });
+    if read.is_err() {
+        return String::new();
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    let lines: Vec<&str> = text.lines().collect();
+    lines[lines.len().saturating_sub(count)..].join("\n")
 }
 
 fn now_ms() -> u64 {
