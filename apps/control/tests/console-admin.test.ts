@@ -950,6 +950,38 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
         );
         expect(page.errors()).toEqual([]);
 
+        // What sessions are held to, at each level, for whoever looks at the pictures.
+        yield* fromMenu(page, card, "Settings");
+        yield* page.until(
+          `!!document.querySelector('[data-console-settings="session"] [data-console-setting]')`,
+        );
+        yield* placed(page, DIALOG);
+        yield* shot(page, fs, "console-settings-session");
+        yield* closed(page);
+        const settingsAt = (path: string, level: string) =>
+          Effect.gen(function* () {
+            yield* page.evaluate(
+              `void (history.pushState({}, "", ${JSON.stringify(path)}), dispatchEvent(new PopStateEvent("popstate")))`,
+            );
+            yield* page.until(
+              `!!document.querySelector('[data-console-settings="${level}"] [data-console-setting]')`,
+            );
+            yield* shot(page, fs, `console-settings-${level}`);
+          });
+        yield* settingsAt(`/-/workspaces/${apart.id}/settings`, "workspace");
+        yield* settingsAt("/-/account/settings", "account");
+        yield* settingsAt("/-/settings", "instance");
+        yield* page.click(
+          `[data-console-setting="maxSessionAge"] button[data-console-row-action="edit"]`,
+        );
+        yield* page.until(
+          `!!document.querySelector('[data-console-setting-dialog="maxSessionAge"]')`,
+        );
+        yield* placed(page);
+        yield* shot(page, fs, "console-settings-edit");
+        yield* closed(page);
+        expect(page.errors()).toEqual([]);
+
         // The workspace stays: the check of the events after this one counts those deleted.
         yield* looker.api.sessions.delete({ params: { id: theirs.id } });
       }),
