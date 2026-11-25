@@ -32,6 +32,9 @@ const KEYFRAME_APART: Duration = Duration::from_millis(300);
 /// bitrate: each time the encoder has the bitrate to spend on the same picture.
 const REFINES: u32 = 4;
 const REFINE_AFTER: Duration = Duration::from_millis(250);
+/// How long a window that is watched anew may take to draw at the size it was given, before
+/// its picture at the size it has is sent all the same.
+const SIZED_WITHIN: Duration = Duration::from_secs(1);
 /// Frames count as due this early: they come when the window draws, a little off the beat.
 const FRAME_SLACK: Duration = Duration::from_millis(3);
 
@@ -201,6 +204,12 @@ impl Streams {
         let mut refines = 0;
         // What the last frame encoded had counted, see `Frame::changed`.
         let mut counted = 0;
+        // Until the first frame is sent: the window is watched anew, and may still have the
+        // size it had before it was given another, as a tab has that is made a phone's for
+        // whoever watches it from one. Its picture at that size is not sent first: whoever
+        // watches would show the tab at that size, and at its own a moment later.
+        let mut started = false;
+        let sized_by = Instant::now() + SIZED_WITHIN;
         loop {
             tokio::select! {
                 () = shared.keyframe.notified() => {
@@ -231,6 +240,9 @@ impl Streams {
                     };
                     if self.retire(key, &shared) {
                         return;
+                    }
+                    if !started && !frame.sized && Instant::now() < sized_by {
+                        continue;
                     }
                     due = Instant::now() + apart;
                     let force = std::mem::take(&mut keyframe);
@@ -269,6 +281,7 @@ impl Streams {
                             if keyframe {
                                 last_keyframe = Some(Instant::now());
                             }
+                            started = true;
                             // Nobody taking it right now is fine.
                             let packet = Packet { data, time, keyframe, changed, size };
                             let _ = shared.packets.send(Arc::new(packet));
@@ -282,6 +295,12 @@ impl Streams {
                         }
                     }
                     failing = failed;
+                }
+                // A window that does not come to its size draws nothing more by itself: its
+                // picture is sent as it is.
+                () = tokio::time::sleep_until(sized_by), if !started => {
+                    started = true;
+                    frames.mark_changed();
                 }
                 () = tokio::time::sleep(IDLE_CHECK) => {
                     if self.retire(key, &shared) {

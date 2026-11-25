@@ -548,6 +548,21 @@ impl State {
             })
     }
 
+    /// Whether the window has the size its viewport gives it. A dialog keeps the size it
+    /// asks for, which is the one it is given.
+    fn sized(&self, window: &Window) -> bool {
+        let Some(toplevel) = window.toplevel() else {
+            return true;
+        };
+        if toplevel.parent().is_some() {
+            return true;
+        }
+        let viewport = self.viewport_of(window);
+        let size = window.geometry().size;
+        i64::from(size.w) == i64::from(viewport.width)
+            && i64::from(size.h) == i64::from(viewport.height)
+    }
+
     /// Gives a window without a parent the whole viewport, as a fullscreen window: the
     /// browser then draws the page and nothing of its own around it, so the viewport is the
     /// page's. Dialogs keep the size they ask for.
@@ -603,6 +618,7 @@ impl State {
             width,
             height,
             scale,
+            sized: self.sized(&window),
             rgba: frame.pixels().to_vec(),
             buffer: None,
             time: self.start.elapsed(),
@@ -654,9 +670,9 @@ impl State {
                 let pointer = self.seat.get_pointer().expect("seat has a pointer");
                 (window, pointer.current_location(), image)
             });
-        let scales: HashMap<WindowId, f64> = windows
+        let scales: HashMap<WindowId, (f64, bool)> = windows
             .iter()
-            .map(|(window, id)| (*id, self.viewport_of(window).scale))
+            .map(|(window, id)| (*id, (self.viewport_of(window).scale, self.sized(window))))
             .collect();
         for (window, id) in &windows {
             let Some(watched) = self.watched.get_mut(id) else {
@@ -669,7 +685,7 @@ impl State {
                 .as_ref()
                 .filter(|(over, ..)| over == id)
                 .map(|(_, position, image)| (*position, image));
-            let scale = scales[id];
+            let (scale, sized) = scales[id];
             let rendered = WindowFrame::render(
                 &mut watched.frame,
                 &mut self.renderer,
@@ -693,6 +709,7 @@ impl State {
                             width,
                             height,
                             scale,
+                            sized,
                             rgba: frame.pixels().to_vec(),
                             buffer: frame.shared(),
                             time,

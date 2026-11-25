@@ -328,6 +328,12 @@ impl Tabs {
         });
     }
 
+    /// Keeps pages from becoming targets until it is dropped: a tab that is being opened
+    /// is told how it is to be shown before it is one, or it would come as a desktop's.
+    pub async fn opening(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.0.reconciling.lock().await
+    }
+
     /// The page, which is yet to be a target, is shown this way once it is one.
     pub fn expect(&self, page: String, like: Like) {
         let mut state = self.0.state.lock().expect("not poisoned");
@@ -535,7 +541,7 @@ impl Inner {
     async fn handle(&self, kind: Kind) -> anyhow::Result<()> {
         match kind {
             Kind::Prepare { nonce } => {
-                self.compositor.expect(nonce);
+                self.compositor.expect(nonce).await?;
                 Ok(())
             }
             Kind::Cancel { nonce } => {

@@ -416,6 +416,8 @@ impl Pages {
             (false, true) => "about:blank",
             (false, false) => url,
         };
+        // The browser may tell of the tab before it answers with it.
+        let opening = self.tabs.opening().await;
         let made = self
             .browser
             .call("Target.createTarget", json!({ "url": first }))
@@ -427,6 +429,7 @@ impl Pages {
         if let Some(like) = like {
             self.tabs.expect(page.clone(), like);
         }
+        drop(opening);
         if first != url && !url.is_empty() {
             let (pages, page, url) = (self.clone(), page.clone(), url.to_owned());
             tokio::spawn(async move {

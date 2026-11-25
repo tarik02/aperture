@@ -109,6 +109,9 @@ pub struct Frame {
     pub height: u32,
     /// How many pixels there are to each logical one.
     pub scale: f64,
+    /// Whether the window has drawn at the size it was given. A window that was given
+    /// another size since it last drew still has the one before, until it draws again.
+    pub sized: bool,
     /// Tightly packed premultiplied RGBA. Empty for a frame that stayed on the GPU, which
     /// one does unless someone asked for the window's [`Pixels`].
     pub rgba: Vec<u8>,
@@ -370,9 +373,11 @@ impl Handle {
     }
 
     /// Tags the next window that opens with `tag`, so whoever is about to make the client
-    /// open one can tell it from the others. One window is expected at a time.
-    pub fn expect(&self, tag: String) {
-        self.submit(move |state| state.expected = Some(tag));
+    /// open one can tell it from the others. One window is expected at a time. Done once
+    /// the compositor has the tag: a window the client is asked to open after it would
+    /// otherwise come to the compositor first now and then, and open untagged.
+    pub async fn expect(&self, tag: String) -> Result<(), Error> {
+        self.call(move |state| state.expected = Some(tag)).await
     }
 
     /// Stops expecting the window tagged `tag`, when it has not opened yet.
