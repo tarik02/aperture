@@ -63,7 +63,7 @@ const observationOf = (session: proto.Session): Observation | undefined => {
   const state = STATES[session.state];
   return state === undefined
     ? undefined
-    : { id: session.id, state, failure: session.failure ?? null };
+    : { id: session.id, state, failure: session.failure ?? null, asleep: session.asleep };
 };
 
 /** A session's routing as its node's executor takes it. */
@@ -247,7 +247,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
   const withinQuotas = Effect.fn("Sessions.withinQuotas")(function* (
     effective: Effective,
     workspaceId: string | null,
-    accountId: string,
+    accountId: string | null,
     asked: { readonly creating: boolean; readonly running: boolean },
   ) {
     const quotas: ReadonlyArray<{
@@ -255,7 +255,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       readonly what: string;
       readonly counted: () => Effect.Effect<number>;
     }> = [
-      ...(asked.creating
+      ...(asked.creating && accountId !== null
         ? [
             {
               setting: effective.sessionsPerUser,
@@ -273,7 +273,8 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
                 ]),
           ]
         : []),
-      ...(asked.running
+      // A session of no workspace and nobody's is counted against nothing.
+      ...(asked.running && (workspaceId !== null || accountId !== null)
         ? [
             {
               setting: effective.runningSessions,
@@ -335,10 +336,10 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       sessionId: null,
       pinned: false,
     });
-    yield* withinQuotas(effective, workspaceId, account.id, {
-      creating: true,
-      running: !options.suspended,
-    });
+    const asked = { creating: true, running: !options.suspended } as const;
+    // Refused at once, before its node is asked; and again as its record is written, alone
+    // among the others of its workspace, so that no two at once get past a quota.
+    yield* withinQuotas(effective, workspaceId, account.id, asked);
     const [node, session] = yield* place(candidates, {
       limits: (node) => limitsOf(effective, node.offers?.holdsResources === true),
       suspended: options.suspended,
@@ -348,7 +349,8 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
         options.storageState === undefined ? undefined : JSON.stringify(options.storageState),
     });
     const created = session.createdAt;
-    yield* store.insert({
+    const at = yield* now;
+    const recorded = store.insert({
       id: session.id,
       accountId: account.id,
       workspaceId,
@@ -359,9 +361,15 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       snapshotId: session.snapshotId ?? null,
       label: options.label ?? null,
       tags: options.tags,
-      createdAt: created === undefined ? yield* now : new Date(Number(created.seconds) * 1000),
-      now: yield* now,
+      createdAt: created === undefined ? at : new Date(Number(created.seconds) * 1000),
+      now: at,
     });
+    yield* store
+      .alone(
+        { workspaceId, accountId: account.id },
+        Effect.andThen(withinQuotas(effective, workspaceId, account.id, asked), recorded),
+      )
+      .pipe(Effect.tapError(() => Effect.ignore(removedOn(node, session.id))));
     yield* store.keepProxy(session.id, yield* seal(session.id, options.proxy ?? null));
     // What the node said of the session while there was no record of it was dropped.
     yield* Effect.ignore(refresh(node, session.id));
@@ -439,19 +447,26 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
 
   const resume = Effect.fn("Sessions.resume")(function* (caller: Caller, id: string) {
     const { session, node } = yield* placed(caller, id, "act");
-    if (session.desiredState !== "running" && session.accountId !== null) {
-      const effective = yield* policy.of({
-        workspaceId: session.workspaceId,
-        accountId: session.accountId,
-        sessionId: session.id,
-        pinned: session.pinned,
-      });
-      yield* withinQuotas(effective, session.workspaceId, session.accountId, {
-        creating: false,
-        running: true,
-      });
-    }
-    yield* store.desire(id, "running");
+    const effective = yield* policy.of({
+      workspaceId: session.workspaceId,
+      accountId: session.accountId,
+      sessionId: session.id,
+      pinned: session.pinned,
+    });
+    yield* store.alone(
+      session,
+      Effect.gen(function* () {
+        const fresh = yield* current(id);
+        // One that runs, and is not asleep, is counted already.
+        if (fresh.desiredState !== "running" || fresh.asleep) {
+          yield* withinQuotas(effective, fresh.workspaceId, fresh.accountId, {
+            creating: false,
+            running: true,
+          });
+        }
+        yield* store.desire(id, "running");
+      }),
+    );
     yield* through(node, id, nodes.executor(node).sessions.resume(id));
     yield* events.record({ kind: "session.resumed", ...about(session) });
     return yield* current(id);
@@ -538,18 +553,23 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       });
     }
     const most = effective.maxPinnedSessions;
-    if (pinned && typeof most.value === "number") {
-      const already = yield* store.pinnedOf(session.workspaceId, session.accountId);
-      if (already >= most.value) {
-        return yield* new QuotaExceeded({
-          what: "pinned sessions",
-          level: most.source === "node" ? "default" : most.source,
-          limit: most.value,
-          message: `${most.value} pinned sessions are the most there are here: the ${most.source} says so`,
-        });
-      }
-    }
-    yield* store.pin(id, pinned);
+    yield* store.alone(
+      session,
+      Effect.gen(function* () {
+        if (pinned && typeof most.value === "number") {
+          const already = yield* store.pinnedOf(session.workspaceId, session.accountId);
+          if (already >= most.value) {
+            return yield* new QuotaExceeded({
+              what: "pinned sessions",
+              level: most.source === "node" ? "default" : most.source,
+              limit: most.value,
+              message: `${most.value} pinned sessions are the most there are here: the ${most.source} says so`,
+            });
+          }
+        }
+        yield* store.pin(id, pinned);
+      }),
+    );
     yield* events.record({
       kind: pinned ? "session.pinned" : "session.unpinned",
       ...about(session),

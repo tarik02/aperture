@@ -419,3 +419,63 @@ suite(Stores.layer())("a session deleted by itself", (it) => {
     }),
   );
 });
+
+suite(Stores.layer())("a quota", (it) => {
+  it.effect("is counted alone with what is written for it, two asking at once", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const store = yield* SessionsStore;
+      const ada = "00000000-0000-4000-8000-00000000000b";
+      yield* sql`INSERT INTO accounts (id, name, admin, created_at)
+        VALUES (${ada}, 'Ada', false, now())`;
+      const scope = { workspaceId: null, accountId: ada };
+      const made = (id: string) =>
+        store.alone(
+          scope,
+          Effect.gen(function* () {
+            if ((yield* store.count({ ...scope, running: false })) >= 1) {
+              return false;
+            }
+            // Long enough for the other to count, were it not kept waiting.
+            yield* sql`SELECT pg_sleep(0.3)`;
+            yield* sql`
+              INSERT INTO sessions (
+                id, account_id, desired_state, observed_state, created_at, observed_at
+              )
+              VALUES (${id}, ${ada}, 'suspended', 'suspended', now(), now())
+            `;
+            return true;
+          }).pipe(Effect.orDie),
+        );
+      const both = yield* Effect.all([made("first"), made("second")], { concurrency: 2 });
+      expect(both.filter(Boolean)).toHaveLength(1);
+      expect(yield* store.count({ ...scope, running: false })).toBe(1);
+    }),
+  );
+
+  it.effect("of running sessions passes by one its node suspended for sitting idle", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const store = yield* SessionsStore;
+      const bea = "00000000-0000-4000-8000-00000000000c";
+      yield* sql`INSERT INTO accounts (id, name, admin, created_at)
+        VALUES (${bea}, 'Bea', false, now())`;
+      for (const [id, asleep] of [
+        ["awake", false],
+        ["asleep", true],
+      ] as const) {
+        yield* sql`
+          INSERT INTO sessions (
+            id, account_id, desired_state, observed_state, asleep, created_at, observed_at
+          )
+          VALUES (${id}, ${bea}, 'running', 'running', ${asleep}, now(), now())
+        `;
+      }
+      const running = { workspaceId: null, accountId: bea, running: true };
+      expect(yield* store.count(running)).toBe(1);
+      // Resumed by someone, it counts again.
+      yield* store.desire("asleep", "running");
+      expect(yield* store.count(running)).toBe(2);
+    }),
+  );
+});

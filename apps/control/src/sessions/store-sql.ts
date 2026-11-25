@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
+import { isSqlError } from "effect/sql/SqlError";
 import { all, done, first, one } from "../store/rows.ts";
 import { type Observation, Session } from "./schemas.ts";
 import {
@@ -96,7 +97,7 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     // One that is to run is suspended no longer, for what deletes the suspended ones.
     yield* sql`
       UPDATE live_sessions
-      SET desired_state = ${state},
+      SET desired_state = ${state}, asleep = false,
         suspended_since = CASE WHEN ${state} = 'suspended' THEN suspended_since END
       WHERE id = ${id}
     `.pipe(done);
@@ -133,11 +134,25 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
           ? sql`workspace_id IS NULL`
           : sql`workspace_id = ${asked.workspaceId}`,
         ...(asked.accountId === null ? [] : [sql`account_id = ${asked.accountId}`]),
-        ...(asked.running ? [sql`desired_state = 'running'`] : []),
+        // One its node suspended for sitting idle runs again only when someone reaches it.
+        ...(asked.running ? [sql`desired_state = 'running' AND NOT asleep`] : []),
       ])}
     `.pipe(one(Schema.Struct({ count: Schema.Number })));
     return count;
   });
+
+  const alone = <A, E, R>(
+    scope: { readonly workspaceId: string | null; readonly accountId: string | null },
+    effect: Effect.Effect<A, E, R>,
+  ) =>
+    Effect.gen(function* () {
+      const key =
+        scope.workspaceId === null
+          ? `account\u0000${scope.accountId ?? ""}`
+          : `workspace\u0000${scope.workspaceId}`;
+      yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`.pipe(done);
+      return yield* effect;
+    }).pipe(sql.withTransaction, Effect.catchIf(isSqlError, Effect.die));
 
   const delete_ = Effect.fn("SessionsStore.delete")(function* (id: string, at: Date) {
     yield* Effect.gen(function* () {
@@ -192,7 +207,7 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
   ) {
     yield* sql`
       UPDATE live_sessions
-      SET observed_state = ${seen.state}, failure = ${seen.failure},
+      SET observed_state = ${seen.state}, failure = ${seen.failure}, asleep = ${seen.asleep},
         unreachable_since = NULL, observed_at = ${now},
         suspended_since = CASE
           WHEN ${seen.state} = 'suspended' THEN COALESCE(suspended_since, ${now})
@@ -245,6 +260,7 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     pin,
     pinnedOf,
     count,
+    alone,
     delete: delete_,
     expire,
     restore,

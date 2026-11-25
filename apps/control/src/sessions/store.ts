@@ -64,6 +64,15 @@ export interface SessionsStoreShape {
     workspaceId: string | null,
     accountId: string | null,
   ) => Effect.Effect<number>;
+  /**
+   * Runs what is given in one transaction, alone among all that is run so for the same
+   * workspace, or for the same account's own sessions: what counts sessions for a quota
+   * and then writes one.
+   */
+  readonly alone: <A, E, R>(
+    scope: { readonly workspaceId: string | null; readonly accountId: string | null },
+    effect: Effect.Effect<A, E, R>,
+  ) => Effect.Effect<A, E, R>;
   /** Deletes a session's record and its share links: kept, and found by nothing again. */
   readonly delete: (id: string, at: Date) => Effect.Effect<void>;
   /**

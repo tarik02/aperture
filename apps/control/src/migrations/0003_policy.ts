@@ -7,7 +7,8 @@ import * as SqlClient from "effect/sql/SqlClient";
  * row of something that is removed for good goes with it, and nothing else holds it.
  *
  * A session is pinned, which keeps it from being deleted by itself, and since when it is
- * suspended is kept, for deleting the ones that stay so too long.
+ * suspended is kept, for deleting the ones that stay so too long. One its node suspended
+ * for sitting idle is asleep, and not counted among those that run.
  */
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -28,7 +29,8 @@ export default Effect.gen(function* () {
   yield* sql`
     ALTER TABLE sessions
       ADD COLUMN pinned boolean NOT NULL DEFAULT false,
-      ADD COLUMN suspended_since timestamptz
+      ADD COLUMN suspended_since timestamptz,
+      ADD COLUMN asleep boolean NOT NULL DEFAULT false
   `;
   yield* sql`
     UPDATE sessions SET suspended_since = observed_at WHERE observed_state = 'suspended'
