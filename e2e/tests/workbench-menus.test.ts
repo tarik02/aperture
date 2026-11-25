@@ -208,12 +208,13 @@ suite(session)("the workbench's menus and the clipboard", (it) => {
         })()`,
       );
       yield* dragPicture(page, WORDS.from, WORDS.to);
-      console.log("PROBE drag", JSON.stringify(yield* inTab(mcp, linking, "window.__seen")));
-      expect(
-        yield* happens(selected(mcp, linking).pipe(Effect.map((text) => text === "some text"))),
-      ).toBe(true);
-
-      expect(yield* rightClickSelected(page, mcp, linking)).toEqual({
+      const shown = yield* rightClickSelected(page, mcp, linking);
+      console.log(
+        "PROBE drag",
+        JSON.stringify(shown),
+        JSON.stringify(yield* inTab(mcp, linking, "window.__seen")),
+      );
+      expect(shown).toEqual({
         came: true,
         text: "some text",
         selectedAfter: "some text",
