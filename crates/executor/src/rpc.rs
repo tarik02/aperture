@@ -37,7 +37,7 @@ impl ExecutorService for Executor {
         let config = self.0.config();
         Response::ok(pb::GetExecutorResponse {
             executor: MessageField::some(pb::Executor {
-                version: env!("CARGO_PKG_VERSION").to_owned(),
+                version: aperture_runner::VERSION.clone(),
                 features: features_message(config.setup.features()),
                 network: MessageField::some(network_message(config.setup.network())),
                 limits: MessageField::some(limits_message(config.limits)),

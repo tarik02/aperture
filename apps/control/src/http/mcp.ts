@@ -14,7 +14,6 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
-import manifest from "../../package.json" with { type: "json" };
 import { Accounts } from "../accounts/service.ts";
 import { Forbidden } from "../errors.ts";
 import { SessionTools, type SessionToolError } from "../mcp/service.ts";
@@ -24,6 +23,7 @@ import { Sessions } from "../sessions/service.ts";
 import { Settings } from "../settings/service.ts";
 import { Shares } from "../shares/service.ts";
 import { Snapshots } from "../snapshots/service.ts";
+import { fullVersion } from "../version.ts";
 import { type Joined, Workspaces } from "../workspaces/service.ts";
 import { actorOf, Doer } from "../events/doer.ts";
 import { Events } from "../events/service.ts";
@@ -448,7 +448,7 @@ export const layer = Layer.unwrap(
       Layer.provide(
         McpServer.layerHttp({
           name: "aperture",
-          version: manifest.version,
+          version: fullVersion(settings.commit),
           instructions: INSTRUCTIONS,
           path: PATH,
           protocols: [

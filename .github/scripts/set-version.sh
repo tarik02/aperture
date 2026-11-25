@@ -5,6 +5,14 @@ set -euo pipefail
 
 version="${1:?usage: set-version.sh VERSION}"
 
+# The commit the tree is, which what is written below makes a tree with changes of: what is
+# built from it says the commit beside the version, and the flake takes this for its own.
+# Known to git, or a flake leaves it out.
+if [[ ! -e .commit ]]; then
+  git rev-parse HEAD > .commit
+  git add --intent-to-add .commit
+fi
+
 sed -i -E '/^\[workspace\.package\]$/,/^\[/ s/^version = ".*"$/version = "'"$version"'"/' Cargo.toml
 
 for manifest in crates/*/Cargo.toml; do

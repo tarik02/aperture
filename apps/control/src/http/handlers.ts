@@ -6,7 +6,6 @@ import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import manifest from "../../package.json" with { type: "json" };
 import { accountOf } from "../accounts/caller.ts";
 import { Accounts } from "../accounts/service.ts";
 import { Forbidden } from "../errors.ts";
@@ -22,6 +21,7 @@ import type { Session } from "../sessions/schemas.ts";
 import { Sessions } from "../sessions/service.ts";
 import { Settings } from "../settings/service.ts";
 import { Shares } from "../shares/service.ts";
+import { version } from "../version.ts";
 import type { Snapshot } from "../snapshots/schemas.ts";
 import { Snapshots } from "../snapshots/service.ts";
 import { type Joined, Workspaces } from "../workspaces/service.ts";
@@ -646,8 +646,15 @@ const workspaces = HttpApiBuilder.group(
   }),
 );
 
-const about = HttpApiBuilder.group(Api, "about", (handlers) =>
-  handlers.handle("get", () => Effect.succeed({ version: manifest.version })),
+const about = HttpApiBuilder.group(
+  Api,
+  "about",
+  Effect.fn(function* (handlers) {
+    const { commit } = yield* Settings;
+    return handlers.handle("get", () =>
+      Effect.succeed({ version, commit: Option.getOrNull(commit) }),
+    );
+  }),
 );
 
 const health = HttpApiBuilder.group(Api, "health", (handlers) =>

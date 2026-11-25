@@ -94,6 +94,13 @@ export interface SettingsShape {
   readonly nodeSilentAfter: Duration.Duration;
   /** How long an event is kept before it is forgotten. */
   readonly eventsKeep: Duration.Duration;
+  /**
+   * The commit this program was built from: the full sha, with `-dirty` after it for a tree
+   * that had changes besides; none where whatever built it did not say. Between releases
+   * every build has the last release's version, and this alone tells them apart. A package
+   * sets it in what starts the program, as it does for the programs of a node.
+   */
+  readonly commit: Option.Option<string>;
 }
 
 export class Settings extends Context.Service<Settings, SettingsShape>()(
