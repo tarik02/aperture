@@ -130,6 +130,17 @@ impl ExecutorService for Executor {
         Response::ok(pb::UpdateSessionProxyResponse::default())
     }
 
+    async fn update_session_limits(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, pb::UpdateSessionLimitsRequest>,
+    ) -> ServiceResult<pb::UpdateSessionLimitsResponse> {
+        let request = request.to_owned_message();
+        let limits = request.limits.as_option().map(limits).unwrap_or_default();
+        self.0.set_limits(&request.id, limits).await?;
+        Response::ok(pb::UpdateSessionLimitsResponse::default())
+    }
+
     async fn delete_session(
         &self,
         _ctx: RequestContext,

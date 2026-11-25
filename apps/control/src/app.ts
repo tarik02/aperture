@@ -29,6 +29,9 @@ import * as SessionTools from "./mcp/layer.ts";
 import * as RoutingRoutes from "./http/routing.ts";
 import * as ShareRoutes from "./http/shares.ts";
 import * as Nodes from "./nodes/layer.ts";
+import * as Lifecycle from "./policy/lifecycle.ts";
+import * as Policy from "./policy/layer.ts";
+import * as PolicyStoreSql from "./policy/store-sql.ts";
 import * as NodesStoreSql from "./nodes/store-sql.ts";
 import * as Providers from "./providers/layer.ts";
 import * as ProvidersStoreSql from "./providers/store-sql.ts";
@@ -52,6 +55,7 @@ export const stores = Layer.mergeAll(
   EventsStoreSql.layer,
   GrantsStoreSql.layer,
   NodesStoreSql.layer,
+  PolicyStoreSql.layer,
   ProvidersStoreSql.layer,
   SessionsStoreSql.layer,
   SharesStoreSql.layer,
@@ -68,6 +72,7 @@ export const services = Layer.mergeAll(
   Layer.mergeAll(SessionTools.layer, Shares.layer).pipe(Layer.provide(NodeHttpClient.layerUndici)),
 ).pipe(
   Layer.provideMerge(Sessions.layer),
+  Layer.provideMerge(Policy.layer),
   Layer.provideMerge(
     Layer.mergeAll(
       Accounts.layer.pipe(Layer.provide(NodeHttpClient.layerUndici)),
@@ -113,6 +118,7 @@ const serving = Layer.mergeAll(
   V1Credentials.announce,
   Forgetting.layer,
   EventsForgetting.layer,
+  Lifecycle.layer,
 ).pipe(Layer.provide(services));
 
 /**

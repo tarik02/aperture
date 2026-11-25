@@ -44,6 +44,7 @@ suite(database)("the database", (it) => {
         "registration_tokens",
         "session_shares",
         "sessions",
+        "settings",
         "snapshots",
         "v1_api_tokens",
         "workspace_members",

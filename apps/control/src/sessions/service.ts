@@ -9,6 +9,7 @@ import type {
   NodeRefused,
   NodeUnreachable,
   NoNode,
+  QuotaExceeded,
   SessionHasNoNode,
   SessionNotFound,
   SnapshotNotFound,
@@ -92,6 +93,20 @@ export interface SessionsShape {
   readonly suspend: (caller: Caller, id: string) => Effect.Effect<Session, ActError>;
   readonly resume: (caller: Caller, id: string) => Effect.Effect<Session, ActError>;
   readonly delete: (caller: Caller, id: string) => Effect.Effect<void, ActError>;
+  /**
+   * Deletes a session by itself, as its settings say, for the reason given: on its node
+   * where it is on one, and its record.
+   */
+  readonly expire: (id: string, reason: string) => Effect.Effect<void, ActError>;
+  /**
+   * Pins a session, which keeps it from being deleted by itself, or unpins it: for whom
+   * its settings let pin, and as many as they let be pinned.
+   */
+  readonly pin: (
+    caller: Caller,
+    id: string,
+    pinned: boolean,
+  ) => Effect.Effect<Session, SessionNotFound | Forbidden | QuotaExceeded>;
   /**
    * A ticket for the caller's account into the session, and the session's workbench with
    * it: on its node where that has an address of its own, and otherwise below `origin`,

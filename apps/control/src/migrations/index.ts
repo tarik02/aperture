@@ -1,6 +1,7 @@
 import * as Migrator from "effect/sql/Migrator";
 import initial from "./0001_initial.ts";
 import v1Credentials from "./0002_v1_credentials.ts";
+import policy from "./0003_policy.ts";
 
 /**
  * What was done to the database, in the order it was done, a file each. One that was
@@ -11,6 +12,7 @@ import v1Credentials from "./0002_v1_credentials.ts";
 const migrations = {
   "0001_initial": initial,
   "0002_v1_credentials": v1Credentials,
+  "0003_policy": policy,
 };
 
 /** Brings the database to what this program expects; what was applied before is left alone. */

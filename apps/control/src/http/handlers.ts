@@ -1,4 +1,12 @@
-import { type Access, Api, covers, CurrentCaller, Scope } from "@aperture-browser/control-api";
+import {
+  type Access,
+  Api,
+  covers,
+  CurrentCaller,
+  Scope,
+  type SettingEntry,
+  type SettingKey,
+} from "@aperture-browser/control-api";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -15,6 +23,7 @@ import { Events } from "../events/service.ts";
 import { Grants } from "../grants/service.ts";
 import { Identity } from "../identity/service.ts";
 import { Nodes } from "../nodes/service.ts";
+import { Policy, type Target } from "../policy/service.ts";
 import { Providers } from "../providers/service.ts";
 import { sessionPath } from "../routing/paths.ts";
 import type { Session } from "../sessions/schemas.ts";
@@ -485,6 +494,11 @@ const sessions = HttpApiBuilder.group(
           sessions.resume(caller, params.id),
         ).pipe(Effect.flatMap(tell.one)),
       )
+      .handle("pin", ({ params, payload }) =>
+        Effect.flatMap(scoped("sessions:write"), (caller) =>
+          sessions.pin(caller, params.id, payload.pinned),
+        ).pipe(Effect.flatMap(tell.one)),
+      )
       .handle("delete", ({ params }) =>
         Effect.flatMap(scoped("sessions:write"), (caller) => sessions.delete(caller, params.id)),
       )
@@ -646,6 +660,68 @@ const workspaces = HttpApiBuilder.group(
   }),
 );
 
+/** The scope a token reads a level's settings with, and the one it changes them with. */
+export const settingScopes = (target: Target): readonly [Scope | null, Scope] => {
+  switch (target.level) {
+    case "instance":
+      return [null, "admin"];
+    case "workspace":
+      return ["workspaces:read", "workspaces:write"];
+    case "account":
+    case "session":
+      return ["sessions:read", "sessions:write"];
+  }
+};
+
+const settings = HttpApiBuilder.group(
+  Api,
+  "settings",
+  Effect.fn(function* (handlers) {
+    const policy = yield* Policy;
+    const reading = (target: Target) => {
+      const [scope] = settingScopes(target);
+      return Effect.gen(function* () {
+        const caller = scope === null ? yield* CurrentCaller : yield* scoped(scope);
+        return { settings: yield* policy.views(caller, target) };
+      });
+    };
+    const setting = (target: Target, key: SettingKey, entry: SettingEntry) =>
+      Effect.flatMap(scoped(settingScopes(target)[1]), (caller) =>
+        policy.set(caller, target, key, entry),
+      );
+    const clearing = (target: Target, key: SettingKey) =>
+      Effect.flatMap(scoped(settingScopes(target)[1]), (caller) =>
+        policy.clear(caller, target, key),
+      );
+    const instance = { level: "instance" } as const;
+    const workspace = (id: string) => ({ level: "workspace", id }) as const;
+    const account = (workspaceId: string | undefined) =>
+      ({ level: "account", workspaceId: workspaceId ?? null }) as const;
+    const session = (id: string) => ({ level: "session", id }) as const;
+    return handlers
+      .handle("instance", () => reading(instance))
+      .handle("setInstance", ({ params, payload }) => setting(instance, params.key, payload))
+      .handle("clearInstance", ({ params }) => clearing(instance, params.key))
+      .handle("workspace", ({ params }) => reading(workspace(params.id)))
+      .handle("setWorkspace", ({ params, payload }) =>
+        setting(workspace(params.id), params.key, payload),
+      )
+      .handle("clearWorkspace", ({ params }) => clearing(workspace(params.id), params.key))
+      .handle("account", ({ query }) => reading(account(query.workspaceId)))
+      .handle("setAccount", ({ params, query, payload }) =>
+        setting(account(query.workspaceId), params.key, payload),
+      )
+      .handle("clearAccount", ({ params, query }) =>
+        clearing(account(query.workspaceId), params.key),
+      )
+      .handle("session", ({ params }) => reading(session(params.id)))
+      .handle("setSession", ({ params, payload }) =>
+        setting(session(params.id), params.key, payload),
+      )
+      .handle("clearSession", ({ params }) => clearing(session(params.id), params.key));
+  }),
+);
+
 const about = HttpApiBuilder.group(
   Api,
   "about",
@@ -671,6 +747,7 @@ export const layer = Layer.mergeAll(
   nodes,
   providers,
   sessions,
+  settings,
   shares,
   signIn,
   snapshots,

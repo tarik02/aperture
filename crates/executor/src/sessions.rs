@@ -390,6 +390,25 @@ impl Sessions {
         Ok(())
     }
 
+    /// Sets the session's own limits. How long it may sit idle holds at once, as it is read
+    /// from the record each time; what it may use holds from when its browser next starts.
+    pub async fn set_limits(&self, id: &str, limits: Limits) -> Result<()> {
+        self.store.session(id)?;
+        limits.check().map_err(Error::Limits)?;
+        if limits.over(Limits::default()).on_resources() && self.config.scopes.is_none() {
+            return Err(Error::NoCgroups);
+        }
+        let _busy = self.busy(id).await;
+        let kept = (limits != Limits::default())
+            .then(|| serde_json::to_value(limits).expect("limits are serializable"));
+        self.store.set_session_limits(id, kept)?;
+        if let Some(shared) = &self.config.shared_sessions {
+            shared.put_session(&self.store.session(id)?).await?;
+        }
+        info!(session = %id, ?limits, "session limits set");
+        Ok(())
+    }
+
     pub async fn resume(&self, id: &str, takeover: bool) -> Result<Session> {
         let _busy = self.busy(id).await;
         self.hold(id, takeover).await?;

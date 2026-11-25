@@ -14,6 +14,12 @@ import {
   NoNode,
   ProxyConfig,
   ObservedState,
+  QuotaExceeded,
+  SettingInvalid,
+  SettingKey,
+  SettingOutOfBounds,
+  SettingValue,
+  SettingView,
   Session,
   SessionFilePath,
   SessionHasNoNode,
@@ -63,6 +69,9 @@ const Refusal = Schema.Union([
   NoNode,
   NodeUnreachable,
   NodeRefused,
+  SettingInvalid,
+  SettingOutOfBounds,
+  QuotaExceeded,
 ]);
 
 /** A tool that changes nothing. */
@@ -420,6 +429,69 @@ const WorkspacesDismiss = Tool.make("workspaces.dismiss", {
   failure: Refusal,
 });
 
+const SessionsPin = writes(
+  Tool.make("sessions.pin", {
+    description:
+      "Pin a session, which keeps it from being deleted by itself as its settings would have it, or unpin it. The settings say who pins and how many sessions are pinned at most.",
+    parameters: Schema.Struct({ session_id: sessionId, pinned: Schema.Boolean }),
+    success: Session,
+    failure: Refusal,
+  }),
+);
+
+/** Where a setting is said, as the settings tools name it. */
+const SettingsWhere = {
+  level: Schema.Literals(["instance", "workspace", "account", "session"]).annotate(
+    said(
+      "Where: the deployment, a workspace (with `workspace_id`), this token's account (with `workspace_id` for what it has in one), or a session (with `session_id`).",
+    ),
+  ),
+  workspace_id: Schema.optional(workspaceId),
+  session_id: Schema.optional(sessionId),
+};
+
+const SettingsGet = reads(
+  Tool.make("settings.get", {
+    description:
+      "Tell every setting as a level has it: what the level says, what it comes to there and where that comes from (a level, the configuration or each node's own), and the bounds the levels above it set. Times are in seconds, and null is never or no limit.",
+    parameters: Schema.Struct(SettingsWhere),
+    success: Schema.Struct({ settings: Schema.Array(SettingView) }),
+    failure: Refusal,
+  }),
+);
+
+const SettingsSet = writes(
+  Tool.make("settings.set", {
+    description:
+      "Say what a workspace, this token's account or a session says of one setting, in place of what it said: a value the levels below may say otherwise, and bounds they may not cross (`min` and `max` for a time or a count, `allowed` for a choice). A value or a bound that crosses a bound above is refused, with the level that sets it. The deployment's settings are the API's alone to change.",
+    parameters: Schema.Struct({
+      ...SettingsWhere,
+      level: Schema.Literals(["workspace", "account", "session"]),
+      key: SettingKey,
+      value: Schema.optional(SettingValue),
+      min: Schema.optional(Schema.Number),
+      max: Schema.optional(Schema.Number),
+      allowed: Schema.optional(Schema.Array(SettingValue)),
+    }),
+    success: SettingView,
+    failure: Refusal,
+  }),
+);
+
+const SettingsClear = writes(
+  Tool.make("settings.clear", {
+    description:
+      "Have a workspace, this token's account or a session say nothing of one setting: what the levels above say holds there again.",
+    parameters: Schema.Struct({
+      ...SettingsWhere,
+      level: Schema.Literals(["workspace", "account", "session"]),
+      key: SettingKey,
+    }),
+    success: SettingView,
+    failure: Refusal,
+  }),
+);
+
 const AccountGet = reads(
   Tool.make("account.get", {
     description:
@@ -471,6 +543,7 @@ export const ControlTools = Toolkit.make(
   SessionsSuspend,
   SessionsResume,
   SessionsDelete,
+  SessionsPin,
   SessionsPromote,
   SessionsProxy,
   SessionsSetProxy,
@@ -490,6 +563,9 @@ export const ControlTools = Toolkit.make(
   WorkspacesDelete,
   WorkspacesAdmit,
   WorkspacesDismiss,
+  SettingsGet,
+  SettingsSet,
+  SettingsClear,
   AccountGet,
   EventsList,
 );

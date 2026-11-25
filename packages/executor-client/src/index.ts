@@ -7,6 +7,7 @@ export {
   Executor,
   type ExecutorClient,
   layer,
+  type LimitsInit,
   make,
   type ProxyConfigInit,
 } from "./executor.ts";

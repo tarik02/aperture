@@ -1,3 +1,4 @@
+import type { SettingKey, SettingValue } from "@aperture-browser/control-api";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import type { IpNetwork } from "effect/net/IpNetwork";
@@ -94,6 +95,12 @@ export interface SettingsShape {
   readonly nodeSilentAfter: Duration.Duration;
   /** How long an event is kept before it is forgotten. */
   readonly eventsKeep: Duration.Duration;
+  /**
+   * What the environment says of the settings for the whole deployment: what a session
+   * has where no level says otherwise. A level of the deployment that is kept in the
+   * database says otherwise.
+   */
+  readonly settingDefaults: Partial<Record<SettingKey, SettingValue>>;
   /**
    * The commit this program was built from: the full sha, with `-dirty` after it for a tree
    * that had changes besides; none where whatever built it did not say. Between releases

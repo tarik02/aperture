@@ -3,6 +3,7 @@
 Every program takes its settings from its environment. The NixOS modules set the variables below from their options; an option's `environment` attribute set passes any variable that has no option of its own.
 
 - [Control plane](#control-plane)
+- [Settings](#settings)
 - [Sign-in providers](#sign-in-providers)
 - [Node](#node)
 - [Session features](#session-features)
@@ -36,6 +37,35 @@ Every program takes its settings from its environment. The NixOS modules set the
 | `APERTURE_CONTROL_CONSOLE_DIR` | set by the package | path | the console the package was built with | A directory with the console's files, served beside the API. Unset, no console is served |
 
 `<keys>` is `services.aperture.keys.directory`, `/var/lib/aperture-keys` by default. `listenHost`, `listenPort`, `package` and `environment` are the remaining options.
+
+## Settings
+
+What sessions are held to is said at four levels, from the widest: the **instance**, a **workspace**, a **user** and a **session**. A session has what the nearest level that says a value says; where none does, what the control plane's environment says, and otherwise the default below. A session of no workspace skips that level, and a user's settings hold for every session they make, in a workspace or of their own.
+
+A level says a value, which the levels below it may say otherwise, and bounds they may not cross: `min` and `max` for a time or a count, `allowed` for a choice. A lock is a bound of both ends alike. A value or a bound that crosses a bound above is refused as `SettingOutOfBounds`, which names the level that sets it. A value said before a level above narrowed its bounds is held to them: the bound is what the session has, and is told as coming from that level. Times are in seconds over the API, and `null` is never, or no limit.
+
+| Level | Says it | Reads it |
+|---|---|---|
+| Instance | an admin: the console's **Settings**, `PUT /api/control/settings/<key>` | anyone signed in |
+| Workspace | an admin of the workspace, or an admin: **Workspaces › Settings**, `PUT /api/control/workspaces/<id>/settings/<key>` | its members, and admins |
+| User | the user: **Account › Settings**, `PUT /api/control/account/settings/<key>` | the user |
+| Session | whoever made it, or an admin of its workspace: the session's **Settings**, `PUT /api/control/sessions/<id>/settings/<key>` | whoever sees the session |
+
+Each is told with what it comes to and where that comes from: the console shows `1 hour · from workspace, locked`, the API and the MCP tools `settings.get`, `settings.set` and `settings.clear` say it as `effective`. The instance's are changed through the API and the console alone.
+
+| Setting | Levels | Variable | Default | |
+|---|---|---|---|---|
+| `suspendIdleAfter` | all | `APERTURE_CONTROL_SUSPEND_IDLE_AFTER` | each node's own | How long nobody may use a session before its node suspends it. Where nothing says it, a node holds its sessions to its own [`APERTURE_SUSPEND_IDLE_AFTER`](#limits). The control plane passes what it comes to to the session's node when the session is made, and again within a minute of any change |
+| `pinnedStayAwake` | instance, workspace, user | `APERTURE_CONTROL_PINNED_STAY_AWAKE` | `false` | Whether a pinned session is kept from being suspended for sitting idle |
+| `deleteSuspendedAfter` | all | `APERTURE_CONTROL_DELETE_SUSPENDED_AFTER` | never | How long a session may stay suspended before it is deleted, profile, files and all |
+| `maxSessionAge` | all | `APERTURE_CONTROL_MAX_SESSION_AGE` | never | How long after it was made a session is deleted |
+| `purgeDeletedAfter` | instance | `APERTURE_CONTROL_PURGE_DELETED_AFTER` | never | How long what was [marked deleted](install.md#where-data-lives) is kept before it is removed for good: the records of sessions and their share links, snapshots, API tokens, grants, memberships, workspaces nothing names any more, and registration tokens no node names. Accounts, nodes, apps and sign-in providers stay marked |
+| `pinning` | instance, workspace | `APERTURE_CONTROL_PINNING` | `admins` | Who pins a session: `anyone` who acts on it, the `admins` of its workspace (the owner, of a session of no workspace), or `nobody` |
+| `maxPinnedSessions` | instance, workspace | `APERTURE_CONTROL_MAX_PINNED_SESSIONS` | no limit | How many sessions of a workspace, or of a user's own, are pinned at most. One more is refused as `QuotaExceeded` |
+
+A variable takes a time as `30 minutes` or `7 days`, `never` for never, and `none` for no limit; one that says nothing the setting takes stops the program from starting. A level of the instance kept in the database says otherwise than the variable.
+
+A **pinned** session is never deleted by itself: `deleteSuspendedAfter` and `maxSessionAge` pass it by. It is pinned with `PUT /api/control/sessions/<id>/pin`, the MCP tool `sessions.pin`, or **Pin** in its menu. The control plane looks at sessions once a minute: a session it deletes is recorded as `session.deleted` by Aperture, with the reason. A session on a node that does not answer is deleted the next time it does.
 
 ## Sign-in providers
 
@@ -119,7 +149,7 @@ Resource limits need `APERTURE_SESSION_SCOPES`, which runs each session as a sys
 | `APERTURE_SESSION_SWAP` | size | none | The swap a session with a memory limit may use on top of it |
 | `APERTURE_SESSION_CPUS` | number, such as `2` or `1.5` | none | The processors' worth of time a session may use |
 | `APERTURE_SESSION_TASKS` | integer | none | The processes and threads a session may have |
-| `APERTURE_SUSPEND_IDLE_AFTER` | time, such as `30m` | none | How long nobody may use a session before it is suspended. It is resumed when someone reaches it again. This one needs no scopes |
+| `APERTURE_SUSPEND_IDLE_AFTER` | time, such as `30m` | none | How long nobody may use a session before it is suspended. It is resumed when someone reaches it again. This one needs no scopes. A session the control plane's [setting](#settings) `suspendIdleAfter` says otherwise of has that instead |
 
 None of these has a module option: set them in `services.aperture.node.environment`.
 

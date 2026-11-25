@@ -31,6 +31,11 @@ import { GuestPage } from "#/features/share/guest-page.tsx";
 import { SnapshotsPage } from "#/features/snapshot/snapshots-page.tsx";
 import { TOKENS_SEARCH, TokensPage } from "#/features/token/tokens-page.tsx";
 import { WorkspacesPage } from "#/features/workspace/workspaces-page.tsx";
+import {
+  AccountSettingsPage,
+  InstanceSettingsPage,
+  WorkspaceSettingsPage,
+} from "#/features/settings/settings-pages.tsx";
 import { useAccess } from "#/features/auth/access.ts";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
 import { InvitePage } from "#/features/auth/invite-page.tsx";
@@ -183,6 +188,39 @@ const workspaces = createRoute({
   component: WorkspacesPage,
 });
 
+const workspaceSettings = createRoute({
+  getParentRoute: () => pages,
+  path: "/-/workspaces/$workspaceId/settings",
+  component: function Settings() {
+    const { workspaceId } = workspaceSettings.useParams();
+    return (
+      <Only needs="workspaces:read">
+        <WorkspaceSettingsPage workspaceId={workspaceId} />
+      </Only>
+    );
+  },
+});
+
+const instanceSettings = createRoute({
+  getParentRoute: () => pages,
+  path: "/-/settings",
+  component: () => (
+    <Only needs="admin">
+      <InstanceSettingsPage />
+    </Only>
+  ),
+});
+
+const accountSettings = createRoute({
+  getParentRoute: () => account,
+  path: "settings",
+  component: () => (
+    <Only needs="sessions:read">
+      <AccountSettingsPage />
+    </Only>
+  ),
+});
+
 const nodes = createRoute({
   getParentRoute: () => pages,
   path: "/-/nodes",
@@ -288,8 +326,16 @@ export const router = createRouter({
       pages.addChildren([
         sessions,
         snapshots,
-        account.addChildren([accountHome, accountSecurity, accountTokens, accountConnections]),
+        account.addChildren([
+          accountHome,
+          accountSecurity,
+          accountTokens,
+          accountConnections,
+          accountSettings,
+        ]),
         workspaces,
+        workspaceSettings,
+        instanceSettings,
         nodes,
         registrationTokens,
         people,

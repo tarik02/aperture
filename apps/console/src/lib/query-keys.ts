@@ -20,4 +20,6 @@ export const queryKeys = {
   events: (filters: { readonly kind?: string | undefined; readonly actor?: string | undefined }) =>
     ["events", filters.kind ?? null, filters.actor ?? null] as const,
   workspaceMembers: (id: string) => ["workspaces", id, "members"] as const,
+  settingsAll: ["settings"] as const,
+  settings: (level: string, scope: string) => ["settings", level, scope] as const,
 };

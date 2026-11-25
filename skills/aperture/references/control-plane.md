@@ -53,6 +53,21 @@ api -X PUT "$APERTURE_URL/api/control/workspaces/$WORKSPACE/members/$BOT" -d '{"
 - An admin (a person's console session, or a token with the `admin` scope) is told every workspace; `role` is `null` in one they are not in. There they read: the workspace, its members, its sessions and snapshots, a watching ticket, a file link that reads. Acting there (creating, changing, suspending, resuming or deleting a session, a ticket with access, an upload link, a share link, taking, changing or deleting a snapshot, a session from its snapshots) is refused with `Forbidden` until they admit themselves with `PUT /workspaces/{id}/members/{accountId}`. Another account's own sessions and snapshots, of no workspace, an admin acts on as before.
 - A workspace is deleted once no session and no snapshot is of it.
 
+## Settings
+
+Settings are said at the instance, a workspace, the caller's account and a session, the nearest winning; each level may also set `min`/`max` (or `allowed` for a choice) that the levels below cannot cross. Times are in seconds, `null` is never or no limit.
+
+```bash
+api "$APERTURE_URL/api/control/sessions/$SESSION/settings" | jq '.settings[] | {key, effective}'
+api -X PUT "$APERTURE_URL/api/control/workspaces/$WORKSPACE/settings/deleteSuspendedAfter" -d '{"value":604800,"max":2592000}'
+api -X PUT "$APERTURE_URL/api/control/sessions/$SESSION/pin" -d '{"pinned":true}'
+```
+
+- `effective.source` says where a value comes from (`instance`, `workspace`, `account`, `session`, `configuration`, `default`, or `node` for each node's own); `locked` is a bound of both ends alike.
+- A value past a bound above is refused with `SettingOutOfBounds`, whose `level` names who set the bound.
+- A pinned session is never deleted by `deleteSuspendedAfter` or `maxSessionAge`. Who pins is the `pinning` setting; one pin too many is `QuotaExceeded`.
+- Over MCP: `settings.get`, `settings.set`, `settings.clear`, `sessions.pin`.
+
 ## Events
 
 `GET /events` (`events:read`) lists what was done, newest first, as `{events, next}`; pass `next` back as `cursor`. Filters: `kind`, `resourceKind`, `resourceId`, `workspaceId`, `actor`, `since`, `until`, `limit` (at most 200). A token reads the events of its own account and of the workspaces that is in; an admin reads all.

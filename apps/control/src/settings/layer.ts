@@ -7,7 +7,13 @@ import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
-import { ProvidersUnusable, SecretFileUnusable, TrustedProxiesUnusable } from "../errors.ts";
+import { type SettingKey, type SettingValue, SETTINGS } from "@aperture-browser/control-api";
+import {
+  ProvidersUnusable,
+  SecretFileUnusable,
+  SettingDefaultUnusable,
+  TrustedProxiesUnusable,
+} from "../errors.ts";
 import { network } from "../http/client-address.ts";
 import { type Provider, Settings } from "./service.ts";
 
@@ -134,6 +140,54 @@ const providersIn = Effect.fn("Settings.providersIn")(function* (given: string) 
   );
 });
 
+/** What a variable says of a setting, as the setting takes it. */
+const settingIn = (key: SettingKey, told: string): Result.Result<SettingValue, string> => {
+  const { type, none } = SETTINGS[key];
+  const text = told.trim();
+  if (none && ["never", "none", "unlimited"].includes(text.toLowerCase())) {
+    return Result.succeed(null);
+  }
+  switch (type.kind) {
+    case "duration": {
+      const stretch = Duration.fromInput(text as Duration.Input);
+      const seconds = Option.map(stretch, (stretch) => Math.round(Duration.toSeconds(stretch)));
+      return Option.isSome(seconds) && Number.isFinite(seconds.value) && seconds.value >= 1
+        ? Result.succeed(seconds.value)
+        : Result.fail(`${JSON.stringify(told)} is no time like 30 minutes or 7 days`);
+    }
+    case "count": {
+      const count = Number(text);
+      return text !== "" && Number.isInteger(count) && count >= 0
+        ? Result.succeed(count)
+        : Result.fail(`${JSON.stringify(told)} is no count`);
+    }
+    case "choice": {
+      const choice = type.choices.find((one) => String(one) === text.toLowerCase());
+      return choice === undefined
+        ? Result.fail(`${JSON.stringify(told)} is none of ${type.choices.join(", ")}`)
+        : Result.succeed(choice);
+    }
+  }
+};
+
+/** What the environment says of the settings for the whole deployment. */
+const settingDefaults = Effect.fn("Settings.settingDefaults")(function* () {
+  const said: Partial<Record<SettingKey, SettingValue>> = {};
+  for (const key of Object.keys(SETTINGS) as ReadonlyArray<SettingKey>) {
+    const { variable } = SETTINGS[key];
+    const told = yield* Config.option(Config.String(variable));
+    if (Option.isNone(told) || told.value.trim() === "") {
+      continue;
+    }
+    const value = settingIn(key, told.value);
+    if (Result.isFailure(value)) {
+      return yield* new SettingDefaultUnusable({ variable, reason: value.failure });
+    }
+    said[key] = value.success;
+  }
+  return said;
+});
+
 /** The settings as the environment gives them. */
 export const makeSettings = Effect.fn("Settings.make")(function* () {
   const {
@@ -164,6 +218,7 @@ export const makeSettings = Effect.fn("Settings.make")(function* () {
   );
   return Settings.of({
     ...settings,
+    settingDefaults: yield* settingDefaults(),
     trustedProxies: trusted,
     bootstrapToken: bootstrap.value,
     providers: yield* providersIn(providers),

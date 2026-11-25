@@ -22,6 +22,9 @@ service ExecutorService {
   // Sets how the session's browser connections are routed, for a running session at once:
   // connections made from then on go by the new rules, and open ones stay as they are.
   rpc UpdateSessionProxy(UpdateSessionProxyRequest) returns (UpdateSessionProxyResponse);
+  // Sets the session's own limits in place of those it had. How long it may sit idle holds
+  // at once; what it may use holds from when its browser next starts.
+  rpc UpdateSessionLimits(UpdateSessionLimitsRequest) returns (UpdateSessionLimitsResponse);
   // Stops the session and removes its profile and files. Snapshots taken of it stay.
   rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
   // The node's sessions as they change: each as it is now, then each again when what
@@ -333,6 +336,14 @@ message UpdateSessionProxyRequest {
 }
 
 message UpdateSessionProxyResponse {}
+
+message UpdateSessionLimitsRequest {
+  string id = 1;
+  // As a session is created with: one left out is the executor's, and zero is none.
+  Limits limits = 2;
+}
+
+message UpdateSessionLimitsResponse {}
 
 message DeleteSessionRequest {
   string id = 1;

@@ -167,6 +167,13 @@ A route a client attaches to a session so that connections the rules send `via: 
 **Limits**:
 What a session may use (memory, swap, processor time, tasks) and how long it may sit idle. Resource limits take an executor that runs sessions as systemd scopes.
 
+**Setting**:
+Something sessions are held to that is said at levels, from the widest: the instance, a workspace, a user, a session. The nearest level that says a value is what a session has. A level also sets bounds the levels below it may not cross: least and most for a time or a count, which choices are allowed for a choice. A lock is a bound of both ends alike.
+_Avoid_: Policy, option (which is a program's own, from its environment)
+
+**Pinned**:
+A session that is never deleted by itself, whatever its settings say of how long sessions live. Whether a pinned session is also kept from being asleep is a setting of its own.
+
 **Asleep**:
 Suspended by the executor for sitting idle, and resumed when someone reaches the session again. A session suspended on request stays suspended.
 _Avoid_: Hibernated, paused

@@ -8,7 +8,8 @@ import {
   TableHeader,
   TableRow,
 } from "@aperture-browser/ui/components/table";
-import { Building2, LogIn, Pencil, Plus, Trash2, Users } from "lucide-react";
+import { Building2, LogIn, Pencil, Plus, SlidersHorizontal, Trash2, Users } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { filter, Filters } from "#/components/filter-menu.tsx";
@@ -39,6 +40,7 @@ function WorkspaceRow({ workspace }: { workspace: Workspace }) {
   const remove = useDeleteWorkspaceMutation();
   const rename = useRenameWorkspaceMutation();
   const join = useJoinWorkspaceMutation();
+  const navigate = useNavigate();
   const [dialog, setDialog] = useState<"members" | "rename" | "delete" | null>(null);
   // Who is in it is told to all its members, and changed by its admins alone.
   const administers =
@@ -64,6 +66,16 @@ function WorkspaceRow({ workspace }: { workspace: Workspace }) {
             icon: Users,
             shown: "button",
             onSelect: () => setDialog("members"),
+          },
+          {
+            key: "settings",
+            label: "Settings",
+            icon: SlidersHorizontal,
+            onSelect: () =>
+              void navigate({
+                to: "/-/workspaces/$workspaceId/settings",
+                params: { workspaceId: workspace.id },
+              }),
           },
         ] satisfies ReadonlyArray<RowAction>)
       : []),

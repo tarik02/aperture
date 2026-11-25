@@ -91,6 +91,25 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     yield* sql`UPDATE live_sessions SET desired_state = ${state} WHERE id = ${id}`.pipe(done);
   });
 
+  const pin = Effect.fn("SessionsStore.pin")(function* (id: string, pinned: boolean) {
+    yield* sql`UPDATE live_sessions SET pinned = ${pinned} WHERE id = ${id}`.pipe(done);
+  });
+
+  const pinnedOf = Effect.fn("SessionsStore.pinnedOf")(function* (
+    workspaceId: string | null,
+    accountId: string | null,
+  ) {
+    const { count } = yield* sql`
+      SELECT count(*)::int AS count FROM live_sessions
+      WHERE pinned AND ${
+        workspaceId === null
+          ? sql`workspace_id IS NULL AND account_id = ${accountId}`
+          : sql`workspace_id = ${workspaceId}`
+      }
+    `.pipe(one(Schema.Struct({ count: Schema.Number })));
+    return count;
+  });
+
   const delete_ = Effect.fn("SessionsStore.delete")(function* (id: string, at: Date) {
     yield* Effect.gen(function* () {
       yield* sql`UPDATE live_sessions SET deleted_at = ${at} WHERE id = ${id}`.pipe(done);
@@ -109,7 +128,10 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     yield* sql`
       UPDATE live_sessions
       SET observed_state = ${seen.state}, failure = ${seen.failure},
-        unreachable_since = NULL, observed_at = ${now}
+        unreachable_since = NULL, observed_at = ${now},
+        suspended_since = CASE
+          WHEN ${seen.state} = 'suspended' THEN COALESCE(suspended_since, ${now})
+        END
       WHERE id = ${seen.id} AND node_id = ${nodeId}
     `.pipe(done);
   });
@@ -155,6 +177,8 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     proxyOf,
     keepProxy,
     desire,
+    pin,
+    pinnedOf,
     delete: delete_,
     observe,
     gone,

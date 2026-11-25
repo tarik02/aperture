@@ -102,6 +102,9 @@ const SAID: Readonly<Record<string, string>> = {
   ShareNotFound: "There is no such share link.",
   ShareRefused: "This share link lets nobody in.",
   TooManyTries: "Too many tries. Try again later.",
+  SettingInvalid: "The setting does not take that.",
+  SettingOutOfBounds: "A level above does not let the setting be that.",
+  QuotaExceeded: "There are as many as there may be already.",
   // What the client itself fails with, before or after the API answered.
   HttpClientError: "The control plane was not reached. Check the connection and try again.",
   RequestError: "The control plane was not reached. Check the connection and try again.",

@@ -43,6 +43,12 @@ export interface SessionsStoreShape {
   readonly proxyOf: (id: string) => Effect.Effect<Option.Option<string>>;
   readonly keepProxy: (id: string, sealed: string | null) => Effect.Effect<void>;
   readonly desire: (id: string, state: DesiredState) => Effect.Effect<void>;
+  readonly pin: (id: string, pinned: boolean) => Effect.Effect<void>;
+  /** How many sessions of a workspace are pinned; of an account's own, without one. */
+  readonly pinnedOf: (
+    workspaceId: string | null,
+    accountId: string | null,
+  ) => Effect.Effect<number>;
   /** Deletes a session's record and its share links: kept, and found by nothing again. */
   readonly delete: (id: string, at: Date) => Effect.Effect<void>;
   /** Writes what a node said of a session that is on it; the node is in reach, then. */

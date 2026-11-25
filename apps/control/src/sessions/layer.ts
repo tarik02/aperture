@@ -5,7 +5,12 @@ import {
   type ObservedState,
   ProxyConfig,
 } from "@aperture-browser/control-api";
-import { type ExecutorError, proto, type ProxyConfigInit } from "@aperture-browser/executor-client";
+import {
+  type ExecutorError,
+  type LimitsInit,
+  proto,
+  type ProxyConfigInit,
+} from "@aperture-browser/executor-client";
 import * as UrlPath from "@aperture-browser/shared/url-path";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -17,6 +22,7 @@ import { accountOf, actsOn, notTheirs, reaches, type Reach } from "../accounts/c
 import {
   FileLinkInvalid,
   Forbidden,
+  QuotaExceeded,
   type NodeRefused,
   type NodeUnreachable,
   NoNode,
@@ -25,10 +31,13 @@ import {
   SnapshotNotFound,
   WorkspaceNotFound,
 } from "../errors.ts";
+import { SYSTEM } from "../events/schemas.ts";
 import { Events } from "../events/service.ts";
 import { asked } from "../nodes/asked.ts";
 import type { Node } from "../nodes/schemas.ts";
 import { Nodes } from "../nodes/service.ts";
+import { limitsOf } from "../policy/limits.ts";
+import { Policy } from "../policy/service.ts";
 import { SnapshotsStore } from "../snapshots/store.ts";
 import { Tickets } from "../tickets/service.ts";
 import { now } from "../time.ts";
@@ -85,6 +94,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
   const tickets = yield* Tickets;
   const vault = yield* Vault;
   const events = yield* Events;
+  const policy = yield* Policy;
 
   /** A session as an event is about it. */
   const about = (session: Session) =>
@@ -205,6 +215,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       readonly snapshotId: string | undefined;
       readonly proxy: ProxyConfig | undefined;
       readonly storageState: string | undefined;
+      readonly limits: LimitsInit;
     },
   ): Effect.Effect<readonly [Node, proto.Session], NoNode | NodeRefused> => {
     const [node, ...rest] = candidates;
@@ -216,6 +227,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       .sessions.create({
         suspended: wanted.suspended,
         snapshotId: wanted.snapshotId,
+        limits: wanted.limits,
         ...(wanted.proxy === undefined ? {} : { proxy: toExecutor(wanted.proxy) }),
         ...(wanted.storageState === undefined ? {} : { storageState: wanted.storageState }),
       })
@@ -255,7 +267,9 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     const alive = yield* nodes.candidates();
     const candidates =
       options.snapshotId === undefined ? alive : yield* having(caller, options.snapshotId, alive);
+    const effective = yield* policy.of({ workspaceId, accountId: account.id, sessionId: null });
     const [node, session] = yield* place(candidates, {
+      limits: limitsOf(effective, false),
       suspended: options.suspended,
       snapshotId: options.snapshotId,
       proxy: options.proxy,
@@ -360,11 +374,11 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     return yield* current(id);
   });
 
-  const delete_ = Effect.fn("Sessions.delete")(function* (caller: Caller, id: string) {
-    const { session, node } = yield* placed(caller, id, "act");
+  /** Deletes a session on its node, and its record. */
+  const removed = Effect.fn(function* (session: Session, node: Node) {
     yield* nodes
       .executor(node)
-      .sessions.delete(id)
+      .sessions.delete(session.id)
       .pipe(
         // A session its node has no more is deleted there already.
         Effect.catchIf(
@@ -373,8 +387,75 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
         ),
         asked(node),
       );
-    yield* store.delete(id, yield* now);
+    yield* store.delete(session.id, yield* now);
+  });
+
+  const delete_ = Effect.fn("Sessions.delete")(function* (caller: Caller, id: string) {
+    const { session, node } = yield* placed(caller, id, "act");
+    yield* removed(session, node);
     yield* events.record({ kind: "session.deleted", ...about(session) });
+  });
+
+  const expire = Effect.fn("Sessions.expire")(function* (id: string, reason: string) {
+    const session = yield* current(id);
+    const node = session.nodeId === null ? Option.none<Node>() : yield* nodes.find(session.nodeId);
+    if (Option.isNone(node)) {
+      // One that is on no node is had by nothing but its record.
+      yield* store.delete(id, yield* now);
+    } else {
+      yield* removed(session, node.value);
+    }
+    yield* events.record({
+      kind: "session.deleted",
+      ...about(session),
+      actor: SYSTEM,
+      address: null,
+      detail: { reason },
+    });
+  });
+
+  const pin = Effect.fn("Sessions.pin")(function* (caller: Caller, id: string, pinned: boolean) {
+    const session = yield* acted(caller, id);
+    if (session.pinned === pinned) {
+      return session;
+    }
+    const effective = yield* policy.of({
+      workspaceId: session.workspaceId,
+      accountId: session.accountId,
+      sessionId: session.id,
+    });
+    const who = effective.pinning.value;
+    const administers =
+      session.workspaceId === null
+        ? Option.exists(caller.account, (account) => account.id === session.accountId)
+        : caller.workspaces.some((one) => one.id === session.workspaceId && one.role === "admin");
+    if (who === "nobody" || (who === "admins" && !administers)) {
+      return yield* new Forbidden({
+        message:
+          who === "nobody"
+            ? `nobody pins a session here: the ${effective.pinning.source} says so`
+            : `only an admin of the workspace pins its sessions: the ${effective.pinning.source} says so`,
+      });
+    }
+    const most = effective.maxPinnedSessions;
+    if (pinned && typeof most.value === "number") {
+      const already = yield* store.pinnedOf(session.workspaceId, session.accountId);
+      if (already >= most.value) {
+        return yield* new QuotaExceeded({
+          what: "pinned sessions",
+          level: most.source === "node" ? "default" : most.source,
+          limit: most.value,
+          message: `${most.value} pinned sessions are the most there are here: the ${most.source} says so`,
+        });
+      }
+    }
+    yield* store.pin(id, pinned);
+    yield* events.record({
+      kind: pinned ? "session.pinned" : "session.unpinned",
+      ...about(session),
+    });
+    yield* policy.touched();
+    return yield* current(id);
   });
 
   /** Where a session is reached from outside: on its node, or through the proxy before it. */
@@ -496,6 +577,8 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     suspend,
     resume,
     delete: delete_,
+    expire,
+    pin,
     admit,
     fileLink,
     heard,

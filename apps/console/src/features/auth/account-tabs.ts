@@ -7,6 +7,7 @@ export const ACCOUNT_TABS = [
   { id: "security", title: "Security", to: "/-/account/security" },
   { id: "tokens", title: "API tokens", to: "/-/account/tokens" },
   { id: "connections", title: "Connections", to: "/-/account/connections" },
+  { id: "settings", title: "Settings", to: "/-/account/settings" },
 ] as const;
 
 export type AccountTab = (typeof ACCOUNT_TABS)[number];
@@ -20,6 +21,10 @@ export function useAccountTabs(): ReadonlyArray<AccountTab> {
   // Whoever signed in with no token is a person: known before they are asked for, so that
   // nothing moves when the answer comes.
   const signsIn = useToken() === undefined && person.data !== null;
-  const acts = useAccess().may("tokens:write");
-  return ACCOUNT_TABS.filter((tab) => (tab.id === "security" ? signsIn : acts));
+  const access = useAccess();
+  const acts = access.may("tokens:write");
+  const sessions = access.may("sessions:read");
+  return ACCOUNT_TABS.filter((tab) =>
+    tab.id === "security" ? signsIn : tab.id === "settings" ? sessions : acts,
+  );
 }

@@ -25,6 +25,10 @@ export const Session = Schema.Struct({
   tags: Schema.Record(Schema.String, Schema.String),
   createdAt: Schema.DateTimeUtcFromDate,
   observedAt: Schema.DateTimeUtcFromDate,
+  /** Whether it is kept from being deleted by itself. */
+  pinned: Schema.Boolean,
+  /** Since when its node says it is suspended, while it says so. */
+  suspendedSince: Schema.NullOr(Schema.DateTimeUtcFromDate),
 });
 export type Session = typeof Session.Type;
 

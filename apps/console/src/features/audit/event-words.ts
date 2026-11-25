@@ -65,7 +65,12 @@ export const HAPPENED: Readonly<Record<EventKind, (event: Event) => string>> = {
   "session.created": () => "Created the session",
   "session.suspended": () => "Suspended the session",
   "session.resumed": () => "Resumed the session",
-  "session.deleted": () => "Deleted the session",
+  "session.deleted": (event) =>
+    said(event.detail["reason"]) === undefined
+      ? "Deleted the session"
+      : `Deleted the session: ${said(event.detail["reason"])}`,
+  "session.pinned": () => "Pinned the session",
+  "session.unpinned": () => "Unpinned the session",
   "snapshot.taken": () => "Saved the snapshot",
   "snapshot.replaced": () => "Replaced the snapshot with a newer one",
   "snapshot.deleted": () => "Deleted the snapshot",
@@ -83,6 +88,10 @@ export const HAPPENED: Readonly<Record<EventKind, (event: Event) => string>> = {
   "provider.enabled": () => "Enabled the sign-in provider",
   "provider.disabled": () => "Disabled the sign-in provider",
   "provider.removed": () => "Removed the sign-in provider",
+  "setting.changed": (event) =>
+    `Changed ${said(event.detail["key"]) ?? "a setting"} for the ${said(event.detail["level"]) ?? "instance"}`,
+  "setting.cleared": (event) =>
+    `Cleared ${said(event.detail["key"]) ?? "a setting"} for the ${said(event.detail["level"]) ?? "instance"}`,
 };
 
 /** The kinds of events as a list to choose from tells them, those of one thing together. */
@@ -140,6 +149,8 @@ export const KINDS: ReadonlyArray<{
       { value: "session.suspended", label: "Session suspended" },
       { value: "session.resumed", label: "Session resumed" },
       { value: "session.deleted", label: "Session deleted" },
+      { value: "session.pinned", label: "Session pinned" },
+      { value: "session.unpinned", label: "Session unpinned" },
     ],
   },
   {
@@ -167,6 +178,13 @@ export const KINDS: ReadonlyArray<{
       { value: "node.refused", label: "Node refused its name" },
       { value: "node.released", label: "Node released" },
       { value: "node.silent", label: "Node fell silent" },
+    ],
+  },
+  {
+    label: "Settings",
+    kinds: [
+      { value: "setting.changed", label: "Setting changed" },
+      { value: "setting.cleared", label: "Setting cleared" },
     ],
   },
 ];

@@ -1,3 +1,4 @@
+import { Pin } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { cn } from "@aperture-browser/ui/utils";
 import { TagList } from "#/components/tag-list.tsx";
@@ -63,8 +64,17 @@ export function SessionCard({ session, selected, onSelect }: SessionCardProps) {
                 )}
               />
             </Link>
-            <span className="aperture:pointer-events-none aperture:absolute aperture:top-2 aperture:left-2">
+            <span className="aperture:pointer-events-none aperture:absolute aperture:top-2 aperture:left-2 aperture:flex aperture:items-center aperture:gap-1">
               <SessionStatusBadge session={session} />
+              {session.pinned ? (
+                <span
+                  data-console-session-pinned
+                  title="Pinned: never deleted by itself"
+                  className="aperture:flex aperture:size-5 aperture:items-center aperture:justify-center aperture:rounded-md aperture:bg-background/90 aperture:[&>svg]:size-3"
+                >
+                  <Pin aria-label="Pinned" />
+                </span>
+              ) : null}
             </span>
             {onSelect === undefined ? null : (
               <label
