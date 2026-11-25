@@ -43,7 +43,7 @@ const LINKING = dataPage(`
 const LINK = { x: 180, y: 215 };
 
 /** The ends of the text there is to select, and a point in its middle. */
-const WORDS = { from: { x: 102, y: 275 }, to: { x: 225, y: 275 }, middle: { x: 160, y: 275 } };
+const WORDS = { from: { x: 102, y: 275 }, to: { x: 212, y: 275 }, middle: { x: 160, y: 275 } };
 
 const PAGE_MENU = "[data-session-page-menu]";
 
@@ -194,31 +194,23 @@ suite(session)("the workbench's menus and the clipboard", (it) => {
   it.effect("a right click on text selected by a drag shows the page menu with Copy", () =>
     Effect.gen(function* () {
       yield* clickPicture(page, 40, 40);
-      yield* inTab(
-        mcp,
-        linking,
-        `(() => {
-          window.__seen = [];
-          const at = (e) => e.type + " " + e.clientX + "," + e.clientY + " b" + e.button + "/" + e.buttons + " c" + e.detail + " " + (e.target.id || e.target.tagName);
-          for (const type of ["mousedown", "mousemove", "mouseup", "click", "dragstart", "dragend", "contextmenu"]) {
-            addEventListener(type, (e) => window.__seen.push(at(e)), true);
-          }
-          document.addEventListener("selectionchange", () => window.__seen.push("selection " + JSON.stringify(String(getSelection()))));
-          return true;
-        })()`,
-      );
       yield* dragPicture(page, WORDS.from, WORDS.to);
-      const shown = yield* rightClickSelected(page, mcp, linking);
-      console.log(
-        "PROBE drag",
-        JSON.stringify(shown),
-        JSON.stringify(yield* inTab(mcp, linking, "window.__seen")),
-      );
-      expect(shown).toEqual({
-        came: true,
-        text: "some text",
-        selectedAfter: "some text",
+      const selectedAll = selected(mcp, linking).pipe(Effect.map((text) => text === "some text"));
+      expect(yield* happens(selectedAll)).toBe(true);
+
+      // A hand holds the button a while: the menu comes before it is let go.
+      const at = yield* pictureAt(page, WORDS.middle.x, WORDS.middle.y);
+      yield* page.mouse("mouseMoved", at.x, at.y);
+      yield* page.mouse("mousePressed", at.x, at.y, { button: "right", buttons: 2, clickCount: 1 });
+      expect(yield* comes(page, "s.menu !== undefined")).toBe(true);
+      yield* page.rests(menuItem("Copy"));
+      yield* page.mouse("mouseReleased", at.x, at.y, {
+        button: "right",
+        buttons: 0,
+        clickCount: 1,
       });
+      expect(yield* snapshot(page, "s.menu?.text ?? null")).toBe("some text");
+      expect(yield* selected(mcp, linking)).toBe("some text");
       yield* page.rests(menuItem("Copy"));
       yield* escape(page);
       expect(yield* comes(page, "s.menu === undefined")).toBe(true);
