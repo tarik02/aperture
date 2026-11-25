@@ -1,6 +1,7 @@
 import { passkey } from "@better-auth/passkey";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { APIError } from "better-auth/api";
+import { verifyPassword } from "better-auth/crypto";
 import { getMigrations } from "better-auth/db/migration";
 import { genericOAuth } from "better-auth/plugins/generic-oauth";
 import { twoFactor } from "better-auth/plugins/two-factor";
@@ -21,6 +22,7 @@ import { Events } from "../events/service.ts";
 import { type ActiveProvider, Providers } from "../providers/service.ts";
 import * as Secrets from "../secrets.ts";
 import { Settings } from "../settings/service.ts";
+import { isV1Password, V1Credentials } from "../v1-credentials/service.ts";
 import { Vault } from "../vault/service.ts";
 import { Identity, type Person, type SignInMethods } from "./service.ts";
 
@@ -104,6 +106,7 @@ export const makeIdentity = Effect.fn("Identity.make")(function* () {
   const accounts = yield* AccountsStore;
   const events = yield* Events;
   const providers = yield* Providers;
+  const v1 = yield* V1Credentials;
   const context = yield* Effect.context<Crypto.Crypto>();
   /** Setup tokens on their way: better-auth hands one to whoever sends it, which is this. */
   const sent = new Map<string, string>();
@@ -141,6 +144,14 @@ export const makeIdentity = Effect.fn("Identity.make")(function* () {
         enabled: true,
         // A person is made with a password nobody knows, and sets their own.
         autoSignIn: false,
+        // As long as v1 took them: who moved from it keeps the password they had.
+        maxPasswordLength: 1024,
+        password: {
+          verify: async (given) =>
+            isV1Password(given.hash)
+              ? Effect.runPromise(v1.checkPassword(given.hash, given.password))
+              : verifyPassword(given),
+        },
         sendResetPassword: async ({ user, token }) => {
           sent.set(user.email, token);
         },

@@ -148,7 +148,14 @@ export const makeV1Source = Effect.fn("V1Source.make")(function* (location: V1Lo
       );
       return {
         tenants: yield* rows(Tenant, sql`SELECT * FROM tenants ORDER BY created_at, id`),
-        users: yield* rows(User, sql`SELECT * FROM users ORDER BY created_at, id`),
+        users: yield* rows(
+          User,
+          sql`SELECT users.*, user_passwords.password_hash, totp_credentials.secret AS totp_secret
+            FROM users
+            LEFT JOIN user_passwords ON user_passwords.user_id = users.id
+            LEFT JOIN totp_credentials ON totp_credentials.user_id = users.id
+            ORDER BY users.created_at, users.id`,
+        ),
         memberships: yield* rows(
           Membership,
           sql`SELECT tenant_id, user_id, scopes_json AS scopes, created_at
@@ -156,7 +163,7 @@ export const makeV1Source = Effect.fn("V1Source.make")(function* (location: V1Lo
         ),
         tokens: yield* rows(
           ApiToken,
-          sql`SELECT id, authority_type, tenant_id, name, scopes_json AS scopes, created_at,
+          sql`SELECT id, authority_type, tenant_id, name, token_hash, scopes_json AS scopes, created_at,
                    created_by_type, created_by_id, resource_mode, expires_at, revoked_at
             FROM api_tokens ORDER BY created_at, id`,
         ),

@@ -19,6 +19,7 @@
     "@bufbuild/protobuf": "catalog:",
     "@effect/platform-node": "catalog:",
     "@effect/sql-pg": "catalog:",
+    "bcryptjs": "catalog:",
     "better-auth": "catalog:",
     "effect": "catalog:",
     "jose": "catalog:",

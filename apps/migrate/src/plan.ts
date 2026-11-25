@@ -5,10 +5,10 @@ import { type V1Data, WITHOUT_A_HOME, type WithoutAHome } from "./v1/schemas.ts"
 /** What the operator said of what v1 has that v2 has no place for as it is. */
 export interface Choices {
   /**
-   * v1 keeps a token as a digest v2 cannot check a token against, so none is carried
-   * over: each is made anew, or left behind.
+   * v1 keeps a token as a bcrypt digest, which v2 finds no token by: each is kept with it
+   * and checked against it once, made anew, or left behind.
    */
-  readonly tokens: "reissue" | "drop" | undefined;
+  readonly tokens: "keep" | "reissue" | "drop";
   /** Sessions are moved unless they are said to be left behind. */
   readonly sessions: "drop" | undefined;
 }
@@ -40,9 +40,13 @@ export type Step =
       readonly admin: boolean;
       readonly disabledAt: Date | null;
       readonly createdAt: Date;
+      /** Their password as v1 kept it. */
+      readonly password: string | null;
+      /** Their authenticator's secret as v1 kept it. */
+      readonly secondFactor: string | null;
     }
   | {
-      /** A service account that is the bearer of the tokens made anew, and nothing else. */
+      /** A service account that is the bearer of the tokens moved, and nothing else. */
       readonly kind: "bearer";
       readonly id: string;
       readonly name: string;
@@ -109,6 +113,8 @@ export type Step =
       readonly resources: TokenResources | null;
       readonly createdAt: Date;
       readonly expiresAt: Date | null;
+      /** v1's digest of it, which it is kept with; none for one made anew. */
+      readonly digest: string | null;
     };
 
 /** Something of v1, as a line of the plan names it. */
@@ -277,17 +283,7 @@ export const plan = (v1: V1Data, known: Known, choices: Choices, now: Date): Pla
     }
     return dead === undefined;
   });
-  if (choices.tokens === undefined) {
-    for (const token of tokens) {
-      conflicts.push({
-        what: "token",
-        label: token.name,
-        reason:
-          "v1 keeps it as a bcrypt digest, which v2 checks no token against: say --tokens reissue for a new one in its place, or --tokens drop",
-      });
-    }
-  }
-  const reissued = choices.tokens === "reissue" ? tokens : [];
+  const carried = choices.tokens === "drop" ? [] : tokens;
   if (choices.tokens === "drop") {
     for (const token of tokens) {
       skipped.push({ what: "token", label: token.name, reason: "--tokens drop" });
@@ -314,7 +310,7 @@ export const plan = (v1: V1Data, known: Known, choices: Choices, now: Date): Pla
       notes.push({
         what: "user",
         label: user.displayName,
-        reason: `v2 has an account for ${user.email} already, which stays as it is and is theirs`,
+        reason: `v2 has an account for ${user.email} already, which stays as it is and is theirs${user.passwordHash === null && user.totpSecret === null ? "" : ", with what they sign in with there and not their password or second factor of v1"}`,
       });
       continue;
     }
@@ -328,6 +324,8 @@ export const plan = (v1: V1Data, known: Known, choices: Choices, now: Date): Pla
         admin: user.isSystemAdmin,
         disabledAt: user.disabledAt,
         createdAt: user.createdAt,
+        password: user.passwordHash,
+        secondFactor: user.totpSecret,
       });
     }
   }
@@ -362,7 +360,7 @@ export const plan = (v1: V1Data, known: Known, choices: Choices, now: Date): Pla
   // of the workspace bears them, where there are any. It has the tenant's id, an account's
   // as it was a tenant's, since it stands for the tenant where a token is asked whose it is.
   for (const tenant of shared) {
-    const borne = reissued.filter((token) => token.tenantId === tenant.id);
+    const borne = carried.filter((token) => token.tenantId === tenant.id);
     if (borne.length === 0) {
       continue;
     }
@@ -385,7 +383,7 @@ export const plan = (v1: V1Data, known: Known, choices: Choices, now: Date): Pla
     );
   }
   const install = installId(v1.install.installId);
-  if (reissued.some((token) => token.tenantId === null)) {
+  if (carried.some((token) => token.tenantId === null)) {
     const name = "Admin tokens (from v1)";
     if (pending("account", install, v1.install.createdAt, name)) {
       steps.push({
@@ -552,7 +550,7 @@ export const plan = (v1: V1Data, known: Known, choices: Choices, now: Date): Pla
   }
 
   let secrets = false;
-  for (const token of reissued) {
+  for (const token of carried) {
     const { scopes, unknown } = scopesOf(token.scopes);
     if (unknown.length > 0) {
       conflicts.push({
@@ -618,7 +616,7 @@ export const plan = (v1: V1Data, known: Known, choices: Choices, now: Date): Pla
     if (!pending("token", token.id, token.createdAt, token.name)) {
       continue;
     }
-    secrets = true;
+    secrets ||= choices.tokens === "reissue";
     steps.push({
       kind: "token",
       id: token.id,
@@ -628,6 +626,7 @@ export const plan = (v1: V1Data, known: Known, choices: Choices, now: Date): Pla
       resources,
       createdAt: token.createdAt,
       expiresAt: token.expiresAt,
+      digest: choices.tokens === "keep" ? token.tokenHash : null,
     });
   }
   if (secrets && !known.secretsFile) {

@@ -20,8 +20,6 @@ const NOTHING: V1Data = {
   sessionTags: [],
   install: { installId: INSTALL, createdAt: AT },
   withoutAHome: {
-    user_passwords: 0,
-    totp_credentials: 0,
     recovery_codes: 0,
     passkeys: 0,
     oidc_identities: 0,
@@ -54,6 +52,8 @@ const user = (id: string, email: string | null = `${id}@example.com`) => ({
   isSystemAdmin: false,
   createdAt: AT,
   disabledAt: null,
+  passwordHash: null as string | null,
+  totpSecret: null as string | null,
 });
 const tenant = (id: string, ownerUserId: string | null = null) => ({
   id,
@@ -67,6 +67,7 @@ const token = (id: string, tenantId: string | null, scopes: ReadonlyArray<string
   authorityType: tenantId === null ? ("system_admin" as const) : ("tenant" as const),
   tenantId,
   name: id,
+  tokenHash: `$2a$10$digest-of-${id}`,
   scopes,
   createdAt: AT,
   createdByType: "system" as const,
@@ -290,15 +291,26 @@ describe("what v1 has, as v2 has it", () => {
     expect(inATeam.conflicts).toEqual([]);
   });
 
-  it("a token is in the way until it is said what becomes of it", () => {
+  it("a token is kept with v1's digest of it, made anew, or left behind", () => {
     const v1 = {
       ...NOTHING,
       tenants: [tenant("team")],
       tokens: [token("ci", "team", ["sessions:read"])],
     };
-    const unsaid = plan(v1, FRESH, { tokens: undefined, sessions: undefined }, NOW);
-    expect(unsaid.conflicts.map((conflict) => conflict.what)).toEqual(["token"]);
-    expect(kinds(unsaid.steps)).toEqual(["workspace"]);
+    // Kept, it needs no file for a secret: its holder has it.
+    const kept = plan(
+      v1,
+      { ...FRESH, secretsFile: false },
+      { tokens: "keep", sessions: undefined },
+      NOW,
+    );
+    expect(kept.conflicts).toEqual([]);
+    expect(kept.steps.at(-1)).toMatchObject({
+      kind: "token",
+      id: "ci",
+      digest: "$2a$10$digest-of-ci",
+    });
+    expect(plan(v1, FRESH, SAID, NOW).steps.at(-1)).toMatchObject({ kind: "token", digest: null });
 
     const dropped = plan(v1, FRESH, { tokens: "drop", sessions: undefined }, NOW);
     expect(dropped.conflicts).toEqual([]);
@@ -550,6 +562,43 @@ describe("what v1 has, as v2 has it", () => {
       proxy: { rules: [{ match: "[::1]:80", via: "refuse" }] },
     });
     expect(planned.skipped).toEqual([]);
+  });
+
+  it("a person keeps the password and the second factor they had in v1", () => {
+    const planned = plan(
+      {
+        ...NOTHING,
+        users: [
+          {
+            ...user("alice"),
+            passwordHash: "$argon2id$v=19$m=65536,t=3,p=2$c2FsdA$aGFzaA",
+            totpSecret: "JBSWY3DPEHPK3PXP",
+          },
+          user("bob"),
+        ],
+      },
+      FRESH,
+      SAID,
+      NOW,
+    );
+    expect(planned.steps).toMatchObject([
+      {
+        kind: "person",
+        id: "alice",
+        password: "$argon2id$v=19$m=65536,t=3,p=2$c2FsdA$aGFzaA",
+        secondFactor: "JBSWY3DPEHPK3PXP",
+      },
+      { kind: "person", id: "bob", password: null, secondFactor: null },
+    ]);
+    // One v2 has an account for already signs in as they do there.
+    const there = plan(
+      { ...NOTHING, users: [{ ...user("alice"), passwordHash: "$argon2id$…" }] },
+      { ...FRESH, people: new Map([["alice@example.com", "account-of-alice"]]) },
+      SAID,
+      NOW,
+    );
+    expect(there.steps).toEqual([]);
+    expect(there.notes[0]?.reason).toContain("not their password or second factor of v1");
   });
 
   it("a person v2 has already is that person, and one with no address is nobody", () => {

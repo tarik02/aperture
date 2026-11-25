@@ -5,6 +5,7 @@ import { Events } from "@aperture-browser/control/src/events/service.ts";
 import { NodesStore } from "@aperture-browser/control/src/nodes/store.ts";
 import { SessionsStore } from "@aperture-browser/control/src/sessions/store.ts";
 import { SnapshotsStore } from "@aperture-browser/control/src/snapshots/store.ts";
+import { V1Credentials } from "@aperture-browser/control/src/v1-credentials/service.ts";
 import { Vault } from "@aperture-browser/control/src/vault/service.ts";
 import { WorkspacesStore } from "@aperture-browser/control/src/workspaces/store.ts";
 import * as Clock from "effect/Clock";
@@ -52,6 +53,7 @@ export const makeMigrator = Effect.fn("Migrator.make")(function* (options: Optio
   const sessions = yield* SessionsStore;
   const nodes = yield* NodesStore;
   const vault = yield* Vault;
+  const v1Credentials = yield* V1Credentials;
   const events = yield* Events;
   const sql = yield* SqlClient.SqlClient;
 
@@ -138,6 +140,11 @@ export const makeMigrator = Effect.fn("Migrator.make")(function* (options: Optio
             from: step,
           })
           .pipe(Effect.mapError((error) => failed(error.message)));
+        if (step.password !== null || step.secondFactor !== null) {
+          yield* v1Credentials
+            .keepSignIn(account.id, step)
+            .pipe(Effect.provideService(Vault, vault));
+        }
         if (step.disabledAt !== null) {
           yield* accountsStore.setDisabled(account.id, step.disabledAt);
           yield* events.record({
@@ -243,6 +250,32 @@ export const makeMigrator = Effect.fn("Migrator.make")(function* (options: Optio
         return;
       }
       case "token": {
+        if (step.digest !== null) {
+          const token = yield* v1Credentials.keepToken(
+            {
+              id: step.id,
+              accountId: step.accountId,
+              name: step.name,
+              createdAt: step.createdAt,
+              expiresAt: step.expiresAt,
+              scopes: step.scopes,
+              resources: step.resources,
+            },
+            step.digest,
+          );
+          yield* events.record({
+            kind: "token.created",
+            resource: { kind: "token", id: token.id, label: token.name },
+            ownerId: step.accountId,
+            detail: {
+              scopes: token.scopes,
+              expiresAt: token.expiresAt === null ? null : DateTime.formatIso(token.expiresAt),
+              heldToResources: token.resources !== null,
+              from: FROM,
+            },
+          });
+          return;
+        }
         const lasts =
           step.expiresAt === null
             ? undefined

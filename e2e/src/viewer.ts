@@ -365,13 +365,17 @@ export const startWith = Effect.fn("Viewer.start")(function* (more: readonly str
           );
       const placed = (element: string, pressed: boolean) =>
         Effect.suspend(() => {
-          let not = "there";
+          // Each reason in the order it was first seen: the last alone hides why an element
+          // that was there was never pressed before it went.
+          const nots: string[] = [];
           return until(
             `${element} being where it is pressed`,
             page.evaluate(aimAt(element, pressed), Aim).pipe(
               Effect.map((seen) => {
                 if ("not" in seen) {
-                  not = seen.not;
+                  if (nots.at(-1) !== seen.not) {
+                    nots.push(seen.not);
+                  }
                   return undefined;
                 }
                 return seen;
@@ -382,7 +386,7 @@ export const startWith = Effect.fn("Viewer.start")(function* (more: readonly str
             Effect.mapError(
               () =>
                 new NoElement({
-                  sought: `${pressed ? "to press" : "at rest"} is ${element}: it is not ${not}`,
+                  sought: `${pressed ? "to press" : "at rest"} is ${element}: it is not ${nots.length === 0 ? "there" : nots.join(", then not ")}`,
                 }),
             ),
           );

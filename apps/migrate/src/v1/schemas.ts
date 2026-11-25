@@ -24,6 +24,10 @@ export const User = Schema.Struct({
   isSystemAdmin: Schema.BooleanFromBit,
   createdAt: Moment,
   disabledAt: Schema.NullOr(Moment),
+  /** Argon2id, as a PHC string; none for one who never set a password. */
+  passwordHash: Schema.NullOr(Schema.String),
+  /** Their authenticator's secret in base32; none for one with no second factor. */
+  totpSecret: Schema.NullOr(Schema.String),
 });
 export type User = typeof User.Type;
 
@@ -40,6 +44,8 @@ export const ApiToken = Schema.Struct({
   authorityType: Schema.Literals(["system_admin", "tenant"]),
   tenantId: Schema.NullOr(Schema.String),
   name: Schema.String,
+  /** bcrypt of what follows the token's id. */
+  tokenHash: Schema.String,
   scopes: Scopes,
   createdAt: Moment,
   createdByType: Schema.Literals(["api_token", "user", "system"]),
@@ -124,10 +130,8 @@ export const Count = Schema.Struct({ count: Schema.Number });
 
 /** The tables whose rows go nowhere in v2, each with why. */
 export const WITHOUT_A_HOME = {
-  user_passwords:
-    "v1 keeps passwords as Argon2id and v2 signs people in by another: each person sets a new one with a setup link",
-  totp_credentials: "a second factor is turned on again by the person it is of",
-  recovery_codes: "they go with the second factor they were of",
+  recovery_codes:
+    "v1 keeps a SHA-256 of each, which gives no code back: whoever has a second factor makes new ones",
   passkeys: "a passkey is added again by the person it is of",
   oidc_identities:
     "a provider signs in whoever has the address it verified, so nothing is kept of it",
