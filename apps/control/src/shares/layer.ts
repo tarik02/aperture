@@ -161,7 +161,7 @@ export const makeShares = Effect.fn("Shares.make")(function* () {
     },
   ) {
     const account = yield* accountOf(caller);
-    const session = yield* sessions.get(caller, sessionId);
+    const session = yield* sessions.acted(caller, sessionId);
     const secret = yield* Secrets.make("aps");
     const share = yield* store.insert({
       id: yield* Secrets.id,
@@ -195,7 +195,7 @@ export const makeShares = Effect.fn("Shares.make")(function* () {
     sessionId: string,
     id: string,
   ) {
-    const session = yield* sessions.get(caller, sessionId);
+    const session = yield* sessions.acted(caller, sessionId);
     const share = Option.filter(yield* store.find(id), (found) => found.sessionId === sessionId);
     if (Option.isNone(share)) {
       return yield* new ShareNotFound({ id });

@@ -849,6 +849,114 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
   );
 
   it.effect(
+    "an admin is shown the workspaces they are in, the others when they ask, and acts in one once they join it",
+    () =>
+      Effect.gen(function* () {
+        const proxy = yield* Proxy.Proxy;
+        const viewer = yield* Viewer.Viewer;
+        const fs = yield* FileSystem.FileSystem;
+        const looker = yield* Control.account("Looker", true);
+        const keeper = yield* Control.account("Keeper");
+        const apart = yield* keeper.api.workspaces.create({ payload: { name: "Kept apart" } });
+        const theirs = yield* until(
+          "a session on the node that registered",
+          keeper.api.sessions.create({
+            payload: { suspended: true, label: "Keeper's", workspaceId: apart.id },
+          }),
+          "30 seconds",
+        );
+
+        const page = yield* viewer.open(`${proxy.url}/api/control/openapi.json`);
+        yield* until(
+          "the page being there to sign out from",
+          page.evaluate(
+            `(localStorage.clear(), Promise.all([fetch("/api/auth/sign-out", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }), fetch("/api/control/route/cookie", { method: "DELETE" })]).then(() => true))`,
+            Schema.Boolean,
+          ),
+        );
+        yield* page.evaluate(`void (location.href = "/")`);
+        yield* signInWithToken(page, looker.token);
+        yield* page.until(`!!document.querySelector('a[href="/-/workspaces"]')`);
+        yield* page.click(`a[href="/-/workspaces"]`);
+        const has = (selector: string) =>
+          page.evaluate(`!!document.querySelector(${JSON.stringify(selector)})`, Schema.Boolean);
+
+        // By itself the page has the workspaces they are in; the others, once asked for.
+        const row = `[data-console-workspace="Kept apart"]`;
+        const shown = `[data-slot="select-trigger"][aria-label="Shown"]`;
+        // They are in none, and are told so.
+        yield* page.until(`!!document.querySelector('${shown}')`);
+        yield* page.until(`!!document.querySelector("[data-console-empty]")`);
+        expect(yield* has(row)).toBe(false);
+        yield* pick(page, shown, "All workspaces");
+        yield* page.until(`!!document.querySelector('${row} [data-console-workspace-onlooked]')`);
+        expect(yield* page.text(row)).toContain("Not a member · read only");
+        expect(yield* has(`${row} [data-console-row-action="join"]`)).toBe(true);
+        yield* shot(page, fs, "console-workspaces-every");
+        // It is kept by the browser, and the switcher has the same.
+        yield* page.evaluate(`void location.reload()`);
+        yield* page.until(`!!document.querySelector('${row}')`);
+        expect(yield* page.text(shown)).toContain("All workspaces");
+
+        const others = "[data-console-workspace-others]";
+        yield* page.click("[data-console-workspace-switcher]");
+        yield* page.until(`!!document.querySelector('${others}')`);
+        expect(yield* page.text(others)).toContain("Kept apart");
+        yield* shot(page, fs, "console-switcher-every");
+        yield* page.click("[data-console-workspace-every]");
+        yield* page.until(`!document.querySelector('${others}')`);
+        yield* page.click("[data-console-workspace-every]");
+        yield* page.until(`!!document.querySelector('${others}')`);
+        yield* choose(page, `[role="menuitemradio"]`, "Kept apart");
+        yield* page.key("Escape", "Escape", ESCAPE);
+        yield* page.until(`!document.querySelector('[role="menuitemradio"]')`);
+        yield* page.until(`!!document.querySelector("[data-console-workspace-onlooked]")`);
+        // With the others hidden, the one that is selected stays where it is chosen from.
+        yield* page.click("[data-console-workspace-switcher]");
+        yield* page.click("[data-console-workspace-every]");
+        yield* page.until(
+          `!document.querySelector('[data-console-workspace-every][data-checked]') && !!document.querySelector('${others}')`,
+        );
+        expect(yield* page.text(others)).toContain("Kept apart");
+        yield* page.key("Escape", "Escape", ESCAPE);
+        yield* page.until(`!document.querySelector('[role="menuitemradio"]')`);
+
+        // What is there is seen, and nothing that acts is offered: joining is.
+        yield* page.click(`a[href="/-/sessions"]`);
+        const card = `[data-console-session="${theirs.id}"]`;
+        yield* page.until(`!!document.querySelector('${card}')`);
+        yield* page.until(`!!document.querySelector("[data-console-onlooked-note]")`);
+        expect(yield* has("[data-console-create]")).toBe(false);
+        expect(yield* has(`${card} input[type="checkbox"]`)).toBe(false);
+        yield* page.click(`${card} [aria-label="Session actions"]`);
+        yield* page.until(`!!document.querySelector('[data-slot="dropdown-menu-item"]')`);
+        expect(
+          yield* page.evaluate(
+            `[...document.querySelectorAll('[data-slot="dropdown-menu-item"]')].map((item) => item.textContent.trim())`,
+            Schema.Array(Schema.String),
+          ),
+        ).toEqual(["Open", "Copy link", "Details"]);
+        yield* shot(page, fs, "console-workspace-onlooked");
+        yield* page.key("Escape", "Escape", ESCAPE);
+        yield* page.until(`!document.querySelector('[data-slot="dropdown-menu-item"]')`);
+
+        yield* page.click("[data-console-workspace-join]");
+        yield* page.until(
+          `!document.querySelector("[data-console-onlooked-note]") && !!document.querySelector("[data-console-create]")`,
+        );
+        expect(yield* has("[data-console-workspace-onlooked]")).toBe(false);
+        expect((yield* looker.api.workspaces.list()).find((one) => one.id === apart.id)?.role).toBe(
+          "member",
+        );
+        expect(page.errors()).toEqual([]);
+
+        // The workspace stays: the check of the events after this one counts those deleted.
+        yield* looker.api.sessions.delete({ params: { id: theirs.id } });
+      }),
+    LONG,
+  );
+
+  it.effect(
     "an admin reads what was done on the page of events, by its kind and by who did it",
     () =>
       Effect.gen(function* () {

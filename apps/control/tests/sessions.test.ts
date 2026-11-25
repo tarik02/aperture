@@ -470,6 +470,86 @@ suite(needs)("sessions on a node that registered", (it) => {
   );
 
   it.effect(
+    "an admin sees what is in a workspace they are not in, and acts there once they join it",
+    () =>
+      Effect.gen(function* () {
+        const team = yield* ada.api.workspaces.create({ payload: { name: "Looked at" } });
+        const shared = yield* ada.api.sessions.create({
+          payload: { workspaceId: team.id, suspended: true, label: "Theirs" },
+        });
+        const kept = yield* ada.api.snapshots.take({
+          params: { id: shared.id },
+          payload: { name: "looked-at" },
+        });
+        const root = yield* Control.account("Onlooker", true);
+        const at = { params: { id: shared.id } };
+        const snapshot = { params: { id: kept.id } };
+
+        // What reads is answered: the workspace, its members, its sessions and snapshots.
+        expect(
+          (yield* root.api.workspaces.list()).find((one) => one.id === team.id)?.role,
+        ).toBeNull();
+        expect((yield* root.api.workspaces.members({ params: { id: team.id } })).length).toBe(1);
+        expect((yield* root.api.sessions.get(at)).label).toBe("Theirs");
+        expect((yield* root.api.snapshots.get(snapshot)).name).toBe("looked-at");
+        expect(yield* root.api.sessions.proxy(at)).toEqual({ proxy: null });
+        // A ticket that only watches is a way of seeing the session.
+        expect((yield* root.api.sessions.createTicket({ ...at, payload: {} })).ticket).not.toBe("");
+
+        // What acts is refused, and says why.
+        const refusals: ReadonlyArray<Effect.Effect<unknown, { readonly _tag: string }>> = [
+          root.api.sessions.create({ payload: { workspaceId: team.id, suspended: true } }),
+          root.api.sessions.create({ payload: { suspended: true, snapshotId: kept.id } }),
+          root.api.sessions.describe({ ...at, payload: { label: "Mine now" } }),
+          root.api.sessions.setProxy({ ...at, payload: { proxy: null } }),
+          root.api.sessions.resume(at),
+          root.api.sessions.suspend(at),
+          root.api.sessions.delete(at),
+          root.api.sessions.createTicket({ ...at, payload: { access: { input: "rw" } } }),
+          root.api.sessions.createFileLink({
+            ...at,
+            payload: { path: "uploads/a.txt", write: true },
+          }),
+          root.api.shares.create({ ...at, payload: { name: "out", role: "watch" } }),
+          root.api.snapshots.take({ ...at, payload: { name: "taken" } }),
+          root.api.snapshots.describe({ ...snapshot, payload: { name: "renamed" } }),
+          root.api.snapshots.delete(snapshot),
+        ];
+        for (const [index, refusal] of refusals.entries()) {
+          const refused = yield* Effect.flip(refusal);
+          expect([index, refused._tag]).toEqual([index, "Forbidden"]);
+          expect(refused).toMatchObject({ message: expect.stringContaining("join the workspace") });
+        }
+        expect((yield* ada.api.sessions.get(at)).label).toBe("Theirs");
+        // The same goes for a token of theirs that is for an admin's doings.
+        const asAdmin = yield* root.api.accounts.createOwnToken({
+          payload: { name: "admin", scopes: ["admin", "sessions:write", "snapshots:write"] },
+        });
+        const control = yield* Control.Control;
+        const byToken = yield* control.as(asAdmin.token);
+        expect((yield* byToken.sessions.get(at)).label).toBe("Theirs");
+        expect((yield* Effect.flip(byToken.sessions.delete(at)))._tag).toBe("Forbidden");
+
+        // Who is in the workspace is still an admin's to say: they put themselves in.
+        yield* root.api.workspaces.admit({
+          params: { id: team.id, accountId: root.account.id },
+          payload: { role: "member" },
+        });
+        expect((yield* root.api.workspaces.list()).find((one) => one.id === team.id)?.role).toBe(
+          "member",
+        );
+        const described = yield* root.api.sessions.describe({
+          ...at,
+          payload: { label: "Ours" },
+        });
+        expect(described.label).toBe("Ours");
+        yield* root.api.snapshots.delete(snapshot);
+        yield* byToken.sessions.delete(at);
+        yield* root.api.workspaces.delete({ params: { id: team.id } });
+      }),
+  );
+
+  it.effect(
     "what an account made in a workspace is the workspace's, and stays once the account is removed",
     () =>
       Effect.gen(function* () {

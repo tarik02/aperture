@@ -94,7 +94,7 @@ To reach a service on your own machine from the session's browser:
 
 ### Work in a workspace
 
-A session or snapshot made with a `workspace_id` belongs to all the workspace's members. `workspaces.list` gives the ids; `workspaces.create`, `workspaces.admit` (`account_id`, `role`: `member` or `admin`), `workspaces.dismiss` and `workspaces.members` manage one. `sessions.list` and `snapshots.list` take `workspace_id` (`none` for the account's own).
+A session or snapshot made with a `workspace_id` belongs to all the workspace's members. `workspaces.list` gives the ids; `workspaces.create`, `workspaces.admit` (`account_id`, `role`: `member` or `admin`), `workspaces.dismiss` and `workspaces.members` manage one. `sessions.list` and `snapshots.list` take `workspace_id` (`none` for the account's own). An admin sees every workspace but acts only in those they are in: elsewhere a refusal says to join, which `workspaces.admit` with their own `account_id` does.
 
 Service accounts, people and API tokens are made over the control API alone: [control-plane.md](references/control-plane.md).
 

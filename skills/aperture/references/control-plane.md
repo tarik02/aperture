@@ -50,6 +50,7 @@ api -X PUT "$APERTURE_URL/api/control/workspaces/$WORKSPACE/members/$BOT" -d '{"
 
 - Any token is told the workspaces its account is in; who else is in one takes `workspaces:read`.
 - Renaming, deleting, admitting and dismissing take `workspaces:write` and being an admin of that workspace.
+- An admin (a person's console session, or a token with the `admin` scope) is told every workspace; `role` is `null` in one they are not in. There they read: the workspace, its members, its sessions and snapshots, a watching ticket, a file link that reads. Acting there (creating, changing, suspending, resuming or deleting a session, a ticket with access, an upload link, a share link, taking, changing or deleting a snapshot, a session from its snapshots) is refused with `Forbidden` until they admit themselves with `PUT /workspaces/{id}/members/{accountId}`. Another account's own sessions and snapshots, of no workspace, an admin acts on as before.
 - A workspace is deleted once no session and no snapshot is of it.
 
 ## Events

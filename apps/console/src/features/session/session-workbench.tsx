@@ -39,6 +39,7 @@ import { notAnswering, useUnanswered } from "#/lib/answering.ts";
 import { told } from "#/lib/api.ts";
 import { useMay } from "#/features/auth/access.ts";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
+import { useOnlooks } from "#/features/workspace/workspace.queries.ts";
 
 type StateProps = {
   children: React.ReactNode;
@@ -253,7 +254,8 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
   const session = useSessionQuery(sessionId);
   const resume = useSessionActionMutation("resume");
   const account = useAccountQuery();
-  const mayResume = useMay("sessions:write");
+  const onlooks = useOnlooks()(session.data?.workspaceId ?? null);
+  const mayResume = useMay("sessions:write") && !onlooks;
   // Opening a session that rests resumes it, once: one suspended while it is open stays so.
   const [onOpen, setOnOpen] = useState<{ id: string; resumes: boolean }>();
   if (session.data !== undefined && onOpen?.id !== sessionId) {
@@ -340,7 +342,11 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
       <State
         session={session.data}
         note="failed"
-        action={<Button onClick={() => resume.mutate(sessionId)}>Start again</Button>}
+        action={
+          mayResume ? (
+            <Button onClick={() => resume.mutate(sessionId)}>Start again</Button>
+          ) : undefined
+        }
       >
         The session failed{failure === null ? "." : `: ${failure}`}
       </State>
@@ -372,7 +378,9 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
           <span role="alert" className="aperture:text-destructive">
             It was not resumed: {told(resume.error)}
           </span>
-        ) : mayResume ? null : (
+        ) : mayResume ? null : onlooks ? (
+          <span>Join the workspace to resume it.</span>
+        ) : (
           <span>You may not resume it: that is for whoever may change the session.</span>
         )}
       </State>

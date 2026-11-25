@@ -48,6 +48,7 @@ import {
   useSessionActionMutation,
 } from "#/features/session/session.mutations.ts";
 import { SaveSnapshotDialog } from "#/features/snapshot/save-snapshot-dialog.tsx";
+import { useOnlooks } from "#/features/workspace/workspace.queries.ts";
 import { copyText } from "#/lib/copy.ts";
 
 /** One thing done with a session, as a menu of either kind offers it. */
@@ -69,6 +70,8 @@ export interface SessionAction extends Guarded {
 export function useSessionActions(session: Session, onDeleted?: () => void) {
   const navigate = useNavigate();
   const access = useAccess();
+  // An admin who only looks at the workspace is offered what reads the session, and no more.
+  const onlooks = useOnlooks()(session.workspaceId);
   const suspend = useSessionActionMutation("suspend");
   const resume = useSessionActionMutation("resume");
   const remove = useSessionActionMutation("delete");
@@ -161,7 +164,9 @@ export function useSessionActions(session: Session, onDeleted?: () => void) {
       onSelect: () => setDialog("delete"),
     },
   ];
-  const actions = all.filter(access.offers);
+  const actions = all.filter(
+    (action) => access.offers(action) && !(onlooks && action.needs !== undefined),
+  );
 
   const dialogs = (
     <>

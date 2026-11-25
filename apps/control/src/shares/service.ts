@@ -49,7 +49,7 @@ export interface SharesShape {
     caller: Caller,
     sessionId: string,
     id: string,
-  ) => Effect.Effect<void, SessionNotFound | ShareNotFound>;
+  ) => Effect.Effect<void, Forbidden | SessionNotFound | ShareNotFound>;
   /**
    * The link a guest came with, by its id and its secret, and where its session is. A link
    * whose account is disabled lets nobody in until the account is in use again.

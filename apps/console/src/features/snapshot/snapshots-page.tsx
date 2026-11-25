@@ -24,7 +24,8 @@ import {
   useDescribeSnapshotMutation,
 } from "#/features/snapshot/snapshot.mutations.ts";
 import { type Snapshot, useSnapshotsQuery } from "#/features/snapshot/snapshot.queries.ts";
-import { useSelectedWorkspace } from "#/features/workspace/workspace.queries.ts";
+import { OnlookedNote } from "#/features/workspace/onlooked-note.tsx";
+import { useOnlooks, useSelectedWorkspace } from "#/features/workspace/workspace.queries.ts";
 import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
 import { ListEmpty } from "#/components/list-empty.tsx";
@@ -33,6 +34,7 @@ import { when } from "#/lib/when.ts";
 function SnapshotRow({ snapshot }: { snapshot: Snapshot }) {
   const openNew = useOpenNewSession();
   const access = useAccess();
+  const onlooks = useOnlooks()(snapshot.workspaceId);
   const remove = useDeleteSnapshotMutation();
   const describe = useDescribeSnapshotMutation();
   const [confirming, setConfirming] = useState(false);
@@ -45,7 +47,7 @@ function SnapshotRow({ snapshot }: { snapshot: Snapshot }) {
     });
 
   const actions: ReadonlyArray<RowAction> = [
-    ...(access.makesSessionsIn(snapshot.workspaceId)
+    ...(access.makesSessionsIn(snapshot.workspaceId) && !onlooks
       ? ([
           {
             key: "start",
@@ -56,24 +58,28 @@ function SnapshotRow({ snapshot }: { snapshot: Snapshot }) {
           },
         ] satisfies ReadonlyArray<RowAction>)
       : []),
-    {
-      key: "edit",
-      label: "Edit",
-      icon: Pencil,
-      shown: "icon",
-      needs: "snapshots:write",
-      onSelect: () => setEditing(true),
-    },
-    {
-      key: "delete",
-      label: "Delete",
-      icon: Trash2,
-      shown: "icon",
-      needs: "snapshots:write",
-      destructive: true,
-      parted: true,
-      onSelect: () => setConfirming(true),
-    },
+    ...(onlooks
+      ? []
+      : ([
+          {
+            key: "edit",
+            label: "Edit",
+            icon: Pencil,
+            shown: "icon",
+            needs: "snapshots:write",
+            onSelect: () => setEditing(true),
+          },
+          {
+            key: "delete",
+            label: "Delete",
+            icon: Trash2,
+            shown: "icon",
+            needs: "snapshots:write",
+            destructive: true,
+            parted: true,
+            onSelect: () => setConfirming(true),
+          },
+        ] satisfies ReadonlyArray<RowAction>)),
   ];
 
   return (
@@ -151,6 +157,7 @@ export function SnapshotsPage() {
   if (shown?.length === 0) {
     return (
       <TablePage>
+        <OnlookedNote />
         <ListEmpty icon={Layers} title="No snapshots yet">
           {access.may("sessions:read") ? (
             <Button size="sm" variant="outline" render={<Link to="/-/sessions" />}>
@@ -163,6 +170,7 @@ export function SnapshotsPage() {
   }
   return (
     <TablePage>
+      <OnlookedNote />
       <Table stickyActionColumn>
         <TableHeader>
           <TableRow>

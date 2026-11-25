@@ -14,7 +14,7 @@ What does carry over is **data**. A one-time migrator moves accounts, tenants, s
 | User | Account of kind `person` | |
 | Membership with scopes per tenant | Role `member` or `admin` per workspace | |
 | Tenant token | Service account with API tokens, let into workspaces | A token is always some account's |
-| System-admin token, choosing a tenant with `X-Aperture-Tenant-Id` | An admin's token, or the bootstrap token | No header: `workspaceId` is a field of the request |
+| System-admin token, choosing a tenant with `X-Aperture-Tenant-Id` | An admin's token, or the bootstrap token | No header: `workspaceId` is a field of the request. An admin reads every workspace and acts in those they are a member of |
 | API token `apt_…` | API token `apc_…` | An `apt_…` token keeps working, for a while; new ones are `apc_…`. See below |
 | Session token `aps_…`, one per session | Ticket: signed, short-lived, any number, each with its own access | Nothing durable to store. Ask for a fresh one |
 | Editor and viewer capabilities `ape_…`, `apv_…` | Share links, `watch` or `control`, named, expiring, revocable | A guest gets the workbench alone |

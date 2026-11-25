@@ -8,9 +8,10 @@ import {
   TableHeader,
   TableRow,
 } from "@aperture-browser/ui/components/table";
-import { Building2, Pencil, Plus, Trash2, Users } from "lucide-react";
+import { Building2, LogIn, Pencil, Plus, Trash2, Users } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
+import { filter, Filters } from "#/components/filter-menu.tsx";
 import { LongName } from "#/components/long-name.tsx";
 import { NameDialog } from "#/components/name-dialog.tsx";
 import { type RowAction, RowActions, RowContextMenu } from "#/components/row-actions.tsx";
@@ -20,11 +21,13 @@ import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
 import { useAccess, useMay } from "#/features/auth/access.ts";
 import { WorkspaceMembersDialog } from "#/features/workspace/workspace-members-dialog.tsx";
+import { showEveryWorkspace } from "#/features/workspace/selected-workspace.ts";
 import {
   useCreateWorkspaceMutation,
   useDeleteWorkspaceMutation,
+  useJoinWorkspaceMutation,
   useRenameWorkspaceMutation,
-  useWorkspacesQuery,
+  useShownWorkspaces,
   type Workspace,
 } from "#/features/workspace/workspace.queries.ts";
 import { ListEmpty } from "#/components/list-empty.tsx";
@@ -35,11 +38,24 @@ function WorkspaceRow({ workspace }: { workspace: Workspace }) {
   const access = useAccess();
   const remove = useDeleteWorkspaceMutation();
   const rename = useRenameWorkspaceMutation();
+  const join = useJoinWorkspaceMutation();
   const [dialog, setDialog] = useState<"members" | "rename" | "delete" | null>(null);
   // Who is in it is told to all its members, and changed by its admins alone.
   const administers =
     access.may("workspaces:write") && (workspace.role === "admin" || access.may("admin"));
   const actions: ReadonlyArray<RowAction> = [
+    ...(workspace.role === null && administers
+      ? ([
+          {
+            key: "join",
+            label: "Join",
+            icon: LogIn,
+            shown: "button",
+            disabled: join.isPending,
+            onSelect: () => join.mutate(workspace.id),
+          },
+        ] satisfies ReadonlyArray<RowAction>)
+      : []),
     ...(access.may("workspaces:read")
       ? ([
           {
@@ -73,9 +89,19 @@ function WorkspaceRow({ workspace }: { workspace: Workspace }) {
           <LongName>{workspace.name}</LongName>
         </TableCell>
         <TableCell>
-          <Badge variant={workspace.role === "admin" ? "default" : "outline"}>
-            {workspace.role === null ? "Not a member" : worded(workspace.role)}
-          </Badge>
+          {workspace.role === null ? (
+            <Badge
+              variant="outline"
+              data-console-workspace-onlooked
+              className="aperture:text-muted-foreground"
+            >
+              Not a member · read only
+            </Badge>
+          ) : (
+            <Badge variant={workspace.role === "admin" ? "default" : "outline"}>
+              {worded(workspace.role)}
+            </Badge>
+          )}
         </TableCell>
         <TableCell label="Created" className="aperture:text-muted-foreground">
           {when.format(new Date(workspace.createdAt.epochMilliseconds))}
@@ -112,9 +138,15 @@ function WorkspaceRow({ workspace }: { workspace: Workspace }) {
   );
 }
 
-/** The workspaces the account is in. */
+const SHOWN = [
+  { value: "joined", label: "My workspaces" },
+  { value: "every", label: "All workspaces" },
+] as const;
+
+/** The workspaces the account is in; for an admin who asks, every one there is. */
 export function WorkspacesPage() {
-  const workspaces = useWorkspacesQuery();
+  const { workspaces, joined, others, offersEvery, showsEvery } = useShownWorkspaces();
+  const shown = [...joined, ...others];
   const create = useCreateWorkspaceMutation();
   const [creating, setCreating] = useState(false);
   const makes = useMay("workspaces:write");
@@ -122,6 +154,18 @@ export function WorkspacesPage() {
   return (
     <TablePage>
       <PageHeaderActions>
+        {offersEvery ? (
+          <Filters
+            filters={[
+              filter({
+                label: "Shown",
+                value: showsEvery ? "every" : "joined",
+                options: SHOWN,
+                onChange: (value) => showEveryWorkspace(value === "every"),
+              }),
+            ]}
+          />
+        ) : null}
         {makes ? (
           <Button data-console-workspace-new size="sm" onClick={() => setCreating(true)}>
             <Plus />
@@ -139,7 +183,7 @@ export function WorkspacesPage() {
         <p role="alert" className="aperture:text-sm aperture:text-destructive">
           {told(workspaces.error)}
         </p>
-      ) : workspaces.data?.length === 0 ? (
+      ) : workspaces.isSuccess && shown.length === 0 ? (
         <ListEmpty icon={Building2} title="No workspaces yet">
           {makes ? (
             <Button size="sm" onClick={() => setCreating(true)}>
@@ -160,7 +204,7 @@ export function WorkspacesPage() {
           </TableHeader>
           <TableBody>
             {workspaces.isPending ? <TableRowsSkeleton columns={4} actions /> : null}
-            {workspaces.data?.map((workspace) => (
+            {shown.map((workspace) => (
               <WorkspaceRow key={workspace.id} workspace={workspace} />
             ))}
           </TableBody>

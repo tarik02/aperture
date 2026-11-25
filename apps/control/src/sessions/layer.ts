@@ -13,7 +13,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
-import { accountOf, reaches } from "../accounts/caller.ts";
+import { accountOf, actsOn, notTheirs, reaches, type Reach } from "../accounts/caller.ts";
 import {
   FileLinkInvalid,
   Forbidden,
@@ -140,8 +140,17 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     });
   });
 
-  const placed = Effect.fn("Sessions.placed")(function* (caller: Caller, id: string) {
+  /** The caller's session to act on: one they only see is refused, and said why. */
+  const acted = Effect.fn("Sessions.acted")(function* (caller: Caller, id: string) {
     const session = yield* owned(caller, id);
+    if (!actsOn(caller, session, { kind: "sessions", id })) {
+      return yield* notTheirs();
+    }
+    return session;
+  });
+
+  const placed = Effect.fn("Sessions.placed")(function* (caller: Caller, id: string, reach: Reach) {
+    const session = yield* (reach === "act" ? acted : owned)(caller, id);
     const node = session.nodeId === null ? Option.none<Node>() : yield* nodes.find(session.nodeId);
     if (Option.isNone(node)) {
       return yield* new SessionHasNoNode({ id });
@@ -178,6 +187,10 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     );
     if (Option.isNone(snapshot)) {
       return yield* new SnapshotNotFound({ id: snapshotId });
+    }
+    // A session of a snapshot has what the snapshot has: its logins are used, not seen.
+    if (!actsOn(caller, snapshot.value, { kind: "snapshots", id: snapshotId })) {
+      return yield* notTheirs();
     }
     const { shared, nodeId } = snapshot.value;
     return candidates.filter((node) =>
@@ -233,7 +246,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       });
     }
     if (workspaceId !== null && !caller.workspaces.some((one) => one.id === workspaceId)) {
-      return yield* new WorkspaceNotFound({ id: workspaceId });
+      return yield* caller.admin ? notTheirs() : new WorkspaceNotFound({ id: workspaceId });
     }
     // A session of a snapshot has what the snapshot has: making one reads it.
     if (options.snapshotId !== undefined && !covers(caller.scopes, "snapshots:read")) {
@@ -299,7 +312,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     id: string,
     said: SessionDescription,
   ) {
-    yield* owned(caller, id);
+    yield* acted(caller, id);
     yield* store.describe(id, said);
     return yield* current(id);
   });
@@ -323,7 +336,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     id: string,
     given: ProxyConfig | null,
   ) {
-    const { node } = yield* placed(caller, id);
+    const { node } = yield* placed(caller, id, "act");
     yield* nodes
       .executor(node)
       .sessions.setProxy(id, given === null ? undefined : toExecutor(given))
@@ -332,7 +345,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
   });
 
   const suspend = Effect.fn("Sessions.suspend")(function* (caller: Caller, id: string) {
-    const { session, node } = yield* placed(caller, id);
+    const { session, node } = yield* placed(caller, id, "act");
     yield* store.desire(id, "suspended");
     yield* through(node, id, nodes.executor(node).sessions.suspend(id));
     yield* events.record({ kind: "session.suspended", ...about(session) });
@@ -340,7 +353,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
   });
 
   const resume = Effect.fn("Sessions.resume")(function* (caller: Caller, id: string) {
-    const { session, node } = yield* placed(caller, id);
+    const { session, node } = yield* placed(caller, id, "act");
     yield* store.desire(id, "running");
     yield* through(node, id, nodes.executor(node).sessions.resume(id));
     yield* events.record({ kind: "session.resumed", ...about(session) });
@@ -348,7 +361,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
   });
 
   const delete_ = Effect.fn("Sessions.delete")(function* (caller: Caller, id: string) {
-    const { session, node } = yield* placed(caller, id);
+    const { session, node } = yield* placed(caller, id, "act");
     yield* nodes
       .executor(node)
       .sessions.delete(id)
@@ -377,7 +390,9 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     origin: string,
   ) {
     const account = yield* accountOf(caller);
-    const { node } = yield* placed(caller, id);
+    // A ticket that gives no access watches, which is seeing the session.
+    const watches = Object.values(options.access).every((given) => given === undefined);
+    const { node } = yield* placed(caller, id, watches ? "read" : "act");
     const issued = yield* tickets.issue({
       sessionId: id,
       subject: account.id,
@@ -401,7 +416,8 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     origin: string,
   ) {
     const account = yield* accountOf(caller);
-    const { node } = yield* placed(caller, id);
+    // A file the session has is read by whoever sees it; one is put into it by whoever acts.
+    const { node } = yield* placed(caller, id, asked.write ? "act" : "read");
     const [directory = "", ...below] = asked.path.split("/");
     const area = FILE_AREAS[directory];
     if (area === undefined || below.length === 0) {
@@ -476,6 +492,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     proxy,
     setProxy,
     placed,
+    acted,
     suspend,
     resume,
     delete: delete_,
