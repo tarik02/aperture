@@ -13,6 +13,10 @@
 //! A settled window that DevTools says holds exactly one page is a target, named by the
 //! page's DevTools target id. Windows that are not, such as one a tab is still moving out
 //! of, are shown to nobody.
+//!
+//! A page the extension leaves in another's window for long is opened again here, in a
+//! window of its own, and the one left is closed: in the window of a target it would be
+//! what the target's window shows, and what is given to the target would go to it.
 
 use std::{
     collections::HashMap,
@@ -40,6 +44,12 @@ const MESSAGE_LIMIT: usize = 1024 * 1024;
 const SETTLE_WITHIN: Duration = Duration::from_secs(5);
 /// Pages change their titles and close without the extension saying so.
 const RECONCILE_EVERY: Duration = Duration::from_millis(500);
+/// How long a page may be in a window it is not alone in before it is opened again in
+/// one of its own: the extension takes a moment for each tab it moves, and at most twice
+/// `SETTLE_WITHIN` for one.
+const STRAY_FOR: Duration = Duration::from_secs(10);
+/// The browser's id of the tab of a page opened here again, which only the extension knows.
+const UNKNOWN_TAB: i64 = -1;
 
 /// The narrowest the browser makes a window, in logical pixels: asked for less, it stays
 /// this wide. A page shown as on a phone that is to be narrower is drawn larger into a
@@ -259,6 +269,19 @@ struct State {
     frozen: bool,
     /// How pages that are yet to be targets are shown once they are, by their ids.
     expected: HashMap<String, Like>,
+    /// Since when pages that are not targets have been in a window, by their ids.
+    strays: HashMap<String, Instant>,
+    /// Those of them to open again in windows of their own.
+    due: Vec<Stray>,
+    /// The page each page opened again here was replaced with, by the id of the one left.
+    replaced: HashMap<String, String>,
+}
+
+/// A page the extension did not give a window of its own.
+struct Stray {
+    id: String,
+    url: String,
+    opener: Option<String>,
 }
 
 /// How long the browser has to bring back the tabs of the session's last run. A tab that
@@ -338,6 +361,16 @@ impl Tabs {
     pub fn expect(&self, page: String, like: Like) {
         let mut state = self.0.state.lock().expect("not poisoned");
         state.expected.insert(page, like);
+    }
+
+    /// The page a page is now: another, where it was opened again in a window of its own.
+    pub fn known_as(&self, page: &str) -> String {
+        let state = self.0.state.lock().expect("not poisoned");
+        let mut page = page;
+        while let Some(next) = state.replaced.get(page) {
+            page = next;
+        }
+        page.to_owned()
     }
 }
 
@@ -424,6 +457,16 @@ impl Registry {
                         warn!("failed to reconcile targets: {err}");
                     }
                     failing = failed;
+                    let due = std::mem::take(&mut inner.state.lock().expect("not poisoned").due);
+                    for stray in due {
+                        let page = stray.id.clone();
+                        if let Err(err) = inner.rescue(stray).await {
+                            warn!(
+                                page,
+                                "a page left in another's window was not opened again in one of its own: {err:#}"
+                            );
+                        }
+                    }
                 }
             }
         });
@@ -641,7 +684,12 @@ impl Inner {
             .context("the browser is not attached yet")?;
 
         let pages = pages(&browser).await?;
-        let (fresh, placed) = self.state.lock().expect("not poisoned").settle(&pages);
+        let (fresh, placed) = {
+            let mut state = self.state.lock().expect("not poisoned");
+            let settled = state.settle(&pages);
+            state.stray(&pages, Instant::now());
+            settled
+        };
         for (window, viewport) in placed {
             self.compositor.set_viewport(window, viewport);
         }
@@ -651,6 +699,92 @@ impl Inner {
             }
         }
         self.publish();
+        Ok(())
+    }
+
+    /// Opens a page the extension left in another's window again, in a window of its own
+    /// that is bound here as the extension binds the windows it opens, and closes the one
+    /// left. What the page had beyond its address stays with the one closed.
+    async fn rescue(&self, stray: Stray) -> anyhow::Result<()> {
+        let browser = self
+            .browser
+            .borrow()
+            .clone()
+            .context("the browser is not attached")?;
+        warn!(
+            page = %stray.id,
+            url = %stray.url,
+            "a page has been in another's window for {} s: the session's extension did not give it one of its own, so it opens again in one",
+            STRAY_FOR.as_secs()
+        );
+        let nonce = uuid::Uuid::new_v4().to_string();
+        self.compositor.expect(nonce.clone()).await?;
+        let created = browser
+            .call(
+                "Target.createTarget",
+                json!({ "url": stray.url, "newWindow": true }),
+            )
+            .await;
+        let page = match created {
+            Ok(created) => created["targetId"].as_str().map(str::to_owned),
+            Err(err) => {
+                self.compositor.forget(nonce);
+                return Err(err.into());
+            }
+        };
+        let Some(page) = page else {
+            self.compositor.forget(nonce);
+            bail!("the browser named no page");
+        };
+        let placed = async {
+            let window = self.tagged(&nonce).await?;
+            let chromium = browser
+                .call("Browser.getWindowForTarget", json!({ "targetId": page }))
+                .await?;
+            let chromium = chromium["windowId"]
+                .as_i64()
+                .context("the browser named no window")?;
+            anyhow::Ok((window, chromium))
+        };
+        let (window, chromium_window) = match placed.await {
+            Ok(placed) => placed,
+            Err(err) => {
+                self.compositor.forget(nonce);
+                let close = json!({ "targetId": page });
+                let _ = browser.call("Target.closeTarget", close).await;
+                return Err(err);
+            }
+        };
+        {
+            let mut state = self.state.lock().expect("not poisoned");
+            state.bindings.insert(
+                chromium_window,
+                Binding {
+                    tab: UNKNOWN_TAB,
+                    window,
+                    settled: true,
+                },
+            );
+            // Shown as the page left was to be, or as its opener is.
+            let opener = stray
+                .opener
+                .as_ref()
+                .and_then(|opener| state.ready.get(opener))
+                .map(|opener| Like {
+                    mode: opener.mode,
+                    mobile: opener.mobile,
+                    viewport: opener.asked.filter(|_| opener.mobile),
+                });
+            if let Some(like) = state.expected.remove(&stray.id).or(opener) {
+                state.expected.insert(page.clone(), like);
+            }
+            state.replaced.insert(stray.id.clone(), page);
+        }
+        let close = json!({ "targetId": stray.id });
+        browser
+            .call("Target.closeTarget", close)
+            .await
+            .context("the page left was not closed")?;
         Ok(())
     }
 
@@ -860,6 +994,37 @@ impl State {
     }
 }
 
+impl State {
+    /// Follows the pages that are in a window and are not targets, and makes those that
+    /// have been so for `STRAY_FOR` due to open again in windows of their own. A page with
+    /// no window is left alone: the session's own hidden pages have none, and a tab gets
+    /// one as it opens. So is one between two documents, which has no address to open.
+    fn stray(&mut self, pages: &[Page], now: Instant) {
+        if self.frozen {
+            self.strays.clear();
+            return;
+        }
+        let strays: Vec<&Page> = pages
+            .iter()
+            .filter(|page| page.window.is_some() && !page.aside && !page.url.is_empty())
+            .filter(|page| !self.ready.contains_key(&page.id))
+            .collect();
+        self.strays
+            .retain(|id, _| strays.iter().any(|page| page.id == *id));
+        for page in strays {
+            let since = *self.strays.entry(page.id.clone()).or_insert(now);
+            if now.duration_since(since) >= STRAY_FOR {
+                self.strays.remove(&page.id);
+                self.due.push(Stray {
+                    id: page.id.clone(),
+                    url: page.url.clone(),
+                    opener: page.opener.clone(),
+                });
+            }
+        }
+    }
+}
+
 /// The browser's pages that are tabs, each with Chromium's id of its window.
 async fn pages(browser: &cdp::Client) -> Result<Vec<Page>, cdp::Error> {
     let mut pages = Vec::new();
@@ -886,6 +1051,9 @@ async fn pages(browser: &cdp::Client) -> Result<Vec<Page>, cdp::Error> {
             url: url.to_owned(),
             window,
             opener: info["openerId"].as_str().map(str::to_owned),
+            aside: info["subtype"]
+                .as_str()
+                .is_some_and(|subtype| !subtype.is_empty()),
         });
     }
     Ok(pages)
@@ -920,6 +1088,8 @@ struct Page {
     url: String,
     window: Option<i64>,
     opener: Option<String>,
+    /// A page that is not a tab's own yet, such as one being prerendered.
+    aside: bool,
 }
 
 #[cfg(test)]
@@ -935,6 +1105,7 @@ mod tests {
             url: url.to_owned(),
             window: Some(1),
             opener: None,
+            aside: false,
         }
     }
 

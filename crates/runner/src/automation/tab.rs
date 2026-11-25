@@ -40,6 +40,10 @@ const SLOW_STEP: Duration = Duration::from_millis(14);
 /// Input that came this soon after the input before it is of one gesture with it, and
 /// goes as far after it as it came.
 const GESTURE_GAP: Duration = Duration::from_secs(1);
+/// How long a picture of the page may take. The browser answers once the page draws, and
+/// a page whose window shows another draws nothing: without a bound, the caller would
+/// wait for as long as its own patience lasts and learn nothing.
+const DRAWN_WITHIN: Duration = Duration::from_secs(30);
 
 /// Where the tab's input stands: it goes one at a time, in the order it came.
 #[derive(Default)]
@@ -421,10 +425,24 @@ impl Cdp for TabSession {
             let now = self.recordings.now();
             self.recordings.note(Some(&self.target), kind, now, fields);
         }
-        self.browser
-            .call_in(Some(session_id.unwrap_or(&self.session)), method, params)
-            .await
-            .map_err(CdpError::from)
+        let call = self
+            .browser
+            .call_in(Some(session_id.unwrap_or(&self.session)), method, params);
+        if method != "Page.captureScreenshot" {
+            return call.await.map_err(CdpError::from);
+        }
+        match timeout(DRAWN_WITHIN, call).await {
+            Ok(answer) => answer.map_err(CdpError::from),
+            Err(_) => {
+                let tab = self
+                    .tab()
+                    .map_or_else(|| self.target.clone(), |tab| tab.to_string());
+                Err(CdpError::Protocol(format!(
+                    "tab {tab} drew nothing for {} s: its window may show another page",
+                    DRAWN_WITHIN.as_secs()
+                )))
+            }
+        }
     }
 
     fn events(&self) -> broadcast::Receiver<CdpEvent> {

@@ -883,14 +883,18 @@ impl Client {
     /// moved to another window is followed there. Tells whether it changed.
     async fn select(&mut self, wanted: Option<u32>) -> Result<bool, axum::Error> {
         let leads = self.leads();
+        // Before the targets are borrowed: what tells of them holds what this asks.
+        let opened = self
+            .opened
+            .as_ref()
+            .map(|opened| self.live.tabs.known_as(opened));
         let (selected, came) = {
             let targets = self.live.targets.borrow();
             let kept = self
                 .selected
                 .as_ref()
                 .and_then(|(id, _)| targets.iter().find(|target| target.id == *id));
-            let opened = self
-                .opened
+            let opened = opened
                 .as_ref()
                 .and_then(|opened| targets.iter().find(|target| target.id == *opened));
             let popped = kept.filter(|_| leads).and_then(|kept| {
