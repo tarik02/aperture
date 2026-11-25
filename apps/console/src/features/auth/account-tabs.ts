@@ -23,7 +23,8 @@ export function useAccountTabs(): ReadonlyArray<AccountTab> {
   const signsIn = useToken() === undefined && person.data !== null;
   const access = useAccess();
   const acts = access.may("tokens:write");
-  const sessions = access.may("sessions:read");
+  // What a user says of their own sessions is for whoever changes them.
+  const sessions = access.may("sessions:write");
   return ACCOUNT_TABS.filter((tab) =>
     tab.id === "security" ? signsIn : tab.id === "settings" ? sessions : acts,
   );

@@ -772,7 +772,7 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
       for (const gone of ["snapshots", "account", "people", "nodes", "audit"]) {
         expect([gone, yield* has(`a[href="/-/${gone}"]`)]).toEqual([gone, false]);
       }
-      expect(yield* menuOf(ownCard)).toEqual(["Open", "Copy link", "Details"]);
+      expect(yield* menuOf(ownCard)).toEqual(["Open", "Copy link", "Details", "Settings"]);
       yield* shot(page, fs, "console-held-reader");
       yield* menuClosed;
       yield* page.click(`${ownCard} [data-console-session-footer]`, "right");
@@ -935,7 +935,7 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
             `[...document.querySelectorAll('[data-slot="dropdown-menu-item"]')].map((item) => item.textContent.trim())`,
             Schema.Array(Schema.String),
           ),
-        ).toEqual(["Open", "Copy link", "Details"]);
+        ).toEqual(["Open", "Copy link", "Details", "Settings"]);
         yield* shot(page, fs, "console-workspace-onlooked");
         yield* page.key("Escape", "Escape", ESCAPE);
         yield* page.until(`!document.querySelector('[data-slot="dropdown-menu-item"]')`);

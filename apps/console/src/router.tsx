@@ -215,7 +215,7 @@ const accountSettings = createRoute({
   getParentRoute: () => account,
   path: "settings",
   component: () => (
-    <Only needs="sessions:read">
+    <Only needs="sessions:write">
       <AccountSettingsPage />
     </Only>
   ),
