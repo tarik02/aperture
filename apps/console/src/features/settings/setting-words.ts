@@ -27,6 +27,13 @@ export const SETTING_WORDS: Readonly<
   runningSessions: { label: "Sessions running at once", group: "Quotas", none: "No limit" },
   sessionMemory: { label: "Memory per session", group: "Quotas", none: "No limit" },
   sessionCpus: { label: "Processors per session", group: "Quotas", none: "No limit" },
+  clipboard: { label: "Clipboard", group: "Data" },
+  uploads: { label: "Uploads allowed", group: "Data" },
+  downloads: { label: "Downloads allowed", group: "Data" },
+  recording: { label: "Recording allowed", group: "Data" },
+  recordingRetention: { label: "Keep recordings for", group: "Data", none: "Ever" },
+  shareLinkMaxLifetime: { label: "Share links last at most", group: "Data", none: "No limit" },
+  apiTokenMaxLifetime: { label: "API tokens last at most", group: "Data", none: "No limit" },
 };
 
 const CHOICE_WORDS: Readonly<Record<string, string>> = {
@@ -35,6 +42,9 @@ const CHOICE_WORDS: Readonly<Record<string, string>> = {
   anyone: "Anyone",
   admins: "Admins",
   nobody: "Nobody",
+  rw: "Both ways",
+  ro: "Out of the session only",
+  off: "Off",
 };
 
 /** A level as a person reads it. */

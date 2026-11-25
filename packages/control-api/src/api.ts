@@ -505,7 +505,7 @@ export class AccountsGroup extends HttpApiGroup.make("accounts")
     HttpApiEndpoint.post("createOwnToken", "/account/tokens", {
       payload: NewApiToken,
       success: ApiTokenCreated.pipe(HttpApiSchema.status(201)),
-      error: Forbidden,
+      error: [Forbidden, SettingOutOfBounds],
     }),
     HttpApiEndpoint.delete("revokeToken", "/account/tokens/:id", {
       params: { id: Id },
@@ -578,7 +578,7 @@ export class AccountsGroup extends HttpApiGroup.make("accounts")
       params: { id: Id },
       payload: NewApiToken,
       success: ApiTokenCreated.pipe(HttpApiSchema.status(201)),
-      error: [Forbidden, AccountNotFound],
+      error: [Forbidden, AccountNotFound, SettingOutOfBounds],
     }),
     HttpApiEndpoint.get("tokensOf", "/accounts/:id/tokens", {
       params: { id: Id },
@@ -765,7 +765,7 @@ export class SharesGroup extends HttpApiGroup.make("shares")
         ),
       }),
       success: ShareCreated.pipe(HttpApiSchema.status(201)),
-      error: [Forbidden, SessionNotFound],
+      error: [Forbidden, SessionNotFound, SettingOutOfBounds],
     }),
     HttpApiEndpoint.delete("revoke", "/sessions/:id/shares/:shareId", {
       params: { ...session, shareId: Id },

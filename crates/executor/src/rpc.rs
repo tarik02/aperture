@@ -381,6 +381,7 @@ fn limits_message(limits: Limits) -> pb::Limits {
         cpus: limits.cpus,
         tasks: limits.tasks,
         suspend_idle_after: limits.idle().map(Duration::from).into(),
+        keep_recordings: limits.keep_recordings().map(Duration::from).into(),
         ..Default::default()
     }
 }
@@ -427,6 +428,10 @@ fn limits(limits: &pb::Limits) -> Limits {
         idle_ms: limits.suspend_idle_after.as_option().map(|after| {
             Every::try_from(after.clone()).map_or(0, |after| after.as_millis() as u64)
         }),
+        keep_recordings_ms: limits
+            .keep_recordings
+            .as_option()
+            .map(|kept| Every::try_from(kept.clone()).map_or(0, |kept| kept.as_millis() as u64)),
     }
 }
 

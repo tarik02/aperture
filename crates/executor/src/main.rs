@@ -207,6 +207,7 @@ async fn main() -> anyhow::Result<()> {
         idle_ms: arguments
             .suspend_idle_after
             .map(|after| after.as_millis() as u64),
+        keep_recordings_ms: None,
     }
     .over(Limits::default());
     limits.check().map_err(anyhow::Error::msg)?;
@@ -291,6 +292,7 @@ async fn main() -> anyhow::Result<()> {
         },
     ));
     tokio::spawn(sessions.clone().suspend_idle());
+    tokio::spawn(sessions.clone().forget_recordings());
 
     // A session is created with a storage state as large as its runner takes one, which
     // is more than a request is let be otherwise.

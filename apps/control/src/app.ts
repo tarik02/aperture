@@ -72,7 +72,6 @@ export const services = Layer.mergeAll(
   Layer.mergeAll(SessionTools.layer, Shares.layer).pipe(Layer.provide(NodeHttpClient.layerUndici)),
 ).pipe(
   Layer.provideMerge(Sessions.layer),
-  Layer.provideMerge(Policy.layer),
   Layer.provideMerge(
     Layer.mergeAll(
       Accounts.layer.pipe(Layer.provide(NodeHttpClient.layerUndici)),
@@ -81,6 +80,8 @@ export const services = Layer.mergeAll(
     ),
   ),
   Layer.provideMerge(Nodes.layer),
+  // Below what makes tickets: a ticket gives what the session's settings leave.
+  Layer.provideMerge(Policy.layer),
 );
 
 const api = HttpApiBuilder.layer(Api, { openapiPath: `${PREFIX}/openapi.json` }).pipe(

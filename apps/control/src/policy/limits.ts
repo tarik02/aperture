@@ -21,7 +21,9 @@ export const limitsOf = (
   const idle = awake ? 0 : given(effective.suspendIdleAfter);
   const memory = holdsResources ? given(effective.sessionMemory) : undefined;
   const cpus = holdsResources ? given(effective.sessionCpus) : undefined;
+  const kept = given(effective.recordingRetention);
   return {
+    ...(kept === undefined ? {} : { keepRecordings: { seconds: BigInt(kept) } }),
     ...(idle === undefined ? {} : { suspendIdleAfter: { seconds: BigInt(idle) } }),
     ...(memory === undefined ? {} : { memoryBytes: BigInt(memory) }),
     ...(cpus === undefined ? {} : { cpus }),
@@ -56,7 +58,20 @@ export const holds = (
     own?.memoryBytes === undefined ? undefined : BigInt(own.memoryBytes),
   );
   const cpus = expected(wanted.cpus, own?.cpus);
+  const kept = expected(wanted.keepRecordings?.seconds, undefined);
   return (
-    told?.suspendIdleAfter?.seconds === idle && told?.memoryBytes === memory && told?.cpus === cpus
+    told?.keepRecordings?.seconds === kept &&
+    told?.suspendIdleAfter?.seconds === idle &&
+    told?.memoryBytes === memory &&
+    told?.cpus === cpus
   );
 };
+
+/** The level a bound of a setting is told as set by: the instance, where no level set it. */
+export const boundBy = (setting: Effective[keyof Effective]) =>
+  setting.source === "instance" ||
+  setting.source === "workspace" ||
+  setting.source === "account" ||
+  setting.source === "session"
+    ? setting.source
+    : "instance";

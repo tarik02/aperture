@@ -177,6 +177,9 @@ message Limits {
   // when someone reaches it again. A session that records, edits a recording or
   // downloads is in use.
   optional google.protobuf.Duration suspend_idle_after = 4;
+  // How long the session's recordings and screenshots are kept: the executor removes
+  // those that were last changed longer ago. Kept for good, without.
+  optional google.protobuf.Duration keep_recordings = 6;
 }
 
 message Usage {

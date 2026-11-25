@@ -66,11 +66,20 @@ Each is told with what it comes to and where that comes from: the console shows 
 | `sessionsPerWorkspace` | instance, workspace | `APERTURE_CONTROL_SESSIONS_PER_WORKSPACE` | no limit | How many sessions a workspace has at most |
 | `runningSessions` | instance, workspace | `APERTURE_CONTROL_RUNNING_SESSIONS` | no limit | How many sessions of a workspace, or of a user's own, are asked to run at once at most: creating one that runs and resuming one are refused past it |
 | `sessionMemory` | all | `APERTURE_CONTROL_SESSION_MEMORY` | each node's own | The memory a session may use, in bytes; a variable takes `512M` or `4G`. Held only on a node that runs sessions as [scopes](#limits); another's sessions are held to nothing |
+| `clipboard` | all | `APERTURE_CONTROL_CLIPBOARD` | `rw` | What is copied passes between a session and its clients both ways (`rw`), only out of the session to them (`ro`), or not at all (`off`) |
+| `uploads` | all | `APERTURE_CONTROL_UPLOADS` | `true` | Whether files are put into a session |
+| `downloads` | all | `APERTURE_CONTROL_DOWNLOADS` | `true` | Whether a session's browser downloads files, and they are read out of it |
+| `recording` | all | `APERTURE_CONTROL_RECORDING` | `true` | Whether a session's tabs are recorded and screenshots taken. What was recorded before is still read |
+| `recordingRetention` | all | `APERTURE_CONTROL_RECORDING_RETENTION` | kept for good | How long a session's recordings and screenshots are kept: its node removes those last changed longer ago, looking every ten minutes |
+| `shareLinkMaxLifetime` | all | `APERTURE_CONTROL_SHARE_LINK_MAX_LIFETIME` | no limit | How long a share link into a session is good for at most. A longer one, or one that never runs out, is refused as `SettingOutOfBounds` |
+| `apiTokenMaxLifetime` | instance, user | `APERTURE_CONTROL_API_TOKEN_MAX_LIFETIME` | no limit | How long an API token is good for at most, as `shareLinkMaxLifetime` is for links. Tokens brought from v1 keep what they had |
 | `sessionCpus` | all | `APERTURE_CONTROL_SESSION_CPUS` | each node's own | The processors' worth of time a session may use, such as `1.5`. As `sessionMemory`, on a node that runs sessions as scopes |
 
 A variable takes a time as `30 minutes` or `7 days`, `never` for never, and `none` for no limit; one that says nothing the setting takes stops the program from starting. A level of the instance kept in the database says otherwise than the variable.
 
 A session past a quota is refused as `QuotaExceeded`, which names what was counted, the most there may be, and the level that says so. Quotas count records: a session that its node lost is counted until it is deleted. What a session may use is passed to its node when it is made, and again within a minute of a change; its node holds it to that from when its browser next starts. Disk is not limited: a node does not tell what a session's files take without walking them.
+
+What the clipboard, uploads, downloads and recording settings turn off is held where it happens, whoever asks: every ticket into the session the control plane signs, the console's, a share link's guest's, an agent's and a file link's, gives none of it, and a file link for it is refused. A session made while one is off is made without that [feature](#session-features) on its node too, so that its own automation does none of it either; one turned off after a session was made holds for its tickets from then on, and its automation keeps what the session was made with.
 
 A **pinned** session is never deleted by itself: `deleteSuspendedAfter` and `maxSessionAge` pass it by. It is pinned with `PUT /api/control/sessions/<id>/pin`, the MCP tool `sessions.pin`, or **Pin** in its menu. The control plane looks at sessions once a minute: a session it deletes is recorded as `session.deleted` by Aperture, with the reason. A session on a node that does not answer is deleted the next time it does.
 

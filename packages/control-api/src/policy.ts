@@ -157,6 +157,65 @@ export const SETTINGS = {
     fallback: undefined,
     variable: "APERTURE_CONTROL_SESSION_CPUS",
   },
+  /**
+   * What is copied passes between a session and its clients both ways (`rw`), only out of
+   * the session to them (`ro`), or not at all (`off`).
+   */
+  clipboard: {
+    type: { kind: "choice", choices: ["rw", "ro", "off"] },
+    none: false,
+    levels: LEVELS,
+    fallback: "rw",
+    variable: "APERTURE_CONTROL_CLIPBOARD",
+  },
+  /** Whether files are put into a session. */
+  uploads: {
+    type: { kind: "choice", choices: [true, false] },
+    none: false,
+    levels: LEVELS,
+    fallback: true,
+    variable: "APERTURE_CONTROL_UPLOADS",
+  },
+  /** Whether a session's browser downloads files, and they are taken out of it. */
+  downloads: {
+    type: { kind: "choice", choices: [true, false] },
+    none: false,
+    levels: LEVELS,
+    fallback: true,
+    variable: "APERTURE_CONTROL_DOWNLOADS",
+  },
+  /** Whether a session's tabs are recorded and screenshots kept. */
+  recording: {
+    type: { kind: "choice", choices: [true, false] },
+    none: false,
+    levels: LEVELS,
+    fallback: true,
+    variable: "APERTURE_CONTROL_RECORDING",
+  },
+  /** How long a session's recordings and screenshots are kept before its node removes them. */
+  recordingRetention: {
+    type: { kind: "duration" },
+    none: true,
+    levels: LEVELS,
+    fallback: null,
+    variable: "APERTURE_CONTROL_RECORDING_RETENTION",
+  },
+  /** How long a share link is good for at most; one that never runs out is refused. */
+  shareLinkMaxLifetime: {
+    type: { kind: "duration" },
+    none: true,
+    levels: LEVELS,
+    fallback: null,
+    variable: "APERTURE_CONTROL_SHARE_LINK_MAX_LIFETIME",
+  },
+  /** How long an API token is good for at most; one that never runs out is refused. */
+  apiTokenMaxLifetime: {
+    type: { kind: "duration" },
+    none: true,
+    levels: ["instance", "account"],
+    fallback: null,
+    variable: "APERTURE_CONTROL_API_TOKEN_MAX_LIFETIME",
+  },
 } as const satisfies Record<string, SettingDefinition>;
 
 export type SettingKey = keyof typeof SETTINGS;

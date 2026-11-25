@@ -36,6 +36,7 @@ import { Events } from "../events/service.ts";
 import { asked } from "../nodes/asked.ts";
 import type { Node } from "../nodes/schemas.ts";
 import { Nodes } from "../nodes/service.ts";
+import { featuresOn } from "../policy/data.ts";
 import { limitsOf } from "../policy/limits.ts";
 import { type Effective, Policy } from "../policy/service.ts";
 import { SnapshotsStore } from "../snapshots/store.ts";
@@ -216,6 +217,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       readonly proxy: ProxyConfig | undefined;
       readonly storageState: string | undefined;
       readonly limits: (node: Node) => LimitsInit;
+      readonly features: (node: Node) => { on: Array<proto.Feature> } | undefined;
     },
   ): Effect.Effect<readonly [Node, proto.Session], NoNode | NodeRefused> => {
     const [node, ...rest] = candidates;
@@ -228,6 +230,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
         suspended: wanted.suspended,
         snapshotId: wanted.snapshotId,
         limits: wanted.limits(node),
+        ...(wanted.features(node) === undefined ? {} : { features: wanted.features(node) }),
         ...(wanted.proxy === undefined ? {} : { proxy: toExecutor(wanted.proxy) }),
         ...(wanted.storageState === undefined ? {} : { storageState: wanted.storageState }),
       })
@@ -335,6 +338,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     });
     const [node, session] = yield* place(candidates, {
       limits: (node) => limitsOf(effective, false, node.offers?.holdsResources === true),
+      features: (node) => featuresOn(node.offers?.features, effective),
       suspended: options.suspended,
       snapshotId: options.snapshotId,
       proxy: options.proxy,
@@ -584,6 +588,25 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     if (asked.write && (directory !== UPLOADS || below.length !== 1)) {
       return yield* new FileLinkInvalid({
         message: `a file is put at ${UPLOADS}/<name>, and nowhere else`,
+      });
+    }
+    const { session } = yield* placed(caller, id, "read");
+    const effective = yield* policy.of({
+      workspaceId: session.workspaceId,
+      accountId: session.accountId,
+      sessionId: session.id,
+    });
+    const turnedOff =
+      area === "uploads"
+        ? effective.uploads
+        : area === "downloads"
+          ? effective.downloads
+          : asked.write
+            ? effective.recording
+            : undefined;
+    if (turnedOff !== undefined && turnedOff.value === false) {
+      return yield* new Forbidden({
+        message: `the ${turnedOff.source} turns ${area} off for this session`,
       });
     }
     const named = below.map(encodeURIComponent).join("/");

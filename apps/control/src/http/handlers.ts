@@ -23,6 +23,7 @@ import { Events } from "../events/service.ts";
 import { Grants } from "../grants/service.ts";
 import { Identity } from "../identity/service.ts";
 import { Nodes } from "../nodes/service.ts";
+import { withinLifetime } from "../policy/data.ts";
 import { Policy, type Target } from "../policy/service.ts";
 import { Providers } from "../providers/service.ts";
 import { sessionPath } from "../routing/paths.ts";
@@ -72,6 +73,18 @@ const accounts = HttpApiBuilder.group(
   "accounts",
   Effect.fn(function* (handlers) {
     const accounts = yield* Accounts;
+    const policy = yield* Policy;
+    /** Refuses a token that lasts longer than its account's settings let one. */
+    const tokenLifetime = Effect.fn(function* (accountId: string, days: number | undefined) {
+      const effective = yield* policy.of({ workspaceId: null, accountId, sessionId: null });
+      yield* withinLifetime(
+        effective.apiTokenMaxLifetime,
+        "apiTokenMaxLifetime",
+        "an API token",
+        lasting(days),
+        Duration.toSeconds,
+      );
+    });
     return handlers
       .handle(
         "current",
@@ -108,6 +121,7 @@ const accounts = HttpApiBuilder.group(
         "createToken",
         Effect.fn(function* ({ params, payload }) {
           const caller = yield* admin;
+          yield* tokenLifetime(params.id, payload.expiresInDays);
           const { token, secret } = yield* accounts.createToken(
             params.id,
             payload.name,
@@ -160,6 +174,7 @@ const accounts = HttpApiBuilder.group(
               message: "a token held to resources makes no tokens",
             });
           }
+          yield* tokenLifetime(account.id, payload.expiresInDays);
           // A token makes none that does more than itself.
           const beyond = payload.scopes.find((scope) => !covers(caller.scopes, scope));
           if (beyond !== undefined) {

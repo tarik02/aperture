@@ -42,6 +42,10 @@ const POLL: Duration = Duration::from_millis(50);
 const RUNNER_LINES_LOGGED: usize = 20;
 /// How often sessions are looked at for having sat idle too long.
 const IDLE_CHECK: Duration = Duration::from_secs(10);
+/// How often sessions' recordings are looked at for having been kept long enough.
+const RECORDINGS_CHECK: Duration = Duration::from_secs(600);
+/// The directories of a session's files that hold what was recorded of it.
+const RECORDED: [&str; 2] = ["recordings", "screenshots"];
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -243,6 +247,33 @@ impl Sessions {
                 info!(session = %id, ?idle, "session sat idle; suspending it");
                 if let Err(err) = self.sleep(id).await {
                     warn!(session = %id, "failed to suspend an idle session: {err}");
+                }
+            }
+        }
+    }
+
+    /// Removes the recordings and screenshots that were kept longer than their sessions keep
+    /// them, for as long as the executor runs. A file that is still being written to was
+    /// changed a moment ago, and stays.
+    pub async fn forget_recordings(self: Arc<Self>) {
+        loop {
+            sleep(RECORDINGS_CHECK).await;
+            let sessions = match self.list() {
+                Ok(sessions) => sessions,
+                Err(err) => {
+                    warn!("failed to look for recordings kept long enough: {err}");
+                    continue;
+                }
+            };
+            for session in sessions {
+                let Some(keep) = session.limits.keep_recordings() else {
+                    continue;
+                };
+                let Ok(paths) = self.store.session_paths(&session.record.id) else {
+                    continue;
+                };
+                for directory in RECORDED {
+                    forget_older(&paths.files.join(directory), keep, &session.record.id).await;
                 }
             }
         }
@@ -1080,6 +1111,34 @@ fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |since| since.as_millis() as u64)
+}
+
+/// Removes the files of a directory that were last changed longer ago than they are kept.
+async fn forget_older(directory: &Path, keep: Duration, session: &str) {
+    let Ok(mut entries) = tokio::fs::read_dir(directory).await else {
+        return;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let Ok(meta) = entry.metadata().await else {
+            continue;
+        };
+        let old = meta
+            .modified()
+            .ok()
+            .and_then(|at| at.elapsed().ok())
+            .is_some_and(|age| age > keep);
+        if !meta.is_file() || !old {
+            continue;
+        }
+        match tokio::fs::remove_file(entry.path()).await {
+            Ok(()) => {
+                info!(session, file = %entry.path().display(), "recording kept long enough removed")
+            }
+            Err(err) => {
+                warn!(session, file = %entry.path().display(), "failed to remove a recording: {err}")
+            }
+        }
+    }
 }
 
 /// The limits a session's record keeps; none of its own when it keeps none.
