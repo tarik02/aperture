@@ -310,6 +310,9 @@ export function usePopup() {
         if (connected === undefined) break;
         setConnections(stored);
         setConnection(connected);
+        // With the connection, not after what is loaded for it: the popup saves what it shows
+        // as it changes, and one that closes in between would reopen on the form it was done with.
+        setScreen("home");
         setCurrentTab(active);
         setConnectionDraft((current) => ({ ...current, token: "" }));
         yield* loadBrowserContext(connected, active);
