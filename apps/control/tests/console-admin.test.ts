@@ -950,8 +950,8 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
         );
         expect(page.errors()).toEqual([]);
 
+        // The workspace stays: the check of the events after this one counts those deleted.
         yield* looker.api.sessions.delete({ params: { id: theirs.id } });
-        yield* looker.api.workspaces.delete({ params: { id: apart.id } });
       }),
     LONG,
   );
