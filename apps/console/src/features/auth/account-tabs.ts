@@ -1,5 +1,5 @@
 import { useAccess } from "#/features/auth/access.ts";
-import { usePersonQuery } from "#/features/auth/auth.queries.ts";
+import { useAccountQuery, usePersonQuery } from "#/features/auth/auth.queries.ts";
 import { useToken } from "#/lib/token.ts";
 
 /** What is the account's own, each kind of it a tab of the account's page with its address. */
@@ -23,8 +23,10 @@ export function useAccountTabs(): ReadonlyArray<AccountTab> {
   const signsIn = useToken() === undefined && person.data !== null;
   const access = useAccess();
   const acts = access.may("tokens:write");
-  // What a user says of their own sessions is for whoever changes them.
-  const sessions = access.may("sessions:write");
+  // What a user says of their own sessions is for whoever changes them all: a token held
+  // to resources changes what it reaches alone.
+  const unheld = useAccountQuery().data?.resources === null;
+  const sessions = access.may("sessions:write") && unheld;
   return ACCOUNT_TABS.filter((tab) =>
     tab.id === "security" ? signsIn : tab.id === "settings" ? sessions : acts,
   );
