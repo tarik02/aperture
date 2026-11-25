@@ -1,5 +1,6 @@
 import { suite } from "@aperture-browser/e2e/src/suite.ts";
 import * as Viewer from "@aperture-browser/e2e/src/viewer.ts";
+import { until } from "@aperture-browser/e2e/src/wait.ts";
 import { expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -57,6 +58,19 @@ const fewOf = (pages: Readonly<Record<string, Viewer.Page>>) =>
       ).toBeLessThanOrEqual(ASKED_MOST);
     }
   });
+
+/**
+ * Waits until a page has asked one thing so often that it pauses long before it asks
+ * again by itself: what asks it once the database is back is then the one who presses
+ * "Try now". With pauses of one, two and four seconds after the first, the fourth time it
+ * asks is followed by eight; the fifth by sixteen.
+ */
+const pausesLong = (page: Viewer.Page, path: string, times: number) =>
+  until(
+    `${path} being asked ${times} times`,
+    asked(page).pipe(Effect.map((by) => (by[path] ?? 0) >= times)),
+    "60 seconds",
+  );
 
 const PHONE = { width: 390, height: 844, mobile: true } as const;
 
@@ -116,12 +130,16 @@ suite(needs)("the console while the control plane has no database", (it) => {
         yield* shot(phone, fs, "console-down-phone");
 
         // A session that is opened from the ones shown says so in the workbench's place.
+        // What the list was not answered is shown by nothing then, and the session is asked
+        // after the shortest pause again.
+        yield* counts(list);
         yield* list.click(`${card} [data-console-session-open]`);
         yield* list.until(
           `!!document.querySelector('[data-console-session-note="unanswered"] [data-console-not-answering]')`,
         );
         yield* list.until(`!(${NOTICE})`);
         yield* shot(list, fs, "console-down-session-light");
+        yield* pausesLong(list, `/api/control/sessions/${id}`, 4);
 
         yield* control.database.starts;
         // Asked now, by whoever does not wait.
@@ -180,6 +198,7 @@ suite(needs)("the console while the control plane has no database", (it) => {
         yield* shot(session, fs, "console-down-signed-out-dark");
         yield* shot(phone, fs, "console-down-signed-out-phone-dark");
 
+        yield* pausesLong(share, "/api/control/share/none", 5);
         yield* control.database.starts;
         yield* share.click("[data-console-try-now]");
         // A link that is none lets nobody in, which is said once Aperture answers so.
