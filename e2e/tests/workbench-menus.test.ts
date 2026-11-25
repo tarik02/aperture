@@ -194,7 +194,21 @@ suite(session)("the workbench's menus and the clipboard", (it) => {
   it.effect("a right click on text selected by a drag shows the page menu with Copy", () =>
     Effect.gen(function* () {
       yield* clickPicture(page, 40, 40);
+      yield* inTab(
+        mcp,
+        linking,
+        `(() => {
+          window.__seen = [];
+          const at = (e) => e.type + " " + e.clientX + "," + e.clientY + " b" + e.button + "/" + e.buttons + " c" + e.detail + " " + (e.target.id || e.target.tagName);
+          for (const type of ["mousedown", "mousemove", "mouseup", "click", "dragstart", "dragend", "contextmenu"]) {
+            addEventListener(type, (e) => window.__seen.push(at(e)), true);
+          }
+          document.addEventListener("selectionchange", () => window.__seen.push("selection " + JSON.stringify(String(getSelection()))));
+          return true;
+        })()`,
+      );
       yield* dragPicture(page, WORDS.from, WORDS.to);
+      console.log("PROBE drag", JSON.stringify(yield* inTab(mcp, linking, "window.__seen")));
       expect(
         yield* happens(selected(mcp, linking).pipe(Effect.map((text) => text === "some text"))),
       ).toBe(true);
