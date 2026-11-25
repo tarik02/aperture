@@ -48,7 +48,7 @@ services:
       APERTURE_CONTROL_PUBLIC_URL: ${APERTURE_URL:?set APERTURE_URL to where people reach Aperture, such as https://aperture.example.com}
       APERTURE_CONTROL_DATABASE_URL: postgres://postgres@localhost/aperture?host=/run/postgresql
       APERTURE_CONTROL_LISTEN_HOST: 127.0.0.1
-      APERTURE_CONTROL_LISTEN_PORT: 7800
+      APERTURE_CONTROL_LISTEN_PORT: ${APERTURE_CONTROL_PORT:-7800}
       APERTURE_CONTROL_MASTER_KEY: /keys/master.key
       APERTURE_CONTROL_TICKET_KEY: /keys/ticket.pem
       APERTURE_CONTROL_BOOTSTRAP_TOKEN_FILE: /keys/bootstrap-token
@@ -63,7 +63,7 @@ services:
         - /bin/node
         - --eval
         - >-
-          fetch("http://127.0.0.1:7800/api/control/health").then((answer) => process.exit(answer.ok ? 0 : 1), () => process.exit(1))
+          fetch("http://127.0.0.1:${APERTURE_CONTROL_PORT:-7800}/api/control/health").then((answer) => process.exit(answer.ok ? 0 : 1), () => process.exit(1))
       interval: 2s
       timeout: 5s
       retries: 60
@@ -77,14 +77,16 @@ services:
         condition: service_healthy
     # Each session's browser is sandboxed inside the container, in user namespaces and
     # with a /proc of its own, which Docker's defaults keep a container from making.
+    # podman takes no systempaths=unconfined from compose and Docker refuses podman's
+    # unmask=ALL, so which one it is comes from .env.
     security_opt:
       - seccomp=unconfined
       - apparmor=unconfined
-      - systempaths=unconfined
+      - ${APERTURE_UNMASK:-systempaths=unconfined}
     environment:
       APERTURE_NODE: ${APERTURE_NODE:-node}
-      APERTURE_LISTEN: 127.0.0.1:7900
-      APERTURE_CONTROL_PLANE: http://127.0.0.1:7800
+      APERTURE_LISTEN: 127.0.0.1:${APERTURE_NODE_PORT:-7900}
+      APERTURE_CONTROL_PLANE: http://127.0.0.1:${APERTURE_CONTROL_PORT:-7800}
       APERTURE_REGISTRATION_TOKEN_FILE: /keys/registration-token
       APERTURE_TICKET_KEY: /keys/ticket.pub.pem
       APERTURE_FEATURES: ${APERTURE_FEATURES:-sound,uploads,downloads,recordings,clipboard,cdp,mcp}
@@ -108,7 +110,7 @@ services:
       - export TRAEFIK_PROVIDERS_HTTP_HEADERS_AUTHORIZATION="Bearer $$(cat /keys/proxy-token)" && exec traefik
     environment:
       TRAEFIK_ENTRYPOINTS_WEB_ADDRESS: ${APERTURE_LISTEN:-:80}
-      TRAEFIK_PROVIDERS_HTTP_ENDPOINT: http://127.0.0.1:7800/api/control/route/traefik
+      TRAEFIK_PROVIDERS_HTTP_ENDPOINT: http://127.0.0.1:${APERTURE_CONTROL_PORT:-7800}/api/control/route/traefik
       TRAEFIK_PROVIDERS_HTTP_POLLINTERVAL: 2s
       TRAEFIK_GLOBAL_CHECKNEWVERSION: "false"
       TRAEFIK_GLOBAL_SENDANONYMOUSUSAGE: "false"
