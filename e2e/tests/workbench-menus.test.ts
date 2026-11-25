@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Mcp from "../src/mcp.ts";
 import * as Runner from "../src/runner.ts";
+import * as Site from "../src/site.ts";
 import { suite } from "../src/suite.ts";
 import { type Page, ready, snapshot, Viewer } from "../src/viewer.ts";
 import * as ViewerLive from "../src/viewer.ts";
@@ -23,10 +24,17 @@ import {
   menuItem,
   openByAutomation,
   openMenu,
+  pictureAt,
   selectTab,
 } from "../src/workbench.ts";
 
-const session = Layer.mergeAll(Runner.layer({ features: EVERY_FEATURE }), ViewerLive.layer);
+const session = Layer.mergeAll(
+  Runner.layer({
+    features: EVERY_FEATURE,
+    args: ["--egress-allow", "127.0.0.1", "--egress-allow", "::1"],
+  }),
+  ViewerLive.layer,
+);
 
 const LINKED = "https://example.com/?from=link";
 
@@ -41,7 +49,59 @@ const LINKING = dataPage(`
 /** A point on the page's link, in the tab's logical pixels. */
 const LINK = { x: 180, y: 215 };
 
+/** The ends of the text there is to select, and a point in its middle. */
+const WORDS = { from: { x: 102, y: 275 }, to: { x: 212, y: 275 }, middle: { x: 160, y: 275 } };
+
 const PAGE_MENU = "[data-session-page-menu]";
+
+/** What is selected in the tab. */
+const selected = (mcp: Mcp.Mcp, tab: number) => inTab(mcp, tab, "String(getSelection())");
+
+/** Drags the left button across the picture from one point of the tab to another, as a hand does. */
+const dragPicture = (
+  page: Page,
+  from: { readonly x: number; readonly y: number },
+  to: { readonly x: number; readonly y: number },
+) =>
+  Effect.gen(function* () {
+    const start = yield* pictureAt(page, from.x, from.y);
+    const end = yield* pictureAt(page, to.x, to.y);
+    yield* page.mouse("mouseMoved", start.x, start.y);
+    yield* page.mouse("mousePressed", start.x, start.y, {
+      button: "left",
+      buttons: 1,
+      clickCount: 1,
+    });
+    for (let step = 1; step <= 10; step++) {
+      const x = start.x + ((end.x - start.x) * step) / 10;
+      const y = start.y + ((end.y - start.y) * step) / 10;
+      yield* page.mouse("mouseMoved", x, y, { button: "left", buttons: 1 });
+    }
+    yield* page.mouse("mouseReleased", end.x, end.y, { button: "left", buttons: 0, clickCount: 1 });
+  });
+
+/** Double-clicks the left button on the picture at a point of the tab. */
+const doubleClickPicture = (page: Page, x: number, y: number) =>
+  Effect.gen(function* () {
+    const at = yield* pictureAt(page, x, y);
+    yield* page.mouse("mouseMoved", at.x, at.y);
+    for (const clickCount of [1, 2]) {
+      yield* page.mouse("mousePressed", at.x, at.y, { button: "left", buttons: 1, clickCount });
+      yield* page.mouse("mouseReleased", at.x, at.y, { button: "left", buttons: 0, clickCount });
+    }
+  });
+
+/** Right-clicks text that is selected, and tells what the menu came with, if it came. */
+const rightClickSelected = (page: Page, mcp: Mcp.Mcp, tab: number) =>
+  Effect.gen(function* () {
+    yield* clickPicture(page, WORDS.middle.x, WORDS.middle.y, "right");
+    const came = yield* comes(page, "s.menu !== undefined");
+    return {
+      came,
+      text: came ? yield* snapshot(page, "s.menu.text ?? null") : null,
+      selectedAfter: yield* selected(mcp, tab),
+    };
+  });
 
 /** The page menu's edges, and the window's. */
 const menuWithinWindow = (page: Page) =>
@@ -136,6 +196,95 @@ suite(session)("the workbench's menus and the clipboard", (it) => {
       );
       expect(copied).toBe(true);
     }),
+  );
+
+  it.effect("a right click on text selected by a drag shows the page menu with Copy", () =>
+    Effect.gen(function* () {
+      yield* clickPicture(page, 40, 40);
+      yield* dragPicture(page, WORDS.from, WORDS.to);
+      const selectedAll = selected(mcp, linking).pipe(Effect.map((text) => text === "some text"));
+      expect(yield* happens(selectedAll)).toBe(true);
+
+      // A hand holds the button a while: the menu comes before it is let go.
+      const at = yield* pictureAt(page, WORDS.middle.x, WORDS.middle.y);
+      yield* page.mouse("mouseMoved", at.x, at.y);
+      yield* page.mouse("mousePressed", at.x, at.y, { button: "right", buttons: 2, clickCount: 1 });
+      expect(yield* comes(page, "s.menu !== undefined")).toBe(true);
+      yield* page.rests(menuItem("Copy"));
+      yield* page.mouse("mouseReleased", at.x, at.y, {
+        button: "right",
+        buttons: 0,
+        clickCount: 1,
+      });
+      expect(yield* snapshot(page, "s.menu?.text ?? null")).toBe("some text");
+      expect(yield* selected(mcp, linking)).toBe("some text");
+      yield* page.rests(menuItem("Copy"));
+      yield* escape(page);
+      expect(yield* comes(page, "s.menu === undefined")).toBe(true);
+    }),
+  );
+
+  it.effect(
+    "a right click on a word selected by a double click shows the page menu with Copy",
+    () =>
+      Effect.gen(function* () {
+        yield* clickPicture(page, 40, 40);
+        yield* doubleClickPicture(page, WORDS.middle.x - 20, WORDS.middle.y);
+        expect(
+          yield* happens(
+            selected(mcp, linking).pipe(Effect.map((text) => String(text).trim() === "some")),
+          ),
+        ).toBe(true);
+
+        const shown = yield* rightClickSelected(page, mcp, linking);
+        expect({
+          ...shown,
+          text: String(shown.text).trim(),
+          selectedAfter: String(shown.selectedAfter).trim(),
+        }).toEqual({
+          came: true,
+          text: "some",
+          selectedAfter: "some",
+        });
+        yield* page.rests(menuItem("Copy"));
+        yield* escape(page);
+        expect(yield* comes(page, "s.menu === undefined")).toBe(true);
+      }),
+  );
+
+  it.effect("a right click in a frame of another site shows the page menu with Copy", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        let port = 0;
+        const site = yield* Site.serve(
+          Site.by((request) =>
+            request.url === "/framed"
+              ? Site.html(
+                  `<body style="margin:0"><p style="margin:0;font-size:30px">framed words</p></body>`,
+                )
+              : Site.html(
+                  `<title>framing</title><body style="margin:0"><iframe src="http://localhost:${port}/framed" onload="document.title = 'framed'" style="position:absolute;left:100px;top:400px;width:400px;height:100px;border:0"></iframe></body>`,
+                ),
+          ),
+        );
+        port = site.port;
+        const framing = yield* openByAutomation(mcp, `${site.url}/`);
+        expect(yield* selectTab(page, framing)).toBe(true);
+        const framed = `s.targets.some((target) => target.tab === ${framing} && target.title === "framed")`;
+        expect(yield* comes(page, framed, "20 seconds")).toBe(true);
+
+        // "framed", a word of the frame's, in the tab.
+        yield* doubleClickPicture(page, 140, 417);
+        yield* clickPicture(page, 140, 417, "right");
+        expect(yield* comes(page, "s.menu !== undefined")).toBe(true);
+        expect(String(yield* snapshot(page, "s.menu.text ?? null")).trim()).toBe("framed");
+        yield* page.rests(menuItem("Copy"));
+        yield* escape(page);
+        expect(yield* comes(page, "s.menu === undefined")).toBe(true);
+        expect(yield* closeTab(page, framing)).toBe(true);
+        expect(yield* selectTab(page, linking)).toBe(true);
+      }),
+    ),
   );
 
   it.effect("the browser menu offers to copy from the session", () =>

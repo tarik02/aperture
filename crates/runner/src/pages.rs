@@ -12,7 +12,7 @@ use tokio::{
     sync::{broadcast, watch},
     time::timeout,
 };
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::{
     cdp,
@@ -929,32 +929,57 @@ async fn attach(browser: &cdp::Client, page: &str) -> anyhow::Result<String> {
         json!({ "enabled": true }),
     )
     .await?;
+    listen(browser, session).await?;
+    attach_frames(browser, session).await?;
+    Ok(session.to_owned())
+}
+
+/// Has the documents of a page, or of a frame that is a page of its own, tell of a right
+/// click: those to come, and those there are, each frame of them.
+async fn listen(browser: &cdp::Client, session: &str) -> anyhow::Result<()> {
+    let call = |method: &'static str, params: Value| browser.call_in(Some(session), method, params);
     call(
         "Runtime.addBinding",
         json!({ "name": CALL, "executionContextName": WORLD }),
     )
     .await?;
-    // In the pages to come, and in the one there is.
     call(
         "Page.addScriptToEvaluateOnNewDocument",
         json!({ "source": SCRIPT, "worldName": WORLD }),
     )
     .await?;
-    let frames = call("Page.getFrameTree", json!({})).await?;
-    if let Some(frame) = frames["frameTree"]["frame"]["id"].as_str() {
+    let tree = call("Page.getFrameTree", json!({})).await?;
+    let mut frames = vec![&tree["frameTree"]];
+    while let Some(frame) = frames.pop() {
+        frames.extend(frame["childFrames"].as_array().into_iter().flatten());
+        let Some(id) = frame["frame"]["id"].as_str() else {
+            continue;
+        };
+        // A frame of another site is a page of its own, attached apart, and a frame may
+        // be gone by now: neither keeps the others from listening.
         let world = call(
             "Page.createIsolatedWorld",
-            json!({ "frameId": frame, "worldName": WORLD }),
-        )
-        .await?;
-        call(
-            "Runtime.evaluate",
-            json!({ "expression": SCRIPT, "contextId": world["executionContextId"] }),
-        )
-        .await?;
+            json!({ "frameId": id, "worldName": WORLD }),
+        );
+        let told = match world.await {
+            Ok(world) => {
+                let context = world["executionContextId"].clone();
+                call(
+                    "Runtime.evaluate",
+                    json!({ "expression": SCRIPT, "contextId": context }),
+                )
+                .await
+            }
+            Err(err) => Err(err),
+        };
+        if let Err(err) = told {
+            debug!(
+                frame = id,
+                "a frame there is does not tell of a right click: {err:#}"
+            );
+        }
     }
-    attach_frames(browser, session).await?;
-    Ok(session.to_owned())
+    Ok(())
 }
 
 /// Has the browser attach the frames that are pages of their own to it, those of other
@@ -967,15 +992,18 @@ async fn attach_frames(browser: &cdp::Client, session: &str) -> anyhow::Result<(
     Ok(())
 }
 
-/// Has a frame ask here for files, and the frames in it attached in turn.
+/// Has a frame ask here for files and tell of a right click, and the frames in it attached
+/// in turn.
 async fn attach_frame(browser: &cdp::Client, session: &str) -> anyhow::Result<()> {
     let call = |method: &'static str, params: Value| browser.call_in(Some(session), method, params);
     call("Page.enable", json!({})).await?;
+    call("Runtime.enable", json!({})).await?;
     call(
         "Page.setInterceptFileChooserDialog",
         json!({ "enabled": true }),
     )
     .await?;
+    listen(browser, session).await?;
     attach_frames(browser, session).await
 }
 
