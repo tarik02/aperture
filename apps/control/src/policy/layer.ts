@@ -113,7 +113,8 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
         }
         return {
           scopes: scopesOf({ workspaceId, accountId: account.id, sessionId: null }),
-          writes: true,
+          // They hold for all the account has: a token held to resources reaches less.
+          writes: caller.resources === null,
           resource: { kind: "account", id: account.id, label: account.name } as const,
           workspaceId,
         };
@@ -202,7 +203,9 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
           ? "the settings of the deployment are an admin's to say"
           : target.level === "workspace"
             ? "the settings of a workspace are for an admin of it to say"
-            : "the settings of a session are for whoever made it, or an admin of its workspace, to say",
+            : target.level === "account"
+              ? "a token held to resources says nothing of its account's settings"
+              : "the settings of a session are for whoever made it, or an admin of its workspace, to say",
     });
 
   const set = Effect.fn("Policy.set")(function* (
