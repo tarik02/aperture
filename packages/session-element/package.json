@@ -1,6 +1,6 @@
 {
   "name": "@aperture-browser/session-element",
-  "version": "1.0.0-beta.0",
+  "version": "1.0.0-beta.1",
   "description": "A custom element that puts one Aperture session into any page: <aperture-session> with the workbench's tab strip, toolbar and menus.",
   "homepage": "https://github.com/tarik02/aperture#readme",
   "bugs": "https://github.com/tarik02/aperture/issues",
