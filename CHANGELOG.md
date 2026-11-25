@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.0.0-beta.2](https://github.com/tarik02/aperture/compare/v1.0.0-beta.1...v1.0.0-beta.2) (2026-11-25)
+
+
+### Features
+
+* **console:** show the running version, and give tables a border whose shadows do not slide in ([#234](https://github.com/tarik02/aperture/issues/234)) ([59d41af](https://github.com/tarik02/aperture/commit/59d41afe44de7f3eeeb5b7fe9a727f9f25003764))
+* let an admin read a workspace they are not in, and act there once they join it ([#241](https://github.com/tarik02/aperture/issues/241)) ([64beaa3](https://github.com/tarik02/aperture/commit/64beaa310e33e710bde897e76b8bc3fe8b364b23))
+* **migrate:** keep v1's API tokens, passwords and second factors working ([#236](https://github.com/tarik02/aperture/issues/236)) ([dfc150d](https://github.com/tarik02/aperture/commit/dfc150d7aff519b95107fa432692700e3bf51a19))
+* say the commit a build was made from beside its version: between releases every build from the tree has the last release's version, and nobody could tell which commit a deployment runs ([#240](https://github.com/tarik02/aperture/issues/240)) ([2f59111](https://github.com/tarik02/aperture/commit/2f5911178f67e7ca4534cd0c88699ffe4ff60b01))
+
+
+### Bug Fixes
+
+* **console:** resume a session that rests when it is opened, connect once it runs again, and keep a card's picture until the next has come ([#231](https://github.com/tarik02/aperture/issues/231)) ([c68ff11](https://github.com/tarik02/aperture/commit/c68ff1114f28ec9425bf598efc1ac91928fb1287))
+* **control:** list a session's tools on the MCP server before any session runs ([#235](https://github.com/tarik02/aperture/issues/235)) ([82ae372](https://github.com/tarik02/aperture/commit/82ae372999aeee699ef74ed51655a6cced93ef4b))
+* **deploy:** what a compose deployment under podman stumbled on ([#230](https://github.com/tarik02/aperture/issues/230)) ([dd8c932](https://github.com/tarik02/aperture/commit/dd8c9329d3a18349376fb6c51a9099b4b54545d4))
+* keep typing in an edit that cuts what is idle: a call counts only where it starts since a click's wait for a held tab was kept, and a typed letter changes too few pixels to count, so typing a field showed its first letters and then the whole text at once; each key and typed character now goes into the journal, as the pointer's moves and presses do, and the edit counts them ([#242](https://github.com/tarik02/aperture/issues/242)) ([4b73645](https://github.com/tarik02/aperture/commit/4b73645434a5e645a97d4565014732819c9c6198))
+* let the session's extension take over in a profile an earlier build's ran in ([#243](https://github.com/tarik02/aperture/issues/243)) ([9d95144](https://github.com/tarik02/aperture/commit/9d95144a0efebc6624f42e071effdc92e376724e))
+* **migrate:** make each system administrator of v1 an admin of every shared workspace ([#239](https://github.com/tarik02/aperture/issues/239)) ([39159f8](https://github.com/tarik02/aperture/commit/39159f8fb64b7f6a1f765b78a17340f15deb69c3))
+* **recording:** have a travel that waited for its tab still travel, keep a caption for as long as it shows, and cut a call's wait ([#238](https://github.com/tarik02/aperture/issues/238)) ([a2f0ff4](https://github.com/tarik02/aperture/commit/a2f0ff44cf5e1fa43ec600e5c30305882949f298))
+* send a tab's picture first at its new size, and keep a picture of another shape in its tab's place ([#232](https://github.com/tarik02/aperture/issues/232)) ([86bc786](https://github.com/tarik02/aperture/commit/86bc786e8ff7536cf0aca253f9cda354ec630a5e))
+* what made the control plane's checks fail on master ([#237](https://github.com/tarik02/aperture/issues/237)) ([78cceab](https://github.com/tarik02/aperture/commit/78cceab009e74acdd6b9d2226b5e2e0d92bd0cd0))
+
 ## 1.0.0-beta.1 (2026-11-24)
 
 

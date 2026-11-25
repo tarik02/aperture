@@ -1,6 +1,6 @@
 {
   "name": "@aperture-browser/control-api",
-  "version": "1.0.0-beta.1",
+  "version": "1.0.0-beta.2",
   "description": "The API of an Aperture control plane as its server and its callers read it: the routes, what goes over them and how they fail, with a typed client.",
   "homepage": "https://github.com/tarik02/aperture#readme",
   "bugs": "https://github.com/tarik02/aperture/issues",

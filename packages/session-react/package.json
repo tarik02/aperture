@@ -1,6 +1,6 @@
 {
   "name": "@aperture-browser/session-react",
-  "version": "1.0.0-beta.1",
+  "version": "1.0.0-beta.2",
   "description": "React components for watching and controlling one Aperture session: the workbench with its tab strip, toolbar and menus, or the picture alone.",
   "homepage": "https://github.com/tarik02/aperture#readme",
   "bugs": "https://github.com/tarik02/aperture/issues",
