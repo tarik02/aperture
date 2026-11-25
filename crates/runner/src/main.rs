@@ -64,7 +64,7 @@ async fn main() -> anyhow::Result<ExitCode> {
             (spec, Some(front))
         }
         [flag] if flag == "--version" || flag == "-V" => {
-            println!("aperture-runner {}", env!("CARGO_PKG_VERSION"));
+            println!("aperture-runner {}", *aperture_runner::VERSION);
             return Ok(ExitCode::SUCCESS);
         }
         // What the control plane lists of a session's tools is generated from this.

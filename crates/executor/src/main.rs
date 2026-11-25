@@ -40,7 +40,7 @@ use crate::{
 
 /// Runs browser sessions on this machine, for whoever holds its token.
 #[derive(Parser)]
-#[command(version)]
+#[command(version = aperture_runner::VERSION.as_str())]
 struct Arguments {
     /// An address, or a Unix socket as `unix:PATH`.
     #[arg(long, env = "APERTURE_LISTEN", default_value = "127.0.0.1:7900")]

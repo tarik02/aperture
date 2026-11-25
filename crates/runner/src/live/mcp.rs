@@ -39,7 +39,10 @@ pub fn service(automation: Arc<Automation>) -> StreamableHttpService<Agent, Loca
 impl ServerHandler for Agent {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::new("aperture", env!("CARGO_PKG_VERSION")))
+            .with_server_info(Implementation::new(
+                "aperture",
+                aperture_runner::VERSION.as_str(),
+            ))
             .with_instructions(self.0.instructions())
     }
 

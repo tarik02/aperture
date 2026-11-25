@@ -1039,6 +1039,12 @@ export class HealthGroup extends HttpApiGroup.make("health")
 export const About = Schema.Struct({
   /** The version of Aperture it runs, as it is released: `1.0.0`, `0.0.0-nightly.<run>.<sha>`. */
   version: Schema.String,
+  /**
+   * The commit it was built from, in full, with `-dirty` after it for a tree that had
+   * changes besides; nothing where whatever built it did not say. Between releases every
+   * build has the last release's version, and this tells them apart.
+   */
+  commit: Schema.NullOr(Schema.String),
 });
 
 export class AboutGroup extends HttpApiGroup.make("about")
@@ -1046,7 +1052,8 @@ export class AboutGroup extends HttpApiGroup.make("about")
   .annotateMerge(
     OpenApi.annotations({
       title: "About",
-      description: "The control plane itself: the version of Aperture it runs.",
+      description:
+        "The control plane itself: the version of Aperture it runs, and the commit it was built from.",
     }),
   ) {}
 

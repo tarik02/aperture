@@ -180,6 +180,16 @@
         ];
 
         version = (lib.importTOML ./Cargo.toml).workspace.package.version;
+        # The commit this is built from, which the programs and the control plane say beside
+        # their version. A build in CI writes `.commit` before the version, which changes the
+        # tree; elsewhere the flake's own revision tells, with `-dirty` for a tree with
+        # changes, and nothing for a source that is no repository's. It goes into the
+        # wrappers alone: in what is compiled, every commit would build it all again.
+        commit =
+          if builtins.pathExists ./.commit then
+            lib.trim (builtins.readFile ./.commit)
+          else
+            self.rev or self.dirtyRev or "";
         # What the console, the control plane and the migration are built of. The programs'
         # crates and the protocol are not: what is generated from the protocol is kept beside
         # what uses it, and a change of a crate builds none of the three again.
@@ -301,7 +311,7 @@
 
         # The control plane: one file of this workspace's own code, beside what it takes
         # from the registry, which is left as pnpm lays it out.
-        control = pkgs.stdenvNoCC.mkDerivation {
+        controlUnwrapped = pkgs.stdenvNoCC.mkDerivation {
           pname = "aperture-control";
           inherit version src;
           pnpmDeps = workspacePnpmDeps;
@@ -336,6 +346,20 @@
           dontCheckForBrokenSymlinks = true;
           meta.mainProgram = "aperture-control";
         };
+
+        # The control plane with the commit it says it was built from, which is apart from
+        # what is built: a commit that changes nothing of it builds none of it again.
+        control =
+          pkgs.runCommand "aperture-control-${version}"
+            {
+              nativeBuildInputs = [ pkgs.makeWrapper ];
+              passthru.pnpmDeps = workspacePnpmDeps;
+              meta.mainProgram = "aperture-control";
+            }
+            ''
+              makeWrapper ${lib.getExe controlUnwrapped} $out/bin/aperture-control \
+                --set APERTURE_COMMIT ${lib.escapeShellArg commit}
+            '';
 
         # What moves a v1 installation into v2, packed as the control plane is: it writes
         # with the control plane's own code, and is told what the control plane is told.
@@ -496,6 +520,7 @@
                   --set-default APERTURE_CURSOR_THEME ${browserCursorPath}/default \
                   --set-default FONTCONFIG_FILE ${browserFontsConf} \
                   --set-default APERTURE_GST_PLUGIN_PATH ${lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" gstPlugins} \
+                  --set APERTURE_COMMIT ${lib.escapeShellArg commit} \
                   --prefix LD_LIBRARY_PATH : ${
                     # libEGL is found when the compositor starts; vendor drivers come from the system.
                     lib.makeLibraryPath [
@@ -575,6 +600,7 @@
           # A registry shows an image under the repository its source label names.
           "org.opencontainers.image.source" = "https://github.com/tarik02/aperture";
           "org.opencontainers.image.version" = version;
+          "org.opencontainers.image.revision" = commit;
           "org.opencontainers.image.licenses" = "MIT";
         };
 

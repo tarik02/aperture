@@ -10,6 +10,7 @@ pub mod proxy;
 use std::{
     fs, io,
     path::{Path, PathBuf},
+    sync::LazyLock,
 };
 
 use serde::{Deserialize, Serialize};
@@ -17,6 +18,24 @@ use serde::{Deserialize, Serialize};
 pub use aperture_gateway::{
     ACCESS_HEADER, Access, Area, Cdp, DEVTOOLS_AUTHORITY, Live, NAME_HEADER, SUBJECT_HEADER,
 };
+
+/// The version of Aperture this is, with the commit it was built from as build metadata
+/// where what packed it said: `1.0.0+86bc786e`, `1.0.0+86bc786e-dirty`. Between releases
+/// every build has the last release's version, and the commit alone tells them apart. It is
+/// told by `APERTURE_COMMIT`, which a package sets in the programs' wrappers: given to the
+/// compiler, every commit would build the programs again.
+pub static VERSION: LazyLock<String> = LazyLock::new(|| {
+    let version = env!("CARGO_PKG_VERSION");
+    match std::env::var("APERTURE_COMMIT") {
+        Ok(commit) if !commit.trim().is_empty() => {
+            let commit = commit.trim();
+            let dirty = commit.ends_with("-dirty");
+            let sha: String = commit.chars().take(8).collect();
+            format!("{version}+{sha}{}", if dirty { "-dirty" } else { "" })
+        }
+        _ => version.to_owned(),
+    }
+});
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Spec {

@@ -76,6 +76,11 @@ const given = Config.all({
   eventsKeep: Config.Duration("APERTURE_CONTROL_EVENTS_KEEP").pipe(
     Config.withDefault(Duration.days(90)),
   ),
+  // A package that does not know the commit sets it empty.
+  commit: Config.String("APERTURE_COMMIT").pipe(
+    Config.withDefault(""),
+    Config.map((commit) => Option.liftPredicate(commit.trim(), (told) => told !== "")),
+  ),
 });
 
 /** The secret a file holds, less the space around it. */
