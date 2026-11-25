@@ -138,12 +138,19 @@ const isValue = (key: SettingKey, value: SettingValue) => {
       return typeof value === "number" && Number.isInteger(value) && value >= 1;
     case "count":
       return typeof value === "number" && Number.isInteger(value) && value >= 0;
+    case "bytes":
+      return typeof value === "number" && Number.isInteger(value) && value >= 1;
+    case "cpus":
+      return typeof value === "number" && Number.isFinite(value) && value > 0;
     case "choice":
       return type.choices.some((choice) => choice === value);
   }
 };
 
-const isBound = (value: number) => Number.isInteger(value) && value >= 0;
+const isBound = (key: SettingKey, value: number) =>
+  Number.isFinite(value) &&
+  value >= 0 &&
+  (SETTINGS[key].type.kind === "cpus" || Number.isInteger(value));
 
 /**
  * Whether what a level says of a setting is something it takes there, inside the bounds
@@ -171,8 +178,8 @@ export const check = (
     if (allowed !== undefined) {
       return invalid(key, `${key} is bounded by min and max, and not by what is allowed`);
     }
-    if ((min !== undefined && !isBound(min)) || (max !== undefined && !isBound(max))) {
-      return invalid(key, `a bound of ${key} is a whole number, none below zero`);
+    if ((min !== undefined && !isBound(key, min)) || (max !== undefined && !isBound(key, max))) {
+      return invalid(key, `a bound of ${key} is a number, none below zero`);
     }
     if (min !== undefined && max !== undefined && min > max) {
       return invalid(key, `the least ${key} is more than the most`);

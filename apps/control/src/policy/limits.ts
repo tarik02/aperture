@@ -1,36 +1,62 @@
-import type { LimitsInit } from "@aperture-browser/executor-client";
+import type { Offers } from "@aperture-browser/control-api";
+import type { LimitsInit, proto } from "@aperture-browser/executor-client";
 import type { Effective } from "./service.ts";
+
+/** A setting as a limit is given: left out for each node's own, zero for none. */
+const given = (setting: Effective[keyof Effective]) =>
+  setting.source === "node" ? undefined : Number(setting.value ?? 0);
 
 /**
  * The limits a session's node holds it to, as its settings come to: what no level says is
- * left out, for the node's own, and never is zero, which is none whatever the node has.
+ * left out, for the node's own, and never or no limit is zero, which is none whatever the
+ * node has. What it uses is limited only on a node that holds sessions to that: another
+ * refuses a session that asks.
  */
-export const limitsOf = (effective: Effective, pinned: boolean): LimitsInit => {
-  const idle = effective.suspendIdleAfter;
+export const limitsOf = (
+  effective: Effective,
+  pinned: boolean,
+  holdsResources: boolean,
+): LimitsInit => {
   const awake = pinned && effective.pinnedStayAwake.value === true;
-  const seconds = awake ? 0 : idle.source === "node" ? undefined : Number(idle.value ?? 0);
-  return seconds === undefined ? {} : { suspendIdleAfter: { seconds: BigInt(seconds) } };
+  const idle = awake ? 0 : given(effective.suspendIdleAfter);
+  const memory = holdsResources ? given(effective.sessionMemory) : undefined;
+  const cpus = holdsResources ? given(effective.sessionCpus) : undefined;
+  return {
+    ...(idle === undefined ? {} : { suspendIdleAfter: { seconds: BigInt(idle) } }),
+    ...(memory === undefined ? {} : { memoryBytes: BigInt(memory) }),
+    ...(cpus === undefined ? {} : { cpus }),
+  };
 };
+
+/** What a node tells of a limit: its own where none is asked, and none for zero. */
+const expected = <A extends bigint | number>(asked: A | undefined, own: A | undefined) =>
+  asked === undefined
+    ? own === undefined || Number(own) === 0
+      ? undefined
+      : own
+    : Number(asked) === 0
+      ? undefined
+      : asked;
 
 /**
  * Whether a node holds a session to the limits it is to be held to, as the node tells the
  * session's: its own where it has them, the node's where not, and none left out.
  */
 export const holds = (
-  told: { readonly suspendIdleAfter?: { readonly seconds: bigint } | undefined } | undefined,
+  told: proto.Limits | undefined,
   wanted: LimitsInit,
-  /** What the node holds a session to that has none of its own. */
-  own: { readonly suspendIdleAfterSeconds?: number | undefined } | undefined,
+  own: Offers["limits"] | undefined,
 ) => {
-  const asked = wanted.suspendIdleAfter?.seconds;
-  const fallback = own?.suspendIdleAfterSeconds;
-  const expected =
-    asked === undefined
-      ? fallback === undefined || fallback === 0
-        ? undefined
-        : BigInt(fallback)
-      : asked === 0n
-        ? undefined
-        : asked;
-  return told?.suspendIdleAfter?.seconds === expected;
+  const idle = expected(
+    wanted.suspendIdleAfter?.seconds,
+    own?.suspendIdleAfterSeconds === undefined ? undefined : BigInt(own.suspendIdleAfterSeconds),
+  );
+  const memory = expected(
+    wanted.memoryBytes,
+    own?.memoryBytes === undefined ? undefined : BigInt(own.memoryBytes),
+  );
+  const cpus = expected(wanted.cpus, own?.cpus);
+  return (
+    told?.suspendIdleAfter?.seconds === idle && told?.memoryBytes === memory && told?.cpus === cpus
+  );
 };

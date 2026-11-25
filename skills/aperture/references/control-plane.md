@@ -66,6 +66,7 @@ api -X PUT "$APERTURE_URL/api/control/sessions/$SESSION/pin" -d '{"pinned":true}
 - `effective.source` says where a value comes from (`instance`, `workspace`, `account`, `session`, `configuration`, `default`, or `node` for each node's own); `locked` is a bound of both ends alike.
 - A value past a bound above is refused with `SettingOutOfBounds`, whose `level` names who set the bound.
 - A pinned session is never deleted by `deleteSuspendedAfter` or `maxSessionAge`. Who pins is the `pinning` setting; one pin too many is `QuotaExceeded`.
+- Quotas (`sessionsPerUser`, `sessionsPerWorkspace`, `runningSessions`) refuse creating or resuming past them with `QuotaExceeded`; `sessionMemory` and `sessionCpus` bound what each session uses.
 - Over MCP: `settings.get`, `settings.set`, `settings.clear`, `sessions.pin`.
 
 ## Events

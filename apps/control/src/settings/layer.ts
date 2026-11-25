@@ -161,6 +161,21 @@ const settingIn = (key: SettingKey, told: string): Result.Result<SettingValue, s
         ? Result.succeed(count)
         : Result.fail(`${JSON.stringify(told)} is no count`);
     }
+    case "bytes": {
+      // As a node takes its own: a unit is a power of 1024.
+      const size = /^(\d+(?:\.\d+)?)\s*([kmgt]?)i?b?$/iu.exec(text);
+      const power = "kmgt".indexOf((size?.[2] ?? "").toLowerCase()) + 1;
+      const bytes = Math.round(Number(size?.[1]) * 1024 ** power);
+      return size !== null && bytes >= 1
+        ? Result.succeed(bytes)
+        : Result.fail(`${JSON.stringify(told)} is no size like 512M or 4G`);
+    }
+    case "cpus": {
+      const cpus = Number(text);
+      return text !== "" && Number.isFinite(cpus) && cpus > 0
+        ? Result.succeed(cpus)
+        : Result.fail(`${JSON.stringify(told)} is no number of processors like 2 or 1.5`);
+    }
     case "choice": {
       const choice = type.choices.find((one) => String(one) === text.toLowerCase());
       return choice === undefined

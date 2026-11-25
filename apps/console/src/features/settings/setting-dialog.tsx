@@ -22,12 +22,11 @@ import { Choice } from "#/components/choice.tsx";
 import { FreshDialog } from "#/components/fresh-dialog.tsx";
 import {
   effectiveWords,
+  factorOf,
   inUnits,
   LEVEL_WORDS,
-  secondsOf,
   SETTING_WORDS,
-  type Unit,
-  UNITS,
+  unitsOf,
   valueWords,
 } from "#/features/settings/setting-words.ts";
 import {
@@ -54,9 +53,6 @@ export function SettingDialog({ open, onOpenChange, ...form }: SettingDialogProp
 
 type Mode = "unset" | "none" | "set";
 
-const amountOf = (value: number | undefined, unit: Unit) =>
-  value === undefined ? "" : String(value / secondsOf(1, unit));
-
 function SettingForm({
   target,
   setting,
@@ -73,28 +69,33 @@ function SettingForm({
   // A session has no level below it to hold.
   const bounds = target.level !== "session";
   const said = here?.value;
-  const unit: Unit =
-    kind === "duration"
-      ? inUnits(
+  const units = unitsOf(key);
+  const unit =
+    units.length === 0
+      ? ""
+      : inUnits(
           typeof said === "number"
             ? said
             : (here?.max ??
                 here?.min ??
-                (typeof effective.value === "number" ? effective.value : 3600)),
-        ).unit
-      : "minutes";
-  const scale = (amount: string, unit: Unit) =>
-    kind === "duration" ? Math.round(secondsOf(Number(amount), unit)) : Number(amount);
+                (typeof effective.value === "number" ? effective.value : (units[0]?.factor ?? 1))),
+          units,
+        ).unit;
+  const amountOf = (value: number | undefined) =>
+    value === undefined ? "" : String(value / factorOf(unit, units));
+  const scale = (amount: string, chosen: string) => {
+    const scaled = Number(amount) * factorOf(chosen, units);
+    return kind === "cpus" ? scaled : Math.round(scaled);
+  };
 
   const form = useForm({
     defaultValues: {
       mode: (said === undefined ? "unset" : said === null ? "none" : "set") as Mode,
-      amount:
-        typeof said === "number" ? (kind === "duration" ? amountOf(said, unit) : String(said)) : "",
+      amount: typeof said === "number" ? amountOf(said) : "",
       choice: said === undefined || said === null ? String(choices[0] ?? "") : String(said),
       unit,
-      min: kind === "duration" ? amountOf(here?.min, unit) : String(here?.min ?? ""),
-      max: kind === "duration" ? amountOf(here?.max, unit) : String(here?.max ?? ""),
+      min: amountOf(here?.min),
+      max: amountOf(here?.max),
       allowed: (here?.allowed ?? []).map(String),
     },
     onSubmit: async ({ value }) => {
@@ -225,7 +226,7 @@ function SettingForm({
                   </Field>
                 )}
               </form.Field>
-              {kind === "duration" ? (
+              {units.length > 0 ? (
                 <form.Field name="unit">
                   {(field) => (
                     <Field className="aperture:w-32 aperture:shrink-0">
@@ -236,7 +237,7 @@ function SettingForm({
                         id={ids.unit}
                         className="aperture:w-full"
                         value={field.state.value}
-                        options={UNITS}
+                        options={units}
                         onChange={field.handleChange}
                       />
                     </Field>
@@ -307,7 +308,7 @@ function SettingForm({
                         <Field data-invalid={error === undefined ? undefined : true}>
                           <FieldLabel htmlFor={ids[end]}>
                             {end === "min" ? "At least" : "At most"}
-                            {kind === "duration" ? ` (${chosenUnit})` : ""}
+                            {units.length > 0 ? ` (${chosenUnit})` : ""}
                           </FieldLabel>
                           <Input
                             id={ids[end]}

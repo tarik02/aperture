@@ -62,8 +62,15 @@ Each is told with what it comes to and where that comes from: the console shows 
 | `purgeDeletedAfter` | instance | `APERTURE_CONTROL_PURGE_DELETED_AFTER` | never | How long what was [marked deleted](install.md#where-data-lives) is kept before it is removed for good: the records of sessions and their share links, snapshots, API tokens, grants, memberships, workspaces nothing names any more, and registration tokens no node names. Accounts, nodes, apps and sign-in providers stay marked |
 | `pinning` | instance, workspace | `APERTURE_CONTROL_PINNING` | `admins` | Who pins a session: `anyone` who acts on it, the `admins` of its workspace (the owner, of a session of no workspace), or `nobody` |
 | `maxPinnedSessions` | instance, workspace | `APERTURE_CONTROL_MAX_PINNED_SESSIONS` | no limit | How many sessions of a workspace, or of a user's own, are pinned at most. One more is refused as `QuotaExceeded` |
+| `sessionsPerUser` | instance, workspace | `APERTURE_CONTROL_SESSIONS_PER_USER` | no limit | How many sessions one user has in a workspace, or of their own, at most |
+| `sessionsPerWorkspace` | instance, workspace | `APERTURE_CONTROL_SESSIONS_PER_WORKSPACE` | no limit | How many sessions a workspace has at most |
+| `runningSessions` | instance, workspace | `APERTURE_CONTROL_RUNNING_SESSIONS` | no limit | How many sessions of a workspace, or of a user's own, are asked to run at once at most: creating one that runs and resuming one are refused past it |
+| `sessionMemory` | all | `APERTURE_CONTROL_SESSION_MEMORY` | each node's own | The memory a session may use, in bytes; a variable takes `512M` or `4G`. Held only on a node that runs sessions as [scopes](#limits); another's sessions are held to nothing |
+| `sessionCpus` | all | `APERTURE_CONTROL_SESSION_CPUS` | each node's own | The processors' worth of time a session may use, such as `1.5`. As `sessionMemory`, on a node that runs sessions as scopes |
 
 A variable takes a time as `30 minutes` or `7 days`, `never` for never, and `none` for no limit; one that says nothing the setting takes stops the program from starting. A level of the instance kept in the database says otherwise than the variable.
+
+A session past a quota is refused as `QuotaExceeded`, which names what was counted, the most there may be, and the level that says so. Quotas count records: a session that its node lost is counted until it is deleted. What a session may use is passed to its node when it is made, and again within a minute of a change; its node holds it to that from when its browser next starts. Disk is not limited: a node does not tell what a session's files take without walking them.
 
 A **pinned** session is never deleted by itself: `deleteSuspendedAfter` and `maxSessionAge` pass it by. It is pinned with `PUT /api/control/sessions/<id>/pin`, the MCP tool `sessions.pin`, or **Pin** in its menu. The control plane looks at sessions once a minute: a session it deletes is recorded as `session.deleted` by Aperture, with the reason. A session on a node that does not answer is deleted the next time it does.
 

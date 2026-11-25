@@ -44,6 +44,15 @@ export interface SessionsStoreShape {
   readonly keepProxy: (id: string, sealed: string | null) => Effect.Effect<void>;
   readonly desire: (id: string, state: DesiredState) => Effect.Effect<void>;
   readonly pin: (id: string, pinned: boolean) => Effect.Effect<void>;
+  /**
+   * How many sessions there are of a workspace, or of an account's own without one: of
+   * one account alone where it is named, and those asked to run alone where so asked.
+   */
+  readonly count: (asked: {
+    readonly workspaceId: string | null;
+    readonly accountId: string | null;
+    readonly running: boolean;
+  }) => Effect.Effect<number>;
   /** How many sessions of a workspace are pinned; of an account's own, without one. */
   readonly pinnedOf: (
     workspaceId: string | null,

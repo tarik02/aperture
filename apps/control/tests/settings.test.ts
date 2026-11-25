@@ -145,6 +145,9 @@ describe("what a level may say of a setting", () => {
       ["pinning", "workspace", { value: "everyone" }],
       ["pinning", "workspace", { min: 1 }],
       ["maxPinnedSessions", "workspace", { value: -1 }],
+      ["sessionsPerUser", "account", { value: 3 }],
+      ["sessionMemory", "session", { value: 0.5 }],
+      ["sessionCpus", "session", { value: 0 }],
     ] as const) {
       expect(
         refused(check(key, level, entry, none)),

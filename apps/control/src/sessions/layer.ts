@@ -37,7 +37,7 @@ import { asked } from "../nodes/asked.ts";
 import type { Node } from "../nodes/schemas.ts";
 import { Nodes } from "../nodes/service.ts";
 import { limitsOf } from "../policy/limits.ts";
-import { Policy } from "../policy/service.ts";
+import { type Effective, Policy } from "../policy/service.ts";
 import { SnapshotsStore } from "../snapshots/store.ts";
 import { Tickets } from "../tickets/service.ts";
 import { now } from "../time.ts";
@@ -215,7 +215,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       readonly snapshotId: string | undefined;
       readonly proxy: ProxyConfig | undefined;
       readonly storageState: string | undefined;
-      readonly limits: LimitsInit;
+      readonly limits: (node: Node) => LimitsInit;
     },
   ): Effect.Effect<readonly [Node, proto.Session], NoNode | NodeRefused> => {
     const [node, ...rest] = candidates;
@@ -227,7 +227,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       .sessions.create({
         suspended: wanted.suspended,
         snapshotId: wanted.snapshotId,
-        limits: wanted.limits,
+        limits: wanted.limits(node),
         ...(wanted.proxy === undefined ? {} : { proxy: toExecutor(wanted.proxy) }),
         ...(wanted.storageState === undefined ? {} : { storageState: wanted.storageState }),
       })
@@ -241,6 +241,67 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
         ),
       );
   };
+
+  /** Refuses one more session where its settings say there are as many as there may be. */
+  const withinQuotas = Effect.fn("Sessions.withinQuotas")(function* (
+    effective: Effective,
+    workspaceId: string | null,
+    accountId: string,
+    asked: { readonly creating: boolean; readonly running: boolean },
+  ) {
+    const quotas: ReadonlyArray<{
+      readonly setting: Effective[keyof Effective];
+      readonly what: string;
+      readonly counted: () => Effect.Effect<number>;
+    }> = [
+      ...(asked.creating
+        ? [
+            {
+              setting: effective.sessionsPerUser,
+              what: "sessions of one user",
+              counted: () => store.count({ workspaceId, accountId, running: false }),
+            },
+            ...(workspaceId === null
+              ? []
+              : [
+                  {
+                    setting: effective.sessionsPerWorkspace,
+                    what: "sessions of the workspace",
+                    counted: () => store.count({ workspaceId, accountId: null, running: false }),
+                  },
+                ]),
+          ]
+        : []),
+      ...(asked.running
+        ? [
+            {
+              setting: effective.runningSessions,
+              what: "running sessions",
+              counted: () =>
+                store.count({
+                  workspaceId,
+                  accountId: workspaceId === null ? accountId : null,
+                  running: true,
+                }),
+            },
+          ]
+        : []),
+    ];
+    for (const { setting, what, counted } of quotas) {
+      if (typeof setting.value !== "number") {
+        continue;
+      }
+      if ((yield* counted()) >= setting.value) {
+        const level = setting.source === "node" ? "default" : setting.source;
+        return yield* new QuotaExceeded({
+          what,
+          level,
+          limit: setting.value,
+          message: `${setting.value} ${what} are the most there may be: the ${level} says so`,
+        });
+      }
+    }
+  });
 
   const create = Effect.fn("Sessions.create")(function* (
     caller: Caller,
@@ -268,8 +329,12 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     const candidates =
       options.snapshotId === undefined ? alive : yield* having(caller, options.snapshotId, alive);
     const effective = yield* policy.of({ workspaceId, accountId: account.id, sessionId: null });
+    yield* withinQuotas(effective, workspaceId, account.id, {
+      creating: true,
+      running: !options.suspended,
+    });
     const [node, session] = yield* place(candidates, {
-      limits: limitsOf(effective, false),
+      limits: (node) => limitsOf(effective, false, node.offers?.holdsResources === true),
       suspended: options.suspended,
       snapshotId: options.snapshotId,
       proxy: options.proxy,
@@ -368,6 +433,17 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
 
   const resume = Effect.fn("Sessions.resume")(function* (caller: Caller, id: string) {
     const { session, node } = yield* placed(caller, id, "act");
+    if (session.desiredState !== "running" && session.accountId !== null) {
+      const effective = yield* policy.of({
+        workspaceId: session.workspaceId,
+        accountId: session.accountId,
+        sessionId: session.id,
+      });
+      yield* withinQuotas(effective, session.workspaceId, session.accountId, {
+        creating: false,
+        running: true,
+      });
+    }
     yield* store.desire(id, "running");
     yield* through(node, id, nodes.executor(node).sessions.resume(id));
     yield* events.record({ kind: "session.resumed", ...about(session) });

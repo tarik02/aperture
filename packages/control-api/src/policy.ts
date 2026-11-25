@@ -28,12 +28,15 @@ export const SettingSource = Schema.Literals([
 export type SettingSource = typeof SettingSource.Type;
 
 /**
- * What a setting is: a stretch of time in seconds, a count, or one of a few choices. One
+ * What a setting is: a stretch of time in seconds, a count, bytes, processors' worth of
+ * time, which may be a part of one, or one of a few choices. One
  * that may be none is never, or no limit, as `null`.
  */
 export type SettingKind =
   | { readonly kind: "duration" }
   | { readonly kind: "count" }
+  | { readonly kind: "bytes" }
+  | { readonly kind: "cpus" }
   | { readonly kind: "choice"; readonly choices: ReadonlyArray<string | boolean> };
 
 export interface SettingDefinition {
@@ -113,6 +116,46 @@ export const SETTINGS = {
     levels: ["instance", "workspace"],
     fallback: null,
     variable: "APERTURE_CONTROL_MAX_PINNED_SESSIONS",
+  },
+  /** How many sessions one user has in a workspace, or of their own, at most. */
+  sessionsPerUser: {
+    type: { kind: "count" },
+    none: true,
+    levels: ["instance", "workspace"],
+    fallback: null,
+    variable: "APERTURE_CONTROL_SESSIONS_PER_USER",
+  },
+  /** How many sessions a workspace has at most. */
+  sessionsPerWorkspace: {
+    type: { kind: "count" },
+    none: true,
+    levels: ["instance", "workspace"],
+    fallback: null,
+    variable: "APERTURE_CONTROL_SESSIONS_PER_WORKSPACE",
+  },
+  /** How many sessions of a workspace, or of a user's own, run at once at most. */
+  runningSessions: {
+    type: { kind: "count" },
+    none: true,
+    levels: ["instance", "workspace"],
+    fallback: null,
+    variable: "APERTURE_CONTROL_RUNNING_SESSIONS",
+  },
+  /** The memory a session may use, in bytes; each node's own where nothing says it. */
+  sessionMemory: {
+    type: { kind: "bytes" },
+    none: true,
+    levels: LEVELS,
+    fallback: undefined,
+    variable: "APERTURE_CONTROL_SESSION_MEMORY",
+  },
+  /** The processors' worth of time a session may use; each node's own where nothing says it. */
+  sessionCpus: {
+    type: { kind: "cpus" },
+    none: true,
+    levels: LEVELS,
+    fallback: undefined,
+    variable: "APERTURE_CONTROL_SESSION_CPUS",
   },
 } as const satisfies Record<string, SettingDefinition>;
 

@@ -97,7 +97,11 @@ export const makeLifecycle = Effect.fn("Lifecycle.make")(function* () {
           if (session === undefined || session.nodeId !== node.id) {
             return Effect.void;
           }
-          const wanted = limitsOf(effectiveOf(placeOf(session)), session.pinned);
+          const wanted = limitsOf(
+            effectiveOf(placeOf(session)),
+            session.pinned,
+            node.offers?.holdsResources === true,
+          );
           return holds(told.limits, wanted, node.offers?.limits)
             ? Effect.void
             : executor.sessions.setLimits(told.id, wanted).pipe(asked(node));

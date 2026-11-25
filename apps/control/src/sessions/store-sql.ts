@@ -110,6 +110,24 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     return count;
   });
 
+  const count = Effect.fn("SessionsStore.count")(function* (asked: {
+    readonly workspaceId: string | null;
+    readonly accountId: string | null;
+    readonly running: boolean;
+  }) {
+    const { count } = yield* sql`
+      SELECT count(*)::int AS count FROM live_sessions
+      WHERE ${sql.and([
+        asked.workspaceId === null
+          ? sql`workspace_id IS NULL`
+          : sql`workspace_id = ${asked.workspaceId}`,
+        ...(asked.accountId === null ? [] : [sql`account_id = ${asked.accountId}`]),
+        ...(asked.running ? [sql`desired_state = 'running'`] : []),
+      ])}
+    `.pipe(one(Schema.Struct({ count: Schema.Number })));
+    return count;
+  });
+
   const delete_ = Effect.fn("SessionsStore.delete")(function* (id: string, at: Date) {
     yield* Effect.gen(function* () {
       yield* sql`UPDATE live_sessions SET deleted_at = ${at} WHERE id = ${id}`.pipe(done);
@@ -179,6 +197,7 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     desire,
     pin,
     pinnedOf,
+    count,
     delete: delete_,
     observe,
     gone,

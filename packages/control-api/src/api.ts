@@ -670,7 +670,7 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
         storageState: Schema.optional(StorageState),
       }),
       success: Session.pipe(HttpApiSchema.status(201)),
-      error: [Forbidden, WorkspaceNotFound, SnapshotNotFound, NoNode, NodeRefused],
+      error: [Forbidden, WorkspaceNotFound, SnapshotNotFound, NoNode, NodeRefused, QuotaExceeded],
     }),
     HttpApiEndpoint.get("get", "/sessions/:id", {
       params: session,
@@ -705,7 +705,7 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
     HttpApiEndpoint.post("resume", "/sessions/:id/resume", {
       params: session,
       success: Session,
-      error: ofNode,
+      error: [...ofNode, QuotaExceeded],
     }),
     HttpApiEndpoint.put("pin", "/sessions/:id/pin", {
       params: session,

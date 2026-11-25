@@ -51,7 +51,7 @@ export interface SessionsShape {
     options: NewSessionOptions,
   ) => Effect.Effect<
     Session,
-    Forbidden | WorkspaceNotFound | SnapshotNotFound | NoNode | NodeRefused
+    Forbidden | WorkspaceNotFound | SnapshotNotFound | NoNode | NodeRefused | QuotaExceeded
   >;
   /** Changes what its owner calls a session and tags it with; what is left out stays. */
   readonly describe: (
@@ -91,7 +91,8 @@ export interface SessionsShape {
     proxy: ProxyConfig | null,
   ) => Effect.Effect<void, ActError>;
   readonly suspend: (caller: Caller, id: string) => Effect.Effect<Session, ActError>;
-  readonly resume: (caller: Caller, id: string) => Effect.Effect<Session, ActError>;
+  /** Resumes a session, unless as many of its kind run as its settings let. */
+  readonly resume: (caller: Caller, id: string) => Effect.Effect<Session, ActError | QuotaExceeded>;
   readonly delete: (caller: Caller, id: string) => Effect.Effect<void, ActError>;
   /**
    * Deletes a session by itself, as its settings say, for the reason given: on its node

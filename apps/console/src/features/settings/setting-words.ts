@@ -22,6 +22,11 @@ export const SETTING_WORDS: Readonly<
   purgeDeletedAfter: { label: "Purge deleted records after", group: "Lifecycle", none: "Never" },
   pinning: { label: "Who pins sessions", group: "Pinning" },
   maxPinnedSessions: { label: "Pinned sessions at most", group: "Pinning", none: "No limit" },
+  sessionsPerUser: { label: "Sessions per user", group: "Quotas", none: "No limit" },
+  sessionsPerWorkspace: { label: "Sessions per workspace", group: "Quotas", none: "No limit" },
+  runningSessions: { label: "Sessions running at once", group: "Quotas", none: "No limit" },
+  sessionMemory: { label: "Memory per session", group: "Quotas", none: "No limit" },
+  sessionCpus: { label: "Processors per session", group: "Quotas", none: "No limit" },
 };
 
 const CHOICE_WORDS: Readonly<Record<string, string>> = {
@@ -47,29 +52,48 @@ const SOURCE_WORDS: Readonly<Record<SettingSource, string>> = {
   node: "node",
 };
 
-/** The units a time is said in, the largest first. */
-export const UNITS = [
-  { value: "days", label: "days", seconds: 86_400 },
-  { value: "hours", label: "hours", seconds: 3600 },
-  { value: "minutes", label: "minutes", seconds: 60 },
-] as const;
-export type Unit = (typeof UNITS)[number]["value"];
+/** The units a time or a size is said in, the largest first; none for a count. */
+const UNITS = {
+  duration: [
+    { value: "days", label: "days", factor: 86_400 },
+    { value: "hours", label: "hours", factor: 3600 },
+    { value: "minutes", label: "minutes", factor: 60 },
+  ],
+  bytes: [
+    { value: "GiB", label: "GiB", factor: 1024 ** 3 },
+    { value: "MiB", label: "MiB", factor: 1024 ** 2 },
+  ],
+} as const;
 
-/** A number of seconds in the largest unit it is a whole number of. */
-export const inUnits = (seconds: number): { amount: number; unit: Unit } => {
-  const unit = UNITS.find((one) => seconds % one.seconds === 0) ?? UNITS[UNITS.length - 1];
-  return unit === undefined
-    ? { amount: seconds, unit: "minutes" }
-    : { amount: seconds / unit.seconds, unit: unit.value };
+export type Unit = { readonly value: string; readonly label: string; readonly factor: number };
+
+export const unitsOf = (key: SettingKey): ReadonlyArray<Unit> => {
+  const { kind } = SETTINGS[key].type;
+  return kind === "duration" || kind === "bytes" ? UNITS[kind] : [];
 };
 
-export const secondsOf = (amount: number, unit: Unit) =>
-  amount * (UNITS.find((one) => one.value === unit)?.seconds ?? 1);
+/** A value in the largest of the units it is a whole number of; as it is, without units. */
+export const inUnits = (value: number, units: ReadonlyArray<Unit>) => {
+  const unit = units.find((one) => value % one.factor === 0) ?? units[units.length - 1];
+  return unit === undefined
+    ? { amount: value, unit: "" }
+    : { amount: value / unit.factor, unit: unit.value };
+};
+
+export const factorOf = (unit: string, units: ReadonlyArray<Unit>) =>
+  units.find((one) => one.value === unit)?.factor ?? 1;
 
 const time = (seconds: number) => {
-  const { amount, unit } = inUnits(seconds);
+  const { amount, unit } = inUnits(seconds, UNITS.duration);
   const word = amount === 1 ? unit.slice(0, -1) : unit;
   return seconds % 60 === 0 ? `${amount} ${word}` : `${seconds} seconds`;
+};
+
+const size = (bytes: number) => {
+  const unit = UNITS.bytes.find((one) => bytes >= one.factor);
+  return unit === undefined
+    ? `${bytes} bytes`
+    : `${Number((bytes / unit.factor).toFixed(2))} ${unit.label}`;
 };
 
 /** A value of a setting, as it is shown. */
@@ -81,7 +105,10 @@ export const valueWords = (key: SettingKey, value: SettingValue) => {
     case "duration":
       return time(Number(value));
     case "count":
+    case "cpus":
       return String(value);
+    case "bytes":
+      return size(Number(value));
     case "choice":
       return CHOICE_WORDS[String(value)] ?? String(value);
   }
