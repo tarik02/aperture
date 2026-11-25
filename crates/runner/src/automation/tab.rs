@@ -14,7 +14,7 @@ use browse_core::{Cdp, CdpError, CdpEvent};
 use serde_json::{Value, json};
 use tokio::{
     sync::{broadcast, watch},
-    time::{Instant, sleep, timeout},
+    time::{Instant, sleep, sleep_until, timeout},
 };
 
 use super::keys::evdev_code;
@@ -37,6 +37,19 @@ const TYPING_STEP: Duration = Duration::from_millis(35);
 const TYPING_AT_MOST: Duration = Duration::from_secs(3);
 /// What a slow pace adds to each step of the pointer's travel.
 const SLOW_STEP: Duration = Duration::from_millis(14);
+/// Input that came this soon after the input before it is of one gesture with it, and
+/// goes as far after it as it came.
+const GESTURE_GAP: Duration = Duration::from_secs(1);
+
+/// Where the tab's input stands: it goes one at a time, in the order it came.
+#[derive(Default)]
+struct Turn {
+    /// When the last input came, and when it went.
+    last: Option<(Instant, Instant)>,
+    /// When input was last refused for a tab someone else held all the while: what came
+    /// before then is refused with it, rather than wait as long again.
+    refused: Option<Instant>,
+}
 
 /// A tab's DevTools session, attached through the browser's connection.
 pub(super) struct TabSession {
@@ -50,6 +63,11 @@ pub(super) struct TabSession {
     /// The member the automation acts as in the tab: whoever called a tool on it last,
     /// and nobody until a tool is.
     actor: Mutex<Option<MemberId>>,
+    /// Input to the tab waits here for the input before it. A gesture is sent a sample at
+    /// a time without waiting for each to arrive, so samples that wait for the tab to be
+    /// free would otherwise go once it is in whatever order they wake in, and a press
+    /// amid the travel before it.
+    turn: tokio::sync::Mutex<Turn>,
     /// Where the tab's events go; none once the session ended, which closes the streams of
     /// those who listen.
     events: Mutex<Option<broadcast::Sender<CdpEvent>>>,
@@ -86,6 +104,7 @@ impl TabSession {
             session,
             presence,
             actor: Mutex::new(None),
+            turn: tokio::sync::Mutex::default(),
             events: Mutex::new(Some(events.clone())),
         });
 
@@ -313,10 +332,15 @@ impl Cdp for TabSession {
         params: Value,
         session_id: Option<&str>,
     ) -> Result<Value, CdpError> {
+        let came = Instant::now();
+        let mut turn = if method.starts_with("Input.") && session_id.is_none() {
+            Some(self.turn.lock().await)
+        } else {
+            None
+        };
         // Input is the tab's holder's: the automation takes a tab nobody holds, and waits
         // for one a person drives, or another of its callers, until they are done with it.
-        if method.starts_with("Input.")
-            && session_id.is_none()
+        if let Some(turn) = &mut turn
             && let Some(tab) = self.tab()
         {
             let Some(actor) = self.actor() else {
@@ -324,7 +348,9 @@ impl Cdp for TabSession {
             };
             let waited = Instant::now();
             while !self.presence.hold(actor, tab, true) {
-                if waited.elapsed() >= TAB_FREE_WITHIN {
+                let refused = turn.refused.is_some_and(|refused| came <= refused);
+                if refused || waited.elapsed() >= TAB_FREE_WITHIN {
+                    turn.refused = Some(Instant::now());
                     let holder = self.presence.held_by_another(actor, tab);
                     let holder = holder.unwrap_or_else(|| "someone".to_owned());
                     return Err(CdpError::Protocol(format!(
@@ -333,6 +359,17 @@ impl Cdp for TabSession {
                 }
                 sleep(Duration::from_millis(200)).await;
             }
+        }
+        // Input that waited goes as far after the input before it as it came after it, so
+        // that a travel that waited for the tab still travels.
+        if let Some(turn) = &mut turn {
+            if let Some((before_came, before_went)) = turn.last {
+                let gap = came.saturating_duration_since(before_came);
+                if gap < GESTURE_GAP {
+                    sleep_until(before_went + gap).await;
+                }
+            }
+            turn.last = Some((came, Instant::now()));
         }
         let input = matches!(
             method,

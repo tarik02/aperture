@@ -196,6 +196,47 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
     }),
   );
 
+  // Every step of a travel waits for the tab on its own; they went once it was free in the
+  // order they woke in, with the press amid them.
+  it.effect("a click that waits for a tab someone holds travels there, then presses", () =>
+    Effect.gen(function* () {
+      const executor = yield* Executor;
+      const path = `${executor.data}/sessions/${session}/files/${started.journal}`;
+      const from = { x: 900, y: 600 };
+      yield* agent.call("hover", { tab: opened.id, ...from });
+      const before = (yield* Files.journal(path, JournalEntry)).length;
+      // A person's input comes before the automation's, which waits until they are done.
+      yield* Node.clickInPicture(watcher, "video", from);
+      const holds = yield* happens(
+        snapshot(
+          watcher,
+          `s.presence.held.some((h) => h.tab === ${opened.tab} && h.holder === s.presence.you)`,
+        ),
+      );
+      expect(holds).toBe(true);
+      const [took] = yield* Effect.timed(
+        agent.call("click", { tab: opened.id, x: BUTTON.x, y: BUTTON.y }),
+      );
+
+      const pointer = (yield* Files.journal(path, JournalEntry))
+        .slice(before)
+        .filter((entry) => entry.kind === "move" || entry.kind === "press");
+      const away = (entry: JournalEntry) =>
+        Math.hypot((entry.x ?? 0) - BUTTON.x, (entry.y ?? 0) - BUTTON.y);
+      const pressed = pointer.findIndex((entry) => entry.kind === "press");
+      const travel = pointer.slice(0, pressed);
+      const back = travel.filter(
+        (entry, index) => index > 0 && away(entry) > away(travel[index - 1]!) + 20,
+      );
+
+      expect(Duration.toMillis(took)).toBeGreaterThan(2000);
+      expect(travel.length).toBeGreaterThan(5);
+      expect(Math.hypot(travel[0]!.x! - from.x, travel[0]!.y! - from.y)).toBeLessThan(100);
+      expect(back).toEqual([]);
+      expect(pointer.slice(pressed + 1)).toEqual([]);
+    }),
+  );
+
   it.effect("a recording finishes with a length", () =>
     Effect.gen(function* () {
       // Nothing happens for a while, which the edit cuts.
