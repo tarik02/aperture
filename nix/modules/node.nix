@@ -153,10 +153,13 @@ in
         StateDirectoryMode = "0700";
         RuntimeDirectory = "aperture-node";
         RuntimeDirectoryMode = "0700";
+        # Its sessions' runners and browsers outlive a stop of the unit, and an executor that
+        # starts again finds them by what they keep here: each session's lock, status and
+        # sockets. "restart" would not do: switch-to-configuration stops a changed unit and
+        # starts it again, which removes a directory that is kept only over a restart.
+        RuntimeDirectoryPreserve = "yes";
         Restart = "on-failure";
         RestartSec = 2;
-        # Its sessions' runners and browsers end with it only when it is stopped for good:
-        # an executor that starts again finds the sessions it left.
         KillMode = "process";
       };
     };

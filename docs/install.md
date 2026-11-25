@@ -231,7 +231,7 @@ A directory the nodes share works as well, as `file:///directory`. Without a sna
 | The master key and the ticket key | `/var/lib/aperture-keys` (`master.key`, `ticket.pem`) | Nodes' operator tokens and sign-in providers' secrets cannot be read again; every ticket is refused |
 | Sessions' profiles and files, snapshots, the node's operator token | `/var/lib/aperture-node` on each node | Those sessions and snapshots are gone |
 | Shared snapshots and suspended sessions | The stores named by `APERTURE_SNAPSHOT_STORE` and `APERTURE_SESSION_STORE`, when set | |
-| Sockets and the state of running sessions | `/run/aperture-node` | Nothing: it is made again |
+| Sockets and the state of running sessions | `/run/aperture-node`, kept while the node is stopped | Its running sessions: the executor stops the browsers it finds without it, and the control plane starts again those that are to run |
 
 Nothing that is deleted through the API or the console is removed from the database: an account, a workspace, a session's record, a token, a share link or a sign-in provider is marked deleted, found by nothing again, and its name or address is free for another. A deleted person is kept the same way, with their name and the address they had, which no longer holds anyone else off it. Removed for good are what let them in (their password, passkeys, second factor, what providers knew them by, their browser sessions and any setup link not yet used), an app's codes and tokens, apps nobody ever connected, and events older than `APERTURE_CONTROL_EVENTS_KEEP`. Nothing purges what is marked.
 

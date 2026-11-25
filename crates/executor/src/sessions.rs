@@ -9,7 +9,10 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     io::{Read, Seek, SeekFrom},
-    os::unix::fs::DirBuilderExt,
+    os::unix::{
+        ffi::OsStrExt,
+        fs::{DirBuilderExt, MetadataExt},
+    },
     path::{Path, PathBuf},
     process::Stdio,
     sync::{Arc, Mutex},
@@ -39,6 +42,8 @@ use crate::{
 const START_WITHIN: Duration = Duration::from_secs(120);
 const STOP_WITHIN: Duration = Duration::from_secs(60);
 const POLL: Duration = Duration::from_millis(50);
+/// How long a runner that let go of its lock takes at most to exit.
+const EXIT_WITHIN: Duration = Duration::from_secs(5);
 /// How much of what a runner wrote the executor logs when its session fails to start.
 const RUNNER_LINES_LOGGED: usize = 20;
 /// How often sessions are looked at for having sat idle too long.
@@ -855,13 +860,12 @@ impl Sessions {
             .append(true)
             .open(&log_path)
             .map_err(|err| Error::Io(log_path.clone(), err))?;
+        // What the session's last run left behind would hold its profile, and keep its
+        // scope's name.
+        self.end_leftovers(id).await;
         let starting = Instant::now();
         let mut command = match &self.config.scopes {
-            Some(scopes) => {
-                // What the session's last run left behind would keep its scope's name.
-                scopes.close(id).await;
-                scopes.start(id, &limits, &self.config.runner)
-            }
+            Some(scopes) => scopes.start(id, &limits, &self.config.runner),
             None => tokio::process::Command::new(&self.config.runner),
         };
         let child = command
@@ -956,16 +960,16 @@ impl Sessions {
         let runtime = self.runtime_dir(id);
         let io = |err| Error::Io(runtime.clone(), err);
         let deadline = Instant::now() + STOP_WITHIN;
-        let mut signalled = false;
+        let mut signalled = None;
         while is_alive(&runtime).map_err(io)? {
             // The lock is held, so the pid in the status is the runner's. A runner that
             // has not written one yet does so right away.
             if let Some(status) = read_status(&runtime).map_err(io)? {
                 let pid = status.pid as libc::pid_t;
-                if !signalled {
+                if signalled.is_none() {
                     // Safety: plain signal to a process of this user.
                     unsafe { libc::kill(pid, libc::SIGTERM) };
-                    signalled = true;
+                    signalled = Some(pid);
                 } else if Instant::now() >= deadline {
                     warn!(session = %id, "the runner did not stop in time; killing its group");
                     // Safety: as above, to the group the runner was started as.
@@ -980,14 +984,86 @@ impl Sessions {
             sleep(POLL).await;
         }
         remove_file(&aperture_runner::status_path(&runtime))?;
-        if let Some(scopes) = &self.config.scopes {
-            scopes.close(id).await;
+        if let Some(pid) = signalled {
+            // It lets go of its lock a moment before it exits, and is no leftover meanwhile.
+            let deadline = Instant::now() + EXIT_WITHIN;
+            while runner_of(pid, &self.config.runtime_root).as_deref() == Some(id)
+                && Instant::now() < deadline
+            {
+                sleep(POLL).await;
+            }
         }
+        self.end_leftovers(id).await;
         self.activity.lock().expect("not poisoned").remove(id);
-        if signalled {
+        if signalled.is_some() {
             info!(session = %id, "session suspended");
         }
         Ok(signalled)
+    }
+
+    /// Stops the runners that an earlier executor left without the state they are found by,
+    /// as when the runtime directory was removed under them: no request would reach them or
+    /// stop them, and each would hold its session's profile for as long as it runs. Their
+    /// sessions are told as suspended after, which whoever wants them running resumes.
+    /// Runners whose state is there are left alone: they are the sessions this executor
+    /// goes on with.
+    pub async fn sweep(&self) {
+        let mut ids: HashSet<String> = runners(&self.config.runtime_root)
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        if let Some(scopes) = &self.config.scopes {
+            ids.extend(scopes.sessions().await);
+        }
+        let swept = ids.into_iter().map(|id| async move {
+            let _busy = self.busy(&id).await;
+            let runtime = self.runtime_dir(&id);
+            match is_alive(&runtime) {
+                Ok(true) => return,
+                Ok(false) => {}
+                Err(err) => warn!(session = %id, "the session's state is not read: {err}"),
+            }
+            warn!(
+                session = %id,
+                "the session's runner was left without its state; stopping it"
+            );
+            self.end_leftovers(&id).await;
+            if let Err(err) = remove_file(&aperture_runner::status_path(&runtime)) {
+                warn!(session = %id, "{err}");
+            }
+        });
+        futures_util::future::join_all(swept).await;
+    }
+
+    /// Ends what is left of the session while no runner holds its runtime directory: its
+    /// scope, or, without scopes, a runner an earlier executor started that holds a
+    /// directory that is gone.
+    async fn end_leftovers(&self, id: &str) {
+        if let Some(scopes) = &self.config.scopes {
+            scopes.close(id).await;
+            return;
+        }
+        let root = &self.config.runtime_root;
+        let left = runners(root)
+            .into_iter()
+            .filter(|(of, _)| of == id)
+            .map(|(_, pid)| pid);
+        for pid in left {
+            warn!(session = %id, pid, "stopping a runner of the session that has no state");
+            // Safety: plain signal to a process of this user, which was just seen to be
+            // the session's runner.
+            unsafe { libc::kill(pid, libc::SIGTERM) };
+            let deadline = Instant::now() + STOP_WITHIN;
+            while runner_of(pid, root).as_deref() == Some(id) {
+                if Instant::now() >= deadline {
+                    warn!(session = %id, pid, "the runner did not stop in time; killing its group");
+                    // Safety: as above, to the group it was started as.
+                    unsafe { libc::kill(-pid, libc::SIGKILL) };
+                    break;
+                }
+                sleep(POLL).await;
+            }
+        }
     }
 
     async fn busy(&self, id: &str) -> tokio::sync::OwnedMutexGuard<()> {
@@ -1064,6 +1140,43 @@ fn last_lines(path: &Path, count: usize) -> String {
     let text = String::from_utf8_lossy(&bytes);
     let lines: Vec<&str> = text.lines().collect();
     lines[lines.len().saturating_sub(count)..].join("\n")
+}
+
+/// The runners of this user that run a session below `root`, by session: whichever
+/// executor started them, and whether or not their runtime directory is still there.
+fn runners(root: &Path) -> Vec<(String, libc::pid_t)> {
+    let Ok(processes) = fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    processes
+        .filter_map(|entry| entry.ok()?.file_name().to_str()?.parse().ok())
+        .filter_map(|pid| Some((runner_of(pid, root)?, pid)))
+        .collect()
+}
+
+/// The session the process runs as its runner, when it is this user's runner of a session
+/// below `root`. A runner is started with its runtime directory as its one argument.
+fn runner_of(pid: libc::pid_t, root: &Path) -> Option<String> {
+    let process = PathBuf::from(format!("/proc/{pid}"));
+    // Safety: no arguments, cannot fail.
+    if fs::metadata(&process).ok()?.uid() != unsafe { libc::getuid() } {
+        return None;
+    }
+    // Empty for a process that ended and is not reaped yet.
+    let line = fs::read(process.join("cmdline")).ok()?;
+    let arguments: Vec<&[u8]> = line.strip_suffix(b"\0")?.split(|&byte| byte == 0).collect();
+    let [program, runtime] = arguments[..] else {
+        return None;
+    };
+    let program = Path::new(std::ffi::OsStr::from_bytes(program));
+    if program.file_name()? != "aperture-runner" {
+        return None;
+    }
+    let runtime = Path::new(std::ffi::OsStr::from_bytes(runtime));
+    if runtime.parent()? != root {
+        return None;
+    }
+    Some(runtime.file_name()?.to_str()?.to_owned())
 }
 
 fn now_ms() -> u64 {
