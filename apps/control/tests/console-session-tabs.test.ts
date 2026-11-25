@@ -24,6 +24,7 @@ suite(needs)("a session's tabs in the console's grid", (it) => {
         payload: { label: "Checkout flow", tags: {} },
       });
 
+      // The agent opens a tab of its own beside the one the session starts with: four in all.
       const agent = yield* Mcp.connect(`${proxy.url}${path}`, ada.token);
       yield* agent.call("navigate", { url: page("Cart", "2563eb") });
       yield* agent.call("tabs", { action: "new", url: page("Payment", "16a34a") });
@@ -40,7 +41,7 @@ suite(needs)("a session's tabs in the console's grid", (it) => {
         `document.querySelector(${JSON.stringify(`${card} img`)})?.naturalWidth > 0`,
         "30 seconds",
       );
-      expect(yield* view.text(`${card} [data-console-session-tabs]`)).toContain("3");
+      expect(yield* view.text(`${card} [data-console-session-tabs]`)).toContain("4");
       yield* shot(view, fs, "console-session-tabs-card");
 
       yield* view.hover(`${card} [data-console-session-open]`);
@@ -53,7 +54,7 @@ suite(needs)("a session's tabs in the console's grid", (it) => {
 
       yield* view.click(`[data-console-sessions-view="tabs"]`);
       yield* view.until(
-        `document.querySelectorAll("[data-console-tab-card]").length >= 3`,
+        `document.querySelectorAll("[data-console-tab-card]").length >= 4`,
         "30 seconds",
       );
       yield* view.until(
@@ -78,7 +79,7 @@ suite(needs)("a session's tabs in the console's grid", (it) => {
       yield* shot(view, fs, "console-session-tabs-suspended");
       yield* view.hover(`${card} [data-console-session-open]`);
       yield* view.until(
-        `[...document.querySelectorAll("[data-console-session-strip] img")].length >= 3 && [...document.querySelectorAll("[data-console-session-strip] img")].every((one) => one.naturalWidth > 0)`,
+        `[...document.querySelectorAll("[data-console-session-strip] img")].length >= 4 && [...document.querySelectorAll("[data-console-session-strip] img")].every((one) => one.naturalWidth > 0)`,
         "30 seconds",
       );
       yield* shot(view, fs, "console-session-tabs-suspended-strip");
@@ -87,7 +88,7 @@ suite(needs)("a session's tabs in the console's grid", (it) => {
       yield* view.until(`!!document.querySelector("[data-console-tab-card]")`, "30 seconds");
       yield* view.evaluate(DARK);
       yield* view.until(
-        `[...document.querySelectorAll("[data-console-tab-card] img")].length >= 3 && [...document.querySelectorAll("[data-console-tab-card] img")].every((one) => one.naturalWidth > 0)`,
+        `[...document.querySelectorAll("[data-console-tab-card] img")].length >= 4 && [...document.querySelectorAll("[data-console-tab-card] img")].every((one) => one.naturalWidth > 0)`,
         "30 seconds",
       );
       yield* shot(view, fs, "console-session-tabs-view-dark");
