@@ -52,9 +52,10 @@ struct Arguments {
     no_viewer: bool,
     /// Where Prometheus metrics are served, at `/metrics`, such as `127.0.0.1:9464`: an
     /// address or a Unix socket, as `--listen` takes one, and another than that. They
-    /// are answered to anyone who reaches them. None are served without it.
+    /// are answered to anyone who reaches them. None are served without it, or with it
+    /// empty, as whatever names it whether or not it is wanted sets it.
     #[arg(long, env = "APERTURE_METRICS_LISTEN")]
-    metrics_listen: Option<Listen>,
+    metrics_listen: Option<String>,
     /// Leave out of the metrics what each running session uses, labelled with its id:
     /// several series for every session that runs.
     #[arg(long, env = "APERTURE_METRICS_NO_PER_SESSION")]
@@ -301,7 +302,15 @@ async fn main() -> anyhow::Result<()> {
         },
     ));
     tokio::spawn(sessions.clone().suspend_idle());
-    if let Some(listen) = arguments.metrics_listen {
+    let metrics_listen = arguments
+        .metrics_listen
+        .as_deref()
+        .map(str::trim)
+        .filter(|named| !named.is_empty())
+        .map(str::parse::<Listen>)
+        .transpose()
+        .map_err(|reason| anyhow::anyhow!("--metrics-listen: {reason}"))?;
+    if let Some(listen) = metrics_listen {
         let serving = metrics::Serving {
             listen,
             sessions: sessions.clone(),
