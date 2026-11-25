@@ -1,6 +1,6 @@
 {
   "name": "@aperture-browser/companion",
-  "version": "1.0.0-beta.1",
+  "version": "1.0.0-beta.2",
   "private": true,
   "description": "The Aperture Companion: a browser extension that moves the tabs of someone's own browser, with what the sites keep there, into a session.",
   "type": "module",
