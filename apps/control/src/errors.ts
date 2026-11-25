@@ -54,6 +54,15 @@ export class SecretFileUnusable extends Schema.TaggedError<SecretFileUnusable>()
 }
 
 /** One of the proxies whose word is to be taken is no address and no range of them. */
+export class MetricsListenUnusable extends Schema.TaggedError<MetricsListenUnusable>()(
+  "MetricsListenUnusable",
+  { named: Schema.String },
+) {
+  override get message() {
+    return `${this.named} in APERTURE_CONTROL_METRICS_LISTEN is no address as 127.0.0.1:9465 or [::1]:9465`;
+  }
+}
+
 export class TrustedProxiesUnusable extends Schema.TaggedError<TrustedProxiesUnusable>()(
   "TrustedProxiesUnusable",
   { named: Schema.String, reason: Schema.String },

@@ -31,6 +31,7 @@ use tracing::{info, warn};
 use crate::{
     asked::Asked,
     limits::Limits,
+    metrics::{self, Event, Start},
     scopes::{Scopes, Usage},
 };
 
@@ -313,16 +314,17 @@ impl Sessions {
             shared.put_session(&record).await?;
         }
         info!(session = %record.id, ?snapshot_id, "session created");
+        metrics::event(Event::Created);
         if !suspended {
             let _busy = self.busy(&record.id).await;
             self.hold(&record.id, false).await?;
             match storage_state {
-                None => self.start(&record.id).await?,
+                None => self.start(&record.id, Start::Create).await?,
                 Some(state) => {
                     // Said before its browser is there: it is at no moment a session that
                     // runs without what it was to start with.
                     self.restoring(&record.id, true);
-                    if let Err(err) = self.start_as(&record.id, true).await {
+                    if let Err(err) = self.start_as(&record.id, true, Start::Create).await {
                         self.restoring(&record.id, false);
                         return Err(err);
                     }
@@ -395,14 +397,16 @@ impl Sessions {
         self.hold(id, takeover).await?;
         self.bring(id).await?;
         self.store.session(id)?;
-        self.start(id).await?;
+        self.start(id, Start::Resume).await?;
         self.get(id)
     }
 
     pub async fn suspend(&self, id: &str) -> Result<Session> {
         self.store.session(id)?;
         let _busy = self.busy(id).await;
-        self.stop(id).await?;
+        if self.stop(id).await? {
+            metrics::event(Event::Suspended);
+        }
         // Whoever asked for this resumes it too.
         self.store.set_session_asleep(id, false)?;
         self.share(id).await?;
@@ -493,7 +497,9 @@ impl Sessions {
         let _busy = self.busy(id).await;
         // Before it stops: whoever reaches it while it does waits and resumes it.
         self.store.set_session_asleep(id, true)?;
-        self.stop(id).await?;
+        if self.stop(id).await? {
+            metrics::event(Event::IdleSuspended);
+        }
         self.share(id).await
     }
 
@@ -508,7 +514,7 @@ impl Sessions {
             info!(session = %id, "someone reached a session that sat idle; resuming it");
             self.hold(id, false).await?;
             self.bring(id).await?;
-            self.start(id).await?;
+            self.start(id, Start::Wake).await?;
         }
         Ok(())
     }
@@ -580,6 +586,7 @@ impl Sessions {
         drop(busy);
         self.busy.lock().expect("not poisoned").remove(id);
         info!(session = %id, "session deleted");
+        metrics::event(Event::Deleted);
         Ok(())
     }
 
@@ -593,7 +600,7 @@ impl Sessions {
         self.stop(session_id).await?;
         let snapshot = self.store.create_snapshot(session_id, name);
         if running {
-            self.start(session_id).await?;
+            self.start(session_id, Start::Snapshot).await?;
         }
         let snapshot = snapshot?;
         if let Some(remote) = &self.config.snapshots {
@@ -789,13 +796,13 @@ impl Sessions {
 
     /// Starts the session's runner and waits until its browser serves. Does nothing for a
     /// session that has one.
-    async fn start(&self, id: &str) -> Result<()> {
-        self.start_as(id, false).await
+    async fn start(&self, id: &str, kind: Start) -> Result<()> {
+        self.start_as(id, false, kind).await
     }
 
     /// Starts it as one that is given a storage state next, where `restoring`: it says
     /// from its first moment that it is being restored.
-    async fn start_as(&self, id: &str, restoring: bool) -> Result<()> {
+    async fn start_as(&self, id: &str, restoring: bool, kind: Start) -> Result<()> {
         let runtime = self.runtime_dir(id);
         let io = |err| Error::Io(runtime.clone(), err);
         if is_alive(&runtime).map_err(io)? {
@@ -848,6 +855,7 @@ impl Sessions {
             .append(true)
             .open(&log_path)
             .map_err(|err| Error::Io(log_path.clone(), err))?;
+        let starting = Instant::now();
         let mut command = match &self.config.scopes {
             Some(scopes) => {
                 // What the session's last run left behind would keep its scope's name.
@@ -876,8 +884,9 @@ impl Sessions {
         // Whoever started it uses it.
         self.touch(id, 0);
         match self.await_running(id, Some(child)).await {
-            Ok(()) => {}
+            Ok(()) => metrics::started(kind, starting.elapsed()),
             Err(Error::Start { id, mut reason }) => {
+                metrics::event(Event::Failed);
                 // The reason is what the runner saw; why its browser exited is in what the
                 // browser and its sandbox wrote, which is in the session's log alone.
                 let output = last_lines(&log_path, RUNNER_LINES_LOGGED);
@@ -942,8 +951,8 @@ impl Sessions {
     }
 
     /// Stops the session's runner, and with it the browser, and waits for both to be gone.
-    /// A session that failed is left suspended.
-    async fn stop(&self, id: &str) -> Result<()> {
+    /// A session that failed is left suspended. Says whether there was a runner to stop.
+    async fn stop(&self, id: &str) -> Result<bool> {
         let runtime = self.runtime_dir(id);
         let io = |err| Error::Io(runtime.clone(), err);
         let deadline = Instant::now() + STOP_WITHIN;
@@ -978,7 +987,7 @@ impl Sessions {
         if signalled {
             info!(session = %id, "session suspended");
         }
-        Ok(())
+        Ok(signalled)
     }
 
     async fn busy(&self, id: &str) -> tokio::sync::OwnedMutexGuard<()> {

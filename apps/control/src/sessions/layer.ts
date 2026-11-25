@@ -26,6 +26,7 @@ import {
   WorkspaceNotFound,
 } from "../errors.ts";
 import { Events } from "../events/service.ts";
+import * as Metrics from "../metrics.ts";
 import { asked } from "../nodes/asked.ts";
 import type { Node } from "../nodes/schemas.ts";
 import { Nodes } from "../nodes/service.ts";
@@ -287,7 +288,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       detail: { node: node.name, snapshotId: made.snapshotId, suspended: options.suspended },
     });
     return made;
-  });
+  }, Metrics.sessionRequest("create"));
 
   const list = Effect.fn("Sessions.list")(function* (caller: Caller) {
     const all = caller.admin
@@ -350,7 +351,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     yield* through(node, id, nodes.executor(node).sessions.suspend(id));
     yield* events.record({ kind: "session.suspended", ...about(session) });
     return yield* current(id);
-  });
+  }, Metrics.sessionRequest("suspend"));
 
   const resume = Effect.fn("Sessions.resume")(function* (caller: Caller, id: string) {
     const { session, node } = yield* placed(caller, id, "act");
@@ -358,7 +359,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     yield* through(node, id, nodes.executor(node).sessions.resume(id));
     yield* events.record({ kind: "session.resumed", ...about(session) });
     return yield* current(id);
-  });
+  }, Metrics.sessionRequest("resume"));
 
   const delete_ = Effect.fn("Sessions.delete")(function* (caller: Caller, id: string) {
     const { session, node } = yield* placed(caller, id, "act");
@@ -375,7 +376,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       );
     yield* store.delete(id, yield* now);
     yield* events.record({ kind: "session.deleted", ...about(session) });
-  });
+  }, Metrics.sessionRequest("delete"));
 
   /** Where a session is reached from outside: on its node, or through the proxy before it. */
   const reachedAt = (node: Node, id: string, origin: string) =>

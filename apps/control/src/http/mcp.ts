@@ -19,6 +19,7 @@ import { Forbidden } from "../errors.ts";
 import { SessionTools, type SessionToolError } from "../mcp/service.ts";
 import sessionTools from "../mcp/gen/session-tools.json" with { type: "json" };
 import { ControlTools } from "../mcp/toolkit.ts";
+import * as Metrics from "../metrics.ts";
 import { Sessions } from "../sessions/service.ts";
 import { Settings } from "../settings/service.ts";
 import { Shares } from "../shares/service.ts";
@@ -441,10 +442,26 @@ export const layer = Layer.unwrap(
       }),
     );
 
-    return Layer.mergeAll(
-      McpServer.toolkit(ControlTools).pipe(Layer.provide(handlers)),
-      forwarded,
-    ).pipe(
+    // Each tool, once all of them are there, with its calls counted. The server's list is
+    // typed without the handlers, which it keeps all the same: it is what was added.
+    const counted = Layer.effectDiscard(
+      Effect.gen(function* () {
+        const server = yield* McpServer.McpServer;
+        type Registered = Parameters<typeof server.addTool>[0];
+        for (const registered of server.tools as ReadonlyArray<Registered>) {
+          yield* server.addTool({
+            ...registered,
+            handle: (payload) =>
+              registered.handle(payload).pipe(Metrics.toolCall(registered.tool.name)),
+          });
+        }
+      }),
+    );
+
+    return counted.pipe(
+      Layer.provide(
+        Layer.mergeAll(McpServer.toolkit(ControlTools).pipe(Layer.provide(handlers)), forwarded),
+      ),
       Layer.provide(
         McpServer.layerHttp({
           name: "aperture",

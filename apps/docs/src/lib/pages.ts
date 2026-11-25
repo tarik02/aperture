@@ -8,6 +8,7 @@ export const pages = [
   { file: "README.md", slug: "" },
   { file: "docs/install.md", slug: "install" },
   { file: "docs/configuration.md", slug: "configuration" },
+  { file: "docs/monitoring.md", slug: "monitoring" },
   { file: "docs/using.md", slug: "using" },
   { file: "docs/upgrading-from-v1.md", slug: "upgrading-from-v1" },
   { file: "packages/control-api/README.md", slug: "packages/control-api" },

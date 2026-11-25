@@ -3,6 +3,7 @@
 
 mod asked;
 mod limits;
+mod metrics;
 mod registration;
 mod rpc;
 mod scopes;
@@ -49,6 +50,15 @@ struct Arguments {
     /// by something else.
     #[arg(long, env = "APERTURE_NO_VIEWER")]
     no_viewer: bool,
+    /// Where Prometheus metrics are served, at `/metrics`, such as `127.0.0.1:9464`: an
+    /// address or a Unix socket, as `--listen` takes one, and another than that. They
+    /// are answered to anyone who reaches them. None are served without it.
+    #[arg(long, env = "APERTURE_METRICS_LISTEN")]
+    metrics_listen: Option<Listen>,
+    /// Leave out of the metrics what each running session uses, labelled with its id:
+    /// several series for every session that runs.
+    #[arg(long, env = "APERTURE_METRICS_NO_PER_SESSION")]
+    metrics_no_per_session: bool,
     /// Sessions and snapshots are kept here. `$XDG_STATE_HOME/aperture` by default.
     #[arg(long, env = "APERTURE_DATA_DIR")]
     data_dir: Option<PathBuf>,
@@ -291,6 +301,21 @@ async fn main() -> anyhow::Result<()> {
         },
     ));
     tokio::spawn(sessions.clone().suspend_idle());
+    if let Some(listen) = arguments.metrics_listen {
+        let serving = metrics::Serving {
+            listen,
+            sessions: sessions.clone(),
+            per_session: !arguments.metrics_no_per_session,
+            data_dir: data_dir.clone(),
+            registers: registration.is_some(),
+        };
+        let served = metrics::listen(serving).await?;
+        tokio::spawn(async move {
+            if let Err(error) = served.await {
+                warn!("the metrics are served no more: {error}");
+            }
+        });
+    }
 
     // A session is created with a storage state as large as its runner takes one, which
     // is more than a request is let be otherwise.

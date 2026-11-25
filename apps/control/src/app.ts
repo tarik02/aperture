@@ -25,6 +25,7 @@ import * as McpRoutes from "./http/mcp.ts";
 import * as OAuthRoutes from "./http/oauth.ts";
 import * as NodeServiceRoutes from "./http/nodeService.ts";
 import * as Identity from "./identity/layer.ts";
+import * as Metrics from "./metrics.ts";
 import * as SessionTools from "./mcp/layer.ts";
 import * as RoutingRoutes from "./http/routing.ts";
 import * as ShareRoutes from "./http/shares.ts";
@@ -94,6 +95,17 @@ const consolePages = Layer.unwrap(
   }),
 );
 
+/** The metrics, where the settings name an address for them. */
+const metrics = Layer.unwrap(
+  Effect.gen(function* () {
+    const settings = yield* Settings;
+    return Option.match(settings.metricsListen, {
+      onNone: () => Layer.empty,
+      onSome: Metrics.serve,
+    });
+  }),
+);
+
 const serving = Layer.mergeAll(
   HttpRouter.serve(
     Layer.mergeAll(
@@ -106,8 +118,10 @@ const serving = Layer.mergeAll(
       OAuthRoutes.layer,
       consolePages,
       Headers.layer,
+      Metrics.httpLayer,
     ),
   ),
+  metrics,
   Following.layer,
   FirstAdmin.layer,
   V1Credentials.announce,

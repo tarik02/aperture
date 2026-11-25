@@ -23,6 +23,12 @@ export interface SettingsShape {
   readonly listenHost: string;
   readonly listenPort: number;
   /**
+   * Where Prometheus metrics are served, at `/metrics`, as `127.0.0.1:9465`: an address of
+   * their own beside the API's, which answers anyone who reaches it. None are served
+   * without it.
+   */
+  readonly metricsListen: Option.Option<{ readonly host: string; readonly port: number }>;
+  /**
    * Where a proxy before the nodes reaches this program, such as `http://10.0.0.2:7800`.
    * The address it listens on by default.
    */

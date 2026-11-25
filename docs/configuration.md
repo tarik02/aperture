@@ -8,6 +8,7 @@ Every program takes its settings from its environment. The NixOS modules set the
 - [Session features](#session-features)
 - [Proxy](#proxy)
 - [Keys](#keys)
+- [Metrics](monitoring.md)
 - [Origins: CORS and embedding](#origins-cors-and-embedding)
 
 ## Control plane
@@ -33,6 +34,7 @@ Every program takes its settings from its environment. The NixOS modules set the
 | `APERTURE_CONTROL_NODE_SILENT_AFTER` | `environment` | duration | `30 seconds` | How long a node may send no keepalive before it gets no new sessions. Nodes are asked to send one every third of it |
 | `APERTURE_CONTROL_EVENTS_KEEP` | `eventsKeep` | duration | `90 days` | How long an event is kept before it is forgotten |
 | `APERTURE_CONTROL_RATE_LIMIT` | `environment` | bool | `true` | Whether signing in is held to so many tries a while from one address |
+| `APERTURE_CONTROL_METRICS_LISTEN` | `metrics.enable`, `metrics.listen` | `host:port`, `[host]:port` or none | module: `127.0.0.1:9465`; none | Where [Prometheus metrics](monitoring.md) are served, at `/metrics`, to anyone who reaches them. None without it |
 | `APERTURE_CONTROL_CONSOLE_DIR` | set by the package | path | the console the package was built with | A directory with the console's files, served beside the API. Unset, no console is served |
 
 `<keys>` is `services.aperture.keys.directory`, `/var/lib/aperture-keys` by default. `listenHost`, `listenPort`, `package` and `environment` are the remaining options.
@@ -96,6 +98,8 @@ Register the client at the provider with the redirect address `<publicUrl>/api/a
 | `APERTURE_PUBLIC_URL` | `environment` | URL | none | Where clients reach this node's sessions directly. Tickets' links then point there and not through the proxy; TLS and [origins](#origins-cors-and-embedding) there are yours |
 | `APERTURE_TOKEN_FILE` | `environment` | path | `<data dir>/token`, made when missing | The operator token |
 | `APERTURE_NO_VIEWER` | `environment` | flag | off | Leave out the workbench page at `/sessions/<id>/` |
+| `APERTURE_METRICS_LISTEN` | `metrics.enable`, `metrics.listen` | address, or `unix:PATH` | module: `127.0.0.1:9464`; none | Where [Prometheus metrics](monitoring.md) are served, at `/metrics`, to anyone who reaches them. Another address than `APERTURE_LISTEN`. None without it |
+| `APERTURE_METRICS_NO_PER_SESSION` | `metrics.perSession` | flag | off | Leave out of the metrics what each running session uses, labelled with its id |
 
 ### Storage
 

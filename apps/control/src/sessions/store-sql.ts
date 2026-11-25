@@ -1,4 +1,4 @@
-import type { DesiredState } from "@aperture-browser/control-api";
+import { DesiredState, ObservedState } from "@aperture-browser/control-api";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -9,6 +9,12 @@ import { type Observation, Session } from "./schemas.ts";
 import { type NewSession, type SessionDescription, SessionsStore } from "./store.ts";
 
 const Id = Schema.Struct({ id: Schema.String });
+const StateCount = Schema.Struct({
+  node: Schema.NullOr(Schema.String),
+  desiredState: DesiredState,
+  observedState: ObservedState,
+  count: Schema.Number,
+});
 
 /** The records of sessions in the SQL database. */
 export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
@@ -37,6 +43,15 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
 
   const list = Effect.fn("SessionsStore.list")(function* () {
     return yield* sql`SELECT * FROM live_sessions ORDER BY created_at, id`.pipe(all(Session));
+  });
+
+  const countStates = Effect.fn("SessionsStore.countStates")(function* () {
+    return yield* sql`
+      SELECT nodes.name AS node, sessions.desired_state, sessions.observed_state,
+        count(*)::int AS count
+      FROM live_sessions sessions LEFT JOIN nodes ON nodes.id = sessions.node_id
+      GROUP BY nodes.name, sessions.desired_state, sessions.observed_state
+    `.pipe(all(StateCount));
   });
 
   const listOf = Effect.fn("SessionsStore.listOf")(function* (
@@ -149,6 +164,7 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     insert,
     find,
     list,
+    countStates,
     listOf,
     on,
     describe,
