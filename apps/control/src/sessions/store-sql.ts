@@ -148,8 +148,8 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     Effect.gen(function* () {
       const key =
         scope.workspaceId === null
-          ? `account\u0000${scope.accountId ?? ""}`
-          : `workspace\u0000${scope.workspaceId}`;
+          ? `account:${scope.accountId ?? ""}`
+          : `workspace:${scope.workspaceId}`;
       yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`.pipe(done);
       return yield* effect;
     }).pipe(sql.withTransaction, Effect.catchIf(isSqlError, Effect.die));
