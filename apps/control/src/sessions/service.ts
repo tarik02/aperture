@@ -14,6 +14,7 @@ import type {
   SnapshotNotFound,
   WorkspaceNotFound,
 } from "../errors.ts";
+import type { Reach } from "../accounts/caller.ts";
 import type { Node } from "../nodes/schemas.ts";
 import type { Admission, FileLink, Session } from "./schemas.ts";
 import type { SessionDescription } from "./store.ts";
@@ -32,6 +33,8 @@ export interface NewSessionOptions {
 
 /** What asking a session's node for something may come to. */
 export type NodeError = SessionNotFound | SessionHasNoNode | NodeUnreachable | NodeRefused;
+/** What acting on a session through its node may come to: an admin who only sees it is refused. */
+export type ActError = NodeError | Forbidden;
 
 /** Sessions wherever they run: what their owners ask of them, and what their nodes say of them. */
 export interface SessionsShape {
@@ -54,18 +57,27 @@ export interface SessionsShape {
     caller: Caller,
     id: string,
     said: SessionDescription,
-  ) => Effect.Effect<Session, SessionNotFound>;
+  ) => Effect.Effect<Session, SessionNotFound | Forbidden>;
   /** The caller's own sessions; all of them for an admin. */
   readonly list: (caller: Caller) => Effect.Effect<ReadonlyArray<Session>>;
   readonly get: (caller: Caller, id: string) => Effect.Effect<Session, SessionNotFound>;
-  /** The caller's session and the node it is on, for what is asked of that node. */
+  /**
+   * The caller's session and the node it is on, for what is asked of that node: one they
+   * see, or one they act on, which an admin who only sees it is refused.
+   */
   readonly placed: (
     caller: Caller,
     id: string,
+    reach: Reach,
   ) => Effect.Effect<
     { readonly session: Session; readonly node: Node },
-    SessionNotFound | SessionHasNoNode
+    SessionNotFound | SessionHasNoNode | Forbidden
   >;
+  /** The caller's session to act on, which an admin who only sees it is refused. */
+  readonly acted: (
+    caller: Caller,
+    id: string,
+  ) => Effect.Effect<Session, SessionNotFound | Forbidden>;
   /** A session's routing as it was last set here; none where everything goes direct. */
   readonly proxy: (
     caller: Caller,
@@ -76,10 +88,10 @@ export interface SessionsShape {
     caller: Caller,
     id: string,
     proxy: ProxyConfig | null,
-  ) => Effect.Effect<void, NodeError>;
-  readonly suspend: (caller: Caller, id: string) => Effect.Effect<Session, NodeError>;
-  readonly resume: (caller: Caller, id: string) => Effect.Effect<Session, NodeError>;
-  readonly delete: (caller: Caller, id: string) => Effect.Effect<void, NodeError>;
+  ) => Effect.Effect<void, ActError>;
+  readonly suspend: (caller: Caller, id: string) => Effect.Effect<Session, ActError>;
+  readonly resume: (caller: Caller, id: string) => Effect.Effect<Session, ActError>;
+  readonly delete: (caller: Caller, id: string) => Effect.Effect<void, ActError>;
   /**
    * A ticket for the caller's account into the session, and the session's workbench with
    * it: on its node where that has an address of its own, and otherwise below `origin`,

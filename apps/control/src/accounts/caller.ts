@@ -29,22 +29,41 @@ export interface Resource {
   readonly id: string;
 }
 
+/** Whether something is the caller's as an account: its own, or of a workspace it is in. */
+const held = (caller: Caller, owned: Owned) =>
+  owned.workspaceId === null
+    ? Option.exists(caller.account, (account) => account.id === owned.accountId)
+    : caller.workspaces.some((workspace) => workspace.id === owned.workspaceId);
+
+/** Whether a token held to resources names the thing, or the workspace it is of. */
+const named = (caller: Caller, owned: Owned, resource?: Resource) =>
+  caller.resources === null ||
+  resource === undefined ||
+  caller.resources[resource.kind].includes(resource.id) ||
+  (owned.workspaceId !== null && caller.resources.workspaces.includes(owned.workspaceId));
+
 /**
- * Whether something is the caller's to see and change: what is their own account's, what
- * is of a workspace they are in, and anything for an admin. A token held to resources
- * reaches of that only what they name: the thing itself, or the workspace it is of.
+ * Whether something is the caller's to see: what is their own account's, what is of a
+ * workspace they are in, and anything for an admin. A token held to resources reaches of
+ * that only what they name: the thing itself, or the workspace it is of.
  */
-export const reaches = (caller: Caller, owned: Owned, resource?: Resource) => {
-  const theirs =
-    caller.admin ||
-    (owned.workspaceId === null
-      ? Option.exists(caller.account, (account) => account.id === owned.accountId)
-      : caller.workspaces.some((workspace) => workspace.id === owned.workspaceId));
-  if (!theirs || caller.resources === null || resource === undefined) {
-    return theirs;
-  }
-  return (
-    caller.resources[resource.kind].includes(resource.id) ||
-    (owned.workspaceId !== null && caller.resources.workspaces.includes(owned.workspaceId))
-  );
-};
+export const reaches = (caller: Caller, owned: Owned, resource?: Resource) =>
+  (caller.admin || held(caller, owned)) && named(caller, owned, resource);
+
+/**
+ * Whether something is the caller's to change, use and act on. An admin sees what is of a
+ * workspace they are not in, and acts there once they are in it; what is of no workspace
+ * they act on as on their own, there being no workspace to join.
+ */
+export const actsOn = (caller: Caller, owned: Owned, resource?: Resource) =>
+  (held(caller, owned) || (caller.admin && owned.workspaceId === null)) &&
+  named(caller, owned, resource);
+
+/** Why an admin who sees what is of a workspace may not act on it. */
+export const notTheirs = () =>
+  new Forbidden({
+    message: "join the workspace to act in it: an admin who is not in it only sees what is there",
+  });
+
+/** What a caller asks to do with something: see it, or act on it. */
+export type Reach = "read" | "act";

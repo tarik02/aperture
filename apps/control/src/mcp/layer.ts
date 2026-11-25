@@ -161,7 +161,7 @@ export const makeSessionTools = Effect.fn("SessionTools.make")(function* () {
    */
   const reached = Effect.fn(function* (caller: Caller, sessionId: string) {
     const account = yield* accountOf(caller);
-    const { node } = yield* sessions.placed(caller, sessionId);
+    const { node } = yield* sessions.placed(caller, sessionId, "act");
     const issued = yield* tickets.issue({
       sessionId,
       subject: account.id,

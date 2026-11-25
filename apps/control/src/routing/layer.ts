@@ -2,7 +2,7 @@ import { PREFIX, type Access, type Caller, covers } from "@aperture-browser/cont
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import { accountOf } from "../accounts/caller.ts";
+import { accountOf, actsOn } from "../accounts/caller.ts";
 import { AccountsStore } from "../accounts/store.ts";
 import { Forbidden, SessionElsewhere, SessionNotFound } from "../errors.ts";
 import { Nodes } from "../nodes/service.ts";
@@ -85,7 +85,7 @@ export const makeRouting = Effect.fn("Routing.make")(function* () {
       return yield* new Forbidden({ message: "this token is not for sessions" });
     }
     const account = yield* accountOf(caller);
-    const { node } = yield* sessions.placed(caller, at.sessionId);
+    const { session, node } = yield* sessions.placed(caller, at.sessionId, "read");
     if (node.id !== at.nodeId) {
       return yield* new SessionElsewhere({
         id: at.sessionId,
@@ -96,8 +96,13 @@ export const makeRouting = Effect.fn("Routing.make")(function* () {
       sessionId: at.sessionId,
       subject: account.id,
       name: account.name,
-      // A token that only reads sessions watches, and gives no input.
-      access: covers(caller.scopes, "sessions:write") ? EVERYTHING : {},
+      // A token that only reads sessions watches, and gives no input; so does an admin in
+      // a workspace they are not in.
+      access:
+        covers(caller.scopes, "sessions:write") &&
+        actsOn(caller, session, { kind: "sessions", id: session.id })
+          ? EVERYTHING
+          : {},
     });
     return issued.ticket;
   });

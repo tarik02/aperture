@@ -1,41 +1,53 @@
 import { useSyncExternalStore } from "react";
 
-const KEY = "aperture.console.workspace";
-
-const listeners = new Set<() => void>();
-
-const read = () => {
-  try {
-    return localStorage.getItem(KEY);
-  } catch {
-    return null;
-  }
+/** A setting this browser keeps for the console, and tells whoever shows it of each change. */
+const kept = (key: string) => {
+  const listeners = new Set<() => void>();
+  const read = () => {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  };
+  let value = read();
+  return {
+    get: () => value,
+    set: (next: string | null) => {
+      value = next;
+      try {
+        if (next === null) {
+          localStorage.removeItem(key);
+        } else {
+          localStorage.setItem(key, next);
+        }
+      } catch {
+        // Kept for this page only.
+      }
+      for (const listener of listeners) {
+        listener();
+      }
+    },
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
 };
 
-let selected = read();
+const workspace = kept("aperture.console.workspace");
+const everyWorkspace = kept("aperture.console.workspaces.all");
 
 /** The workspace whose sessions and snapshots are shown; none for the account's own. */
-export const selectedWorkspace = () => selected;
+export const selectedWorkspace = workspace.get;
 
-export const selectWorkspace = (id: string | null) => {
-  selected = id;
-  try {
-    if (id === null) {
-      localStorage.removeItem(KEY);
-    } else {
-      localStorage.setItem(KEY, id);
-    }
-  } catch {
-    // Kept for this page only.
-  }
-  for (const listener of listeners) {
-    listener();
-  }
-};
+export const selectWorkspace = workspace.set;
 
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-};
+export const useSelectedWorkspaceId = () =>
+  useSyncExternalStore(workspace.subscribe, workspace.get);
 
-export const useSelectedWorkspaceId = () => useSyncExternalStore(subscribe, selectedWorkspace);
+/** Whether an admin is shown the workspaces they are not in as well as their own. */
+export const useShowsEveryWorkspace = () =>
+  useSyncExternalStore(everyWorkspace.subscribe, everyWorkspace.get) === "true";
+
+export const showEveryWorkspace = (shown: boolean) => everyWorkspace.set(shown ? "true" : null);

@@ -16,7 +16,8 @@ import {
   useOpenNewSession,
 } from "#/features/session/session.mutations.ts";
 import { type Session, useSessionsQuery } from "#/features/session/session.queries.ts";
-import { useSelectedWorkspace } from "#/features/workspace/workspace.queries.ts";
+import { OnlookedNote } from "#/features/workspace/onlooked-note.tsx";
+import { useOnlooks, useSelectedWorkspace } from "#/features/workspace/workspace.queries.ts";
 import { CARD_GRID, CardsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
 import { useListSearch, useSearchText } from "#/lib/list-search.ts";
@@ -73,7 +74,8 @@ export function SessionsPage() {
   const remove = useBulkSessionActionMutation("delete");
   const workspace = useSelectedWorkspace();
   const access = useAccess();
-  const writes = access.may("sessions:write");
+  const onlooks = useOnlooks()(workspace?.id ?? null);
+  const writes = access.may("sessions:write") && !onlooks;
   const [{ q, status, sort: order }, setList] = useListSearch(SESSIONS_SEARCH);
   const [search, setSearch] = useSearchText(q, (text) => setList({ q: text }));
   const setStatus = (next: Status) => setList({ status: next });
@@ -135,7 +137,7 @@ export function SessionsPage() {
     setSelected(next);
   };
 
-  const makes = access.makesSessionsIn(workspace?.id ?? null);
+  const makes = access.makesSessionsIn(workspace?.id ?? null) && !onlooks;
   const openPlain = () => void openNew(workspace === null ? {} : { workspaceId: workspace.id });
   const narrowed = sought !== "" || status !== "all";
   const clearFilters = () => {
@@ -223,6 +225,7 @@ export function SessionsPage() {
         viewportClassName="aperture:flex aperture:flex-col"
       >
         <div className="aperture:flex aperture:flex-1 aperture:flex-col aperture:gap-4 aperture:p-4 aperture:max-sm:p-3">
+          <OnlookedNote />
           {sessions.isError ? (
             <p role="alert" className="aperture:text-sm aperture:text-destructive">
               {told(sessions.error)}

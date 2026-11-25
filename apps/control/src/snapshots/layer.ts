@@ -2,7 +2,7 @@ import type { Caller } from "@aperture-browser/control-api";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import { reaches } from "../accounts/caller.ts";
+import { actsOn, notTheirs, reaches } from "../accounts/caller.ts";
 import { SnapshotNotFound } from "../errors.ts";
 import { Events } from "../events/service.ts";
 import { asked } from "../nodes/asked.ts";
@@ -41,6 +41,15 @@ export const makeSnapshots = Effect.fn("Snapshots.make")(function* () {
     );
   });
 
+  /** The caller's snapshot to act on: one they only see is refused, and said why. */
+  const acted = Effect.fn(function* (caller: Caller, id: string) {
+    const snapshot = yield* owned(caller, id);
+    if (!actsOn(caller, snapshot, { kind: "snapshots", id })) {
+      return yield* notTheirs();
+    }
+    return snapshot;
+  });
+
   /** A node that has the snapshot: the one it was taken on, or another that finds it. */
   const holder = Effect.fn(function* (snapshot: Snapshot) {
     const own = snapshot.nodeId === null ? Option.none<Node>() : yield* nodes.find(snapshot.nodeId);
@@ -75,9 +84,9 @@ export const makeSnapshots = Effect.fn("Snapshots.make")(function* () {
     sessionId: string,
     options: TakeOptions,
   ) {
-    const { session, node } = yield* sessions.placed(caller, sessionId);
+    const { session, node } = yield* sessions.placed(caller, sessionId, "act");
     const replaced =
-      options.replaces === undefined ? undefined : yield* owned(caller, options.replaces);
+      options.replaces === undefined ? undefined : yield* acted(caller, options.replaces);
     const name = options.name ?? replaced?.name ?? undefined;
     const taken = yield* nodes
       .executor(node)
@@ -139,13 +148,13 @@ export const makeSnapshots = Effect.fn("Snapshots.make")(function* () {
     id: string,
     said: SnapshotDescription,
   ) {
-    yield* owned(caller, id);
+    yield* acted(caller, id);
     yield* store.describe(id, said);
     return yield* owned(caller, id);
   });
 
   const delete_ = Effect.fn("Snapshots.delete")(function* (caller: Caller, id: string) {
-    const snapshot = yield* owned(caller, id);
+    const snapshot = yield* acted(caller, id);
     yield* remove(snapshot);
     yield* events.record({ kind: "snapshot.deleted", ...about(snapshot) });
   });

@@ -2,6 +2,7 @@ import type { Caller } from "@aperture-browser/control-api";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type {
+  Forbidden,
   NodeRefused,
   NodeUnreachable,
   SessionHasNoNode,
@@ -32,7 +33,12 @@ export interface SnapshotsShape {
     options: TakeOptions,
   ) => Effect.Effect<
     Snapshot,
-    SessionNotFound | SessionHasNoNode | SnapshotNotFound | NodeUnreachable | NodeRefused
+    | SessionNotFound
+    | SessionHasNoNode
+    | SnapshotNotFound
+    | NodeUnreachable
+    | NodeRefused
+    | Forbidden
   >;
   /** The caller's own snapshots; all of them for an admin. */
   readonly list: (caller: Caller) => Effect.Effect<ReadonlyArray<Snapshot>>;
@@ -42,7 +48,7 @@ export interface SnapshotsShape {
     caller: Caller,
     id: string,
     said: SnapshotDescription,
-  ) => Effect.Effect<Snapshot, SnapshotNotFound>;
+  ) => Effect.Effect<Snapshot, SnapshotNotFound | Forbidden>;
   /**
    * Deletes the snapshot where it is kept, and its record. Sessions created from it keep
    * working. One whose node is forgotten, and that no other node finds, is only forgotten.
@@ -50,7 +56,7 @@ export interface SnapshotsShape {
   readonly delete: (
     caller: Caller,
     id: string,
-  ) => Effect.Effect<void, SnapshotNotFound | NodeUnreachable | NodeRefused>;
+  ) => Effect.Effect<void, SnapshotNotFound | NodeUnreachable | NodeRefused | Forbidden>;
 }
 
 export class Snapshots extends Context.Service<Snapshots, SnapshotsShape>()(

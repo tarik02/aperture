@@ -16,7 +16,7 @@ import {
 import { useRef } from "react";
 import { useSessionsQuery } from "#/features/session/session.queries.ts";
 import { useSnapshotsQuery } from "#/features/snapshot/snapshot.queries.ts";
-import { useWorkspacesQuery } from "#/features/workspace/workspace.queries.ts";
+import { useShownWorkspaces } from "#/features/workspace/workspace.queries.ts";
 
 const KINDS = {
   workspaces: { group: "Workspaces", one: "Workspace" },
@@ -65,26 +65,30 @@ type TokenResourcesPickerProps = {
  */
 export function TokenResourcesPicker({ id, chosen, onChange }: TokenResourcesPickerProps) {
   const anchor = useRef<HTMLDivElement | null>(null);
-  const workspaces = useWorkspacesQuery();
+  const { workspaces, joined, others } = useShownWorkspaces();
   const sessions = useSessionsQuery();
   const snapshots = useSnapshotsQuery();
+  // What is of a workspace that is not offered is not offered either.
+  const shown = [...joined, ...others];
+  const offered = (one: { readonly workspaceId: string | null }) =>
+    one.workspaceId === null || shown.some((workspace) => workspace.id === one.workspaceId);
 
   const groups: Group[] = [
     {
       value: KINDS.workspaces.group,
-      items: (workspaces.data ?? []).map((one) => option("workspaces", one.id, one.name)),
+      items: shown.map((one) => option("workspaces", one.id, one.name)),
     },
     {
       value: KINDS.sessions.group,
-      items: (sessions.data ?? []).map((one) =>
-        option("sessions", one.id, one.label ?? "Unlabelled session"),
-      ),
+      items: (sessions.data ?? [])
+        .filter(offered)
+        .map((one) => option("sessions", one.id, one.label ?? "Unlabelled session")),
     },
     {
       value: KINDS.snapshots.group,
-      items: (snapshots.data ?? []).map((one) =>
-        option("snapshots", one.id, one.name ?? "Unnamed snapshot"),
-      ),
+      items: (snapshots.data ?? [])
+        .filter(offered)
+        .map((one) => option("snapshots", one.id, one.name ?? "Unnamed snapshot")),
     },
   ].filter((group) => group.items.length > 0);
   const options = groups.flatMap((group) => group.items);

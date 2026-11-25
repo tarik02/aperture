@@ -19,6 +19,8 @@ This page is the short version. [`skills/aperture`](../skills/aperture/SKILL.md)
 
 Scopes: `sessions:read`, `sessions:write`, `snapshots:read`, `snapshots:write`, `workspaces:read`, `workspaces:write`, `events:read`, `tokens:write`, `admin`. Writing includes reading. `sessions:read` sees sessions and watches them; everything else in a session, the browser tools included, takes `sessions:write`. A token can also be held to named workspaces, sessions and snapshots.
 
+An admin sees every workspace, its sessions and snapshots, and watches its sessions, but acts only in the workspaces they are a member of: in another, they join it first (in the console, **Join** on the **Workspaces** page, which lists the others under **All workspaces**). This holds for a console session and for a token with the `admin` scope alike.
+
 ## Connecting an agent over MCP
 
 Point the MCP client at `$APERTURE_URL/mcp`. It speaks MCP over HTTP.
