@@ -38,9 +38,8 @@ struct Listed {
     absolute: PathBuf,
 }
 
-#[async_trait]
-impl Tool for FilesTool {
-    fn spec(&self) -> ToolSpec {
+impl FilesTool {
+    pub(super) fn described() -> ToolSpec {
         ToolSpec {
             name: "files".into(),
             description: "The session's files: `recordings` (each recording's raw `.mkv`, its \
@@ -70,6 +69,13 @@ impl Tool for FilesTool {
                 },
             }),
         }
+    }
+}
+
+#[async_trait]
+impl Tool for FilesTool {
+    fn spec(&self) -> ToolSpec {
+        Self::described()
     }
 
     async fn call(&self, _ctx: ToolContext, args: Value) -> anyhow::Result<ToolOutput> {

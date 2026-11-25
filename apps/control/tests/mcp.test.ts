@@ -121,13 +121,16 @@ suite(needs)("the control plane as an MCP server", (it) => {
           "events.list",
         ]),
       );
-      // No session told what tools it has yet: a session is asked for them itself.
       expect(tools).toEqual(expect.arrayContaining(["sessions.tools", "sessions.call"]));
-      expect(tools).not.toContain("navigate");
+      // No session runs: what one has is listed all the same, for the session it names.
+      const listed = yield* agent.listed;
+      for (const name of ["navigate", "snapshot", "tabs", "click", "files"]) {
+        expect(listed.find((tool) => tool.name === name)?.required, name).toContain("session_id");
+      }
     }),
   );
 
-  it.effect("a session is created, and what it has for tools is the server's from then on", () =>
+  it.effect("a session is created, and has the tools that were listed", () =>
     Effect.gen(function* () {
       const created = yield* agent
         .call("sessions.create", { label: "an agent's", tags: { made: "over mcp" } })
@@ -143,10 +146,19 @@ suite(needs)("the control plane as an MCP server", (it) => {
         ),
         "60 seconds",
       );
+      const own = yield* agent
+        .call("sessions.tools", { session_id: session })
+        .pipe(
+          Effect.flatMap(
+            Schema.decodeUnknownEffect(
+              Schema.fromJsonString(Schema.Array(Schema.Struct({ name: Schema.String }))),
+            ),
+          ),
+        );
+      expect(own.map((tool) => tool.name)).toContain("navigate");
+      // What the server lists of a session's tools is what a session of its version has.
       const tools = yield* agent.tools;
-      expect(tools).toEqual(expect.arrayContaining(["navigate", "snapshot", "tabs", "click"]));
-      const own = yield* agent.call("sessions.tools", { session_id: session });
-      expect(own).toMatch(/"name":"navigate"/u);
+      expect(tools).toEqual(expect.arrayContaining(own.map((tool) => tool.name)));
     }),
   );
 

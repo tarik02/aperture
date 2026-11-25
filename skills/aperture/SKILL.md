@@ -37,7 +37,7 @@ Tools are named as the MCP server lists them. Each has the same call in the cont
 3. `snapshot` the tab; act on the refs it gives with `click`, `fill`, `type`, `press`, `select`; check with `snapshot` or `screenshot`.
 4. End with `sessions.suspend` to keep the session, or `sessions.delete` to drop it with its profile and files.
 
-A session without a snapshot is signed in nowhere. The browser tools appear in the tool list once a session runs; before that, `sessions.tools` lists them and `sessions.call` calls one by name.
+A session without a snapshot is signed in nowhere. The browser tools are in the tool list from the start. Where one you expect is missing, as on a node of another version, `sessions.tools` lists what the session has and `sessions.call` calls one by name.
 
 A session suspended with `sessions.suspend` stays suspended until `sessions.resume`.
 

@@ -9,17 +9,10 @@ import type { NodeError } from "../sessions/service.ts";
 export type SessionToolError = Forbidden | NodeError;
 
 /**
- * The tools of sessions' own MCP servers: the browser, recordings, files. They are the
- * session's to say and to do, so nothing of them is written here: what they are is asked
- * of a session that runs, and a call goes to the session it names.
+ * The tools of sessions' own MCP servers: the browser, recordings, files. A call goes to
+ * the session it names, which does it.
  */
 export interface SessionToolsShape {
-  /**
-   * The tools sessions have, as far as a session told them: the nodes of one version have
-   * the same, so each version is asked once, of whichever session runs on such a node.
-   * None while no session of a version nobody asked yet runs.
-   */
-  readonly known: () => Effect.Effect<ReadonlyArray<McpSchema.Tool>>;
   /** The tools of the caller's session, as the session tells them now. */
   readonly of: (
     caller: Caller,

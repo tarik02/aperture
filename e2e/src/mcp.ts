@@ -29,6 +29,13 @@ export interface Mcp {
   readonly content: (name: string, args?: object) => Effect.Effect<readonly Content[], McpError>;
   /** The names of the tools the session has. */
   readonly tools: Effect.Effect<readonly string[], McpError>;
+  /** The tools the session has, each with what it cannot be called without. */
+  readonly listed: Effect.Effect<readonly Listed[], McpError>;
+}
+
+export interface Listed {
+  readonly name: string;
+  readonly required: readonly string[];
 }
 
 const ToolResult = Schema.Struct({
@@ -36,7 +43,14 @@ const ToolResult = Schema.Struct({
   isError: Schema.optional(Schema.Boolean),
 });
 
-const Tools = Schema.Struct({ tools: Schema.Array(Schema.Struct({ name: Schema.String })) });
+const Tools = Schema.Struct({
+  tools: Schema.Array(
+    Schema.Struct({
+      name: Schema.String,
+      inputSchema: Schema.Struct({ required: Schema.optional(Schema.Array(Schema.String)) }),
+    }),
+  ),
+});
 
 // A result is as many shapes as there are methods; each caller reads the one it asked for.
 const Answer = Schema.fromJsonString(
@@ -151,6 +165,14 @@ export const connect = Effect.fn("Mcp.connect")(function* (url: string, token: s
     content,
     tools: ask("tools/list", {}, Tools).pipe(
       Effect.map((result) => result.tools.map((tool) => tool.name)),
+    ),
+    listed: ask("tools/list", {}, Tools).pipe(
+      Effect.map((result) =>
+        result.tools.map((tool) => ({
+          name: tool.name,
+          required: tool.inputSchema.required ?? [],
+        })),
+      ),
     ),
   } satisfies Mcp;
 });

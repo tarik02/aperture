@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node dist/main.mjs",
-    "generate": "buf generate ../.. --template buf.gen.yaml --path ../../proto/aperture/control/v1/nodes.proto",
+    "generate": "buf generate ../.. --template buf.gen.yaml --path ../../proto/aperture/control/v1/nodes.proto && cargo run --quiet --package aperture-runner --bin aperture-runner -- tools > src/mcp/gen/session-tools.json",
     "test": "vp test run",
     "typecheck": "tsgo --noEmit",
     "build": "vp pack"
