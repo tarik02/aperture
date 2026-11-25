@@ -70,6 +70,11 @@ import { makeSurface } from "./surface.ts";
 export interface ConnectOptions extends Address {
   /** The way the picture is to come at first; the best this browser can do when left out. */
   readonly pixels?: PictureWay | undefined;
+  /**
+   * The tab to watch first; the one watched last in the session when left out, or when the
+   * session has no such tab.
+   */
+  readonly tab?: number | undefined;
 }
 
 /** Where the watched target's page is taken. */
@@ -435,6 +440,8 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
         fps: settings.fps,
         // With a WebRTC connection the sound comes on a track of that.
         audio: sounds && asked !== "video",
+        // Taken while the client watches nothing yet, as it does once.
+        tab: options.tab,
       },
     });
   });

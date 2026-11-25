@@ -496,7 +496,10 @@ impl Client {
         self.send_downloads().await?;
         self.send_file_requests().await?;
         self.send_presence().await?;
-        if !self.select(None).await? {
+        // The tab asked for is the one to start with, and no more: a hello that comes again
+        // finds the client watching one.
+        let first = hello.tab.filter(|_| self.selected.is_none());
+        if !self.select(first).await? {
             self.show().await?;
         }
         self.send_selected().await
@@ -879,8 +882,9 @@ impl Client {
 
     /// Settles which target the client watches: the one of the tab it asks for, else a
     /// tab it opened itself, else one the page it gives input to opened, else the one it
-    /// has, else the newest. A tab someone else opened takes nobody along. A target that
-    /// moved to another window is followed there. Tells whether it changed.
+    /// has, else the one watched last, else the newest. A tab someone else opened takes
+    /// nobody along. A target that moved to another window is followed there. What the
+    /// client comes to watch is the tab watched last. Tells whether it changed.
     async fn select(&mut self, wanted: Option<u32>) -> Result<bool, axum::Error> {
         let leads = self.leads();
         // Before the targets are borrowed: what tells of them holds what this asks.
@@ -888,6 +892,7 @@ impl Client {
             .opened
             .as_ref()
             .map(|opened| self.live.tabs.known_as(opened));
+        let watched = self.live.tabs.watched();
         let (selected, came) = {
             let targets = self.live.targets.borrow();
             let kept = self
@@ -907,6 +912,7 @@ impl Client {
                 .or(opened)
                 .or(popped)
                 .or(kept)
+                .or_else(|| targets.iter().find(|target| Some(target.tab) == watched))
                 .or(targets.last())
                 .map(|target| (target.id.clone(), target.window));
             self.known = targets.iter().map(|target| target.id.clone()).collect();
@@ -919,7 +925,11 @@ impl Client {
             return Ok(false);
         }
         self.selected = selected;
-        self.live.presence.watch(self.member.id, self.tab());
+        let tab = self.tab();
+        self.live.presence.watch(self.member.id, tab);
+        if let Some(tab) = tab {
+            self.live.tabs.watch(tab);
+        }
         self.show().await?;
         Ok(true)
     }

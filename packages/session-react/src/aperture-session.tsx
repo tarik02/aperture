@@ -27,6 +27,7 @@ export function ApertureSession({
   token,
   name,
   pixels,
+  tab,
   features,
   theme = "system",
   onThemeChange,
@@ -34,7 +35,7 @@ export function ApertureSession({
   onSession,
   ...workbench
 }: ApertureSessionProps) {
-  const { session, reconnect } = useConnectedSession({ url, token, name, pixels });
+  const { session, reconnect } = useConnectedSession({ url, token, name, pixels, tab });
 
   useEffect(() => {
     if (session === null || onSession === undefined) {

@@ -8,6 +8,7 @@ export const queryKeys = {
   session: (id: string) => ["sessions", id] as const,
   proxy: (id: string) => ["sessions", id, "proxy"] as const,
   targets: (id: string) => ["sessions", id, "targets"] as const,
+  keptTabs: (id: string, at: number) => ["sessions", id, "kept-tabs", at] as const,
   snapshots: ["snapshots"] as const,
   nodes: ["nodes"] as const,
   registrationTokens: ["registration-tokens"] as const,

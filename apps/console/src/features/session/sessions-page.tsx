@@ -3,14 +3,28 @@ import { ButtonGroup } from "@aperture-browser/ui/components/button-group";
 import { Input } from "@aperture-browser/ui/components/input";
 import { ScrollArea } from "@aperture-browser/ui/components/scroll-area";
 import { Separator } from "@aperture-browser/ui/components/separator";
-import { AppWindow, ChevronDown, Pause, Play, Plus, Search, Trash2, X } from "lucide-react";
+import { ToggleGroup, ToggleGroupItem } from "@aperture-browser/ui/components/toggle-group";
+import {
+  AppWindow,
+  ChevronDown,
+  Layers,
+  LayoutGrid,
+  Pause,
+  Play,
+  Plus,
+  Search,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { filter, Filters } from "#/components/filter-menu.tsx";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { useAccess } from "#/features/auth/access.ts";
 import { SessionCreateDialog } from "#/features/session/session-create-dialog.tsx";
-import { SessionCard } from "#/features/session/session-card.tsx";
+import { SessionCard, TabCard } from "#/features/session/session-card.tsx";
+import { useSessionPicture } from "#/features/session/session-picture.tsx";
+import { SessionStatusBadge } from "#/features/session/session-status-badge.tsx";
 import {
   useBulkSessionActionMutation,
   useOpenNewSession,
@@ -29,7 +43,13 @@ export const SESSIONS_SEARCH = {
   q: "text",
   status: ["all", "active", "suspended", "failed"],
   sort: ["created", "label"],
+  view: ["sessions", "tabs"],
 } as const;
+
+const VIEWS = [
+  { value: "sessions", label: "Sessions", icon: LayoutGrid },
+  { value: "tabs", label: "Tabs", icon: Layers },
+] as const;
 
 const STATUSES = [
   { value: "all", label: "All" },
@@ -65,6 +85,46 @@ const matches = (session: Session, sought: string) =>
     ...Object.entries(session.tags).flat(),
   ].some((text) => text.toLowerCase().includes(sought));
 
+/** How wide the picture of a tab of the tabs' view is asked for. */
+const TAB_WIDTH = 480;
+
+/** Whether a tab is one that is sought: by its page's title or address. */
+const tabMatches = (tab: { title: string; url: string }, sought: string) =>
+  [tab.title, tab.url].some((text) => text.toLowerCase().includes(sought));
+
+/**
+ * A session's tabs, each as a card of its own, under the session's name: those that are
+ * sought, all of them where the session itself is. Nothing where none is.
+ */
+function SessionTabs({ session, sought }: { session: Session; sought: string }) {
+  const { tabs } = useSessionPicture(session, TAB_WIDTH);
+  const shown =
+    sought === "" || matches(session, sought)
+      ? tabs
+      : tabs.filter((tab) => tabMatches(tab, sought));
+  if (shown.length === 0) {
+    return null;
+  }
+  const name = session.label ?? session.id;
+  return (
+    <section
+      data-console-session-tabs-group={session.id}
+      aria-label={name}
+      className="aperture:grid aperture:gap-2"
+    >
+      <h2 className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-2 aperture:text-sm aperture:font-medium">
+        <span className="aperture:truncate">{name}</span>
+        <SessionStatusBadge session={session} />
+      </h2>
+      <div className={CARD_GRID}>
+        {shown.map((tab) => (
+          <TabCard key={tab.tab} session={session} tab={tab} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 /** An account's sessions, wherever they run. */
 export function SessionsPage() {
   const sessions = useSessionsQuery();
@@ -76,7 +136,7 @@ export function SessionsPage() {
   const access = useAccess();
   const onlooks = useOnlooks()(workspace?.id ?? null);
   const writes = access.may("sessions:write") && !onlooks;
-  const [{ q, status, sort: order }, setList] = useListSearch(SESSIONS_SEARCH);
+  const [{ q, status, sort: order, view }, setList] = useListSearch(SESSIONS_SEARCH);
   const [search, setSearch] = useSearchText(q, (text) => setList({ q: text }));
   const setStatus = (next: Status) => setList({ status: next });
   const setOrder = (next: Order) => setList({ sort: next });
@@ -95,15 +155,18 @@ export function SessionsPage() {
   const owned = (sessions.data ?? []).filter(
     (session) => session.workspaceId === (workspace?.id ?? null),
   );
-  const shown = owned
-    .filter((session) => STATUS[status](session) && (sought === "" || matches(session, sought)))
+  const ordered = owned
+    .filter((session) => STATUS[status](session))
     .toSorted((one, other) =>
       order === "label"
         ? (one.label ?? one.id).localeCompare(other.label ?? other.id)
         : other.createdAt.epochMilliseconds - one.createdAt.epochMilliseconds,
     );
+  const shown = ordered.filter((session) => sought === "" || matches(session, sought));
   // What is selected and no longer shown is not acted on.
-  const chosen = shown.filter((session) => selected.has(session.id)).map((session) => session.id);
+  const chosen = (view === "tabs" ? [] : shown)
+    .filter((session) => selected.has(session.id))
+    .map((session) => session.id);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -155,8 +218,8 @@ export function SessionsPage() {
         <Input
           ref={searchInput}
           type="search"
-          aria-label="Search sessions"
-          placeholder="Search sessions"
+          aria-label={view === "tabs" ? "Search tabs" : "Search sessions"}
+          placeholder={view === "tabs" ? "Search tabs" : "Search sessions"}
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           className="aperture:h-8 aperture:max-w-56 aperture:max-sm:hidden"
@@ -173,6 +236,29 @@ export function SessionsPage() {
         >
           <Search />
         </Button>
+        <ToggleGroup
+          aria-label="What the grid shows"
+          variant="outline"
+          size="sm"
+          spacing={0}
+          value={[view]}
+          // One of the two is always chosen: pressing the chosen one leaves it so.
+          onValueChange={([next]) =>
+            setList({ view: VIEWS.find((one) => one.value === next)?.value ?? view })
+          }
+        >
+          {VIEWS.map((one) => (
+            <ToggleGroupItem
+              key={one.value}
+              value={one.value}
+              aria-label={one.label}
+              data-console-sessions-view={one.value}
+            >
+              <one.icon />
+              <span className="aperture:max-md:sr-only">{one.label}</span>
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
         <Filters
           filters={[
             filter({ label: "Status", value: status, options: STATUSES, onChange: setStatus }),
@@ -233,7 +319,7 @@ export function SessionsPage() {
           ) : null}
           {sessions.isPending ? (
             <CardsSkeleton />
-          ) : sessions.data !== undefined && shown.length === 0 ? (
+          ) : sessions.data !== undefined && (view === "tabs" ? ordered : shown).length === 0 ? (
             owned.length > 0 && narrowed ? (
               <ListNoMatch title="No session matches" onClear={clearFilters} />
             ) : (
@@ -246,6 +332,12 @@ export function SessionsPage() {
                 ) : null}
               </ListEmpty>
             )
+          ) : view === "tabs" ? (
+            <div data-console-tabs className="aperture:grid aperture:gap-6">
+              {ordered.map((session) => (
+                <SessionTabs key={session.id} session={session} sought={sought} />
+              ))}
+            </div>
           ) : (
             <div className={CARD_GRID}>
               {shown.map((session) => (

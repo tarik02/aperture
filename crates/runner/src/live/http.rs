@@ -416,9 +416,13 @@ struct TargetView {
     mode: Mode,
     /// Its pages are shown as on a phone now: what the mode comes to.
     mobile: bool,
+    /// It is the tab watched last, which whoever comes to watch the session watches.
+    watched: bool,
 }
 
 async fn targets_list(State(live): State<Live>) -> Json<Vec<TargetView>> {
+    // Before the targets are borrowed: what tells of them holds what this asks.
+    let watched = live.tabs.watched();
     let targets = live
         .targets
         .borrow()
@@ -433,6 +437,7 @@ async fn targets_list(State(live): State<Live>) -> Json<Vec<TargetView>> {
             scale: target.scale,
             mode: target.mode,
             mobile: target.mobile,
+            watched: Some(target.tab) == watched,
         })
         .collect();
     Json(targets)

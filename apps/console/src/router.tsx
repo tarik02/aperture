@@ -262,14 +262,20 @@ const audit = createRoute({
 const session = createRoute({
   getParentRoute: () => signed,
   path: "/-/sessions/$sessionId",
+  // `tab` is the tab watched first, in place of the one the session watched last.
+  validateSearch: (said: Record<string, unknown>): { tab?: number } => {
+    const tab = Number(said.tab);
+    return said.tab !== undefined && Number.isInteger(tab) && tab >= 0 ? { tab } : {};
+  },
   component: function Opened() {
     const { sessionId } = session.useParams();
+    const { tab } = session.useSearch();
     return (
       <AppShell layout="workbench">
         {isNewSession(sessionId) ? (
           <NewSessionWorkbench sessionKey={sessionId} />
         ) : (
-          <SessionWorkbench sessionId={sessionId} />
+          <SessionWorkbench sessionId={sessionId} tab={tab} />
         )}
       </AppShell>
     );
