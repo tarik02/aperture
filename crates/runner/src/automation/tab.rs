@@ -212,6 +212,9 @@ impl TabSession {
                 )
                 .await
                 .map_err(CdpError::from)?;
+            let now = self.recordings.now();
+            self.recordings
+                .note(Some(&self.target), "key", now, json!({}));
             sleep(each).await;
         }
         Ok(true)
@@ -264,7 +267,7 @@ impl TabSession {
             ),
             _ => return None,
         };
-        // What the pointer did goes into the journals of the target's recordings.
+        // What the input did goes into the journals of the target's recordings.
         let now = self.recordings.now();
         match &input {
             Input::PointerMotion { x, y, .. } => {
@@ -286,6 +289,10 @@ impl TabSession {
                 });
                 self.recordings
                     .note(Some(&self.target), "press", now, fields);
+            }
+            Input::Key { pressed: true, .. } => {
+                self.recordings
+                    .note(Some(&self.target), "key", now, json!({}));
             }
             _ => {}
         }
@@ -386,16 +393,33 @@ impl Cdp for TabSession {
         {
             return Ok(json!({}));
         }
-        if method == "Input.dispatchMouseEvent" && params["type"] == "mouseWheel" {
-            let fields = json!({
-                "x": params["x"],
-                "y": params["y"],
-                "dx": params["deltaX"],
-                "dy": params["deltaY"],
-            });
+        // Input the page gets as it is goes into the journals too: a key press or a typed
+        // character changes too few pixels for the edit to see, and the call it is part of
+        // counts only where it starts. What was typed is left out of the journal.
+        let kind = match (method, params["type"].as_str()) {
+            ("Input.dispatchMouseEvent", Some("mouseWheel")) => Some("wheel"),
+            ("Input.dispatchMouseEvent", _) => None,
+            ("Input.dispatchKeyEvent", Some("keyDown" | "rawKeyDown"))
+            | ("Input.insertText", _) => Some("key"),
+            ("Input.dispatchKeyEvent", _) => None,
+            _ if method.starts_with("Input.dispatch") || method.starts_with("Input.ime") => {
+                Some("input")
+            }
+            _ => None,
+        };
+        if let Some(kind) = kind {
+            let fields = if kind == "wheel" {
+                json!({
+                    "x": params["x"],
+                    "y": params["y"],
+                    "dx": params["deltaX"],
+                    "dy": params["deltaY"],
+                })
+            } else {
+                json!({})
+            };
             let now = self.recordings.now();
-            self.recordings
-                .note(Some(&self.target), "wheel", now, fields);
+            self.recordings.note(Some(&self.target), kind, now, fields);
         }
         self.browser
             .call_in(Some(session_id.unwrap_or(&self.session)), method, params)

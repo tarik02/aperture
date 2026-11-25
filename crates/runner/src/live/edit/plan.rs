@@ -446,10 +446,10 @@ fn merge_spans(spans: &[Span], pad: i64, total: i64) -> Vec<Span> {
 
 /// Keeps the stretch around every tool call, focus and attention: from the lead before it
 /// to the end of its tail, which lasts until the picture has settled but not longer than
-/// the longest tail. A call's tail starts after its last pointer input rather than when the
-/// call returns: a call goes on waiting for the page to settle, and that wait is shown only
-/// while the picture changes. A call without pointer input that changed nothing, such as a
-/// script that only reads the page, is not kept, unless nothing else would be.
+/// the longest tail. A call's tail starts after its last input rather than when the call
+/// returns: a call goes on waiting for the page to settle, and that wait is shown only while
+/// the picture changes. A call without input that changed nothing, such as a script that
+/// only reads the page, is not kept, unless nothing else would be.
 fn burst_pieces(burst: Burst, events: &[Event], active: &[Span], total: i64) -> Vec<Piece> {
     let active = merge_spans(active, 0, total);
     let mut keep = Vec::new();
@@ -517,11 +517,16 @@ fn burst_pieces(burst: Burst, events: &[Event], active: &[Span], total: i64) -> 
         .collect()
 }
 
-/// When the last pointer input that happened during a call ended.
+/// When the last input that happened during a call ended.
 fn last_input_end(events: &[Event], call: Span) -> Option<i64> {
     events
         .iter()
-        .filter(|event| matches!(event.kind.as_str(), "move" | "press" | "wheel"))
+        .filter(|event| {
+            matches!(
+                event.kind.as_str(),
+                "move" | "press" | "wheel" | "key" | "input"
+            )
+        })
         .filter(|event| event.at_ms >= call.start && event.at_ms <= call.end)
         .map(|event| event.end_ms)
         .max()
@@ -529,8 +534,9 @@ fn last_input_end(events: &[Event], call: Span) -> Option<i64> {
 
 /// Cuts, or speeds up, the stretches in which nothing happens: no change in the picture and
 /// no journal entry, apart from a little padding. A call counts where it starts: what it
-/// did is in the picture and in its input, and a call that waits, for the page or for a
-/// tab someone else drives, shows nothing while it does. A caption counts for as long as
+/// did is in the picture and in its input, each key and typed character of it too, which
+/// change too few pixels to be seen, and a call that waits, for the page or for a tab
+/// someone else drives, shows nothing while it does. A caption counts for as long as
 /// it asked to be read, at normal speed, as it does in bursts: cut or sped up, it would be
 /// gone before it is read.
 fn idle_pieces(mode: Idle, events: &[Event], active: &[Span], total: i64) -> Vec<Piece> {
@@ -1126,5 +1132,40 @@ mod tests {
         for at in [37_700, 44_095, 48_819, 49_500] {
             assert!(piece_at(&pieces, at).is_some(), "cut at {at}");
         }
+    }
+
+    /// A field typed into, from a recording whose typing showed its first letters and then
+    /// the whole text at once: a typed letter changes too few pixels to count, so only the
+    /// keys keep it.
+    #[test]
+    fn typing_is_kept_while_it_goes_on() {
+        let mut events = Vec::new();
+        events.extend(click(725, 1498, 1309));
+        events.push(event("call", 3953, 5745, json!({ "tool": "type" })));
+        let keys = (0..20).map(|index| 4000 + index * 35);
+        for at in keys.clone() {
+            events.push(event("key", at, at, json!({})));
+        }
+        events.extend(click(6184, 7145, 7000));
+        let active = vec![
+            Span {
+                start: 1309,
+                end: 1500,
+            },
+            Span {
+                start: 7000,
+                end: 7300,
+            },
+        ];
+        let pieces = idle_pieces(Idle::Cut, &events, &active, 12_000);
+        for at in keys {
+            let piece = piece_at(&pieces, at).expect("the typing is kept");
+            assert_eq!(piece.speed, 1.0, "at {at}");
+        }
+        let pieces = burst_pieces(Burst::default(), &events, &active, 12_000);
+        assert!(
+            piece_at(&pieces, 4665).is_some(),
+            "the last key is cut in bursts"
+        );
     }
 }
