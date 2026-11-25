@@ -169,6 +169,7 @@ export const makeShares = Effect.fn("Shares.make")(function* () {
       workspaceId: session.workspaceId,
       accountId: session.accountId,
       sessionId: session.id,
+      pinned: session.pinned,
     });
     yield* withinLifetime(
       effective.shareLinkMaxLifetime,

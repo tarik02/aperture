@@ -1,10 +1,12 @@
 import {
   type SettingBounds,
+  type SettingDefinition,
   type SettingEffective,
   type SettingEntry,
   type SettingKey,
   type SettingLevel,
   type SettingValue,
+  LEVELS,
   SETTINGS,
   saidAt,
 } from "@aperture-browser/control-api";
@@ -31,7 +33,11 @@ const rank = (value: SettingValue) => (value === null ? Number.POSITIVE_INFINITY
 
 const numeric = (key: SettingKey) => SETTINGS[key].type.kind !== "choice";
 
-/** The narrowest of the bounds the levels set, each with the level that sets it. */
+/**
+ * The narrowest of the bounds the levels set, each with the level that sets it. A level's
+ * bound is held inside the range of those above it: one past it is that end of the range,
+ * from the level above, so that nothing said below gets past a lock.
+ */
 export const boundsOf = (chain: Chain): SettingBounds => {
   let bounds: SettingBounds = { min: null, max: null, allowed: null };
   for (const { level, entry } of chain) {
@@ -39,15 +45,20 @@ export const boundsOf = (chain: Chain): SettingBounds => {
       continue;
     }
     const { min, max, allowed } = entry;
+    const { min: least, max: most } = bounds;
     bounds = {
       min:
-        min !== undefined && (bounds.min === null || min > bounds.min.value)
-          ? { value: min, level }
-          : bounds.min,
+        min === undefined || (least !== null && min <= least.value)
+          ? least
+          : most !== null && min > most.value
+            ? most
+            : { value: min, level },
       max:
-        max !== undefined && (bounds.max === null || max < bounds.max.value)
-          ? { value: max, level }
-          : bounds.max,
+        max === undefined || (most !== null && max >= most.value)
+          ? most
+          : least !== null && max < least.value
+            ? least
+            : { value: max, level },
       allowed:
         allowed === undefined
           ? bounds.allowed
@@ -112,6 +123,14 @@ export const resolve = (key: SettingKey, chain: Chain, base: Base): SettingEffec
       : { value: first, source: bounds.allowed.level, locked, clamped: true };
   }
   const nearest = candidates[0];
+  if (
+    nearest?.value === null &&
+    (SETTINGS[key] as SettingDefinition).deletes === true &&
+    !LEVELS.some((one) => one === nearest.source)
+  ) {
+    // A bound alone deletes nothing: never stays never until some level says when.
+    return { ...nearest, locked, clamped: false };
+  }
   if (nearest === undefined) {
     // Each node holds sessions to its own, which is no wider than a bound of most.
     return bounds.max === null
@@ -122,6 +141,18 @@ export const resolve = (key: SettingKey, chain: Chain, base: Base): SettingEffec
   return beyond === undefined || beyond.end === "allowed"
     ? { ...nearest, locked, clamped: false }
     : { value: beyond.value, source: beyond.level, locked, clamped: true };
+};
+
+/**
+ * How long a pinned session that is kept awake sits idle: as long as it likes, from where
+ * it is said to stay awake, unless a level holds it to at most a while, which it is held to.
+ */
+export const awake = (chain: Chain, stays: SettingEffective): SettingEffective => {
+  const bounds = boundsOf(chain);
+  const locked = lockedBy(bounds);
+  return bounds.max === null
+    ? { value: null, source: stays.source, locked, clamped: false }
+    : { value: bounds.max.value, source: bounds.max.level, locked, clamped: true };
 };
 
 const invalid = (key: SettingKey, message: string) =>
@@ -207,6 +238,18 @@ export const check = (
     );
   }
   if (above.max !== null && max !== undefined && max > above.max.value) {
+    return outOfBounds(
+      above.max.level,
+      `the ${above.max.level} holds ${key} to at most ${above.max.value}`,
+    );
+  }
+  if (above.min !== null && max !== undefined && max < above.min.value) {
+    return outOfBounds(
+      above.min.level,
+      `the ${above.min.level} holds ${key} to at least ${above.min.value}`,
+    );
+  }
+  if (above.max !== null && min !== undefined && min > above.max.value) {
     return outOfBounds(
       above.max.level,
       `the ${above.max.level} holds ${key} to at most ${above.max.value}`,

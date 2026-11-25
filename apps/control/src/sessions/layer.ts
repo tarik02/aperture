@@ -12,6 +12,7 @@ import {
   type ProxyConfigInit,
 } from "@aperture-browser/executor-client";
 import * as UrlPath from "@aperture-browser/shared/url-path";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -45,8 +46,8 @@ import { now } from "../time.ts";
 import { Vault } from "../vault/service.ts";
 import { sessionPath } from "../routing/paths.ts";
 import type { Admission, FileLink, Observation, Session } from "./schemas.ts";
-import { type NewSessionOptions, Sessions } from "./service.ts";
-import { type SessionDescription, SessionsStore } from "./store.ts";
+import { type ExpiryReasons, type NewSessionOptions, Sessions } from "./service.ts";
+import { type ExpiryDue, type SessionDescription, SessionsStore } from "./store.ts";
 
 const STATES: Record<proto.SessionState, ObservedState | undefined> = {
   [proto.SessionState.UNSPECIFIED]: undefined,
@@ -63,7 +64,7 @@ const observationOf = (session: proto.Session): Observation | undefined => {
   const state = STATES[session.state];
   return state === undefined
     ? undefined
-    : { id: session.id, state, failure: session.failure ?? null };
+    : { id: session.id, state, failure: session.failure ?? null, asleep: session.asleep };
 };
 
 /** A session's routing as its node's executor takes it. */
@@ -249,7 +250,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
   const withinQuotas = Effect.fn("Sessions.withinQuotas")(function* (
     effective: Effective,
     workspaceId: string | null,
-    accountId: string,
+    accountId: string | null,
     asked: { readonly creating: boolean; readonly running: boolean },
   ) {
     const quotas: ReadonlyArray<{
@@ -257,7 +258,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       readonly what: string;
       readonly counted: () => Effect.Effect<number>;
     }> = [
-      ...(asked.creating
+      ...(asked.creating && accountId !== null
         ? [
             {
               setting: effective.sessionsPerUser,
@@ -275,7 +276,8 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
                 ]),
           ]
         : []),
-      ...(asked.running
+      // A session of no workspace and nobody's is counted against nothing.
+      ...(asked.running && (workspaceId !== null || accountId !== null)
         ? [
             {
               setting: effective.runningSessions,
@@ -331,13 +333,18 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     const alive = yield* nodes.candidates();
     const candidates =
       options.snapshotId === undefined ? alive : yield* having(caller, options.snapshotId, alive);
-    const effective = yield* policy.of({ workspaceId, accountId: account.id, sessionId: null });
-    yield* withinQuotas(effective, workspaceId, account.id, {
-      creating: true,
-      running: !options.suspended,
+    const effective = yield* policy.of({
+      workspaceId,
+      accountId: account.id,
+      sessionId: null,
+      pinned: false,
     });
+    const asked = { creating: true, running: !options.suspended } as const;
+    // Refused at once, before its node is asked; and again as its record is written, alone
+    // among the others of its workspace, so that no two at once get past a quota.
+    yield* withinQuotas(effective, workspaceId, account.id, asked);
     const [node, session] = yield* place(candidates, {
-      limits: (node) => limitsOf(effective, false, node.offers?.holdsResources === true),
+      limits: (node) => limitsOf(effective, node.offers?.holdsResources === true),
       features: (node) => featuresOn(node.offers?.features, effective),
       suspended: options.suspended,
       snapshotId: options.snapshotId,
@@ -346,7 +353,8 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
         options.storageState === undefined ? undefined : JSON.stringify(options.storageState),
     });
     const created = session.createdAt;
-    yield* store.insert({
+    const at = yield* now;
+    const recorded = store.insert({
       id: session.id,
       accountId: account.id,
       workspaceId,
@@ -357,9 +365,15 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       snapshotId: session.snapshotId ?? null,
       label: options.label ?? null,
       tags: options.tags,
-      createdAt: created === undefined ? yield* now : new Date(Number(created.seconds) * 1000),
-      now: yield* now,
+      createdAt: created === undefined ? at : new Date(Number(created.seconds) * 1000),
+      now: at,
     });
+    yield* store
+      .alone(
+        { workspaceId, accountId: account.id },
+        Effect.andThen(withinQuotas(effective, workspaceId, account.id, asked), recorded),
+      )
+      .pipe(Effect.tapError(() => Effect.ignore(removedOn(node, session.id))));
     yield* store.keepProxy(session.id, yield* seal(session.id, options.proxy ?? null));
     // What the node said of the session while there was no record of it was dropped.
     yield* Effect.ignore(refresh(node, session.id));
@@ -437,28 +451,36 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
 
   const resume = Effect.fn("Sessions.resume")(function* (caller: Caller, id: string) {
     const { session, node } = yield* placed(caller, id, "act");
-    if (session.desiredState !== "running" && session.accountId !== null) {
-      const effective = yield* policy.of({
-        workspaceId: session.workspaceId,
-        accountId: session.accountId,
-        sessionId: session.id,
-      });
-      yield* withinQuotas(effective, session.workspaceId, session.accountId, {
-        creating: false,
-        running: true,
-      });
-    }
-    yield* store.desire(id, "running");
+    const effective = yield* policy.of({
+      workspaceId: session.workspaceId,
+      accountId: session.accountId,
+      sessionId: session.id,
+      pinned: session.pinned,
+    });
+    yield* store.alone(
+      session,
+      Effect.gen(function* () {
+        const fresh = yield* current(id);
+        // One that runs, and is not asleep, is counted already.
+        if (fresh.desiredState !== "running" || fresh.asleep) {
+          yield* withinQuotas(effective, fresh.workspaceId, fresh.accountId, {
+            creating: false,
+            running: true,
+          });
+        }
+        yield* store.desire(id, "running");
+      }),
+    );
     yield* through(node, id, nodes.executor(node).sessions.resume(id));
     yield* events.record({ kind: "session.resumed", ...about(session) });
     return yield* current(id);
   });
 
-  /** Deletes a session on its node, and its record. */
-  const removed = Effect.fn(function* (session: Session, node: Node) {
-    yield* nodes
+  /** Deletes a session on its node. */
+  const removedOn = (node: Node, id: string) =>
+    nodes
       .executor(node)
-      .sessions.delete(session.id)
+      .sessions.delete(id)
       .pipe(
         // A session its node has no more is deleted there already.
         Effect.catchIf(
@@ -467,31 +489,46 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
         ),
         asked(node),
       );
-    yield* store.delete(session.id, yield* now);
-  });
 
   const delete_ = Effect.fn("Sessions.delete")(function* (caller: Caller, id: string) {
     const { session, node } = yield* placed(caller, id, "act");
-    yield* removed(session, node);
+    yield* removedOn(node, id);
+    yield* store.delete(id, yield* now);
     yield* events.record({ kind: "session.deleted", ...about(session) });
   });
 
-  const expire = Effect.fn("Sessions.expire")(function* (id: string, reason: string) {
-    const session = yield* current(id);
-    const node = session.nodeId === null ? Option.none<Node>() : yield* nodes.find(session.nodeId);
-    if (Option.isNone(node)) {
-      // One that is on no node is had by nothing but its record.
-      yield* store.delete(id, yield* now);
-    } else {
-      yield* removed(session, node.value);
+  const expire = Effect.fn("Sessions.expire")(function* (
+    id: string,
+    due: ExpiryDue,
+    reasons: ExpiryReasons,
+  ) {
+    const at = yield* now;
+    // Whether it is still due is decided as it is deleted, so that one pinned or resumed
+    // since it was looked at stays; its node is asked after.
+    const expired = yield* store.expire(id, due, at);
+    if (Option.isNone(expired)) {
+      return false;
     }
+    const session = expired.value;
+    const node = session.nodeId === null ? Option.none<Node>() : yield* nodes.find(session.nodeId);
+    // One that is on no node is had by nothing but its record.
+    if (Option.isSome(node)) {
+      yield* removedOn(node.value, id).pipe(
+        // What its node did not delete is tried again the next time.
+        Effect.tapError(() => store.restore(id, at)),
+      );
+    }
+    const aged =
+      due.createdBefore !== null &&
+      DateTime.toEpochMillis(session.createdAt) <= due.createdBefore.getTime();
     yield* events.record({
       kind: "session.deleted",
       ...about(session),
       actor: SYSTEM,
       address: null,
-      detail: { reason },
+      detail: { reason: aged ? reasons.aged : reasons.suspended },
     });
+    return true;
   });
 
   const pin = Effect.fn("Sessions.pin")(function* (caller: Caller, id: string, pinned: boolean) {
@@ -503,13 +540,15 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       workspaceId: session.workspaceId,
       accountId: session.accountId,
       sessionId: session.id,
+      pinned: session.pinned,
     });
     const who = effective.pinning.value;
     const administers =
       session.workspaceId === null
         ? Option.exists(caller.account, (account) => account.id === session.accountId)
         : caller.workspaces.some((one) => one.id === session.workspaceId && one.role === "admin");
-    if (who === "nobody" || (who === "admins" && !administers)) {
+    // Whoever acts on a session unpins it, whoever its settings say pins it.
+    if (pinned && (who === "nobody" || (who === "admins" && !administers))) {
       return yield* new Forbidden({
         message:
           who === "nobody"
@@ -518,18 +557,23 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       });
     }
     const most = effective.maxPinnedSessions;
-    if (pinned && typeof most.value === "number") {
-      const already = yield* store.pinnedOf(session.workspaceId, session.accountId);
-      if (already >= most.value) {
-        return yield* new QuotaExceeded({
-          what: "pinned sessions",
-          level: most.source === "node" ? "default" : most.source,
-          limit: most.value,
-          message: `${most.value} pinned sessions are the most there are here: the ${most.source} says so`,
-        });
-      }
-    }
-    yield* store.pin(id, pinned);
+    yield* store.alone(
+      session,
+      Effect.gen(function* () {
+        if (pinned && typeof most.value === "number") {
+          const already = yield* store.pinnedOf(session.workspaceId, session.accountId);
+          if (already >= most.value) {
+            return yield* new QuotaExceeded({
+              what: "pinned sessions",
+              level: most.source === "node" ? "default" : most.source,
+              limit: most.value,
+              message: `${most.value} pinned sessions are the most there are here: the ${most.source} says so`,
+            });
+          }
+        }
+        yield* store.pin(id, pinned);
+      }),
+    );
     yield* events.record({
       kind: pinned ? "session.pinned" : "session.unpinned",
       ...about(session),
@@ -595,6 +639,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       workspaceId: session.workspaceId,
       accountId: session.accountId,
       sessionId: session.id,
+      pinned: session.pinned,
     });
     const turnedOff =
       area === "uploads"

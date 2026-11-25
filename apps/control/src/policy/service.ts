@@ -32,6 +32,8 @@ export interface Place {
   readonly accountId: string | null;
   /** None for one that is yet to be made. */
   readonly sessionId: string | null;
+  /** Whether the session is pinned, which some settings come to otherwise for. */
+  readonly pinned: boolean;
 }
 
 /** Every setting as it comes to for something. */

@@ -52,6 +52,11 @@ export interface SettingDefinition {
   readonly fallback: SettingValue | undefined;
   /** The variable of the control plane's environment that says it for the deployment. */
   readonly variable: string;
+  /**
+   * Whether it deletes something once its time is up. Never, where no level says a value,
+   * stays never under any bound: a bound alone deletes nothing.
+   */
+  readonly deletes?: true;
 }
 
 const ALL = LEVELS;
@@ -81,6 +86,7 @@ export const SETTINGS = {
     levels: ALL,
     fallback: null,
     variable: "APERTURE_CONTROL_DELETE_SUSPENDED_AFTER",
+    deletes: true,
   },
   /** How long after it was created a session is deleted, unless it is pinned. */
   maxSessionAge: {
@@ -89,6 +95,7 @@ export const SETTINGS = {
     levels: ALL,
     fallback: null,
     variable: "APERTURE_CONTROL_MAX_SESSION_AGE",
+    deletes: true,
   },
   /** How long what was deleted is kept in the database before it is removed for good. */
   purgeDeletedAfter: {

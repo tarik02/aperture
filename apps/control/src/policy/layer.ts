@@ -1,6 +1,7 @@
 import {
   type Caller,
   type EventResource,
+  type SettingEffective,
   type SettingEntry,
   type SettingKey,
   type SettingView,
@@ -20,7 +21,7 @@ import { SessionsStore } from "../sessions/store.ts";
 import { Settings } from "../settings/service.ts";
 import { now } from "../time.ts";
 import { WorkspacesStore } from "../workspaces/store.ts";
-import { type Base, boundsOf, type Chain, check, resolve } from "./cascade.ts";
+import { awake, type Base, boundsOf, type Chain, check, resolve } from "./cascade.ts";
 import { type Effective, type Place, Policy, type Target } from "./service.ts";
 import { PolicyStore, type Said, type Scope } from "./store.ts";
 
@@ -35,7 +36,7 @@ const indexOf = (said: ReadonlyArray<Said>): Index =>
   new Map(said.map((one) => [at(one, one.key), one.entry]));
 
 /** The levels on the way to a session, the widest first. */
-const scopesOf = (place: Place): ReadonlyArray<Scope> => [
+const scopesOf = (place: Omit<Place, "pinned">): ReadonlyArray<Scope> => [
   { level: "instance", scopeId: "" },
   ...(place.workspaceId === null
     ? []
@@ -72,9 +73,26 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
       : { value: configured, source: "configuration" };
   };
 
-  const effectiveOf = (index: Index, scopes: ReadonlyArray<Scope>) =>
+  /** What one setting comes to at the end of the scopes, for a session pinned or not. */
+  const effectiveOne = (
+    index: Index,
+    scopes: ReadonlyArray<Scope>,
+    pinned: boolean,
+    key: SettingKey,
+  ): SettingEffective => {
+    const chain = chainOf(index, scopes, key);
+    if (key === "suspendIdleAfter" && pinned) {
+      const stays = effectiveOne(index, scopes, pinned, "pinnedStayAwake");
+      if (stays.value === true) {
+        return awake(chain, stays);
+      }
+    }
+    return resolve(key, chain, base(key));
+  };
+
+  const effectiveOf = (index: Index, scopes: ReadonlyArray<Scope>, pinned: boolean) =>
     Object.fromEntries(
-      KEYS.map((key) => [key, resolve(key, chainOf(index, scopes, key), base(key))]),
+      KEYS.map((key) => [key, effectiveOne(index, scopes, pinned, key)]),
     ) as Effective;
 
   /**
@@ -86,6 +104,7 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
       case "instance":
         return {
           scopes: scopesOf({ workspaceId: null, accountId: null, sessionId: null }),
+          pinned: false,
           writes: caller.admin,
           resource: null,
           workspaceId: null,
@@ -99,6 +118,7 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
         }
         return {
           scopes: scopesOf({ workspaceId: target.id, accountId: null, sessionId: null }),
+          pinned: false,
           // What a workspace's admins say of it, as they say who is in it.
           writes: role === "admin" || caller.admin,
           resource: { kind: "workspace", id: target.id, label: workspace.value.name } as const,
@@ -113,6 +133,7 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
         }
         return {
           scopes: scopesOf({ workspaceId, accountId: account.id, sessionId: null }),
+          pinned: false,
           // They hold for all the account has: a token held to resources reaches less.
           writes: caller.resources === null,
           resource: { kind: "account", id: account.id, label: account.name } as const,
@@ -137,6 +158,7 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
             accountId: session.accountId,
             sessionId: session.id,
           }),
+          pinned: session.pinned,
           // What a session's maker says of it, or an admin of its workspace.
           writes:
             actsOn(caller, session, { kind: "sessions", id: session.id }) && (mine || administers),
@@ -149,8 +171,15 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
 
   const viewOf = (
     index: Index,
-    scopes: ReadonlyArray<Scope>,
-    writes: boolean,
+    {
+      scopes,
+      pinned,
+      writes,
+    }: {
+      readonly scopes: ReadonlyArray<Scope>;
+      readonly pinned: boolean;
+      readonly writes: boolean;
+    },
     key: SettingKey,
   ): SettingView => {
     const here = scopes[scopes.length - 1] ?? { level: "instance", scopeId: "" };
@@ -159,16 +188,16 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
     return {
       key,
       here: saidHere ? (index.get(at(here, key)) ?? null) : null,
-      effective: resolve(key, chain, base(key)),
+      effective: effectiveOne(index, scopes, pinned, key),
       above: boundsOf(chain.filter((link) => link.level !== here.level)),
       changeable: writes && saidHere,
     };
   };
 
   const views = Effect.fn("Policy.views")(function* (caller: Caller, target: Target) {
-    const { scopes, writes } = yield* reached(caller, target);
-    const index = indexOf(yield* store.of(scopes));
-    return KEYS.map((key) => viewOf(index, scopes, writes, key));
+    const reach = yield* reached(caller, target);
+    const index = indexOf(yield* store.of(reach.scopes));
+    return KEYS.map((key) => viewOf(index, reach, key));
   });
 
   const recorded = (
@@ -235,7 +264,7 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
     yield* recorded("setting.changed", target, reach, key, entry);
     yield* touched();
     const index = indexOf(yield* store.of(reach.scopes));
-    return viewOf(index, reach.scopes, reach.writes, key);
+    return viewOf(index, reach, key);
   });
 
   const clear = Effect.fn("Policy.clear")(function* (
@@ -252,17 +281,17 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
     yield* recorded("setting.cleared", target, reach, key, {});
     yield* touched();
     const index = indexOf(yield* store.of(reach.scopes));
-    return viewOf(index, reach.scopes, reach.writes, key);
+    return viewOf(index, reach, key);
   });
 
   const of = Effect.fn("Policy.of")(function* (place: Place) {
     const scopes = scopesOf(place);
-    return effectiveOf(indexOf(yield* store.of(scopes)), scopes);
+    return effectiveOf(indexOf(yield* store.of(scopes)), scopes, place.pinned);
   });
 
   const snapshot = Effect.fn("Policy.snapshot")(function* () {
     const index = indexOf(yield* store.all());
-    return (place: Place) => effectiveOf(index, scopesOf(place));
+    return (place: Place) => effectiveOf(index, scopesOf(place), place.pinned);
   });
 
   const touched = Effect.fn("Policy.touched")(function* () {

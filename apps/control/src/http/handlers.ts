@@ -76,7 +76,12 @@ const accounts = HttpApiBuilder.group(
     const policy = yield* Policy;
     /** Refuses a token that lasts longer than its account's settings let one. */
     const tokenLifetime = Effect.fn(function* (accountId: string, days: number | undefined) {
-      const effective = yield* policy.of({ workspaceId: null, accountId, sessionId: null });
+      const effective = yield* policy.of({
+        workspaceId: null,
+        accountId,
+        sessionId: null,
+        pinned: false,
+      });
       yield* withinLifetime(
         effective.apiTokenMaxLifetime,
         "apiTokenMaxLifetime",

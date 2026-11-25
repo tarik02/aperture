@@ -63,6 +63,7 @@ export const makeTickets = Effect.fn("Tickets.make")(function* () {
       workspaceId: session.value.workspaceId,
       accountId: session.value.accountId,
       sessionId: session.value.id,
+      pinned: session.value.pinned,
     });
     return heldAccess(ticket.access, effective);
   });
