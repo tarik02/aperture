@@ -341,9 +341,18 @@ export const plan = (v1: V1Data, known: Known, choices: Choices, now: Date): Pla
     }
   }
 
-  /** Lets an account into a workspace, unless it is in it. */
+  /** Lets an account into a workspace, unless it is in it or let in already. */
+  const admitted = new Set<string>();
+  /** The accounts that are in some workspace. */
+  const inAWorkspace = new Set<string>();
   const admit = (workspaceId: string, accountId: string, label: string, admin: boolean) => {
-    if (known.members.has(`${workspaceId}:${accountId}`)) {
+    const member = `${workspaceId}:${accountId}`;
+    if (admitted.has(member)) {
+      return;
+    }
+    admitted.add(member);
+    inAWorkspace.add(accountId);
+    if (known.members.has(member)) {
       moved += 1;
     } else {
       steps.push({
@@ -413,8 +422,20 @@ export const plan = (v1: V1Data, known: Known, choices: Choices, now: Date): Pla
       tenant.id,
       account,
       `${user.displayName} in ${tenant.displayName}`,
-      membership.scopes.includes("tenant:write"),
+      user.isSystemAdmin || membership.scopes.includes("tenant:write"),
     );
+  }
+  // A system administrator of v1 held every scope of every shared tenant without being a
+  // member of it. An admin of v2 reaches a workspace it is in no other way with a token, or
+  // with an app's grant, that is not one of an admin's.
+  for (const user of v1.users) {
+    const account = accounts.get(user.id);
+    if (!user.isSystemAdmin || account === undefined) {
+      continue;
+    }
+    for (const tenant of shared) {
+      admit(tenant.id, account, `${user.displayName} in ${tenant.displayName}`, true);
+    }
   }
 
   /**
@@ -598,19 +619,24 @@ export const plan = (v1: V1Data, known: Known, choices: Choices, now: Date): Pla
       continue;
     }
     const owner = tenant?.ownerUserId ?? null;
-    if (
-      owner !== null &&
-      resources === null &&
-      v1.memberships.some(
-        (membership) =>
-          membership.userId === owner && live.get(membership.tenantId)?.ownerUserId === null,
-      )
-    ) {
+    if (owner !== null && resources === null && inAWorkspace.has(accountId)) {
       notes.push({
         what: "token",
         label: token.name,
         reason:
           "it reached its owner's personal tenant alone, and as their own in v2 it reaches the workspaces they are in as well: v2 holds no token to what is its account's own",
+      });
+    }
+    if (
+      tenant === undefined &&
+      resources === null &&
+      tenants.some((one) => one.ownerUserId !== null)
+    ) {
+      notes.push({
+        what: "token",
+        label: token.name,
+        reason:
+          "it reached every shared tenant and no personal one, and as an admin's in v2 it reaches what is each person's own as well: v2 holds an admin to nothing less",
       });
     }
     if (!pending("token", token.id, token.createdAt, token.name)) {

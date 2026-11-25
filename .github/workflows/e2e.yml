@@ -70,6 +70,8 @@ jobs:
             run: pnpm test:e2e
           - name: control plane
             run: pnpm --filter @aperture-browser/control test
+          - name: migrator
+            run: pnpm --filter @aperture-browser/migrate test
     steps:
       - uses: actions/checkout@v7.0.0
 

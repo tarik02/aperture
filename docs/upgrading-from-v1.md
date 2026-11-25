@@ -60,7 +60,7 @@ Before running it:
 | It moves | As |
 |---|---|
 | Users with an email address | Accounts, with the same id, name, address, admin and disabled state, their password and their authenticator. One who had no password signs in once they open a setup link |
-| Shared tenants | Workspaces with the tenant's id and name. A member who had `tenant:write` is its admin |
+| Shared tenants | Workspaces with the tenant's id and name. A member who had `tenant:write` is its admin, and so is each system administrator |
 | Personal tenants | Nothing of their own: what they had becomes their owner's |
 | Snapshots | Snapshots on the node named, with name, description and tags, the profile copied whole |
 | Sessions, with their routing and files | **Suspended** sessions on the node named. One that was running when v1 stopped comes back as after a crash. `--sessions drop` leaves them all behind |
