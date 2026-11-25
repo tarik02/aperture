@@ -82,6 +82,30 @@ const INSTRUCTIONS: &str = "A browser session. Its pages are tabs: `tabs` lists 
     `files` lists, and `pace` says how your pointer moves in what is filmed. People may be \
     watching the session and using it too.";
 
+/// The tools of `browse` a session has.
+fn theirs() -> impl Iterator<Item = Arc<dyn Tool>> {
+    browse_page::tools()
+        .into_iter()
+        .chain(browse_capture::tools())
+        .filter(|tool| !LEFT_OUT.contains(&tool.spec().name.as_str()))
+}
+
+/// What `Automation::specs` gives, in its order, without a session: what every session
+/// of this build has, for whoever lists them before one runs.
+pub fn specs() -> Vec<ToolSpec> {
+    let theirs: Vec<Arc<dyn Tool>> = theirs().collect();
+    [
+        TabsTool::described(),
+        RecordingTool::described(),
+        PaceTool::described(),
+        FilesTool::described(),
+    ]
+    .into_iter()
+    .chain(theirs.iter().map(|tool| tool.spec()))
+    .chain(browse_script::tools(&theirs).iter().map(|tool| tool.spec()))
+    .collect()
+}
+
 /// The session's tools, and what they act on.
 ///
 /// Whoever calls with the session's own token is the automation itself among the session's
@@ -131,11 +155,7 @@ impl Automation {
             Arc::new(PaceTool(pace)),
             Arc::new(FilesTool(files.clone())),
         ];
-        let theirs = browse_page::tools()
-            .into_iter()
-            .chain(browse_capture::tools())
-            .filter(|tool| !LEFT_OUT.contains(&tool.spec().name.as_str()));
-        tools.extend(theirs);
+        tools.extend(theirs());
         tools.extend(browse_script::tools(&tools));
 
         let callers: Arc<Mutex<HashMap<String, Calling>>> = Arc::default();

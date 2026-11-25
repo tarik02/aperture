@@ -83,10 +83,23 @@ jobs:
   generated:
     name: generated code
     runs-on: ubuntu-24.04
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - uses: actions/checkout@v7.0.0
 
       - uses: cachix/install-nix-action@v31
+
+      # The session tools the control plane lists are told by the runner, which is built:
+      # under a key of its own, so that what the rust job keeps is not this, a part of it.
+      - uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: runner-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'flake.lock') }}
+          restore-keys: runner-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Generate
         run: |

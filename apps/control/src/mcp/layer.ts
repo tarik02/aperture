@@ -9,9 +9,7 @@ import * as Schema from "effect/Schema";
 import { accountOf } from "../accounts/caller.ts";
 import { NodeRefused, NodeUnreachable } from "../errors.ts";
 import type { Node } from "../nodes/schemas.ts";
-import { Nodes } from "../nodes/service.ts";
 import { Sessions } from "../sessions/service.ts";
-import { SessionsStore } from "../sessions/store.ts";
 import { Tickets } from "../tickets/service.ts";
 import { SessionTools } from "./service.ts";
 
@@ -19,8 +17,6 @@ const PROTOCOL = "2025-06-18";
 /** The header a session's server names a connection to it in. */
 const CONNECTION = "mcp-session-id";
 const NOT_FOUND = 404;
-/** What a node's sessions offer where they have a server of their own. */
-const FEATURE = "mcp";
 const SHOWN = 300;
 
 /** A session on its node, and what lets the request to it in. */
@@ -60,13 +56,9 @@ const answerIn = (body: string) =>
 export const makeSessionTools = Effect.fn("SessionTools.make")(function* () {
   const client = yield* HttpClient.HttpClient;
   const sessions = yield* Sessions;
-  const store = yield* SessionsStore;
-  const nodes = yield* Nodes;
   const tickets = yield* Tickets;
   /** The connection each session's server knows this program by. */
   const connections = new Map<string, string>();
-  /** The tools sessions have, by the version of the node whose session told them. */
-  const learnt = new Map<string, ReadonlyArray<McpSchema.Tool>>();
   let asked = 0;
 
   const refused = (at: At, code: string, message: string) =>
@@ -163,59 +155,6 @@ export const makeSessionTools = Effect.fn("SessionTools.make")(function* () {
     return listed.tools;
   });
 
-  /** Asks a session that runs on a node of each version nobody asked yet, where one does. */
-  const learn = Effect.fn("SessionTools.learn")(function* () {
-    const listed = yield* nodes.list();
-    const unknown = new Set(
-      listed.flatMap(({ node, alive }) =>
-        alive &&
-        node.offers !== null &&
-        node.offers.features.includes(FEATURE) &&
-        !learnt.has(node.offers.version)
-          ? [node.offers.version]
-          : [],
-      ),
-    );
-    if (unknown.size === 0) {
-      return;
-    }
-    const running = (yield* store.list()).filter((session) => session.observedState === "running");
-    for (const node of yield* nodes.alive()) {
-      const version = node.offers?.version;
-      const session = running.find((one) => one.nodeId === node.id);
-      if (version === undefined || !unknown.has(version) || session === undefined) {
-        continue;
-      }
-      // It is this program that asks, and of what is no secret: no caller is there to ask as.
-      const told = yield* toolsAt({
-        node,
-        sessionId: session.id,
-        bearer: node.operatorToken,
-      }).pipe(
-        Effect.tapError((error) =>
-          Effect.logDebug(`session ${session.id} did not tell its tools: ${error.message}`),
-        ),
-        Effect.option,
-      );
-      if (told._tag === "Some") {
-        learnt.set(version, told.value);
-        unknown.delete(version);
-      }
-    }
-  });
-
-  const known = Effect.fn("SessionTools.known")(function* () {
-    yield* learn();
-    // Where versions differ in a tool, the one that was asked last has it as it is told.
-    const byName = new Map<string, McpSchema.Tool>();
-    for (const tools of learnt.values()) {
-      for (const tool of tools) {
-        byName.set(tool.name, tool);
-      }
-    }
-    return [...byName.values()];
-  });
-
   /**
    * The caller's session with a ticket of theirs into its automation and nothing else:
    * the node lets the call in as it lets them in, and is told who they are.
@@ -249,7 +188,7 @@ export const makeSessionTools = Effect.fn("SessionTools.make")(function* () {
     );
   });
 
-  return SessionTools.of({ known, of, call });
+  return SessionTools.of({ of, call });
 });
 
 export const layer = Layer.effect(SessionTools, makeSessionTools());

@@ -18,9 +18,8 @@ pub(super) struct TabsTool {
     pub shown: targets::Tabs,
 }
 
-#[async_trait]
-impl Tool for TabsTool {
-    fn spec(&self) -> ToolSpec {
+impl TabsTool {
+    pub(super) fn described() -> ToolSpec {
         ToolSpec {
             name: "tabs".into(),
             description: "The session's tabs. `list` (the default) gives each tab's number, \
@@ -49,6 +48,13 @@ impl Tool for TabsTool {
                 },
             }),
         }
+    }
+}
+
+#[async_trait]
+impl Tool for TabsTool {
+    fn spec(&self) -> ToolSpec {
+        Self::described()
     }
 
     async fn call(&self, ctx: ToolContext, args: Value) -> anyhow::Result<ToolOutput> {
@@ -127,9 +133,8 @@ impl Tool for TabsTool {
 /// Recordings of a tab, as files of the session, and what their edits show.
 pub(super) struct RecordingTool(pub Recordings);
 
-#[async_trait]
-impl Tool for RecordingTool {
-    fn spec(&self) -> ToolSpec {
+impl RecordingTool {
+    pub(super) fn described() -> ToolSpec {
         ToolSpec {
             name: "recording".into(),
             description: "Record a tab to a video file of the session, and say what the edited \
@@ -220,6 +225,13 @@ impl Tool for RecordingTool {
             }),
         }
     }
+}
+
+#[async_trait]
+impl Tool for RecordingTool {
+    fn spec(&self) -> ToolSpec {
+        Self::described()
+    }
 
     async fn call(&self, ctx: ToolContext, args: Value) -> anyhow::Result<ToolOutput> {
         /// What the actions take, but for how a recording is edited and what its
@@ -287,9 +299,8 @@ impl Tool for RecordingTool {
 /// How the automation's pointer moves in a tab that is being recorded.
 pub(super) struct PaceTool(pub Paced);
 
-#[async_trait]
-impl Tool for PaceTool {
-    fn spec(&self) -> ToolSpec {
+impl PaceTool {
+    pub(super) fn described() -> ToolSpec {
         ToolSpec {
             name: "pace".into(),
             description: "How your pointer moves in a tab while it is recorded: `instant` (it \
@@ -306,6 +317,13 @@ impl Tool for PaceTool {
                 },
             }),
         }
+    }
+}
+
+#[async_trait]
+impl Tool for PaceTool {
+    fn spec(&self) -> ToolSpec {
+        Self::described()
     }
 
     async fn call(&self, _ctx: ToolContext, args: Value) -> anyhow::Result<ToolOutput> {

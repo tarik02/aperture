@@ -67,6 +67,11 @@ async fn main() -> anyhow::Result<ExitCode> {
             println!("aperture-runner {}", env!("CARGO_PKG_VERSION"));
             return Ok(ExitCode::SUCCESS);
         }
+        // What the control plane lists of a session's tools is generated from this.
+        [command] if command == "tools" => {
+            println!("{}", serde_json::to_string_pretty(&automation::specs())?);
+            return Ok(ExitCode::SUCCESS);
+        }
         [runtime_dir] => {
             let spec =
                 fs::read(spec_path(Path::new(runtime_dir))).context("failed to read the spec")?;

@@ -4,7 +4,6 @@ import * as McpSchema from "effect/ai/McpSchema";
 import * as McpServer from "effect/ai/McpServer";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
-import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Headers from "effect/http/Headers";
@@ -14,10 +13,12 @@ import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
+import * as Schema from "effect/Schema";
 import manifest from "../../package.json" with { type: "json" };
 import { Accounts } from "../accounts/service.ts";
 import { Forbidden } from "../errors.ts";
 import { SessionTools, type SessionToolError } from "../mcp/service.ts";
+import sessionTools from "../mcp/gen/session-tools.json" with { type: "json" };
 import { ControlTools } from "../mcp/toolkit.ts";
 import { Sessions } from "../sessions/service.ts";
 import { Settings } from "../settings/service.ts";
@@ -43,7 +44,7 @@ const SESSION_ID = "session_id";
 
 const INSTRUCTIONS = `Aperture runs isolated browser sessions that people and agents watch and control together.
 
-Create a session with sessions.create, or find one with sessions.list. The browser, recording and file tools act in the session named by their session_id; they are listed once a session runs, and sessions.tools and sessions.call reach them before that. A session created from a snapshot starts with that snapshot's profile: signed in where it was. To let a person see a session or act in it, give them the url of sessions.ticket, or of shares.create for someone with no account. To get a recording, a screenshot or a download out of a session, list its files with the files tool and fetch one at the url of sessions.file_link. Suspend a session you are done with for now, and delete one nobody needs. account.get tells what this token is for.`;
+Create a session with sessions.create, or find one with sessions.list. The browser, recording and file tools act in the session named by their session_id; sessions.tools lists what a session has, and sessions.call calls a tool of it by name. A session created from a snapshot starts with that snapshot's profile: signed in where it was. To let a person see a session or act in it, give them the url of sessions.ticket, or of shares.create for someone with no account. To get a recording, a screenshot or a download out of a session, list its files with the files tool and fetch one at the url of sessions.file_link. Suspend a session you are done with for now, and delete one nobody needs. account.get tells what this token is for.`;
 
 /**
  * Who calls a tool, where their token covers the scope. Every request to the server is
@@ -301,7 +302,7 @@ const forSession = ({ name, title, description, inputSchema, annotations }: McpS
 const SESSION_TOOLS = new McpSchema.Tool({
   name: "sessions.tools",
   description:
-    "List the tools of a running session as the session itself tells them: its browser, recordings and files, each with what it takes. They are this server's own tools too, with a session_id; where they are not listed here, call one with sessions.call.",
+    "List the tools of a running session as the session itself tells them: its browser, recordings and files, each with what it takes. They are this server's own tools too, with a session_id; a session on a node of another version may have some that are not, which sessions.call calls.",
   inputSchema: {
     type: "object",
     properties: { [SESSION_ID]: { type: "string", description: "The session to ask." } },
@@ -333,10 +334,11 @@ export const layer = Layer.unwrap(
     const accounts = yield* Accounts;
     const settings = yield* Settings;
     const tools = yield* SessionTools;
-    // The server is made of the routes the middleware below stands before, so the
-    // middleware is handed it once it is there.
-    const made = yield* Deferred.make<McpServer.McpServer["Service"]>();
-    const forwarded = new Map<string, McpSchema.Tool>();
+    // Every part of a release is of one version, so what a session of this build has is
+    // what the sessions of the nodes this control plane drives have.
+    const built = yield* Schema.decodeUnknownEffect(Schema.Array(McpSchema.Tool))(
+      sessionTools,
+    ).pipe(Effect.orDie);
 
     /** The session a call names, and what is left for the session's own tool. */
     const named = (payload: unknown) => {
@@ -354,23 +356,6 @@ export const layer = Layer.unwrap(
       return yield* Effect.flatMap(calling("sessions:write"), (caller) =>
         tools.call(caller, sessionId, name, rest),
       ).pipe(Effect.catch((error) => Effect.succeed(refusal(error))));
-    });
-
-    /** Takes into the server the tools sessions were found to have since it last looked. */
-    const follow = Effect.fn("Mcp.follow")(function* () {
-      const fresh = (yield* tools.known()).filter((tool) => forwarded.get(tool.name) !== tool);
-      if (fresh.length === 0) {
-        return;
-      }
-      const server = yield* Deferred.await(made);
-      for (const tool of fresh) {
-        yield* server.addTool({
-          tool: forSession(tool),
-          annotations: Context.empty(),
-          handle: (payload) => forward(tool.name, payload),
-        });
-        forwarded.set(tool.name, tool);
-      }
     });
 
     // An app that runs in a browser is a page of any origin, and calls with a token it
@@ -398,7 +383,6 @@ export const layer = Layer.unwrap(
             },
           });
         }
-        yield* follow();
         // Which origins may call is decided above, and the server below would refuse
         // every one it is not told by name: it is not told where the request is from.
         return yield* handled.pipe(
@@ -412,11 +396,18 @@ export const layer = Layer.unwrap(
       }).pipe(open),
     ).layer;
 
-    // What sessions have is known once one that runs was asked, and a client may have
-    // listed the tools before that: these two ask the session itself, whenever.
-    const generic = Layer.effectDiscard(
+    const forwarded = Layer.effectDiscard(
       Effect.gen(function* () {
         const server = yield* McpServer.McpServer;
+        for (const tool of built) {
+          yield* server.addTool({
+            tool: forSession(tool),
+            annotations: Context.empty(),
+            handle: (payload) => forward(tool.name, payload),
+          });
+        }
+        // A node of another version may have tools this build has not, or have them
+        // otherwise: these two ask the session itself.
         yield* server.addTool({
           tool: SESSION_TOOLS,
           annotations: Context.empty(),
@@ -447,13 +438,12 @@ export const layer = Layer.unwrap(
             return yield* forward(rest["name"], { ...args, [SESSION_ID]: sessionId });
           }),
         });
-        yield* Deferred.succeed(made, server);
       }),
     );
 
     return Layer.mergeAll(
       McpServer.toolkit(ControlTools).pipe(Layer.provide(handlers)),
-      generic,
+      forwarded,
     ).pipe(
       Layer.provide(
         McpServer.layerHttp({
