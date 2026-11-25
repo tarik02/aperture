@@ -1035,8 +1035,24 @@ export class HealthGroup extends HttpApiGroup.make("health")
     }),
   ) {}
 
+/** The control plane that answers. */
+export const About = Schema.Struct({
+  /** The version of Aperture it runs, as it is released: `1.0.0`, `0.0.0-nightly.<run>.<sha>`. */
+  version: Schema.String,
+});
+
+export class AboutGroup extends HttpApiGroup.make("about")
+  .add(HttpApiEndpoint.get("get", "/about", { success: About }))
+  .annotateMerge(
+    OpenApi.annotations({
+      title: "About",
+      description: "The control plane itself: the version of Aperture it runs.",
+    }),
+  ) {}
+
 export class Api extends HttpApi.make("control")
   .add(
+    AboutGroup,
     AccountsGroup,
     EventsGroup,
     GrantsGroup,

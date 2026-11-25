@@ -6,6 +6,7 @@ import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import manifest from "../../package.json" with { type: "json" };
 import { accountOf } from "../accounts/caller.ts";
 import { Accounts } from "../accounts/service.ts";
 import { Forbidden } from "../errors.ts";
@@ -645,11 +646,16 @@ const workspaces = HttpApiBuilder.group(
   }),
 );
 
+const about = HttpApiBuilder.group(Api, "about", (handlers) =>
+  handlers.handle("get", () => Effect.succeed({ version: manifest.version })),
+);
+
 const health = HttpApiBuilder.group(Api, "health", (handlers) =>
   handlers.handle("check", () => Effect.succeed({ status: "ok" as const })),
 );
 
 export const layer = Layer.mergeAll(
+  about,
   accounts,
   events,
   firstAdmin,

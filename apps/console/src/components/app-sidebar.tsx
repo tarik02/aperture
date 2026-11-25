@@ -20,6 +20,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { ApertureMark } from "#/components/aperture-mark.tsx";
 import { AuthMenu } from "#/components/auth-menu.tsx";
 import { ThemeToggle } from "#/components/theme-toggle.tsx";
+import { VersionLabel } from "#/features/about/version-label.tsx";
 import { AccountSidebarGroup } from "#/features/auth/account-sidebar-group.tsx";
 import { useAccess } from "#/features/auth/access.ts";
 import { RecentSessionsSidebarGroup } from "#/features/session/recent-sessions-sidebar-group.tsx";
@@ -96,6 +97,7 @@ export function AppSidebar({ collapsible }: { collapsible: "icon" | "offcanvas" 
       <SidebarFooter className="aperture:gap-2">
         <ThemeToggle />
         <AuthMenu icons={collapsible === "icon"} />
+        <VersionLabel />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
