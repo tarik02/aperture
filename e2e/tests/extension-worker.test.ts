@@ -11,7 +11,7 @@ import { chromium } from "../src/programs.ts";
 import * as Runner from "../src/runner.ts";
 import { suite } from "../src/suite.ts";
 import { until } from "../src/wait.ts";
-import { dataPage, inTab, openByAutomation } from "../src/workbench.ts";
+import { dataPage, inTab, openByAutomation, tabsOfAutomation } from "../src/workbench.ts";
 
 /** The session's extension's id, which follows from the key in its manifest. */
 const EXTENSION = "imdifnnggmlpoochobfcpghdppldpmjl";
@@ -152,8 +152,9 @@ suite(fresh)("a tab the session's extension leaves in another's window", (it) =>
     Effect.gen(function* () {
       const runner = yield* Runner.Runner;
       const mcp = yield* Mcp.connect(runner.url, runner.token);
-      const [shown] = yield* runner.targets;
-      first = shown?.tab ?? 0;
+      // Automation knows of a tab once it has listed it.
+      const [listed] = yield* tabsOfAutomation(mcp);
+      first = listed?.tab ?? 0;
       yield* mcp.call("navigate", { tab: first, url: PRESSED });
 
       // The extension gives no tab a window from here on: each window it would open is
