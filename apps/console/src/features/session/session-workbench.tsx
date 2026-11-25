@@ -37,6 +37,8 @@ import {
 import { NotAnsweringNote, TryNow } from "#/components/not-answering.tsx";
 import { notAnswering, useUnanswered } from "#/lib/answering.ts";
 import { told } from "#/lib/api.ts";
+import { useMay } from "#/features/auth/access.ts";
+import { useAccountQuery } from "#/features/auth/auth.queries.ts";
 
 type StateProps = {
   children: React.ReactNode;
@@ -213,11 +215,11 @@ const DRAWN_WITHIN_MS = 15_000;
  * Whether the workbench below has a picture of the session, or has said why it has none:
  * then nothing stands in for it any more. Asked anew for each place the session is at.
  */
-function useDrawn(workbench: React.RefObject<HTMLElement | null>, path: string | null) {
+function useDrawn(workbench: React.RefObject<HTMLElement | null>, path: string) {
   const [drawn, setDrawn] = useState<string | null>(null);
   useEffect(() => {
     const element = workbench.current;
-    if (element === null || path === null) {
+    if (element === null) {
       return undefined;
     }
     const look = () => {
@@ -238,9 +240,9 @@ function useDrawn(workbench: React.RefObject<HTMLElement | null>, path: string |
       changes.disconnect();
       clearTimeout(late);
     };
-    // The element is there once the session's record is, which gives the path.
+    // Asked where the workbench is mounted, which has the element from its first effect on.
   }, [workbench, path]);
-  return drawn !== null && drawn === path;
+  return drawn === path;
 }
 
 /**
@@ -250,7 +252,13 @@ function useDrawn(workbench: React.RefObject<HTMLElement | null>, path: string |
 export function SessionWorkbench({ sessionId }: { sessionId: string }) {
   const session = useSessionQuery(sessionId);
   const resume = useSessionActionMutation("resume");
-  const workbench = useRef<HTMLDivElement>(null);
+  const account = useAccountQuery();
+  const mayResume = useMay("sessions:write");
+  // Opening a session that rests resumes it, once: one suspended while it is open stays so.
+  const [onOpen, setOnOpen] = useState<{ id: string; resumes: boolean }>();
+  if (session.data !== undefined && onOpen?.id !== sessionId) {
+    setOnOpen({ id: sessionId, resumes: session.data.desiredState === "suspended" });
+  }
   const [client, setClient] = useState<Session | null>(null);
   const watch = useCallback((opened: Session | null) => {
     expose(opened);
@@ -264,7 +272,6 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
         ?.title,
   );
   useDocumentTitle(watched || (session.data?.label ?? "Session"));
-  const drawn = useDrawn(workbench, session.data?.path ?? null);
   const unanswered = useUnanswered(session);
 
   useEffect(() => {
@@ -282,6 +289,16 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
       resume.reset();
     }
   }, [runs, resume.reset]);
+
+  const rests = session.data?.desiredState === "suspended";
+  const resumesOnOpen =
+    rests && onOpen?.id === sessionId && onOpen.resumes && mayResume && resume.isIdle;
+  useEffect(() => {
+    if (resumesOnOpen) {
+      setOnOpen({ id: sessionId, resumes: false });
+      resume.mutate(sessionId);
+    }
+  }, [resumesOnOpen, resume.mutate, sessionId]);
 
   if (unanswered) {
     return (
@@ -329,18 +346,35 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
       </State>
     );
   }
-  if (session.data.desiredState === "suspended" && !starting) {
+  // Whoever is signed in is not known yet, or it is about to be resumed.
+  if (rests && (account.isPending || resumesOnOpen)) {
+    return (
+      <WorkbenchSkeleton note="starting" picture={kept}>
+        Starting…
+      </WorkbenchSkeleton>
+    );
+  }
+  if (rests && !starting) {
     return (
       <State
         session={session.data}
         note="suspended"
         action={
-          <Button data-console-resume onClick={() => resume.mutate(sessionId)}>
-            Resume
-          </Button>
+          mayResume ? (
+            <Button data-console-resume onClick={() => resume.mutate(sessionId)}>
+              Resume
+            </Button>
+          ) : undefined
         }
       >
         Suspended
+        {resume.isError ? (
+          <span role="alert" className="aperture:text-destructive">
+            It was not resumed: {told(resume.error)}
+          </span>
+        ) : mayResume ? null : (
+          <span>You may not resume it: that is for whoever may change the session.</span>
+        )}
       </State>
     );
   }
@@ -351,27 +385,19 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
       </WorkbenchSkeleton>
     );
   }
-  return (
-    <Running
-      session={{ ...session.data, path }}
-      workbench={workbench}
-      drawn={drawn}
-      kept={kept}
-      watch={watch}
-    />
-  );
+  return <Running session={{ ...session.data, path }} kept={kept} watch={watch} />;
 }
 
 type RunningProps = {
   session: SessionRecord & { path: string };
-  workbench: React.RefObject<HTMLDivElement | null>;
-  drawn: boolean;
   kept: string | undefined;
   watch: (opened: Session | null) => void;
 };
 
 /** The session's workbench, with what is done with the session in its menu. */
-function Running({ session, workbench, drawn, kept, watch }: RunningProps) {
+function Running({ session, kept, watch }: RunningProps) {
+  const workbench = useRef<HTMLDivElement>(null);
+  const drawn = useDrawn(workbench, session.path);
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
   const { actions, dialogs } = useSessionActions(

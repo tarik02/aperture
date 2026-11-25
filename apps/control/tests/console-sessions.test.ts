@@ -1161,4 +1161,47 @@ suite(needs)("the console's sessions, behind the proxy", (it) => {
       yield* page.close;
     }),
   );
+
+  it.effect(
+    "a session that rests is resumed when it is opened, and connects again when resumed",
+    () =>
+      Effect.gen(function* () {
+        const proxy = yield* Proxy.Proxy;
+        const viewer = yield* Viewer.Viewer;
+        const id = path.split("/").at(-1) ?? "";
+        const observed = (state: string) =>
+          until(
+            `the session ${state}`,
+            ada.api.sessions
+              .get({ params: { id } })
+              .pipe(Effect.map((seen) => seen.observedState === state)),
+            "60 seconds",
+          );
+        const connected = (page: Viewer.Page) =>
+          Effect.gen(function* () {
+            yield* page.until(`!!document.querySelector("[data-aperture-drawn]")`, "60 seconds");
+            yield* page.until(
+              `!document.querySelector("[data-console-session-note]")`,
+              "30 seconds",
+            );
+          });
+
+        yield* ada.api.sessions.suspend({ params: { id } });
+        yield* observed("suspended");
+        const page = yield* viewer.open(`${proxy.url}/-/sessions/${id}`);
+        yield* connected(page);
+        expect((yield* ada.api.sessions.get({ params: { id } })).desiredState).toBe("running");
+
+        // Suspended while it is open, it stays so until it is asked to run again.
+        yield* ada.api.sessions.suspend({ params: { id } });
+        yield* page.until(`!!document.querySelector("[data-console-resume]")`, "30 seconds");
+        yield* observed("suspended");
+        expect((yield* ada.api.sessions.get({ params: { id } })).desiredState).toBe("suspended");
+        yield* page.click("[data-console-resume]");
+        yield* connected(page);
+        expect(page.errors()).toEqual([]);
+        yield* page.close;
+      }),
+    LONG,
+  );
 });
