@@ -496,12 +496,29 @@ suite(needs)("the companion, in a browser of someone's own", (it) => {
       yield* reopened;
       expect(yield* popup.text("header button")).toContain("Ada");
       yield* press(says("Teleport"));
-      yield* until(
+      const made = yield* until(
         "the session being there",
         ada.api.sessions
           .list({ query: {} })
-          .pipe(Effect.map((all) => all.length === before.length + 1)),
+          .pipe(Effect.map((all) => all.find((one) => !before.some((old) => old.id === one.id)))),
         "90 seconds",
+      );
+      // It is done once the browser is shown the session's page, which closes the popup:
+      // the browser opens no popup while another is open.
+      const control = yield* Control.Control;
+      yield* until(
+        "a tab at the session's page of the console",
+        targets.pipe(
+          Effect.map((all) =>
+            all.some((target) => target.url === `${control.url}/-/sessions/${made.id}`),
+          ),
+        ),
+      );
+      yield* until(
+        "the popup being closed",
+        targets.pipe(
+          Effect.map((all) => !all.some((target) => target.url.endsWith("/popup.html"))),
+        ),
       );
     }),
   );
