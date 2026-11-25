@@ -6,7 +6,7 @@
 api() { curl -fsS -H "Authorization: Bearer $APERTURE_TOKEN" -H 'Content-Type: application/json' "$@"; }
 ```
 
-`GET /api/control/health` answers `{"status":"ok"}` to anyone once the control plane serves.
+`GET /api/control/health` answers `{"status":"ok"}` to anyone once the control plane serves. `GET /api/control/about` answers the version it runs, `{"version":"1.0.0"}`, to any caller.
 
 ## Errors
 

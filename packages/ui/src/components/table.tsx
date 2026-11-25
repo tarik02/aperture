@@ -42,8 +42,10 @@ type TableProps = React.ComponentProps<"table"> & {
 /** How far from an edge the table is scrolled before the edge's shadow shows. */
 const SCROLL_EDGE_EPSILON = 2;
 
+// Only a scroll fades a shadow: where it stands follows the columns as they are measured, and
+// one that shows once the rows come shows at once, rather than slide or fade in with them.
 const shadowClassName =
-  "aperture:pointer-events-none aperture:absolute aperture:z-35 aperture:opacity-0 aperture:transition-[opacity,left,right,top] aperture:duration-120 aperture:ease-out aperture:from-foreground/12 aperture:to-transparent";
+  "aperture:pointer-events-none aperture:absolute aperture:z-35 aperture:opacity-0 aperture:in-data-scrolled:transition-opacity aperture:duration-120 aperture:ease-out aperture:from-foreground/12 aperture:to-transparent";
 
 function Table({ scrollable = true, ...props }: TableProps) {
   if (scrollable) {
@@ -129,7 +131,15 @@ function ScrollingTable({
     if (table.tHead) {
       resizeObserver.observe(table.tHead);
     }
-    return () => resizeObserver.disconnect();
+    const scrolled = () => {
+      shell.dataset.scrolled = "";
+    };
+    // A scroll does not bubble, and is heard on its way down to the viewport instead.
+    shell.addEventListener("scroll", scrolled, { capture: true, once: true });
+    return () => {
+      resizeObserver.disconnect();
+      shell.removeEventListener("scroll", scrolled, { capture: true });
+    };
   }, [contentRef, shellRef, stickyHeader, stickyFirstColumn, stickyLastColumn]);
 
   return (
@@ -138,7 +148,7 @@ function ScrollingTable({
         ref={shellRef}
         data-slot="table-container"
         className={cn(
-          "aperture:relative aperture:flex aperture:min-h-0 aperture:w-full aperture:max-w-full aperture:flex-col aperture:overflow-hidden aperture:[--table-header-height:0px] aperture:[--table-sticky-end-width:0px] aperture:[--table-sticky-start-width:0px]",
+          "aperture:relative aperture:flex aperture:min-h-0 aperture:w-full aperture:max-w-full aperture:flex-col aperture:overflow-hidden aperture:rounded-lg aperture:border aperture:[--table-header-height:0px] aperture:[--table-sticky-end-width:0px] aperture:[--table-sticky-start-width:0px]",
           containerClassName,
         )}
       >
@@ -243,7 +253,7 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
       className={cn(
         "aperture:group/table-row aperture:border-b aperture:sm:[&:has([aria-expanded=true])>td]:bg-muted/50 aperture:sm:[&:hover>td]:bg-[color-mix(in_oklch,var(--background),var(--muted)_50%)] aperture:sm:data-[state=selected]:[&>td]:bg-muted aperture:sm:data-[state=selected]:[&:hover>td]:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_6%)]",
         stacks &&
-          "aperture:max-sm:relative aperture:max-sm:flex aperture:max-sm:flex-wrap aperture:max-sm:items-center aperture:max-sm:gap-x-3 aperture:max-sm:gap-y-1.5 aperture:max-sm:px-1 aperture:max-sm:py-3",
+          "aperture:max-sm:relative aperture:max-sm:flex aperture:max-sm:flex-wrap aperture:max-sm:items-center aperture:max-sm:gap-x-3 aperture:max-sm:gap-y-1.5 aperture:max-sm:px-3 aperture:max-sm:py-3",
         // Room for the row's menu, which stands at its corner.
         stacks && "aperture:max-sm:in-data-sticky-last-column:pr-12",
         className,
@@ -296,7 +306,7 @@ function TableCell({
         stickyFirstColumn &&
           "aperture:sm:first:sticky aperture:sm:first:left-0 aperture:sm:first:z-10 aperture:sm:first:border-r aperture:sm:first:border-border aperture:sm:first:bg-background",
         stickyLastColumn &&
-          "aperture:sm:last:sticky aperture:sm:last:right-0 aperture:sm:last:z-10 aperture:sm:last:border-l aperture:sm:last:border-border aperture:sm:last:bg-background aperture:max-sm:last:absolute aperture:max-sm:last:top-1.5 aperture:max-sm:last:right-0",
+          "aperture:sm:last:sticky aperture:sm:last:right-0 aperture:sm:last:z-10 aperture:sm:last:border-l aperture:sm:last:border-border aperture:sm:last:bg-background aperture:max-sm:last:absolute aperture:max-sm:last:top-1.5 aperture:max-sm:last:right-1.5",
         className,
       )}
       {...props}
