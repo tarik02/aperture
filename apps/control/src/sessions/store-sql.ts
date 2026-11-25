@@ -6,7 +6,12 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import { all, done, first, one } from "../store/rows.ts";
 import { type Observation, Session } from "./schemas.ts";
-import { type NewSession, type SessionDescription, SessionsStore } from "./store.ts";
+import {
+  type ExpiryDue,
+  type NewSession,
+  type SessionDescription,
+  SessionsStore,
+} from "./store.ts";
 
 const Id = Schema.Struct({ id: Schema.String });
 
@@ -88,7 +93,13 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
   });
 
   const desire = Effect.fn("SessionsStore.desire")(function* (id: string, state: DesiredState) {
-    yield* sql`UPDATE live_sessions SET desired_state = ${state} WHERE id = ${id}`.pipe(done);
+    // One that is to run is suspended no longer, for what deletes the suspended ones.
+    yield* sql`
+      UPDATE live_sessions
+      SET desired_state = ${state},
+        suspended_since = CASE WHEN ${state} = 'suspended' THEN suspended_since END
+      WHERE id = ${id}
+    `.pipe(done);
   });
 
   const pin = Effect.fn("SessionsStore.pin")(function* (id: string, pinned: boolean) {
@@ -120,6 +131,42 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     }).pipe(sql.withTransaction, Effect.orDie);
   });
 
+  const expire = Effect.fn("SessionsStore.expire")(function* (
+    id: string,
+    due: ExpiryDue,
+    at: Date,
+  ) {
+    return yield* Effect.gen(function* () {
+      const expired = yield* sql`
+        UPDATE live_sessions SET deleted_at = ${at}
+        WHERE id = ${id} AND NOT pinned AND ${sql.or([
+          ...(due.createdBefore === null ? [] : [sql`created_at <= ${due.createdBefore}`]),
+          ...(due.suspendedBefore === null ? [] : [sql`suspended_since <= ${due.suspendedBefore}`]),
+          // With neither, nothing is due.
+          sql`false`,
+        ])}
+        RETURNING *
+      `.pipe(first(Session));
+      if (Option.isSome(expired)) {
+        yield* sql`
+          UPDATE live_session_shares SET deleted_at = ${at} WHERE session_id = ${id}
+        `.pipe(done);
+      }
+      return expired;
+    }).pipe(sql.withTransaction, Effect.orDie);
+  });
+
+  const restore = Effect.fn("SessionsStore.restore")(function* (id: string, at: Date) {
+    yield* Effect.gen(function* () {
+      yield* sql`UPDATE sessions SET deleted_at = NULL WHERE id = ${id} AND deleted_at = ${at}`.pipe(
+        done,
+      );
+      yield* sql`
+        UPDATE session_shares SET deleted_at = NULL WHERE session_id = ${id} AND deleted_at = ${at}
+      `.pipe(done);
+    }).pipe(sql.withTransaction, Effect.orDie);
+  });
+
   const observe = Effect.fn("SessionsStore.observe")(function* (
     nodeId: string,
     seen: Observation,
@@ -140,7 +187,7 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     yield* sql`
       UPDATE live_sessions
       SET node_id = NULL, observed_state = 'gone', unreachable_since = NULL,
-        observed_at = ${now}
+        suspended_since = NULL, observed_at = ${now}
       WHERE id = ${id} AND node_id = ${nodeId}
     `.pipe(done);
   });
@@ -180,6 +227,8 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     pin,
     pinnedOf,
     delete: delete_,
+    expire,
+    restore,
     observe,
     gone,
     unreachable,

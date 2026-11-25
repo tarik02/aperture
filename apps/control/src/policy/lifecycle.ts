@@ -1,3 +1,4 @@
+import type { SettingValue } from "@aperture-browser/control-api";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -9,7 +10,7 @@ import type { Node } from "../nodes/schemas.ts";
 import { Nodes } from "../nodes/service.ts";
 import type { Session } from "../sessions/schemas.ts";
 import { Sessions } from "../sessions/service.ts";
-import { SessionsStore } from "../sessions/store.ts";
+import { type ExpiryDue, SessionsStore } from "../sessions/store.ts";
 import { ago, now } from "../time.ts";
 import { holds, limitsOf } from "./limits.ts";
 import { type Effective, Policy } from "./service.ts";
@@ -26,28 +27,28 @@ const placeOf = (session: Session) => ({
   workspaceId: session.workspaceId,
   accountId: session.accountId,
   sessionId: session.id,
+  pinned: session.pinned,
 });
 
-/** Why a session is to be deleted by itself, as its settings say; none for one that stays. */
-const dueFor = (session: Session, effective: Effective, at: number) => {
-  // A pinned session is never deleted but by someone.
-  if (session.pinned) {
-    return undefined;
-  }
-  const age = effective.maxSessionAge.value;
-  if (typeof age === "number" && DateTime.toEpochMillis(session.createdAt) + age * 1000 <= at) {
-    return `it was older than the ${effective.maxSessionAge.source} lets a session be`;
-  }
-  const suspended = effective.deleteSuspendedAfter.value;
-  if (
-    typeof suspended === "number" &&
-    session.suspendedSince !== null &&
-    DateTime.toEpochMillis(session.suspendedSince) + suspended * 1000 <= at
-  ) {
-    return `it stayed suspended longer than the ${effective.deleteSuspendedAfter.source} lets a session`;
-  }
-  return undefined;
+/** Since when a session is to have gone by itself, as its settings say. */
+const dueOf = (effective: Effective, at: number): ExpiryDue => {
+  const before = (seconds: SettingValue) =>
+    typeof seconds === "number" ? new Date(at - seconds * 1000) : null;
+  return {
+    createdBefore: before(effective.maxSessionAge.value),
+    suspendedBefore: before(effective.deleteSuspendedAfter.value),
+  };
 };
+
+/** Whether a session is to be deleted by itself, as it was read. */
+const isDue = (session: Session, due: ExpiryDue) =>
+  // A pinned session is never deleted but by someone.
+  !session.pinned &&
+  ((due.createdBefore !== null &&
+    DateTime.toEpochMillis(session.createdAt) <= due.createdBefore.getTime()) ||
+    (due.suspendedBefore !== null &&
+      session.suspendedSince !== null &&
+      DateTime.toEpochMillis(session.suspendedSince) <= due.suspendedBefore.getTime()));
 
 /**
  * For as long as the scope lasts: deletes the sessions their settings say are to go, has
@@ -69,11 +70,15 @@ export const makeLifecycle = Effect.fn("Lifecycle.make")(function* () {
     yield* Effect.forEach(
       all,
       (session) => {
-        const due = dueFor(session, effectiveOf(placeOf(session)), at);
-        return due === undefined
+        const effective = effectiveOf(placeOf(session));
+        const due = dueOf(effective, at);
+        return !isDue(session, due)
           ? Effect.void
           : sessions
-              .expire(session.id, due)
+              .expire(session.id, due, {
+                aged: `it was older than the ${effective.maxSessionAge.source} lets a session be`,
+                suspended: `it stayed suspended longer than the ${effective.deleteSuspendedAfter.source} lets a session`,
+              })
               .pipe(
                 Effect.catchCause((cause) =>
                   Effect.logWarning(`session ${session.id} was not deleted`, cause),
@@ -97,7 +102,7 @@ export const makeLifecycle = Effect.fn("Lifecycle.make")(function* () {
           if (session === undefined || session.nodeId !== node.id) {
             return Effect.void;
           }
-          const wanted = limitsOf(effectiveOf(placeOf(session)), session.pinned);
+          const wanted = limitsOf(effectiveOf(placeOf(session)));
           return holds(told.limits, wanted, node.offers?.limits)
             ? Effect.void
             : executor.sessions.setLimits(told.id, wanted).pipe(asked(node));
@@ -125,6 +130,7 @@ export const makeLifecycle = Effect.fn("Lifecycle.make")(function* () {
       workspaceId: null,
       accountId: null,
       sessionId: null,
+      pinned: false,
     });
     if (typeof purgeDeletedAfter.value === "number") {
       yield* store.purge(yield* ago(Duration.seconds(purgeDeletedAfter.value)));

@@ -5,10 +5,9 @@ import type { Effective } from "./service.ts";
  * The limits a session's node holds it to, as its settings come to: what no level says is
  * left out, for the node's own, and never is zero, which is none whatever the node has.
  */
-export const limitsOf = (effective: Effective, pinned: boolean): LimitsInit => {
+export const limitsOf = (effective: Effective): LimitsInit => {
   const idle = effective.suspendIdleAfter;
-  const awake = pinned && effective.pinnedStayAwake.value === true;
-  const seconds = awake ? 0 : idle.source === "node" ? undefined : Number(idle.value ?? 0);
+  const seconds = idle.source === "node" ? undefined : Number(idle.value ?? 0);
   return seconds === undefined ? {} : { suspendIdleAfter: { seconds: BigInt(seconds) } };
 };
 

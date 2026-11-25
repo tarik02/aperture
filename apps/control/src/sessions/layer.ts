@@ -12,6 +12,7 @@ import {
   type ProxyConfigInit,
 } from "@aperture-browser/executor-client";
 import * as UrlPath from "@aperture-browser/shared/url-path";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -44,8 +45,8 @@ import { now } from "../time.ts";
 import { Vault } from "../vault/service.ts";
 import { sessionPath } from "../routing/paths.ts";
 import type { Admission, FileLink, Observation, Session } from "./schemas.ts";
-import { type NewSessionOptions, Sessions } from "./service.ts";
-import { type SessionDescription, SessionsStore } from "./store.ts";
+import { type ExpiryReasons, type NewSessionOptions, Sessions } from "./service.ts";
+import { type ExpiryDue, type SessionDescription, SessionsStore } from "./store.ts";
 
 const STATES: Record<proto.SessionState, ObservedState | undefined> = {
   [proto.SessionState.UNSPECIFIED]: undefined,
@@ -267,9 +268,14 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     const alive = yield* nodes.candidates();
     const candidates =
       options.snapshotId === undefined ? alive : yield* having(caller, options.snapshotId, alive);
-    const effective = yield* policy.of({ workspaceId, accountId: account.id, sessionId: null });
+    const effective = yield* policy.of({
+      workspaceId,
+      accountId: account.id,
+      sessionId: null,
+      pinned: false,
+    });
     const [node, session] = yield* place(candidates, {
-      limits: limitsOf(effective, false),
+      limits: limitsOf(effective),
       suspended: options.suspended,
       snapshotId: options.snapshotId,
       proxy: options.proxy,
@@ -374,11 +380,11 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     return yield* current(id);
   });
 
-  /** Deletes a session on its node, and its record. */
-  const removed = Effect.fn(function* (session: Session, node: Node) {
-    yield* nodes
+  /** Deletes a session on its node. */
+  const removedOn = (node: Node, id: string) =>
+    nodes
       .executor(node)
-      .sessions.delete(session.id)
+      .sessions.delete(id)
       .pipe(
         // A session its node has no more is deleted there already.
         Effect.catchIf(
@@ -387,31 +393,46 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
         ),
         asked(node),
       );
-    yield* store.delete(session.id, yield* now);
-  });
 
   const delete_ = Effect.fn("Sessions.delete")(function* (caller: Caller, id: string) {
     const { session, node } = yield* placed(caller, id, "act");
-    yield* removed(session, node);
+    yield* removedOn(node, id);
+    yield* store.delete(id, yield* now);
     yield* events.record({ kind: "session.deleted", ...about(session) });
   });
 
-  const expire = Effect.fn("Sessions.expire")(function* (id: string, reason: string) {
-    const session = yield* current(id);
-    const node = session.nodeId === null ? Option.none<Node>() : yield* nodes.find(session.nodeId);
-    if (Option.isNone(node)) {
-      // One that is on no node is had by nothing but its record.
-      yield* store.delete(id, yield* now);
-    } else {
-      yield* removed(session, node.value);
+  const expire = Effect.fn("Sessions.expire")(function* (
+    id: string,
+    due: ExpiryDue,
+    reasons: ExpiryReasons,
+  ) {
+    const at = yield* now;
+    // Whether it is still due is decided as it is deleted, so that one pinned or resumed
+    // since it was looked at stays; its node is asked after.
+    const expired = yield* store.expire(id, due, at);
+    if (Option.isNone(expired)) {
+      return false;
     }
+    const session = expired.value;
+    const node = session.nodeId === null ? Option.none<Node>() : yield* nodes.find(session.nodeId);
+    // One that is on no node is had by nothing but its record.
+    if (Option.isSome(node)) {
+      yield* removedOn(node.value, id).pipe(
+        // What its node did not delete is tried again the next time.
+        Effect.tapError(() => store.restore(id, at)),
+      );
+    }
+    const aged =
+      due.createdBefore !== null &&
+      DateTime.toEpochMillis(session.createdAt) <= due.createdBefore.getTime();
     yield* events.record({
       kind: "session.deleted",
       ...about(session),
       actor: SYSTEM,
       address: null,
-      detail: { reason },
+      detail: { reason: aged ? reasons.aged : reasons.suspended },
     });
+    return true;
   });
 
   const pin = Effect.fn("Sessions.pin")(function* (caller: Caller, id: string, pinned: boolean) {
@@ -423,13 +444,15 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       workspaceId: session.workspaceId,
       accountId: session.accountId,
       sessionId: session.id,
+      pinned: session.pinned,
     });
     const who = effective.pinning.value;
     const administers =
       session.workspaceId === null
         ? Option.exists(caller.account, (account) => account.id === session.accountId)
         : caller.workspaces.some((one) => one.id === session.workspaceId && one.role === "admin");
-    if (who === "nobody" || (who === "admins" && !administers)) {
+    // Whoever acts on a session unpins it, whoever its settings say pins it.
+    if (pinned && (who === "nobody" || (who === "admins" && !administers))) {
       return yield* new Forbidden({
         message:
           who === "nobody"

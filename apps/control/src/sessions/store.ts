@@ -25,6 +25,12 @@ export interface SessionDescription {
   readonly tags?: Readonly<Record<string, string>> | undefined;
 }
 
+/** Since when a session is to go by itself: made, or suspended, before; none for never. */
+export interface ExpiryDue {
+  readonly createdBefore: Date | null;
+  readonly suspendedBefore: Date | null;
+}
+
 /** Where the records of sessions are kept: whose each is, where it runs, how it was last seen. */
 export interface SessionsStoreShape {
   readonly insert: (session: NewSession) => Effect.Effect<Session>;
@@ -51,6 +57,13 @@ export interface SessionsStoreShape {
   ) => Effect.Effect<number>;
   /** Deletes a session's record and its share links: kept, and found by nothing again. */
   readonly delete: (id: string, at: Date) => Effect.Effect<void>;
+  /**
+   * Deletes a session as `delete` does if it is still due to go by itself when it is
+   * deleted: not pinned, and made or suspended before then. None for one that is not.
+   */
+  readonly expire: (id: string, due: ExpiryDue, at: Date) => Effect.Effect<Option.Option<Session>>;
+  /** Takes back a delete made at that time, of a session whose node did not delete it. */
+  readonly restore: (id: string, at: Date) => Effect.Effect<void>;
   /** Writes what a node said of a session that is on it; the node is in reach, then. */
   readonly observe: (nodeId: string, seen: Observation, now: Date) => Effect.Effect<void>;
   /** Takes a session off a node that has it no more. */

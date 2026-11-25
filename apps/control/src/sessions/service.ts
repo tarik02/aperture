@@ -18,7 +18,7 @@ import type {
 import type { Reach } from "../accounts/caller.ts";
 import type { Node } from "../nodes/schemas.ts";
 import type { Admission, FileLink, Session } from "./schemas.ts";
-import type { SessionDescription } from "./store.ts";
+import type { ExpiryDue, SessionDescription } from "./store.ts";
 
 export interface NewSessionOptions {
   readonly suspended: boolean;
@@ -36,6 +36,12 @@ export interface NewSessionOptions {
 export type NodeError = SessionNotFound | SessionHasNoNode | NodeUnreachable | NodeRefused;
 /** What acting on a session through its node may come to: an admin who only sees it is refused. */
 export type ActError = NodeError | Forbidden;
+
+/** Why a session was deleted by itself: for being too old, or suspended too long. */
+export interface ExpiryReasons {
+  readonly aged: string;
+  readonly suspended: string;
+}
 
 /** Sessions wherever they run: what their owners ask of them, and what their nodes say of them. */
 export interface SessionsShape {
@@ -94,10 +100,14 @@ export interface SessionsShape {
   readonly resume: (caller: Caller, id: string) => Effect.Effect<Session, ActError>;
   readonly delete: (caller: Caller, id: string) => Effect.Effect<void, ActError>;
   /**
-   * Deletes a session by itself, as its settings say, for the reason given: on its node
-   * where it is on one, and its record.
+   * Deletes a session by itself, as its settings say, if it is still due to go when it is
+   * deleted: on its node where it is on one, and its record. Whether it was deleted.
    */
-  readonly expire: (id: string, reason: string) => Effect.Effect<void, ActError>;
+  readonly expire: (
+    id: string,
+    due: ExpiryDue,
+    reasons: ExpiryReasons,
+  ) => Effect.Effect<boolean, NodeUnreachable | NodeRefused>;
   /**
    * Pins a session, which keeps it from being deleted by itself, or unpins it: for whom
    * its settings let pin, and as many as they let be pinned.
