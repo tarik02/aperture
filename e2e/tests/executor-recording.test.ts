@@ -72,7 +72,9 @@ const Timeline = Schema.Struct({
   duration_ms: Schema.Number,
   edited_duration_ms: Schema.Number,
   map: Schema.Array(Schema.Unknown),
-  events: Schema.Array(Schema.Struct({ at_ms: Schema.Number, edited_at_ms: Schema.Number })),
+  events: Schema.Array(
+    Schema.Struct({ kind: Schema.String, at_ms: Schema.Number, edited_at_ms: Schema.Number }),
+  ),
 });
 
 const MATROSKA_SIGNATURE = "1a45dfa3";
@@ -285,7 +287,7 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
 
       const kinds = new Set(journal.map((entry) => entry.kind));
       expect(Array.from(kinds)).toEqual(
-        expect.arrayContaining(["move", "press", "call", "caption", "focus", "attention"]),
+        expect.arrayContaining(["move", "press", "key", "call", "caption", "focus", "attention"]),
       );
       expect(journal.find((entry) => entry.kind === "caption")?.text).toBe("clicking the button");
     }),
@@ -327,6 +329,19 @@ suite(node)("recordings of a session of a node, made by automation", (it) => {
       expect(timeline.edited_duration_ms).toBeLessThan(timeline.duration_ms - 1000);
       expect(timeline.map.length).toBeGreaterThanOrEqual(1);
       expect(timeline.events.filter((event) => event.edited_at_ms > event.at_ms)).toEqual([]);
+    }),
+  );
+
+  // A typed letter changes too few pixels to count as something happening: the keys keep
+  // the typing, so nothing of it is cut.
+  it.effect("the edit keeps the field being typed into", () =>
+    Effect.gen(function* () {
+      const timeline = yield* timelineOf(edit);
+      const keys = timeline.events.filter((event) => event.kind === "key");
+      expect(keys.length).toBeGreaterThanOrEqual(TYPED.length);
+      const [first, last] = [keys[0]!, keys.at(-1)!];
+      const cut = last.at_ms - first.at_ms - (last.edited_at_ms - first.edited_at_ms);
+      expect(Math.abs(cut)).toBeLessThanOrEqual(1);
     }),
   );
 

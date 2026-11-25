@@ -564,7 +564,7 @@ function eventLabel(event: TimelineEvent): string {
   }
 }
 
-/** Pointer moves and wheel turns no further apart than this are one run of them. */
+/** Pointer moves, wheel turns and keys no further apart than this are one run of them. */
 const RUN_GAP_MS = 300;
 
 /** A stretch of the track: where it is, and what the edit made of it. */
@@ -632,8 +632,10 @@ function Track({
       : ([event.edited_at_ms, event.edited_end_ms] as const);
   const events = timeline?.events ?? [];
   const calls = events.filter((event) => event.kind === "call");
-  const marks = events.filter((event) => !["call", "move", "wheel"].includes(event.kind));
-  // The pointer's way and the wheel's turns are many small events: each run of them is one.
+  const runKinds = ["move", "wheel", "key", "input"];
+  const marks = events.filter((event) => event.kind !== "call" && !runKinds.includes(event.kind));
+  // The pointer's way, the wheel's turns and typing are many small events: each run of them
+  // is one.
   const runs = (kind: string, label: string) => {
     const found: { start: number; end: number; label: string }[] = [];
     for (const event of events) {
@@ -650,7 +652,12 @@ function Track({
     }
     return found;
   };
-  const moves = [...runs("move", "pointer moves"), ...runs("wheel", "scroll")];
+  const moves = [
+    ...runs("move", "pointer moves"),
+    ...runs("wheel", "scroll"),
+    ...runs("key", "typing"),
+    ...runs("input", "input"),
+  ];
   const marked = timeline === undefined ? [] : stretches(timeline, raw);
 
   const msAt = (clientX: number) => {
