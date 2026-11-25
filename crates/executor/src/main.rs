@@ -290,6 +290,8 @@ async fn main() -> anyhow::Result<()> {
             scopes,
         },
     ));
+    // Before anyone is told of the sessions: what the sweep stops is not told as running.
+    sessions.sweep().await;
     tokio::spawn(sessions.clone().suspend_idle());
 
     // A session is created with a storage state as large as its runner takes one, which
