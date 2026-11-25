@@ -1,9 +1,13 @@
 import { suite } from "@aperture-browser/e2e/src/suite.ts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Result from "effect/Result";
-import { boundsOf, check, resolve } from "../src/policy/cascade.ts";
+import * as SqlClient from "effect/sql/SqlClient";
+import { awake, boundsOf, check, resolve } from "../src/policy/cascade.ts";
+import { SessionsStore } from "../src/sessions/store.ts";
 import * as Control from "./src/control.ts";
+import * as Stores from "./src/stores.ts";
 
 const configured = { value: undefined, source: "default" } as const;
 
@@ -72,6 +76,56 @@ describe("what a setting comes to", () => {
     });
   });
 
+  it("is never deleted by a bound alone, where no level says when", () => {
+    for (const key of ["maxSessionAge", "deleteSuspendedAfter"] as const) {
+      expect(
+        resolve(key, [{ level: "instance", entry: { max: 2_592_000 } }], {
+          value: null,
+          source: "default",
+        }),
+      ).toMatchObject({ value: null, source: "default", clamped: false });
+      expect(
+        resolve(key, [{ level: "workspace", entry: { min: 60, max: 60 } }], {
+          value: null,
+          source: "configuration",
+        }),
+      ).toMatchObject({ value: null, source: "configuration" });
+    }
+  });
+
+  it("does not get past a lock above with a bound saved below it", () => {
+    const lock = { level: "workspace", entry: { min: 7_776_000, max: 7_776_000 } } as const;
+    const under = [lock, { level: "session", entry: { value: 1, max: 1 } }] as const;
+    expect(boundsOf(under)).toEqual({
+      min: { value: 7_776_000, level: "workspace" },
+      max: { value: 7_776_000, level: "workspace" },
+      allowed: null,
+    });
+    expect(resolve("maxSessionAge", under, configured)).toMatchObject({
+      value: 7_776_000,
+      source: "workspace",
+      locked: true,
+    });
+    const over = [
+      { level: "instance", entry: { max: 3600 } },
+      { level: "account", entry: { min: 86_400 } },
+    ] as const;
+    expect(boundsOf(over).min).toEqual({ value: 3600, level: "instance" });
+  });
+
+  it("keeps a pinned session awake no longer than a bound above lets it sit idle", () => {
+    const stays = { value: true, source: "workspace", locked: false, clamped: false } as const;
+    expect(awake([{ level: "instance", entry: { value: 600 } }], stays)).toMatchObject({
+      value: null,
+      source: "workspace",
+    });
+    expect(awake([{ level: "instance", entry: { max: 3600 } }], stays)).toMatchObject({
+      value: 3600,
+      source: "instance",
+      clamped: true,
+    });
+  });
+
   it("is a choice that is allowed, the nearest one above where the nearest is not", () => {
     const narrowed = [
       { level: "instance", entry: { value: "admins" } },
@@ -116,6 +170,15 @@ describe("what a level may say of a setting", () => {
     });
     // A bound below may be narrower than those above, and no wider.
     expect(refused(check("maxSessionAge", "account", { max: 9000 }, above))).toMatchObject({
+      _tag: "SettingOutOfBounds",
+      level: "instance",
+    });
+    // Nor past the other end.
+    expect(refused(check("maxSessionAge", "account", { max: 60 }, above))).toMatchObject({
+      _tag: "SettingOutOfBounds",
+      level: "workspace",
+    });
+    expect(refused(check("maxSessionAge", "account", { min: 9000 }, above))).toMatchObject({
       _tag: "SettingOutOfBounds",
       level: "instance",
     });
@@ -283,5 +346,76 @@ suite(Control.layer())("settings over the API", (it) => {
         const cleared = yield* ada.api.settings.clearWorkspace({ params: at });
         expect(cleared.here).toBeNull();
       }),
+  );
+});
+
+suite(Stores.layer())("a session deleted by itself", (it) => {
+  it.effect("is deleted only while it is still due to go, as it is deleted", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const store = yield* SessionsStore;
+      const day = 86_400_000;
+      const at = new Date(10 * day);
+      const made = new Date(day);
+      yield* sql`INSERT INTO accounts (id, name, admin, created_at)
+        VALUES ('00000000-0000-4000-8000-00000000000a', 'Ada', false, ${made})`;
+      for (const [id, pinned] of [
+        ["old", false],
+        ["pinned", true],
+        ["slept", false],
+        ["resumed", false],
+      ] as const) {
+        yield* sql`
+          INSERT INTO sessions (
+            id, account_id, desired_state, observed_state, pinned, suspended_since, created_at,
+            observed_at
+          )
+          VALUES (
+            ${id}, '00000000-0000-4000-8000-00000000000a', 'suspended', 'suspended', ${pinned},
+            ${made}, ${id === "old" ? made : at}, ${made}
+          )
+        `;
+      }
+      yield* sql`
+        INSERT INTO session_shares (id, session_id, account_id, name, role, token_hash, created_at)
+        VALUES (
+          '00000000-0000-4000-8000-000000000001', 'old', '00000000-0000-4000-8000-00000000000a',
+          'link', 'watch', 'hash', ${made}
+        )
+      `;
+      const aged = { createdBefore: new Date(5 * day), suspendedBefore: null };
+      const slept = { createdBefore: null, suspendedBefore: new Date(5 * day) };
+
+      // Pinned, or resumed, since it was read: it stays.
+      expect(Option.isNone(yield* store.expire("pinned", aged, at))).toBe(true);
+      expect(Option.isNone(yield* store.expire("pinned", slept, at))).toBe(true);
+      yield* store.desire("resumed", "running");
+      expect(Option.isNone(yield* store.expire("resumed", slept, at))).toBe(true);
+      // Not due for what it is asked to go for.
+      expect(Option.isNone(yield* store.expire("slept", aged, at))).toBe(true);
+      expect(
+        Option.isNone(
+          yield* store.expire("old", { createdBefore: null, suspendedBefore: null }, at),
+        ),
+      ).toBe(true);
+
+      expect(Option.isSome(yield* store.expire("slept", slept, at))).toBe(true);
+      expect(Option.isSome(yield* store.expire("old", aged, at))).toBe(true);
+      expect(Option.isNone(yield* store.find("old"))).toBe(true);
+      expect(
+        yield* sql`SELECT deleted_at IS NULL AS live FROM session_shares WHERE session_id = 'old'`,
+      ).toEqual([{ live: false }]);
+      // Once more, and nothing is deleted again.
+      expect(Option.isNone(yield* store.expire("old", aged, at))).toBe(true);
+
+      // One its node did not delete comes back, with its links.
+      yield* store.restore("old", at);
+      expect(Option.isSome(yield* store.find("old"))).toBe(true);
+      expect(
+        yield* sql`SELECT deleted_at IS NULL AS live FROM session_shares WHERE session_id = 'old'`,
+      ).toEqual([{ live: true }]);
+      expect(Option.isSome(yield* store.find("pinned"))).toBe(true);
+      expect(Option.isSome(yield* store.find("resumed"))).toBe(true);
+    }),
   );
 });

@@ -12,13 +12,8 @@ const given = (setting: Effective[keyof Effective]) =>
  * node has. What it uses is limited only on a node that holds sessions to that: another
  * refuses a session that asks.
  */
-export const limitsOf = (
-  effective: Effective,
-  pinned: boolean,
-  holdsResources: boolean,
-): LimitsInit => {
-  const awake = pinned && effective.pinnedStayAwake.value === true;
-  const idle = awake ? 0 : given(effective.suspendIdleAfter);
+export const limitsOf = (effective: Effective, holdsResources: boolean): LimitsInit => {
+  const idle = given(effective.suspendIdleAfter);
   const memory = holdsResources ? given(effective.sessionMemory) : undefined;
   const cpus = holdsResources ? given(effective.sessionCpus) : undefined;
   return {
