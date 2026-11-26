@@ -8,8 +8,9 @@ export interface NewShare {
   readonly id: string;
   readonly sessionId: string;
   readonly accountId: string;
-  readonly name: string;
+  readonly name: string | null;
   readonly role: ShareRole;
+  readonly tab: number | null;
   readonly tokenHash: string;
   readonly createdAt: Date;
   readonly expiresAt: Date | null;

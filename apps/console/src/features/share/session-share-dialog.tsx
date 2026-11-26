@@ -19,7 +19,11 @@ import { ListEmpty } from "#/components/list-empty.tsx";
 import { LinesSkeleton, WHOLE } from "#/components/list-skeleton.tsx";
 import { SecretDialog } from "#/components/secret-dialog.tsx";
 import { TextField } from "#/components/text-field.tsx";
-import type { Session } from "#/features/session/session.queries.ts";
+import {
+  type Session,
+  useSessionKeptTabsQuery,
+  useSessionTargetsQuery,
+} from "#/features/session/session.queries.ts";
 import {
   type Share,
   useCreateShareMutation,
@@ -27,7 +31,6 @@ import {
   useSharesQuery,
 } from "#/features/share/share.queries.ts";
 import { useLast } from "#/lib/use-last.ts";
-import { required } from "#/lib/validation.ts";
 import { when } from "#/lib/when.ts";
 
 const ROLES = [
@@ -46,6 +49,30 @@ const LASTS = [
 ] as const;
 type Lasts = (typeof LASTS)[number]["value"];
 
+/** What a link shows: the whole session, or the one tab that is watched as it is made. */
+type Shows = "session" | "tab";
+
+/** What a link that names nobody is called, where links are told apart. */
+const UNNAMED = "Unnamed link";
+
+const nameOf = (share: Share) => share.name ?? UNNAMED;
+
+/**
+ * The tab whoever shares the session watches, which a link may show alone: the one the
+ * session watched last, as it tells while it runs, or as it was kept when it rested.
+ */
+function useWatchedTab(session: Session) {
+  const live = useSessionTargetsQuery(session);
+  const kept = useSessionKeptTabsQuery(session);
+  const running = live.data?.targets.find((target) => target.watched === true);
+  if (running !== undefined) {
+    return { tab: running.tab, title: running.title || running.url };
+  }
+  const watched = kept.data?.tabs.find((tab) => tab.tab === kept.data?.watched);
+  return watched === undefined
+    ? undefined
+    : { tab: watched.tab, title: watched.title || watched.url };
+}
 /** When a link stops, was made and was last used, in one line. */
 const story = (share: Share) => {
   const expires =
@@ -58,7 +85,10 @@ const story = (share: Share) => {
     share.lastUsedAt === null
       ? "never used"
       : `used ${when.format(share.lastUsedAt.epochMilliseconds)}`;
-  return `Made ${when.format(share.createdAt.epochMilliseconds)} · ${expires} · ${used}`;
+  const shows = share.tab === null ? [] : ["one tab"];
+  return [`Made ${when.format(share.createdAt.epochMilliseconds)}`, ...shows, expires, used].join(
+    " · ",
+  );
 };
 
 type SessionShareDialogProps = {
@@ -89,15 +119,23 @@ function Links({ session, open }: { session: Session; open: boolean }) {
   const create = useCreateShareMutation(session.id);
   const revoke = useRevokeShareMutation(session.id);
   const [link, setLink] = useState<string>();
-  const [revoking, setRevoking] = useState<{ id: string; name: string }>();
+  const [revoking, setRevoking] = useState<Share>();
   const revoked = useLast(revoking);
+  const watched = useWatchedTab(session);
   const form = useForm({
-    defaultValues: { name: "", role: "watch" as Role, lasts: "24" as Lasts },
+    defaultValues: {
+      name: "",
+      role: "watch" as Role,
+      lasts: "24" as Lasts,
+      shows: "session" as Shows,
+    },
     onSubmit: async ({ value, formApi }) => {
+      const name = value.name.trim();
       try {
         const made = await create.mutateAsync({
-          name: value.name.trim(),
+          name: name === "" ? undefined : name,
           role: value.role,
+          tab: value.shows === "tab" ? watched?.tab : undefined,
           expiresInHours: value.lasts === "never" ? undefined : Number(value.lasts),
         });
         // At the address this page is at, which is the one whoever shares it knows.
@@ -127,20 +165,37 @@ function Links({ session, open }: { session: Session; open: boolean }) {
           void form.handleSubmit();
         }}
       >
-        {/* On a phone the name has a line of its own, above what the link lets and how long. */}
+        {/* The name and what the link shows have a line of their own, above the rest. */}
         <div className="aperture:min-w-0 aperture:flex-1 aperture:max-sm:basis-full">
-          <form.Field name="name" validators={{ onSubmit: required("A name") }}>
+          <form.Field name="name">
             {(field) => (
               <TextField
                 field={field}
                 label="Who it is for"
-                placeholder="Who it is for"
+                placeholder="Who it is for (optional)"
                 autoComplete="off"
                 labelHidden
               />
             )}
           </form.Field>
         </div>
+        <form.Field name="shows">
+          {(field) => (
+            <Choice
+              aria-label="What it shows"
+              value={watched === undefined ? "session" : field.state.value}
+              options={[
+                { value: "session", label: "Whole session" },
+                ...(watched === undefined
+                  ? []
+                  : [{ value: "tab" as const, label: `This tab: ${watched.title}` }]),
+              ]}
+              onChange={field.handleChange}
+              className="aperture:w-56 aperture:max-sm:w-full aperture:[&_[data-slot=select-value]]:truncate"
+            />
+          )}
+        </form.Field>
+        <div className="aperture:basis-full" />
         <form.Field name="role">
           {(field) => (
             <Choice
@@ -181,10 +236,17 @@ function Links({ session, open }: { session: Session; open: boolean }) {
                 role="listitem"
                 variant="outline"
                 size="xs"
-                data-console-share={share.name}
+                data-console-share={share.name ?? share.id}
+                data-console-share-tab={share.tab ?? undefined}
               >
                 <ItemContent className="aperture:min-w-0">
-                  <ItemTitle className={WHOLE}>{share.name}</ItemTitle>
+                  <ItemTitle
+                    className={
+                      share.name === null ? `${WHOLE} aperture:text-muted-foreground` : WHOLE
+                    }
+                  >
+                    {nameOf(share)}
+                  </ItemTitle>
                   <ItemDescription className={WHOLE}>{story(share)}</ItemDescription>
                 </ItemContent>
                 <ItemActions>
@@ -194,7 +256,7 @@ function Links({ session, open }: { session: Session; open: boolean }) {
                   <Button
                     size="icon-sm"
                     variant="ghost"
-                    aria-label={`Revoke ${share.name}`}
+                    aria-label={`Revoke ${nameOf(share)}`}
                     onClick={() => setRevoking(share)}
                   >
                     <Trash2 />
@@ -205,10 +267,16 @@ function Links({ session, open }: { session: Session; open: boolean }) {
           </ItemGroup>
         )}
       </DialogBody>
-      <SecretDialog title="Share link" secret={link} onClose={() => setLink(undefined)} />
+      {/* Another link is soon made where this one is lost: it goes as any dialog does. */}
+      <SecretDialog
+        title="Share link"
+        secret={link}
+        dismissible
+        onClose={() => setLink(undefined)}
+      />
       <ConfirmDialog
         open={revoking !== undefined}
-        title={`Revoke the link of ${revoked?.name ?? "this guest"}?`}
+        title={revoked?.name == null ? "Revoke this link?" : `Revoke the link of ${revoked.name}?`}
         description="Whoever came by it is put out at once."
         confirmLabel="Revoke"
         variant="destructive"

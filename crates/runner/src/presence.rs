@@ -44,6 +44,8 @@ pub struct Identity {
     pub subject: String,
     pub name: String,
     pub access: Access,
+    /// The one tab they see, where they are let see one alone.
+    pub tab: Option<u32>,
 }
 
 /// The subject of whoever holds the executor's own token.
@@ -56,6 +58,7 @@ impl Identity {
             subject: OPERATOR.to_owned(),
             name: "Operator".to_owned(),
             access: Access::ALL,
+            tab: None,
         }
     }
 

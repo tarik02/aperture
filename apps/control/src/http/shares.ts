@@ -33,21 +33,26 @@ const refused = (error: { readonly _tag: keyof typeof STATUS }) =>
     }),
   );
 
-/** What a guest's page sends: the link's secret when it first has it, the name once it is chosen. */
+/** What a guest's page sends: the link's secret when it first has it, a name when one is chosen. */
 const Asked = Schema.Struct({
   token: Schema.optional(Schema.String),
   name: Schema.optional(Schema.String),
 });
 
-/** What the page is told of the link, and nothing of who made it or what they call it. */
+/** What the page is told of the link, and nothing of who made it. */
 const Told = Schema.Struct({
   sessionId: Schema.String,
   /** Where the session is reached; none for one that is on no node. */
   path: Schema.NullOr(Schema.String),
   running: Schema.Boolean,
   role: ShareRole,
-  /** What the guest is called there; none until they said. */
-  name: Schema.NullOr(Schema.String),
+  /** The number of the one tab the link shows; the whole session, without. */
+  tab: Schema.NullOr(Schema.Int),
+  /**
+   * What the guest is called there: what they said, else whom the link is for, else a
+   * guest's name of its own.
+   */
+  name: Schema.String,
   expiresAt: Schema.NullOr(Schema.DateTimeUtcFromString),
 });
 const told = Schema.encodeSync(Told);
@@ -60,9 +65,10 @@ export const layer = HttpRouter.use(
 
     /**
      * Takes a guest's link in exchange for cookies the browser carries: one to this
-     * address, so that the page is shown again, and once the guest has a name one to the
-     * session's path, by which the proxy lets them in. Asked again, it tells where the
-     * session is now, and whether the link is still good.
+     * address, so that the page is shown again, and one to the session's path, by which
+     * the proxy lets them in, with what the guest is called. Asked again, it tells where
+     * the session is now, and whether the link is still good; asked with a name, the
+     * guest is called that from then on.
      */
     const enter = Effect.fn("Shares.http.enter")(function* (
       request: HttpServerRequest.HttpServerRequest,
@@ -88,13 +94,13 @@ export const layer = HttpRouter.use(
         asked.name === undefined || asked.name.trim() === ""
           ? Option.none<string>()
           : Option.some(guestName(asked.name));
-      const entered = yield* shares.enter(id, token.value, from, said);
-      const name = Option.getOrElse(said, () =>
-        Option.match(kept, {
-          onSome: (guest) => (guest.token === token.value ? guest.name : ""),
-          onNone: () => "",
-        }),
-      );
+      // What the browser carries is of this link, or of none.
+      const before = Option.filter(
+        kept,
+        (guest) => guest.token === token.value && guest.name !== "",
+      ).pipe(Option.map((guest) => guest.name));
+      const entered = yield* shares.enter(id, token.value, from, { said, kept: before });
+      const { name } = entered;
       const guest = carried({ token: token.value, name });
       const longest = DateTime.fromDateUnsafe(yield* after(CARRIED_MOST));
       const cookie = {
@@ -111,13 +117,14 @@ export const layer = HttpRouter.use(
           path: entered.path,
           running: entered.running,
           role: entered.share.role,
-          name: name === "" ? null : name,
+          tab: entered.share.tab,
+          name,
           expiresAt: entered.expiresAt,
         }),
         { headers: { "cache-control": "no-store" } },
       ).pipe(HttpServerResponse.setCookie(LINK_COOKIE, guest, { ...cookie, path: sharePath(id) }));
       return yield* (
-        name === "" || entered.path === null
+        entered.path === null
           ? answer
           : Effect.flatMap(
               answer,

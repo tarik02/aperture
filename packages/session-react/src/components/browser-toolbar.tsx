@@ -30,13 +30,12 @@ import { SessionPresence } from "./session-presence.tsx";
 
 /** The workbench's first row: the tab strip, and who is in the session. */
 export function WorkbenchTitlebar() {
-  const { features, contributions } = useWorkbench();
+  const { features } = useWorkbench();
   const open = useSessionSnapshot().connection.state === "open";
-  const contributed = contributions.some((one) => one.slot.startsWith("titlebar."));
-  const short = useShortWindow();
+  const oneRow = useOneRow();
 
-  // A window too short for two rows has what is here in the toolbar.
-  if (short || (!features.tabs && !features.presence && !contributed)) {
+  // What is here is in the toolbar where there is one row.
+  if (oneRow) {
     return null;
   }
   return (
@@ -45,7 +44,7 @@ export function WorkbenchTitlebar() {
       className="aperture:flex aperture:h-8 aperture:min-w-0 aperture:shrink-0 aperture:items-stretch aperture:border-b aperture:bg-muted/35 aperture:pointer-coarse:h-10"
     >
       <WorkbenchSlot name="titlebar.start" />
-      {features.tabs ? <BrowserTabStrip /> : <div className="aperture:min-w-0 aperture:flex-1" />}
+      <BrowserTabStrip />
       {/* Who was here when a connection closed is not who is here now. */}
       {features.presence && open ? <SessionPresence /> : null}
       <WorkbenchSlot name="titlebar.end" />
@@ -72,6 +71,16 @@ export function useCrowdedToolbar(): boolean {
 const COMPACT_BELOW = 520;
 
 /**
+ * Whether the workbench has the one row of the toolbar, which then has what the title
+ * bar has besides the tabs: in a window too short for two, and where there is no strip of
+ * tabs, as for one who sees one tab alone.
+ */
+function useOneRow(): boolean {
+  const { features } = useWorkbench();
+  return useShortWindow() || !features.tabs;
+}
+
+/**
  * The workbench's second row: navigation, the address, and the buttons at its end. Without
  * children it is the usual arrangement of its parts.
  */
@@ -82,13 +91,18 @@ export function WorkbenchToolbar({ children }: { readonly children?: ReactNode }
   const open = useSessionSnapshot().connection.state === "open";
   const connecting = useSessionSnapshot().connection.state === "connecting";
   const short = useShortWindow();
+  const oneRow = useOneRow();
   const shows =
     children !== undefined ||
     features.navigation ||
     features.addressBar ||
     features.menus ||
-    short ||
-    contributions.some((one) => one.slot === "toolbar.start" || one.slot === "toolbar.end");
+    (oneRow && features.presence) ||
+    contributions.some((one) =>
+      oneRow
+        ? one.slot.startsWith("toolbar.") || one.slot.startsWith("titlebar.")
+        : one.slot.startsWith("toolbar."),
+    );
 
   if (!shows) {
     return null;
@@ -100,11 +114,15 @@ export function WorkbenchToolbar({ children }: { readonly children?: ReactNode }
         data-workbench-toolbar=""
         data-compact={compact ? "" : undefined}
         data-short={short ? "" : undefined}
-        className="aperture:flex aperture:h-9 aperture:min-w-0 aperture:shrink-0 aperture:items-center aperture:gap-1 aperture:border-b aperture:bg-background aperture:px-1.5 aperture:pointer-coarse:h-11 aperture:data-short:pl-0"
+        // What stands at the title bar's start stands at the window's edge here too.
+        data-flush={
+          oneRow && contributions.some((one) => one.slot === "titlebar.start") ? "" : undefined
+        }
+        className="aperture:flex aperture:h-9 aperture:min-w-0 aperture:shrink-0 aperture:items-center aperture:gap-1 aperture:border-b aperture:bg-background aperture:px-1.5 aperture:pointer-coarse:h-11 aperture:data-flush:pl-0"
       >
         {children ?? (
           <>
-            {short ? <WorkbenchSlot name="titlebar.start" /> : null}
+            {oneRow ? <WorkbenchSlot name="titlebar.start" /> : null}
             {short && features.tabs ? <TabsMenu /> : null}
             <WorkbenchSlot name="toolbar.start" />
             {features.navigation ? <NavigationButtons /> : null}
@@ -117,8 +135,8 @@ export function WorkbenchToolbar({ children }: { readonly children?: ReactNode }
               <Loader2 className="aperture:size-4 aperture:shrink-0 aperture:animate-spin aperture:text-muted-foreground" />
             ) : null}
             <WorkbenchSlot name="toolbar.end" />
-            {short && features.presence && open ? <SessionPresence /> : null}
-            {short ? <WorkbenchSlot name="titlebar.end" /> : null}
+            {oneRow && features.presence && open ? <SessionPresence /> : null}
+            {oneRow ? <WorkbenchSlot name="titlebar.end" /> : null}
             {features.menus ? <ToolbarActions /> : null}
           </>
         )}

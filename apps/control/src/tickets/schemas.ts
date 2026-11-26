@@ -18,6 +18,11 @@ export interface TicketRequest {
    * own: `/files/recordings/1a2b.mkv`. It is good at every route its access gives, without.
    */
   readonly path?: string;
+  /**
+   * The number of the one tab of the session the ticket lets its holder see: what tells
+   * of the others or shows them is not theirs. Every tab, without.
+   */
+  readonly tab?: number;
   /** How long it is good for; for as long as tickets are, without. */
   readonly lasts?: Duration.Duration;
 }

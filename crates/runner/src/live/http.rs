@@ -166,6 +166,11 @@ pub(super) fn vouched(headers: &HeaderMap) -> Result<Option<Identity>, &'static 
         let value = headers.get(name)?.to_str().ok()?;
         Some(percent_decode_str(value).decode_utf8_lossy().into_owned())
     };
+    // A tab that is not told as one would be every tab.
+    let tab = match said(aperture_runner::TAB_HEADER) {
+        Some(tab) => Some(tab.parse::<u32>().map_err(|_| "the tab told is no tab")?),
+        None => None,
+    };
     Ok(
         said(aperture_runner::SUBJECT_HEADER).map(|subject| Identity {
             name: said(aperture_runner::NAME_HEADER)
@@ -176,6 +181,7 @@ pub(super) fn vouched(headers: &HeaderMap) -> Result<Option<Identity>, &'static 
             access: said(aperture_runner::ACCESS_HEADER)
                 .and_then(|access| access.parse().ok())
                 .unwrap_or_default(),
+            tab,
         }),
     )
 }

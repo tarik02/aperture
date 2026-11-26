@@ -731,6 +731,8 @@ function PeopleSheet({
 }) {
   const session = useSession();
   const { presence } = useSessionSnapshot();
+  // Whom one follows goes to other tabs, which a workbench of one tab has none of.
+  const follows = useWorkbench().features.tabs;
   // Who was there stays while the sheet closes.
   const last = useRef<Presence | undefined>(presence);
   if (presence !== undefined) {
@@ -787,7 +789,7 @@ function PeopleSheet({
                     {said.join(" · ")}
                   </span>
                 </span>
-                {member.id === told?.you ? null : (
+                {member.id === told?.you || !follows ? null : (
                   <Button
                     type="button"
                     variant={followed ? "secondary" : "outline"}

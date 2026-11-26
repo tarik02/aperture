@@ -29,7 +29,8 @@ export interface BrowserViewportProps {
  * what is contributed to `viewport`.
  */
 export function BrowserViewport({ className }: BrowserViewportProps) {
-  const showLease = useWorkbench().features.presence;
+  const { features } = useWorkbench();
+  const showLease = features.presence;
   const session = useSession();
   const snapshot = useSessionSnapshot();
   const reconnect = useReconnect();
@@ -83,10 +84,14 @@ export function BrowserViewport({ className }: BrowserViewportProps) {
             <EmptyMedia variant="icon">
               <AppWindow />
             </EmptyMedia>
-            <EmptyTitle>No tabs</EmptyTitle>
-            <EmptyDescription>The session's browser has no tab open.</EmptyDescription>
+            <EmptyTitle>{features.tabs ? "No tabs" : "This tab was closed"}</EmptyTitle>
+            <EmptyDescription>
+              {features.tabs
+                ? "The session's browser has no tab open."
+                : "There is nothing more to see here."}
+            </EmptyDescription>
           </EmptyHeader>
-          {snapshot.features.tabs.write ? (
+          {features.tabs && snapshot.features.tabs.write ? (
             <EmptyContent>
               <Button type="button" size="sm" onClick={() => session.newTab()}>
                 <Plus />

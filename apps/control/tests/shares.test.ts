@@ -22,7 +22,8 @@ const Told = Schema.Struct({
   path: Schema.NullOr(Schema.String),
   running: Schema.Boolean,
   role: Schema.String,
-  name: Schema.NullOr(Schema.String),
+  tab: Schema.NullOr(Schema.Number),
+  name: Schema.String,
 });
 
 /** A share link as a guest holds it: where it is asked about, and its secret. */
@@ -63,7 +64,7 @@ suite(needs)("share links into a session", (it) => {
     };
   });
 
-  /** Comes with a link as a guest's page does, and chooses a name: the cookies of that. */
+  /** Comes with a link as a guest's page does, and chooses a name after: the cookies of that. */
   const enter = Effect.fn(function* (link: { id: string; secret: string }, name: string) {
     const asked = `/api/control/share/${link.id}`;
     const first = yield* browse("POST", asked, "", { token: link.secret });
@@ -177,24 +178,44 @@ suite(needs)("share links into a session", (it) => {
   );
 
   it.effect(
-    "a guest comes with the link and a name, and the browser carries it to the session alone",
+    "a guest comes with the link alone, is let in at once, and the browser carries it to the session alone",
     () =>
       Effect.gen(function* () {
         const asked = `/api/control/share/${watching.id}`;
-        // The link is known before a name is: nothing lets into the session yet.
+        // Nobody is asked for a name: the guest is called whom the link is for.
         const first = yield* browse("POST", asked, "", { token: watching.secret });
         expect(yield* Schema.decodeUnknownEffect(Told)(first.body)).toEqual({
           sessionId: session,
           path,
           running: true,
           role: "watch",
-          name: null,
+          tab: null,
+          name: "For the review",
         });
         expect(first.cookie).toMatch(/^aperture_share_link=/u);
         expect(first.set).toContain(`Path=${asked}`);
         expect(first.set).toContain("HttpOnly");
         expect(first.set).toContain("SameSite=Strict");
-        expect(first.set).not.toContain("aperture_share=");
+        expect(first.set).toContain(`Path=${path}`);
+        expect(first.cookie).toContain("aperture_share=");
+        // A link that names nobody calls each of its guests a guest of their own.
+        const unnamed = yield* ada.api.shares.create({
+          params: { id: session },
+          payload: { role: "watch" },
+        });
+        expect(unnamed.name).toBeNull();
+        const someone = yield* browse("POST", `/api/control/share/${unnamed.id}`, "", {
+          token: linkOf(unnamed.url).secret,
+        });
+        const another = yield* browse("POST", `/api/control/share/${unnamed.id}`, "", {
+          token: linkOf(unnamed.url).secret,
+        });
+        const names = yield* Effect.forEach([someone, another], (one) =>
+          Schema.decodeUnknownEffect(Told)(one.body).pipe(Effect.map((told) => told.name)),
+        );
+        expect(names[0]).toMatch(/^Guest [0-9a-f]{4}$/u);
+        expect(names[1]).toMatch(/^Guest [0-9a-f]{4}$/u);
+        yield* ada.api.shares.revoke({ params: { id: session, shareId: unnamed.id } });
 
         // A name is one line, and not much of it.
         const named = yield* browse("POST", asked, first.cookie, {
@@ -305,6 +326,103 @@ suite(needs)("share links into a session", (it) => {
             "2 seconds",
           ),
         ).toBe(false);
+      }),
+  );
+
+  it.effect(
+    "a link to one tab shows that tab alone: no other is told of, gone to, opened or seen",
+    () =>
+      Effect.gen(function* () {
+        const executor = yield* Executor.Executor;
+        const at = { url: `${executor.url}/sessions/${session}` };
+        const Tabs = Schema.Struct({
+          targets: Schema.optional(
+            Schema.Struct({
+              targets: Schema.optional(Schema.Array(Schema.Struct({ tab: Schema.Number }))),
+            }),
+          ),
+          selected: Schema.optional(Schema.Struct({ tab: Schema.optional(Schema.Number) })),
+        });
+        const tabsOf = (member: Tickets.Member) =>
+          Schema.decodeUnknownEffect(Tabs)(member.seen).pipe(
+            Effect.map((seen) => ({
+              tabs: (seen.targets?.targets ?? []).map((target) => target.tab),
+              selected: seen.selected?.tab,
+            })),
+          );
+        // The owner opens a tab beside the one there is, and watches it.
+        const owner = yield* Tickets.join(
+          at,
+          (yield* ticketFor(`aperture_control=${ada.token}`, `${path}/ws`)).ticket,
+        );
+        const before = (yield* tabsOf(owner)).tabs;
+        yield* owner.send({ go: { url: "", newTab: true } });
+        const shown = yield* until(
+          "the owner watching the tab they opened",
+          tabsOf(owner).pipe(
+            Effect.map(({ tabs, selected }) =>
+              tabs.length > before.length && selected !== undefined && !before.includes(selected)
+                ? selected
+                : undefined,
+            ),
+          ),
+        );
+        const other = before[0] ?? -1;
+
+        const made = yield* ada.api.shares.create({
+          params: { id: session },
+          payload: { role: "control", tab: shown },
+        });
+        expect(made.tab).toBe(shown);
+        const guest = yield* enter(linkOf(made.url), "Ada's guest");
+        expect(guest.told.tab).toBe(shown);
+        const member = yield* Tickets.join(
+          at,
+          (yield* ticketFor(guest.cookie, `${path}/ws`)).ticket,
+        );
+        expect(yield* tabsOf(member)).toEqual({ tabs: [shown], selected: shown });
+
+        // Asked for another tab, it stays where it is; a new one is not its to open.
+        yield* member.send({ select: { tab: other } });
+        yield* member.send({ go: { url: "", newTab: true } });
+        yield* until(
+          "the session refusing a new tab of whoever sees one",
+          Effect.sync(() => member.failures.some((failure) => failure.asked === "ASKED_GO")),
+        );
+        expect(
+          yield* happens(
+            tabsOf(member).pipe(Effect.map(({ selected }) => selected !== shown)),
+            "2 seconds",
+          ),
+        ).toBe(false);
+        expect((yield* tabsOf(member)).tabs).toEqual([shown]);
+
+        // Nothing at the session's routes shows another tab, or tells of them all.
+        for (const rest of [
+          `/previews/${other}`,
+          `/previews/${other}/favicon`,
+          `/targets/${other}/preview.png`,
+          `/targets/${other}/screenshot.png`,
+          "/previews",
+          "/preview.png",
+          "/targets",
+        ]) {
+          const answer = yield* browse("GET", `${path}${rest}`, guest.cookie);
+          expect(answer.status, rest).toBe(403);
+        }
+        expect(
+          (yield* browse("GET", `${path}/targets/${shown}/preview.png`, guest.cookie)).status,
+        ).not.toBe(403);
+
+        // Its tab closed, it sees nothing: the session's other tab is still not its.
+        yield* owner.send({ close: { tab: shown } });
+        yield* until(
+          "the guest of a tab that was closed seeing nothing",
+          tabsOf(member).pipe(
+            Effect.map(({ tabs, selected }) => tabs.length === 0 && selected === undefined),
+          ),
+        );
+        yield* ada.api.shares.revoke({ params: { id: session, shareId: made.id } });
       }),
   );
 

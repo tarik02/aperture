@@ -43,6 +43,8 @@ pub use live::{ask, ask_as, put, viewer};
 pub const SUBJECT_HEADER: &str = "x-aperture-subject";
 pub const NAME_HEADER: &str = "x-aperture-name";
 pub const ACCESS_HEADER: &str = "x-aperture-access";
+/// The one tab a caller is let see, by its number, where they are let see one alone.
+pub const TAB_HEADER: &str = "x-aperture-tab";
 
 /// What the browser calls its DevTools endpoint: where it listens inside its sandbox. The
 /// URLs it lists name it.
