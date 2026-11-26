@@ -30,7 +30,6 @@ catalog:
   fumadocs-core: "^16.15.14"
   fumadocs-mdx: "^15.4.4"
   fumadocs-ui: "^16.15.14"
-  input-otp: "^1.5.0"
   jose: "^6.2.18"
   lucide-react: "^1.24.0"
   "@types/mdast": "^4.0.4"

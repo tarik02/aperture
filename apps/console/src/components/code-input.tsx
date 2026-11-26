@@ -1,8 +1,7 @@
 import { FieldError } from "@aperture-browser/ui/components/field";
-import { InputOTP, InputOTPGroup, InputOTPSlot } from "@aperture-browser/ui/components/input-otp";
+import { OTPField, OTPFieldInput } from "@aperture-browser/ui/components/otp-field";
 
 const DIGITS = 6;
-const ONLY_DIGITS = "^\\d+$";
 
 type CodeInputProps = {
   value: string;
@@ -13,29 +12,32 @@ type CodeInputProps = {
   error?: string | undefined;
 };
 
-/** An authenticator's code, a box for each digit. */
+/**
+ * An authenticator's code, a box for each digit, each a field of its own. Boxes drawn over
+ * one hidden field (input-otp) are what Bitwarden offers to fill and then does not: before
+ * it fills, it asks that the field be what is at its middle, and there a box was.
+ */
 export function CodeInput({ value, onChange, onComplete, error }: CodeInputProps) {
   return (
     <>
-      <InputOTP
+      <OTPField
         name="code"
-        aria-label="Code from your authenticator"
-        maxLength={DIGITS}
-        pattern={ONLY_DIGITS}
-        inputMode="numeric"
+        length={DIGITS}
+        validationType="numeric"
         autoComplete="one-time-code"
-        autoFocus
         value={value}
-        onChange={onChange}
-        onComplete={onComplete}
-        containerClassName="aperture:w-full"
+        onValueChange={onChange}
+        onValueComplete={onComplete}
       >
-        <InputOTPGroup className="aperture:flex-1">
-          {Array.from({ length: DIGITS }, (_, index) => (
-            <InputOTPSlot key={index} index={index} />
-          ))}
-        </InputOTPGroup>
-      </InputOTP>
+        {Array.from({ length: DIGITS }, (_, index) => (
+          <OTPFieldInput
+            key={index}
+            aria-label={index === 0 ? "Code from your authenticator" : `Digit ${index + 1}`}
+            aria-invalid={error === undefined ? undefined : true}
+            autoFocus={index === 0}
+          />
+        ))}
+      </OTPField>
       <FieldError reserved>{error}</FieldError>
     </>
   );

@@ -123,9 +123,6 @@ catalogs:
     fumadocs-ui:
       specifier: ^16.15.14
       version: 16.19.7
-    input-otp:
-      specifier: ^1.5.0
-      version: 1.5.0
     jose:
       specifier: ^6.2.18
       version: 6.2.18
@@ -802,9 +799,6 @@ importers:
       clsx:
         specifier: 'catalog:'
         version: 2.1.1
-      input-otp:
-        specifier: 'catalog:'
-        version: 1.5.0(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       lucide-react:
         specifier: 'catalog:'
         version: 1.75.0(@types/react@19.3.0)(react@19.3.1)
@@ -4195,12 +4189,6 @@ packages:
 
   inline-style-parser@0.2.9:
     resolution: {integrity: sha512-IttN8BqKLxzUrnTqHI+/hwAJQItBAUjdoHERCDv+oOuX48VP6bzW8+QjOXSfoevzq3YrYAwX1uLHp8TqO9yIeg==}
-
-  input-otp@1.5.0:
-    resolution: {integrity: sha512-3AcfdW1sNG0FmSA5hHMBXG7jNW5CdcdKs8ln8JOmn6S2SRkoXoJx+2UwC+ZvjflfnOdHJx0SfQ9/YjlxVYLtGQ==}
-    peerDependencies:
-      react: ^16.8 || ^17.0 || ^18.0 || ^19.0.0 || ^19.0.0-rc
-      react-dom: ^16.8 || ^17.0 || ^18.0 || ^19.0.0 || ^19.0.0-rc
 
   internmap@1.0.1:
     resolution: {integrity: sha512-lDB5YccMydFBtasVtxnZ3MRBHuaoE8GKsppq+EchKL2U4nK/DmEpPHNH8MZe5HkMtpSiTSOZwfN0tzYjO/lJEw==}
@@ -9312,11 +9300,6 @@ snapshots:
   inline-style-parser@0.2.7: {}
 
   inline-style-parser@0.2.9: {}
-
-  input-otp@1.5.0(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
-    dependencies:
-      react: 19.3.1
-      react-dom: 19.3.1(react@19.3.1)
 
   internmap@1.0.1: {}
 
