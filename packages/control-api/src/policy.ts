@@ -2,14 +2,30 @@ import * as Schema from "effect/Schema";
 
 /**
  * Where a setting is said, from the widest to the narrowest: the whole deployment, a
- * workspace, an account, which a person sets for themselves, and one session. What the
- * nearest of them says is what a session has.
+ * workspace, a person (an account) wherever they are, a person as a member of one
+ * workspace, and one session. What the nearest of them says is what a session has. An
+ * admin says a person's bounds, and what is a quota; the person says the rest of its values.
  */
-export const SettingLevel = Schema.Literals(["instance", "workspace", "account", "session"]);
+export const SettingLevel = Schema.Literals([
+  "instance",
+  "workspace",
+  "account",
+  "member",
+  "session",
+]);
 export type SettingLevel = typeof SettingLevel.Type;
 
 /** The levels, the widest first: what each says is what the ones after it start from. */
-export const LEVELS: ReadonlyArray<SettingLevel> = ["instance", "workspace", "account", "session"];
+export const LEVELS: ReadonlyArray<SettingLevel> = [
+  "instance",
+  "workspace",
+  "account",
+  "member",
+  "session",
+];
+
+/** The levels a person says values of for themselves, as an admin says them of them too. */
+export const PERSONAL: ReadonlyArray<SettingLevel> = ["account", "member", "session"];
 
 /**
  * Where what a session has comes from: a level, the control plane's settings, what the
@@ -22,6 +38,7 @@ export const SettingSource = Schema.Literals([
   "instance",
   "workspace",
   "account",
+  "member",
   "session",
   "node",
 ]);
@@ -57,6 +74,11 @@ export interface SettingDefinition {
    * stays never under any bound: a bound alone deletes nothing.
    */
   readonly deletes?: true;
+  /**
+   * Whether it limits how much a person uses: at the levels a person says values at for
+   * themselves, only an admin says it.
+   */
+  readonly quota?: true;
 }
 
 const ALL = LEVELS;
@@ -75,7 +97,7 @@ export const SETTINGS = {
   pinnedStayAwake: {
     type: { kind: "choice", choices: [true, false] },
     none: false,
-    levels: ["instance", "workspace", "account"],
+    levels: ["instance", "workspace", "account", "member"],
     fallback: false,
     variable: "APERTURE_CONTROL_PINNED_STAY_AWAKE",
   },
@@ -116,21 +138,26 @@ export const SETTINGS = {
     fallback: "admins",
     variable: "APERTURE_CONTROL_PINNING",
   },
-  /** How many sessions of a workspace, or of an account's own, are pinned at most. */
+  /**
+   * How many sessions of a workspace, or of an account's own, are pinned at most; said of
+   * a person, how many of theirs there.
+   */
   maxPinnedSessions: {
     type: { kind: "count" },
     none: true,
-    levels: ["instance", "workspace"],
+    levels: ["instance", "workspace", "account", "member"],
     fallback: null,
     variable: "APERTURE_CONTROL_MAX_PINNED_SESSIONS",
+    quota: true,
   },
   /** How many sessions one user has in a workspace, or of their own, at most. */
   sessionsPerUser: {
     type: { kind: "count" },
     none: true,
-    levels: ["instance", "workspace"],
+    levels: ["instance", "workspace", "account", "member"],
     fallback: null,
     variable: "APERTURE_CONTROL_SESSIONS_PER_USER",
+    quota: true,
   },
   /** How many sessions a workspace has at most. */
   sessionsPerWorkspace: {
@@ -140,13 +167,17 @@ export const SETTINGS = {
     fallback: null,
     variable: "APERTURE_CONTROL_SESSIONS_PER_WORKSPACE",
   },
-  /** How many sessions of a workspace, or of a user's own, run at once at most. */
+  /**
+   * How many sessions of a workspace, or of a user's own, run at once at most; said of a
+   * person, how many of theirs there.
+   */
   runningSessions: {
     type: { kind: "count" },
     none: true,
-    levels: ["instance", "workspace"],
+    levels: ["instance", "workspace", "account", "member"],
     fallback: null,
     variable: "APERTURE_CONTROL_RUNNING_SESSIONS",
+    quota: true,
   },
   /** The memory a session may use, in bytes; each node's own where nothing says it. */
   sessionMemory: {
@@ -155,6 +186,7 @@ export const SETTINGS = {
     levels: LEVELS,
     fallback: undefined,
     variable: "APERTURE_CONTROL_SESSION_MEMORY",
+    quota: true,
   },
   /** The processors' worth of time a session may use; each node's own where nothing says it. */
   sessionCpus: {
@@ -163,6 +195,7 @@ export const SETTINGS = {
     levels: LEVELS,
     fallback: undefined,
     variable: "APERTURE_CONTROL_SESSION_CPUS",
+    quota: true,
   },
   /**
    * What is copied passes between a session and its clients both ways (`rw`), only out of
@@ -295,8 +328,14 @@ export const SettingView = Schema.Struct({
   inherited: SettingEffective,
   /** The bounds the levels above set, which this one may not cross. */
   above: SettingBounds,
-  /** Whether the caller changes what this level says of it. */
+  /** Whether the caller changes the value this level says of it. */
   changeable: Schema.Boolean,
+  /**
+   * Whether the caller also says the bounds this level holds itself and those below to.
+   * For one who does not, `here` is the value alone, and the bounds of this level are
+   * among those `above`, as they hold them as those of the levels above do.
+   */
+  bounds: Schema.Boolean,
 });
 export type SettingView = typeof SettingView.Type;
 
@@ -305,3 +344,7 @@ export const SettingViews = Schema.Struct({ settings: Schema.Array(SettingView) 
 /** Whether a setting is said at a level. */
 export const saidAt = (key: SettingKey, level: SettingLevel) =>
   (SETTINGS[key].levels as ReadonlyArray<SettingLevel>).includes(level);
+
+/** Whether a setting is an admin's alone to say at a level, where a person says the rest. */
+export const adminsOnly = (key: SettingKey, level: SettingLevel) =>
+  (SETTINGS[key] as SettingDefinition).quota === true && PERSONAL.includes(level);

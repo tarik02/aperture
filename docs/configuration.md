@@ -42,7 +42,9 @@ Every program takes its settings from its environment. The NixOS modules set the
 
 ## Settings
 
-What sessions are held to is said at four levels, from the widest: the **instance**, a **workspace**, a **user** and a **session**. A session has what the nearest level that says a value says; where none does, what the control plane's environment says, and otherwise the default below. A session of no workspace skips that level, and a user's settings hold for every session they make, in a workspace or of their own.
+What sessions are held to is said at five levels, from the widest: the **instance**, a **workspace**, a **user** wherever they are, a user as a **member** of one workspace, and a **session**. A session has what the nearest level that says a value says; where none does, what the control plane's environment says, and otherwise the default below. A session of no workspace skips the workspace and member levels, and a user's settings hold for every session they make, in a workspace or of their own.
+
+An admin says a user's settings and a workspace's admin a member's, values and bounds; the user says their own values at both, inside those bounds, which they neither change nor clear. A bound a user set on themselves would hold nobody but them, who could lift it again. The quotas (`maxPinnedSessions`, `sessionsPerUser`, `runningSessions`, `sessionMemory` and `sessionCpus`) are an admin's alone at the user and member levels, and at a session's: of a session of a workspace, an admin of it says them too.
 
 A level says a value, which the levels below it may say otherwise, and bounds they may not cross: `min` and `max` for a time or a count, `allowed` for a choice. A lock is a bound of both ends alike. A value or a bound that crosses a bound above is refused as `SettingOutOfBounds`, which names the level that sets it. A value said before a level above narrowed its bounds is held to them: the bound is what the session has, and is told as coming from that level. So is a bound said before: a level's `max` below the `min` above, or its `min` past the `max` above, holds as that bound above. Times are in seconds over the API, and `null` is never, or no limit.
 
@@ -52,23 +54,24 @@ A bound alone never turns deleting on. Where no level says a value of `deleteSus
 |---|---|---|
 | Instance | an admin: the console's **Settings**, `PUT /api/control/settings/<key>` | anyone signed in |
 | Workspace | an admin of the workspace, or an admin: **Workspaces › Settings**, `PUT /api/control/workspaces/<id>/settings/<key>` | its members, and admins |
-| User | the user: **Account › Settings**, `PUT /api/control/account/settings/<key>` | the user |
-| Session | whoever made it, or an admin of its workspace: the session's **Settings**, `PUT /api/control/sessions/<id>/settings/<key>` | whoever sees the session |
+| User | an admin: **People › Settings**, `PUT /api/control/accounts/<id>/settings/<key>`; the user, their values: **Account › Settings**, `PUT /api/control/account/settings/<key>` | the user, and admins |
+| Member | an admin of the workspace, or an admin: **Workspaces › Members › Settings**, `PUT /api/control/workspaces/<id>/members/<accountId>/settings/<key>`; the member, their values: **Account › Settings** with the workspace selected, `PUT /api/control/account/settings/<key>?workspaceId=<id>` | the member, and the admins of it |
+| Session | whoever made it, or an admin of its workspace (its quotas, an admin): the session's **Settings**, `PUT /api/control/sessions/<id>/settings/<key>` | whoever sees the session |
 
 Each is told with what it comes to and where that comes from: the console shows `1 hour · from workspace, locked`, the API and the MCP tools `settings.get`, `settings.set` and `settings.clear` say it as `effective`. The instance's are changed through the API and the console alone.
 
 | Setting | Levels | Variable | Default | |
 |---|---|---|---|---|
 | `suspendIdleAfter` | all | `APERTURE_CONTROL_SUSPEND_IDLE_AFTER` | each node's own | How long nobody may use a session before its node suspends it. Where nothing says it, a node holds its sessions to its own [`APERTURE_SUSPEND_IDLE_AFTER`](#limits). The control plane passes what it comes to to the session's node when the session is made, and again within a minute of any change |
-| `pinnedStayAwake` | instance, workspace, user | `APERTURE_CONTROL_PINNED_STAY_AWAKE` | `false` | Whether a pinned session is kept from being suspended for sitting idle. A `max` of `suspendIdleAfter` holds over it: a pinned session sits idle that long at most, and its settings say so |
+| `pinnedStayAwake` | instance, workspace, user, member | `APERTURE_CONTROL_PINNED_STAY_AWAKE` | `false` | Whether a pinned session is kept from being suspended for sitting idle. A `max` of `suspendIdleAfter` holds over it: a pinned session sits idle that long at most, and its settings say so |
 | `deleteSuspendedAfter` | all | `APERTURE_CONTROL_DELETE_SUSPENDED_AFTER` | never | How long a session may stay suspended before it is deleted, profile, files and all |
 | `maxSessionAge` | all | `APERTURE_CONTROL_MAX_SESSION_AGE` | never | How long after it was made a session is deleted |
 | `purgeDeletedAfter` | instance | `APERTURE_CONTROL_PURGE_DELETED_AFTER` | never | How long what was [marked deleted](install.md#where-data-lives) is kept before it is removed for good: the records of sessions and their share links, snapshots, API tokens, grants, memberships, workspaces nothing names any more, and registration tokens no node names. Accounts, nodes, apps and sign-in providers stay marked |
 | `pinning` | instance, workspace | `APERTURE_CONTROL_PINNING` | `admins` | Who pins a session: `anyone` who acts on it, the `admins` of its workspace (the owner, of a session of no workspace), or `nobody` |
-| `maxPinnedSessions` | instance, workspace | `APERTURE_CONTROL_MAX_PINNED_SESSIONS` | no limit | How many sessions of a workspace, or of a user's own, are pinned at most. One more is refused as `QuotaExceeded` |
-| `sessionsPerUser` | instance, workspace | `APERTURE_CONTROL_SESSIONS_PER_USER` | no limit | How many sessions one user has in a workspace, or of their own, at most |
+| `maxPinnedSessions` | instance, workspace, user, member | `APERTURE_CONTROL_MAX_PINNED_SESSIONS` | no limit | How many sessions of a workspace, or of a user's own, are pinned at most; said of a user or a member, how many of theirs in the workspace, besides the workspace's own. One more is refused as `QuotaExceeded` |
+| `sessionsPerUser` | instance, workspace, user, member | `APERTURE_CONTROL_SESSIONS_PER_USER` | no limit | How many sessions one user has in a workspace, or of their own, at most |
 | `sessionsPerWorkspace` | instance, workspace | `APERTURE_CONTROL_SESSIONS_PER_WORKSPACE` | no limit | How many sessions a workspace has at most |
-| `runningSessions` | instance, workspace | `APERTURE_CONTROL_RUNNING_SESSIONS` | no limit | How many sessions of a workspace, or of a user's own, are asked to run at once at most: creating one that runs and resuming one are refused past it. One its node suspended for sitting idle is not counted; its node resumes it when someone reaches it, which nothing refuses, so that more may run for a while |
+| `runningSessions` | instance, workspace, user, member | `APERTURE_CONTROL_RUNNING_SESSIONS` | no limit | How many sessions of a workspace, or of a user's own, are asked to run at once at most; said of a user or a member, how many of theirs in the workspace, besides the workspace's own: creating one that runs and resuming one are refused past it. One its node suspended for sitting idle is not counted; its node resumes it when someone reaches it, which nothing refuses, so that more may run for a while |
 | `sessionMemory` | all | `APERTURE_CONTROL_SESSION_MEMORY` | each node's own | The memory a session may use, in bytes; a variable takes `512M` or `4G`. Held only on a node that runs sessions as [scopes](#limits); another's sessions are held to nothing |
 | `clipboard` | all | `APERTURE_CONTROL_CLIPBOARD` | `rw` | What is copied passes between a session and its clients both ways (`rw`), only out of the session to them (`ro`), or not at all (`off`) |
 | `uploads` | all | `APERTURE_CONTROL_UPLOADS` | `true` | Whether files are put into a session |

@@ -857,7 +857,15 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
         const fs = yield* FileSystem.FileSystem;
         const looker = yield* Control.account("Looker", true);
         const keeper = yield* Control.account("Keeper");
+        const control = yield* Control.Control;
+        const plain = yield* (yield* control.as(control.bootstrapToken)).accounts.create({
+          payload: { name: "Plain", kind: "person", email: "plain@example.test" },
+        });
         const apart = yield* keeper.api.workspaces.create({ payload: { name: "Kept apart" } });
+        yield* keeper.api.workspaces.admit({
+          params: { id: apart.id, accountId: plain.id },
+          payload: { role: "member" },
+        });
         const theirs = yield* until(
           "a session on the node that registered",
           keeper.api.sessions.create({
@@ -958,7 +966,7 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
         yield* placed(page, DIALOG);
         yield* shot(page, fs, "console-settings-session");
         yield* closed(page);
-        const settingsAt = (path: string, level: string) =>
+        const settingsAt = (path: string, level: string, name = level) =>
           Effect.gen(function* () {
             yield* page.evaluate(
               `void (history.pushState({}, "", ${JSON.stringify(path)}), dispatchEvent(new PopStateEvent("popstate")))`,
@@ -966,10 +974,11 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
             yield* page.until(
               `!!document.querySelector('[data-console-settings="${level}"] [data-console-setting]')`,
             );
-            yield* shot(page, fs, `console-settings-${level}`);
+            yield* shot(page, fs, `console-settings-${name}`);
           });
         yield* settingsAt(`/-/workspaces/${apart.id}/settings`, "workspace");
-        yield* settingsAt("/-/account/settings", "account");
+        // The workspace they joined is the one selected: theirs as a member of it.
+        yield* settingsAt("/-/account/settings", "member", "account");
         yield* settingsAt("/-/settings", "instance");
         // A change is made where the setting is, and waits to be saved with the others.
         const aged = `[data-console-setting="maxSessionAge"]`;
@@ -988,6 +997,46 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
         yield* shot(page, fs, "console-settings-unsaved");
         yield* page.click("[data-console-settings-discard]");
         yield* page.until(`!document.querySelector("[data-console-settings-save]")`);
+        expect(page.errors()).toEqual([]);
+
+        // What an admin says of one person, from their row among the people.
+        const person = { accountId: plain.id };
+        yield* looker.api.settings.setPerson({
+          params: { ...person, key: "runningSessions" },
+          payload: { value: 2, min: 2, max: 2 },
+        });
+        yield* looker.api.settings.setPerson({
+          params: { ...person, key: "maxSessionAge" },
+          payload: { max: 604_800 },
+        });
+        yield* page.click(`a[href="/-/people"]`);
+        yield* page.click(`[data-console-person="Plain"] [data-console-person-actions]`);
+        yield* page.click(`[data-console-person-action="settings"]`);
+        const running = `[data-console-settings="account"] [data-console-setting="runningSessions"]`;
+        yield* page.until(`!!document.querySelector('${running}')`);
+        // A value held from both ends is enforced: the levels below take nothing else.
+        expect(yield* page.text(running)).toContain("Enforce");
+        yield* shot(page, fs, "console-settings-person");
+
+        // And what an admin of a workspace says of one of its members there, from its members.
+        yield* keeper.api.settings.setMember({
+          params: { id: apart.id, ...person, key: "clipboard" },
+          payload: { value: "ro", allowed: ["ro", "off"] },
+        });
+        yield* page.click(`a[href="/-/workspaces"]`);
+        yield* page.click(
+          `[data-console-workspace="Kept apart"] [data-console-row-action="members"]`,
+        );
+        yield* page.click(`[data-console-member="Plain"] [data-console-member-settings]`);
+        yield* page.until(
+          `!!document.querySelector('[data-console-settings="member"] [data-console-setting="clipboard"]')`,
+        );
+        yield* page.until(`!document.querySelector('${DIALOG}')`);
+        // Of what the person has as a member, the levels above are said where they hold it.
+        expect(yield* page.text(`[data-console-setting="runningSessions"]`)).toContain(
+          "Locked by the user",
+        );
+        yield* shot(page, fs, "console-settings-member");
         expect(page.errors()).toEqual([]);
 
         // The workspace stays: the check of the events after this one counts those deleted.

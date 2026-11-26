@@ -20,6 +20,7 @@ import {
   type LucideIcon,
   PanelRight,
   ShieldOff,
+  SlidersHorizontal,
   Trash2,
   UserCheck,
   UserX,
@@ -31,6 +32,7 @@ import type { Account } from "#/features/account/account.queries.ts";
 /** What is done with a person. */
 export type PersonDoing =
   | "details"
+  | "settings"
   | "setup-link"
   | "reset"
   | "passkeys"
@@ -58,6 +60,7 @@ export const personActions = (
   own: boolean,
 ): ReadonlyArray<AccountAction<PersonDoing>> => [
   { key: "details", label: "Details", icon: PanelRight },
+  { key: "settings", label: "Settings", icon: SlidersHorizontal },
   { key: "setup-link", label: "Setup link", icon: Link2 },
   {
     key: "reset",

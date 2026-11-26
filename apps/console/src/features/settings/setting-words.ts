@@ -141,6 +141,7 @@ export const LEVEL_WORDS: Readonly<Record<SettingLevel, string>> = {
   instance: "instance",
   workspace: "workspace",
   account: "user",
+  member: "membership",
   session: "session",
 };
 

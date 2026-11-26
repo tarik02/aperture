@@ -125,6 +125,10 @@ export const makePolicyStore = Effect.fn("PolicyStore.make")(function* () {
           OR (level = 'workspace' AND NOT EXISTS (
             SELECT 1 FROM workspaces WHERE id::text = settings.scope_id
           ))
+          OR (level = 'member' AND NOT EXISTS (
+            SELECT 1 FROM workspace_members
+            WHERE workspace_id::text || ':' || account_id::text = settings.scope_id
+          ))
       `.pipe(done);
     }).pipe(sql.withTransaction, Effect.orDie);
   });

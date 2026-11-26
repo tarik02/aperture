@@ -131,7 +131,9 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
       WHERE pinned AND ${
         workspaceId === null
           ? sql`workspace_id IS NULL AND account_id = ${accountId}`
-          : sql`workspace_id = ${workspaceId}`
+          : accountId === null
+            ? sql`workspace_id = ${workspaceId}`
+            : sql`workspace_id = ${workspaceId} AND account_id = ${accountId}`
       }
     `.pipe(one(Schema.Struct({ count: Schema.Number })));
     return count;

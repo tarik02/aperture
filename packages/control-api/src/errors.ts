@@ -224,7 +224,7 @@ export class SettingOutOfBounds extends Schema.TaggedError<SettingOutOfBounds>()
   "SettingOutOfBounds",
   {
     key: Schema.String,
-    level: Schema.Literals(["instance", "workspace", "account", "session"]),
+    level: Schema.Literals(["instance", "workspace", "account", "member", "session"]),
     message: Schema.String,
   },
   { httpApiStatus: 400 },
@@ -241,6 +241,7 @@ export class QuotaExceeded extends Schema.TaggedError<QuotaExceeded>()(
       "instance",
       "workspace",
       "account",
+      "member",
       "session",
     ]),
     limit: Schema.Number,

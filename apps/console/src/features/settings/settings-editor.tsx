@@ -1,4 +1,11 @@
-import { type SettingKey, type SettingView, saidAt } from "@aperture-browser/control-api";
+import {
+  type SettingKey,
+  type SettingLevel,
+  type SettingSource,
+  type SettingView,
+  adminsOnly,
+  saidAt,
+} from "@aperture-browser/control-api";
 import { Button } from "@aperture-browser/ui/components/button";
 import { ButtonGroup } from "@aperture-browser/ui/components/button-group";
 import {
@@ -15,7 +22,6 @@ import { CornerDownRight, Lock, Minus, Plus, SlidersHorizontal } from "lucide-re
 import { useState } from "react";
 import { Choice } from "#/components/choice.tsx";
 import {
-  LEVEL_WORDS,
   SETTING_GROUPS,
   SETTING_WORDS,
   SOURCE_WORDS,
@@ -53,10 +59,10 @@ export function useSettingsEditor(target: SettingsTarget) {
   const [drafts, setDrafts] = useState<Partial<Record<SettingKey, Draft>>>({});
   const [problems, setProblems] = useState<Partial<Record<SettingKey, string>>>({});
   const views = (settings.data ?? []).filter((setting) => saidAt(setting.key, target.level));
-  const bounds = (key: SettingKey) => boundsBelow(key, target.level);
+  const bounds = (setting: SettingView) => limitsBelow(setting, target.level);
   const changed = views.filter((setting) => {
     const draft = drafts[setting.key];
-    return draft !== undefined && changes(setting, draft, bounds(setting.key));
+    return draft !== undefined && changes(setting, draft, bounds(setting));
   });
 
   const change = (setting: SettingView, update: (draft: Draft) => Draft) => {
@@ -77,7 +83,7 @@ export function useSettingsEditor(target: SettingsTarget) {
       if (draft === undefined) {
         continue;
       }
-      const made = entryOf(setting.key, draft, bounds(setting.key));
+      const made = entryOf(setting.key, draft, bounds(setting));
       if ("problem" in made) {
         wrong[setting.key] = made.problem;
       } else {
@@ -116,6 +122,10 @@ export function useSettingsEditor(target: SettingsTarget) {
 }
 
 export type SettingsEditor = ReturnType<typeof useSettingsEditor>;
+
+/** Whether the levels below say a setting, and the caller holds them to bounds of it. */
+const limitsBelow = (setting: SettingView, level: SettingLevel) =>
+  setting.bounds && boundsBelow(setting.key, level);
 
 /** A number in a unit, typed or stepped by one, with the unit beside it. */
 function AmountField({
@@ -199,8 +209,19 @@ function AmountField({
   );
 }
 
+/**
+ * Who a level is, as a note says what holds a setting: to a person, who says no bounds of
+ * their own, whoever said those of their own levels is an admin.
+ */
+const byWhom = (setting: SettingView, level: SettingSource) =>
+  !setting.bounds && level === "account"
+    ? "an admin"
+    : !setting.bounds && level === "member"
+      ? "a workspace admin"
+      : `the ${SOURCE_WORDS[level]}`;
+
 /** The few words under a setting that say what holds it, and why it was not saved. */
-function notesOf(setting: SettingView) {
+function notesOf(setting: SettingView, level: SettingLevel) {
   const { key, here, effective, above } = setting;
   const notes: Array<string> = [];
   const lockedAt =
@@ -210,30 +231,33 @@ function notesOf(setting: SettingView) {
         ? above.allowed.level
         : null;
   if (lockedAt !== null) {
-    notes.push(`Locked by the ${LEVEL_WORDS[lockedAt]}`);
+    notes.push(`Locked by ${byWhom(setting, lockedAt)}`);
   } else {
     if (above.min !== null) {
       notes.push(
-        `At least ${valueWords(key, above.min.value)} by the ${LEVEL_WORDS[above.min.level]}`,
+        `At least ${valueWords(key, above.min.value)} by ${byWhom(setting, above.min.level)}`,
       );
     }
     if (above.max !== null) {
       notes.push(
-        `At most ${valueWords(key, above.max.value)} by the ${LEVEL_WORDS[above.max.level]}`,
+        `At most ${valueWords(key, above.max.value)} by ${byWhom(setting, above.max.level)}`,
       );
     }
     if (above.allowed !== null) {
       notes.push(
-        `Only ${above.allowed.values.map((one) => valueWords(key, one)).join(", ")} by the ${
-          LEVEL_WORDS[above.allowed.level]
-        }`,
+        `Only ${above.allowed.values.map((one) => valueWords(key, one)).join(", ")} by ${byWhom(
+          setting,
+          above.allowed.level,
+        )}`,
       );
     }
   }
   if (effective.clamped && here?.value !== undefined && effective.source !== "node") {
     notes.push(
-      `Held to ${valueWords(key, effective.value)} by the ${SOURCE_WORDS[effective.source]}`,
+      `Held to ${valueWords(key, effective.value)} by ${byWhom(setting, effective.source)}`,
     );
+  } else if (here?.value !== undefined && !setting.changeable && adminsOnly(key, level)) {
+    notes.push(`Set by ${byWhom(setting, level)}`);
   }
   return { notes, locked: lockedAt !== null };
 }
@@ -251,12 +275,10 @@ function SettingRow({
   const { key, here } = setting;
   const words = SETTING_WORDS[key];
   const draft = editor.drafts[key] ?? draftOf(setting);
-  const changed =
-    editor.drafts[key] !== undefined &&
-    changes(setting, draft, boundsBelow(key, editor.target.level));
-  const bounds = boundsBelow(key, editor.target.level);
+  const bounds = limitsBelow(setting, editor.target.level);
+  const changed = editor.drafts[key] !== undefined && changes(setting, draft, bounds);
   const inherited = inheritedOf(setting);
-  const { notes, locked } = notesOf(setting);
+  const { notes, locked } = notesOf(setting, editor.target.level);
   const problem = editor.problems[key];
   const disabled = !setting.changeable || editor.saving || (locked && here === null);
   const choice = isChoice(key);
@@ -494,6 +516,7 @@ function SectionsSkeleton() {
 /** A level's settings in their groups, a card of rows each, edited where they are. */
 export function SettingsSections({ editor }: { editor: SettingsEditor }) {
   const { settings, views, target } = editor;
+  const boundsColumn = views.some((setting) => limitsBelow(setting, target.level));
   if (settings.isError) {
     return (
       <p role="alert" className="aperture:text-sm aperture:text-destructive">
@@ -524,7 +547,7 @@ export function SettingsSections({ editor }: { editor: SettingsEditor }) {
                   key={setting.key}
                   editor={editor}
                   setting={setting}
-                  boundsColumn={target.level !== "session"}
+                  boundsColumn={boundsColumn}
                 />
               ))}
             </div>

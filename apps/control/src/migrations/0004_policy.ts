@@ -3,7 +3,8 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 /**
  * What the levels say of each setting: the deployment as `instance`, with no scope, and a
- * workspace, an account or a session by its id. The scope is named and not referenced: a
+ * workspace, an account or a session by its id, and an account as a member of a workspace
+ * by both, the workspace's first. The scope is named and not referenced: a
  * row of something that is removed for good goes with it, and nothing else holds it.
  *
  * A session is pinned, which keeps it from being deleted by itself, and since when it is
@@ -14,7 +15,8 @@ export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`
     CREATE TABLE settings (
-      level text NOT NULL CHECK (level IN ('instance', 'workspace', 'account', 'session')),
+      level text NOT NULL
+        CHECK (level IN ('instance', 'workspace', 'account', 'member', 'session')),
       scope_id text NOT NULL,
       key text NOT NULL,
       -- JSON, where JSON's null is never or no limit, and none is no value said here.

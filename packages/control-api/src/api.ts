@@ -1069,11 +1069,13 @@ export const About = Schema.Struct({
   commit: Schema.NullOr(Schema.String),
 });
 
-const refusedSetting = [Forbidden, WorkspaceNotFound, SessionNotFound] as const;
+const refusedSetting = [Forbidden, WorkspaceNotFound, SessionNotFound, AccountNotFound] as const;
 const changedSetting = [...refusedSetting, SettingInvalid, SettingOutOfBounds] as const;
 const setting = { key: SettingKey };
-/** The workspace an account's settings are seen in: none for what is its own. */
+/** The workspace the caller's settings are said in, as its member: none for what is their own. */
 const inWorkspace = { workspaceId: Schema.optional(Schema.NonEmptyString) };
+const person = { accountId: Id };
+const member = { id: Id, accountId: Id };
 
 export class SettingsGroup extends HttpApiGroup.make("settings")
   .add(
@@ -1123,6 +1125,38 @@ export class SettingsGroup extends HttpApiGroup.make("settings")
       success: SettingView,
       error: refusedSetting,
     }),
+    HttpApiEndpoint.get("person", "/accounts/:accountId/settings", {
+      params: person,
+      success: SettingViews,
+      error: refusedSetting,
+    }),
+    HttpApiEndpoint.put("setPerson", "/accounts/:accountId/settings/:key", {
+      params: { ...person, ...setting },
+      payload: SettingEntry,
+      success: SettingView,
+      error: changedSetting,
+    }),
+    HttpApiEndpoint.delete("clearPerson", "/accounts/:accountId/settings/:key", {
+      params: { ...person, ...setting },
+      success: SettingView,
+      error: refusedSetting,
+    }),
+    HttpApiEndpoint.get("member", "/workspaces/:id/members/:accountId/settings", {
+      params: member,
+      success: SettingViews,
+      error: refusedSetting,
+    }),
+    HttpApiEndpoint.put("setMember", "/workspaces/:id/members/:accountId/settings/:key", {
+      params: { ...member, ...setting },
+      payload: SettingEntry,
+      success: SettingView,
+      error: changedSetting,
+    }),
+    HttpApiEndpoint.delete("clearMember", "/workspaces/:id/members/:accountId/settings/:key", {
+      params: { ...member, ...setting },
+      success: SettingView,
+      error: refusedSetting,
+    }),
     HttpApiEndpoint.get("session", "/sessions/:id/settings", {
       params: session,
       success: SettingViews,
@@ -1144,7 +1178,7 @@ export class SettingsGroup extends HttpApiGroup.make("settings")
     OpenApi.annotations({
       title: "Settings",
       description:
-        "What sessions are held to, said at four levels: the deployment, a workspace, an account and a session. The nearest level that says a value is what a session has; a level also sets bounds, `min` and `max` or what is `allowed`, that the levels below it may not cross, and a bound of both ends alike is a lock. Each setting is told with what it comes to and where that comes from. The deployment's are an admin's to say and anyone's to read; a workspace's are its admins' to say and its members' to read; an account says its own; a session's are said by whoever made it or an admin of its workspace. Times are in seconds, and `null` is never or no limit.",
+        "What sessions are held to, said at five levels: the deployment, a workspace, a person (an account) wherever they are, a person as a member of one workspace, and a session. The nearest level that says a value is what a session has; a level also sets bounds, `min` and `max` or what is `allowed`, that it and the levels below it may not cross, and a bound of both ends alike is a lock. Each setting is told with what it comes to and where that comes from. The deployment's are an admin's to say and anyone's to read; a workspace's are its admins' to say and its members' to read. A person's are said at `/accounts/:accountId/settings` by an admin, and a member's at `/workspaces/:id/members/:accountId/settings` by an admin of the workspace or of the deployment; whoever says them reads them, and so does the person, at `/account/settings` (with `workspaceId` for what they have in a workspace). There the person says their own values, inside the bounds an admin set, which they neither change nor clear; a setting that is a quota (sessions, running and pinned sessions, memory and processors) is an admin's alone. A session's are said by whoever made it or an admin of its workspace, its quotas by an admin. Times are in seconds, and `null` is never or no limit.",
     }),
   ) {}
 

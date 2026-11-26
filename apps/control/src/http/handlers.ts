@@ -688,7 +688,13 @@ export const settingScopes = (target: Target): readonly [Scope | null, Scope] =>
       return [null, "admin"];
     case "workspace":
       return ["workspaces:read", "workspaces:write"];
+    // Another's are an admin's, and a member's an admin's of the workspace too.
     case "account":
+      return target.accountId === null ? ["sessions:read", "sessions:write"] : [null, "admin"];
+    case "member":
+      return target.accountId === null
+        ? ["sessions:read", "sessions:write"]
+        : ["workspaces:read", "workspaces:write"];
     case "session":
       return ["sessions:read", "sessions:write"];
   }
@@ -716,8 +722,13 @@ const settings = HttpApiBuilder.group(
       );
     const instance = { level: "instance" } as const;
     const workspace = (id: string) => ({ level: "workspace", id }) as const;
-    const account = (workspaceId: string | undefined) =>
-      ({ level: "account", workspaceId: workspaceId ?? null }) as const;
+    const account = (workspaceId: string | undefined): Target =>
+      workspaceId === undefined
+        ? { level: "account", accountId: null }
+        : { level: "member", workspaceId, accountId: null };
+    const person = (accountId: string) => ({ level: "account", accountId }) as const;
+    const member = (workspaceId: string, accountId: string) =>
+      ({ level: "member", workspaceId, accountId }) as const;
     const session = (id: string) => ({ level: "session", id }) as const;
     return handlers
       .handle("instance", () => reading(instance))
@@ -734,6 +745,18 @@ const settings = HttpApiBuilder.group(
       )
       .handle("clearAccount", ({ params, query }) =>
         clearing(account(query.workspaceId), params.key),
+      )
+      .handle("person", ({ params }) => reading(person(params.accountId)))
+      .handle("setPerson", ({ params, payload }) =>
+        setting(person(params.accountId), params.key, payload),
+      )
+      .handle("clearPerson", ({ params }) => clearing(person(params.accountId), params.key))
+      .handle("member", ({ params }) => reading(member(params.id, params.accountId)))
+      .handle("setMember", ({ params, payload }) =>
+        setting(member(params.id, params.accountId), params.key, payload),
+      )
+      .handle("clearMember", ({ params }) =>
+        clearing(member(params.id, params.accountId), params.key),
       )
       .handle("session", ({ params }) => reading(session(params.id)))
       .handle("setSession", ({ params, payload }) =>

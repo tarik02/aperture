@@ -25,7 +25,8 @@ import {
   ItemTitle,
 } from "@aperture-browser/ui/components/item";
 import { useForm, useStore } from "@tanstack/react-form";
-import { Trash2, Users } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { SlidersHorizontal, Trash2, Users } from "lucide-react";
 import { useRef, useState } from "react";
 import { Choice } from "#/components/choice.tsx";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
@@ -73,6 +74,7 @@ export function WorkspaceMembersDialog({
   const [removing, setRemoving] = useState<{ accountId: string; name: string }>();
   const removed = useLast(removing);
   const members = useWorkspaceMembersQuery(workspace.id, open);
+  const navigate = useNavigate();
   const inside = new Set(members.data?.map((member) => member.accountId));
   /** Whose the address that was typed is, as it was found when the form was sent. */
   const found = useRef("");
@@ -212,6 +214,21 @@ export function WorkspaceMembersDialog({
                           : admit.mutate({ accountId: member.accountId, role })
                       }
                     />
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={`Settings of ${member.name}`}
+                      title="Settings"
+                      data-console-member-settings
+                      onClick={() =>
+                        void navigate({
+                          to: "/-/workspaces/$workspaceId/members/$accountId/settings",
+                          params: { workspaceId: workspace.id, accountId: member.accountId },
+                        })
+                      }
+                    >
+                      <SlidersHorizontal />
+                    </Button>
                     <Button
                       size="icon-sm"
                       variant="ghost"

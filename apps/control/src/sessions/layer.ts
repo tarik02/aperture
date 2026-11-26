@@ -276,13 +276,25 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       );
   };
 
-  /** Refuses one more session where its settings say there are as many as there may be. */
+  /** Whether a quota is said of a person, and so counts their sessions alone. */
+  const personal = (setting: Effective[keyof Effective]) =>
+    setting.source === "account" || setting.source === "member";
+
+  /**
+   * Refuses one more session where its settings say there are as many as there may be. A
+   * quota of a workspace's holds of all of it besides one said of a person in it, which
+   * counts theirs alone.
+   */
   const withinQuotas = Effect.fn("Sessions.withinQuotas")(function* (
     effective: Effective,
     workspaceId: string | null,
     accountId: string | null,
     asked: { readonly creating: boolean; readonly running: boolean },
   ) {
+    const shared =
+      workspaceId === null
+        ? effective
+        : yield* policy.of({ workspaceId, accountId: null, sessionId: null, pinned: false });
     const quotas: ReadonlyArray<{
       readonly setting: Effective[keyof Effective];
       readonly what: string;
@@ -310,7 +322,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       ...(asked.running && (workspaceId !== null || accountId !== null)
         ? [
             {
-              setting: effective.runningSessions,
+              setting: shared.runningSessions,
               what: "running sessions",
               counted: () =>
                 store.count({
@@ -318,6 +330,18 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
                   accountId: workspaceId === null ? accountId : null,
                   running: true,
                 }),
+            },
+          ]
+        : []),
+      ...(asked.running &&
+      workspaceId !== null &&
+      accountId !== null &&
+      personal(effective.runningSessions)
+        ? [
+            {
+              setting: effective.runningSessions,
+              what: "running sessions of one user",
+              counted: () => store.count({ workspaceId, accountId, running: true }),
             },
           ]
         : []),
@@ -589,12 +613,33 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
             : `only an admin of the workspace pins its sessions: the ${effective.pinning.source} says so`,
       });
     }
-    const most = effective.maxPinnedSessions;
+    const { workspaceId, accountId } = session;
+    // A workspace's quota holds of all of it besides one said of a person, which counts theirs.
+    const quotas =
+      workspaceId === null
+        ? [{ most: effective.maxPinnedSessions, of: accountId }]
+        : [
+            {
+              most: (yield* policy.of({
+                workspaceId,
+                accountId: null,
+                sessionId: null,
+                pinned: false,
+              })).maxPinnedSessions,
+              of: null,
+            },
+            ...(accountId !== null && personal(effective.maxPinnedSessions)
+              ? [{ most: effective.maxPinnedSessions, of: accountId }]
+              : []),
+          ];
     yield* store.alone(
       session,
       Effect.gen(function* () {
-        if (pinned && typeof most.value === "number") {
-          const already = yield* store.pinnedOf(session.workspaceId, session.accountId);
+        for (const { most, of } of pinned ? quotas : []) {
+          if (typeof most.value !== "number") {
+            continue;
+          }
+          const already = yield* store.pinnedOf(workspaceId, of);
           if (already >= most.value) {
             return yield* new QuotaExceeded({
               what: "pinned sessions",

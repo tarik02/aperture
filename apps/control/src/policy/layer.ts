@@ -5,6 +5,7 @@ import {
   type SettingEntry,
   type SettingKey,
   type SettingView,
+  adminsOnly,
   SETTINGS,
   saidAt,
 } from "@aperture-browser/control-api";
@@ -15,7 +16,8 @@ import * as PubSub from "effect/PubSub";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 import { accountOf, actsOn, reaches } from "../accounts/caller.ts";
-import { Forbidden, SessionNotFound, WorkspaceNotFound } from "../errors.ts";
+import { AccountsStore } from "../accounts/store.ts";
+import { AccountNotFound, Forbidden, SessionNotFound, WorkspaceNotFound } from "../errors.ts";
 import { Events } from "../events/service.ts";
 import { SessionsStore } from "../sessions/store.ts";
 import { Settings } from "../settings/service.ts";
@@ -30,10 +32,25 @@ const KEYS = Object.keys(SETTINGS) as ReadonlyArray<SettingKey>;
 /** What the levels say, by level, scope and setting. */
 type Index = ReadonlyMap<string, SettingEntry>;
 
+/**
+ * The level a caller asks after: the scopes on the way to it, the widest first and it
+ * last, and whether they say its values, and its bounds and quotas.
+ */
+interface Reach {
+  readonly scopes: ReadonlyArray<Scope>;
+  readonly pinned: boolean;
+  readonly values: boolean;
+  readonly bounds: boolean;
+}
+
 const at = (scope: Scope, key: SettingKey) => `${scope.level}\u0000${scope.scopeId}\u0000${key}`;
 
 const indexOf = (said: ReadonlyArray<Said>): Index =>
   new Map(said.map((one) => [at(one, one.key), one.entry]));
+
+/** What a person has as a member of a workspace is said under both. */
+export const memberScope = (workspaceId: string, accountId: string) =>
+  `${workspaceId}:${accountId}`;
 
 /** The levels on the way to a session, the widest first. */
 const scopesOf = (place: Omit<Place, "pinned">): ReadonlyArray<Scope> => [
@@ -42,6 +59,9 @@ const scopesOf = (place: Omit<Place, "pinned">): ReadonlyArray<Scope> => [
     ? []
     : [{ level: "workspace", scopeId: place.workspaceId } as const]),
   ...(place.accountId === null ? [] : [{ level: "account", scopeId: place.accountId } as const]),
+  ...(place.workspaceId === null || place.accountId === null
+    ? []
+    : [{ level: "member", scopeId: memberScope(place.workspaceId, place.accountId) } as const]),
   ...(place.sessionId === null ? [] : [{ level: "session", scopeId: place.sessionId } as const]),
 ];
 
@@ -50,6 +70,22 @@ const chainOf = (index: Index, scopes: ReadonlyArray<Scope>, key: SettingKey): C
   scopes
     .filter((scope) => saidAt(key, scope.level))
     .map((scope) => ({ level: scope.level, entry: index.get(at(scope, key)) }));
+
+/** The bounds of an entry, without its value. */
+const boundsPart = (entry: SettingEntry | undefined): SettingEntry => ({
+  ...(entry?.min === undefined ? {} : { min: entry.min }),
+  ...(entry?.max === undefined ? {} : { max: entry.max }),
+  ...(entry?.allowed === undefined ? {} : { allowed: entry.allowed }),
+});
+
+/** Whether an entry says bounds other than those there are. */
+const boundsChange = (entry: SettingEntry, there: SettingEntry | undefined) =>
+  (entry.min !== undefined && entry.min !== there?.min) ||
+  (entry.max !== undefined && entry.max !== there?.max) ||
+  (entry.allowed !== undefined &&
+    (there?.allowed === undefined ||
+      entry.allowed.length !== there.allowed.length ||
+      entry.allowed.some((one) => !there.allowed?.includes(one))));
 
 /** Whether an entry says anything at all. */
 const saysSomething = (entry: SettingEntry) =>
@@ -62,6 +98,7 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
   const store = yield* PolicyStore;
   const sessions = yield* SessionsStore;
   const workspaces = yield* WorkspacesStore;
+  const accounts = yield* AccountsStore;
   const events = yield* Events;
   const { settingDefaults } = yield* Settings;
   const changed = yield* PubSub.unbounded<void>();
@@ -95,17 +132,15 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
       KEYS.map((key) => [key, effectiveOne(index, scopes, pinned, key)]),
     ) as Effective;
 
-  /**
-   * The level a caller asks after, if they see it: the scopes on the way to it, the
-   * widest first and it last, whether they change what it says, and what it is about.
-   */
+  /** The level a caller asks after, if they see it, and what it is about. */
   const reached = Effect.fn("Policy.reached")(function* (caller: Caller, target: Target) {
     switch (target.level) {
       case "instance":
         return {
           scopes: scopesOf({ workspaceId: null, accountId: null, sessionId: null }),
           pinned: false,
-          writes: caller.admin,
+          values: caller.admin,
+          bounds: caller.admin,
           resource: null,
           workspaceId: null,
         };
@@ -120,23 +155,72 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
           scopes: scopesOf({ workspaceId: target.id, accountId: null, sessionId: null }),
           pinned: false,
           // What a workspace's admins say of it, as they say who is in it.
-          writes: role === "admin" || caller.admin,
+          values: role === "admin" || caller.admin,
+          bounds: role === "admin" || caller.admin,
           resource: { kind: "workspace", id: target.id, label: workspace.value.name } as const,
           workspaceId: target.id,
         };
       }
       case "account": {
-        const account = yield* accountOf(caller);
-        const { workspaceId } = target;
-        if (workspaceId !== null && !caller.workspaces.some((one) => one.id === workspaceId)) {
-          return yield* new WorkspaceNotFound({ id: workspaceId });
+        const mine = Option.exists(caller.account, (own) => own.id === target.accountId);
+        if (target.accountId !== null && !mine && !caller.admin) {
+          return yield* new Forbidden({
+            message: "another person's settings are an admin's to see and to say",
+          });
         }
+        const account =
+          target.accountId === null || mine
+            ? yield* accountOf(caller)
+            : yield* Effect.flatMap(accounts.find(target.accountId), (found) =>
+                Option.isNone(found)
+                  ? Effect.fail(new AccountNotFound({ id: target.accountId ?? "" }))
+                  : Effect.succeed(found.value),
+              );
         return {
-          scopes: scopesOf({ workspaceId, accountId: account.id, sessionId: null }),
+          scopes: scopesOf({ workspaceId: null, accountId: account.id, sessionId: null }),
           pinned: false,
           // They hold for all the account has: a token held to resources reaches less.
-          writes: caller.resources === null,
+          values: caller.resources === null,
+          // A bound a person set on themselves would hold nobody but them, who lift it again.
+          bounds: caller.resources === null && caller.admin,
           resource: { kind: "account", id: account.id, label: account.name } as const,
+          workspaceId: null,
+        };
+      }
+      case "member": {
+        const { workspaceId } = target;
+        const workspace = yield* workspaces.find(workspaceId);
+        const role = caller.workspaces.find((one) => one.id === workspaceId)?.role ?? null;
+        const held =
+          caller.resources !== null && !caller.resources.workspaces.includes(workspaceId);
+        if (Option.isNone(workspace) || (role === null && !caller.admin) || held) {
+          return yield* new WorkspaceNotFound({ id: workspaceId });
+        }
+        const administers = role === "admin" || caller.admin;
+        const mine =
+          target.accountId === null ||
+          Option.exists(caller.account, (own) => own.id === target.accountId);
+        if (!mine && !administers) {
+          return yield* new Forbidden({
+            message: "a member's settings are for an admin of the workspace to see and to say",
+          });
+        }
+        const member = mine
+          ? yield* accountOf(caller)
+          : (yield* workspaces.members(workspaceId))
+              .map((one) => ({ id: one.accountId, name: one.name }))
+              .find((one) => one.id === target.accountId);
+        if (member === undefined || (mine && role === null)) {
+          return yield* mine
+            ? new WorkspaceNotFound({ id: workspaceId })
+            : new AccountNotFound({ id: target.accountId ?? "" });
+        }
+        return {
+          scopes: scopesOf({ workspaceId, accountId: member.id, sessionId: null }),
+          pinned: false,
+          values: caller.resources === null,
+          bounds: caller.resources === null && administers,
+          resource: { kind: "account", id: member.id, label: member.name } as const,
           workspaceId,
         };
       }
@@ -149,6 +233,7 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
         }
         const session = found.value;
         const mine = Option.exists(caller.account, (account) => account.id === session.accountId);
+        const acts = actsOn(caller, session, { kind: "sessions", id: session.id });
         const administers =
           session.workspaceId === null ||
           caller.workspaces.some((one) => one.id === session.workspaceId && one.role === "admin");
@@ -159,9 +244,15 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
             sessionId: session.id,
           }),
           pinned: session.pinned,
-          // What a session's maker says of it, or an admin of its workspace.
-          writes:
-            actsOn(caller, session, { kind: "sessions", id: session.id }) && (mine || administers),
+          // What a session's maker says of it, or an admin of its workspace; its quotas, an admin.
+          values: acts && (mine || administers),
+          bounds:
+            acts &&
+            (caller.admin ||
+              (session.workspaceId !== null &&
+                caller.workspaces.some(
+                  (one) => one.id === session.workspaceId && one.role === "admin",
+                ))),
           resource: { kind: "session", id: session.id, label: session.label } as const,
           workspaceId: session.workspaceId,
         };
@@ -171,27 +262,23 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
 
   const viewOf = (
     index: Index,
-    {
-      scopes,
-      pinned,
-      writes,
-    }: {
-      readonly scopes: ReadonlyArray<Scope>;
-      readonly pinned: boolean;
-      readonly writes: boolean;
-    },
+    { scopes, pinned, values, bounds }: Reach,
     key: SettingKey,
   ): SettingView => {
     const here = scopes[scopes.length - 1] ?? { level: "instance", scopeId: "" };
     const chain = chainOf(index, scopes, key);
     const saidHere = saidAt(key, here.level);
+    const entry = saidHere ? index.get(at(here, key)) : undefined;
+    // Who says no bounds here is held to those of this level as to those above.
+    const own = bounds ? entry : entry?.value === undefined ? undefined : { value: entry.value };
     return {
       key,
-      here: saidHere ? (index.get(at(here, key)) ?? null) : null,
+      here: own ?? null,
       effective: effectiveOne(index, scopes, pinned, key),
       inherited: effectiveOne(index, scopes.slice(0, -1), pinned, key),
-      above: boundsOf(chain.filter((link) => link.level !== here.level)),
-      changeable: writes && saidHere,
+      above: boundsOf(bounds ? chain.filter((link) => link.level !== here.level) : chain),
+      changeable: values && saidHere && (bounds || !adminsOnly(key, here.level)),
+      bounds: bounds && saidHere,
     };
   };
 
@@ -233,9 +320,21 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
           ? "the settings of the deployment are an admin's to say"
           : target.level === "workspace"
             ? "the settings of a workspace are for an admin of it to say"
-            : target.level === "account"
-              ? "a token held to resources says nothing of its account's settings"
+            : target.level === "account" || target.level === "member"
+              ? "a token held to resources says nothing of an account's settings"
               : "the settings of a session are for whoever made it, or an admin of its workspace, to say",
+    });
+
+  /** Why a caller who says the values of a level does not say this of it. */
+  const refusedBelowAdmins = (target: Target, key: SettingKey, quota: boolean) =>
+    new Forbidden({
+      message: quota
+        ? `${key} limits how much is used, and is ${target.level === "member" ? "for an admin of the workspace" : "for an admin"} to say`
+        : target.level === "member"
+          ? "the bounds of a member's settings are for an admin of the workspace to say"
+          : target.level === "account"
+            ? "the bounds of a person's settings are an admin's to say"
+            : "the bounds of a session's settings are for an admin to say",
     });
 
   const set = Effect.fn("Policy.set")(function* (
@@ -245,24 +344,34 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
     entry: SettingEntry,
   ) {
     const reach = yield* reached(caller, target);
-    if (!reach.writes) {
+    if (!reach.values) {
       return yield* refusedHere(target);
     }
     const here = reach.scopes[reach.scopes.length - 1] ?? { level: "instance", scopeId: "" };
     const before = indexOf(yield* store.of(reach.scopes));
-    const above = boundsOf(
-      chainOf(before, reach.scopes, key).filter((link) => link.level !== here.level),
-    );
-    const checked = check(key, here.level, entry, above);
+    const chain = chainOf(before, reach.scopes, key);
+    const there = before.get(at(here, key));
+    let said = entry;
+    let above = boundsOf(chain.filter((link) => link.level !== here.level));
+    if (!reach.bounds && saidAt(key, here.level)) {
+      const quota = adminsOnly(key, here.level);
+      if (quota || boundsChange(entry, there)) {
+        return yield* refusedBelowAdmins(target, key, quota);
+      }
+      // The value alone is theirs: the bounds stay, and hold it as those above do.
+      said = { ...(entry.value === undefined ? {} : { value: entry.value }), ...boundsPart(there) };
+      above = boundsOf(chain);
+    }
+    const checked = check(key, here.level, said, above);
     if (Result.isFailure(checked)) {
       return yield* checked.failure;
     }
-    if (saysSomething(entry)) {
-      yield* store.put({ ...here, key, entry }, yield* now);
+    if (saysSomething(said)) {
+      yield* store.put({ ...here, key, entry: said }, yield* now);
     } else {
       yield* store.remove(here, key);
     }
-    yield* recorded("setting.changed", target, reach, key, entry);
+    yield* recorded("setting.changed", target, reach, key, said);
     yield* touched();
     const index = indexOf(yield* store.of(reach.scopes));
     return viewOf(index, reach, key);
@@ -274,12 +383,23 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
     key: SettingKey,
   ) {
     const reach = yield* reached(caller, target);
-    if (!reach.writes) {
+    if (!reach.values) {
       return yield* refusedHere(target);
     }
     const here = reach.scopes[reach.scopes.length - 1] ?? { level: "instance", scopeId: "" };
-    yield* store.remove(here, key);
-    yield* recorded("setting.cleared", target, reach, key, {});
+    const kept = reach.bounds
+      ? {}
+      : boundsPart(indexOf(yield* store.of([here])).get(at(here, key)));
+    if (!reach.bounds && adminsOnly(key, here.level) && saidAt(key, here.level)) {
+      return yield* refusedBelowAdmins(target, key, true);
+    }
+    // Who says no bounds clears the value alone.
+    if (saysSomething(kept)) {
+      yield* store.put({ ...here, key, entry: kept }, yield* now);
+    } else {
+      yield* store.remove(here, key);
+    }
+    yield* recorded("setting.cleared", target, reach, key, kept);
     yield* touched();
     const index = indexOf(yield* store.of(reach.scopes));
     return viewOf(index, reach, key);

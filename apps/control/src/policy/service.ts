@@ -9,6 +9,7 @@ import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as Stream from "effect/Stream";
 import type {
+  AccountNotFound,
   Forbidden,
   SessionNotFound,
   SettingInvalid,
@@ -17,13 +18,15 @@ import type {
 } from "../errors.ts";
 
 /**
- * Where settings are said: the deployment, a workspace, the caller's own account, as it
- * has things of a workspace or of none, and one session.
+ * Where settings are said: the deployment, a workspace, a person wherever they are, a
+ * person as a member of a workspace, and one session. A person is the caller where none
+ * is named.
  */
 export type Target =
   | { readonly level: "instance" }
   | { readonly level: "workspace"; readonly id: string }
-  | { readonly level: "account"; readonly workspaceId: string | null }
+  | { readonly level: "account"; readonly accountId: string | null }
+  | { readonly level: "member"; readonly workspaceId: string; readonly accountId: string | null }
   | { readonly level: "session"; readonly id: string };
 
 /** What a session is had by, which says whose settings it has: those on the way to it. */
@@ -40,7 +43,7 @@ export interface Place {
 export type Effective = { readonly [K in SettingKey]: SettingEffective };
 
 /** What refuses a level's settings to be seen or changed. */
-export type TargetError = Forbidden | WorkspaceNotFound | SessionNotFound;
+export type TargetError = Forbidden | WorkspaceNotFound | SessionNotFound | AccountNotFound;
 
 /**
  * The settings a session has, said at each level from the deployment down to the

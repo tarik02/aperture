@@ -5,19 +5,30 @@ import { call, type Client, isFailure, told } from "#/lib/api.ts";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { queryKeys } from "#/lib/query-keys.ts";
 
-/** Where settings are said: the instance, a workspace, the account in one or in none, a session. */
+/**
+ * Where settings are said: the instance, a workspace, a person wherever they are, a person
+ * as a member of a workspace, a session. The person is whoever is signed in, where none is
+ * named.
+ */
 export type SettingsTarget =
   | { readonly level: "instance" }
   | { readonly level: "workspace"; readonly id: string }
-  | { readonly level: "account"; readonly workspaceId: string | null }
+  | { readonly level: "account"; readonly accountId: string | null }
+  | { readonly level: "member"; readonly workspaceId: string; readonly accountId: string | null }
   | { readonly level: "session"; readonly id: string };
 
-const keyOf = (target: SettingsTarget) =>
-  target.level === "instance"
-    ? queryKeys.settings("instance", "")
-    : target.level === "account"
-      ? queryKeys.settings("account", target.workspaceId ?? "")
-      : queryKeys.settings(target.level, target.id);
+const keyOf = (target: SettingsTarget) => {
+  switch (target.level) {
+    case "instance":
+      return queryKeys.settings("instance", "");
+    case "account":
+      return queryKeys.settings("account", target.accountId ?? "");
+    case "member":
+      return queryKeys.settings("member", `${target.workspaceId}:${target.accountId ?? ""}`);
+    default:
+      return queryKeys.settings(target.level, target.id);
+  }
+};
 
 const read = (target: SettingsTarget) => (api: Client) => {
   switch (target.level) {
@@ -26,9 +37,15 @@ const read = (target: SettingsTarget) => (api: Client) => {
     case "workspace":
       return api.settings.workspace({ params: { id: target.id } });
     case "account":
-      return api.settings.account({
-        query: target.workspaceId === null ? {} : { workspaceId: target.workspaceId },
-      });
+      return target.accountId === null
+        ? api.settings.account({ query: {} })
+        : api.settings.person({ params: { accountId: target.accountId } });
+    case "member":
+      return target.accountId === null
+        ? api.settings.account({ query: { workspaceId: target.workspaceId } })
+        : api.settings.member({
+            params: { id: target.workspaceId, accountId: target.accountId },
+          });
     case "session":
       return api.settings.session({ params: { id: target.id } });
   }
@@ -41,11 +58,23 @@ const write = (target: SettingsTarget, key: SettingKey, entry: SettingEntry) => 
     case "workspace":
       return api.settings.setWorkspace({ params: { id: target.id, key }, payload: entry });
     case "account":
-      return api.settings.setAccount({
-        params: { key },
-        query: target.workspaceId === null ? {} : { workspaceId: target.workspaceId },
-        payload: entry,
-      });
+      return target.accountId === null
+        ? api.settings.setAccount({ params: { key }, query: {}, payload: entry })
+        : api.settings.setPerson({
+            params: { accountId: target.accountId, key },
+            payload: entry,
+          });
+    case "member":
+      return target.accountId === null
+        ? api.settings.setAccount({
+            params: { key },
+            query: { workspaceId: target.workspaceId },
+            payload: entry,
+          })
+        : api.settings.setMember({
+            params: { id: target.workspaceId, accountId: target.accountId, key },
+            payload: entry,
+          });
     case "session":
       return api.settings.setSession({ params: { id: target.id, key }, payload: entry });
   }
@@ -58,10 +87,18 @@ const clear = (target: SettingsTarget, key: SettingKey) => (api: Client) => {
     case "workspace":
       return api.settings.clearWorkspace({ params: { id: target.id, key } });
     case "account":
-      return api.settings.clearAccount({
-        params: { key },
-        query: target.workspaceId === null ? {} : { workspaceId: target.workspaceId },
-      });
+      return target.accountId === null
+        ? api.settings.clearAccount({ params: { key }, query: {} })
+        : api.settings.clearPerson({ params: { accountId: target.accountId, key } });
+    case "member":
+      return target.accountId === null
+        ? api.settings.clearAccount({
+            params: { key },
+            query: { workspaceId: target.workspaceId },
+          })
+        : api.settings.clearMember({
+            params: { id: target.workspaceId, accountId: target.accountId, key },
+          });
     case "session":
       return api.settings.clearSession({ params: { id: target.id, key } });
   }

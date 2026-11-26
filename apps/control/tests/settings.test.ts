@@ -208,7 +208,8 @@ describe("what a level may say of a setting", () => {
       ["pinning", "workspace", { value: "everyone" }],
       ["pinning", "workspace", { min: 1 }],
       ["maxPinnedSessions", "workspace", { value: -1 }],
-      ["sessionsPerUser", "account", { value: 3 }],
+      ["sessionsPerWorkspace", "account", { value: 3 }],
+      ["apiTokenMaxLifetime", "member", { value: 3600 }],
       ["sessionMemory", "session", { value: 0.5 }],
       ["sessionCpus", "session", { value: 0 }],
     ] as const) {
@@ -279,7 +280,7 @@ suite(Control.layer())("settings over the API", (it) => {
           )?.effective,
         ).toMatchObject({ value: 3600, source: "workspace" });
 
-        // An account says its own, below the workspace it has things in.
+        // A person says their own as a member of the workspace, below it.
         const inTeam = { workspaceId: team.id };
         const mine = yield* Effect.flip(
           bea.api.settings.setAccount({
@@ -294,13 +295,29 @@ suite(Control.layer())("settings over the API", (it) => {
           query: inTeam,
           payload: { value: 5400 },
         });
-        expect(own.effective).toMatchObject({ value: 5400, source: "account" });
-        // Of what is its own, the workspace's bounds do not hold.
-        expect(
-          (yield* bea.api.settings.account({ query: {} })).settings.find(
-            (one) => one.key === "maxSessionAge",
-          )?.effective,
-        ).toMatchObject({ value: 5400, source: "account" });
+        expect(own.effective).toMatchObject({ value: 5400, source: "member" });
+        // Of what is their own, the workspace's bounds do not hold, nor what they said in it.
+        const apart = yield* bea.api.settings.setAccount({
+          params: { key: "maxSessionAge" },
+          query: {},
+          payload: { value: 9000 },
+        });
+        expect(apart.effective).toMatchObject({ value: 9000, source: "account" });
+        // What they say wherever they are holds in the workspace below what they say there.
+        const cleared = yield* bea.api.settings.clearAccount({
+          params: { key: "maxSessionAge" },
+          query: inTeam,
+        });
+        expect(cleared.effective).toMatchObject({
+          value: 7200,
+          source: "workspace",
+          clamped: true,
+        });
+        yield* bea.api.settings.setAccount({
+          params: { key: "maxSessionAge" },
+          query: inTeam,
+          payload: { value: 5400 },
+        });
 
         // A bound set after a value below it holds over that value.
         yield* ada.api.settings.setWorkspace({ params: at, payload: { value: 1200, max: 1800 } });
@@ -343,9 +360,198 @@ suite(Control.layer())("settings over the API", (it) => {
         // An admin of the workspace says it too.
         const theirs = yield* ada.api.settings.session({ params: { id: "settled" } });
         expect(theirs.settings.find((one) => one.key === "maxSessionAge")?.changeable).toBe(true);
-        const cleared = yield* ada.api.settings.clearWorkspace({ params: at });
-        expect(cleared.here).toBeNull();
+        const gone = yield* ada.api.settings.clearWorkspace({ params: at });
+        expect(gone.here).toBeNull();
       }),
+  );
+
+  it.effect("an admin holds a person to bounds they neither cross nor clear", () =>
+    Effect.gen(function* () {
+      const control = yield* Control.Control;
+      const root = yield* control.as(control.bootstrapToken);
+      const admin = yield* Control.account("Admiral", true);
+      const cy = yield* Control.account("Cy");
+      const theirs = { accountId: cy.account.id };
+
+      // An admin says a person's values and bounds wherever they are.
+      const said = yield* admin.api.settings.setPerson({
+        params: { ...theirs, key: "maxSessionAge" },
+        payload: { value: 3600, max: 7200 },
+      });
+      expect(said).toMatchObject({
+        here: { value: 3600, max: 7200 },
+        effective: { value: 3600, source: "account" },
+        changeable: true,
+        bounds: true,
+      });
+      yield* admin.api.settings.setPerson({
+        params: { ...theirs, key: "runningSessions" },
+        payload: { value: 2 },
+      });
+
+      // The person reads what was said for them, the bounds as those above theirs.
+      const read = (yield* cy.api.settings.account({ query: {} })).settings;
+      expect(read.find((one) => one.key === "maxSessionAge")).toMatchObject({
+        here: { value: 3600 },
+        above: { max: { value: 7200, level: "account" } },
+        changeable: true,
+        bounds: false,
+      });
+      expect(read.find((one) => one.key === "runningSessions")).toMatchObject({
+        here: { value: 2 },
+        effective: { value: 2, source: "account" },
+        changeable: false,
+      });
+
+      // They say their own value inside the bound, and none past it.
+      const beyond = yield* Effect.flip(
+        cy.api.settings.setAccount({
+          params: { key: "maxSessionAge" },
+          query: {},
+          payload: { value: 86_400 },
+        }),
+      );
+      expect(beyond).toMatchObject({ _tag: "SettingOutOfBounds", level: "account" });
+      const inside = yield* cy.api.settings.setAccount({
+        params: { key: "maxSessionAge" },
+        query: {},
+        payload: { value: 5400 },
+      });
+      expect(inside).toMatchObject({ here: { value: 5400 }, effective: { value: 5400 } });
+      // Clearing it clears their value alone: the bound stays.
+      const cleared = yield* cy.api.settings.clearAccount({
+        params: { key: "maxSessionAge" },
+        query: {},
+      });
+      expect(cleared).toMatchObject({ here: null, above: { max: { value: 7200 } } });
+      expect(
+        (yield* admin.api.settings.person({ params: theirs })).settings.find(
+          (one) => one.key === "maxSessionAge",
+        )?.here,
+      ).toEqual({ max: 7200 });
+
+      // Nor do they set bounds on themselves, nor a quota, nor clear one.
+      for (const payload of [{ max: 86_400 }, { value: 3600, max: 3600 }]) {
+        const bound = yield* Effect.flip(
+          cy.api.settings.setAccount({ params: { key: "maxSessionAge" }, query: {}, payload }),
+        );
+        expect(bound._tag, JSON.stringify(payload)).toBe("Forbidden");
+      }
+      const quota = yield* Effect.flip(
+        cy.api.settings.setAccount({
+          params: { key: "runningSessions" },
+          query: {},
+          payload: { value: 10 },
+        }),
+      );
+      expect(quota._tag).toBe("Forbidden");
+      const unquota = yield* Effect.flip(
+        cy.api.settings.clearAccount({ params: { key: "sessionMemory" }, query: {} }),
+      );
+      expect(unquota._tag).toBe("Forbidden");
+
+      // What the admin did is told as theirs, of the person, to the person as well.
+      const { events } = yield* cy.api.events.list({ query: { resourceId: cy.account.id } });
+      expect(
+        events
+          .filter((event) => event.kind === "setting.changed")
+          .map((event) => [event.actor.id ?? null, event.resource?.id]),
+      ).toEqual([
+        [cy.account.id, cy.account.id],
+        [admin.account.id, cy.account.id],
+        [admin.account.id, cy.account.id],
+      ]);
+      expect((yield* root.settings.person({ params: theirs })).settings.length).toBeGreaterThan(0);
+    }),
+  );
+
+  it.effect("a workspace's admin says what its members have there, and nowhere else", () =>
+    Effect.gen(function* () {
+      const dee = yield* Control.account("Dee");
+      const eli = yield* Control.account("Eli");
+      const fay = yield* Control.account("Fay");
+      const ours = yield* dee.api.workspaces.create({ payload: { name: "Ours" } });
+      const elsewhere = yield* fay.api.workspaces.create({ payload: { name: "Elsewhere" } });
+      for (const [id, admitted] of [
+        [ours.id, eli],
+        [elsewhere.id, eli],
+        [elsewhere.id, dee],
+      ] as const) {
+        yield* (id === ours.id ? dee : fay).api.workspaces.admit({
+          params: { id, accountId: admitted.account.id },
+          payload: { role: "member" },
+        });
+      }
+      const eliIn = (id: string) => ({ id, accountId: eli.account.id });
+
+      const said = yield* dee.api.settings.setMember({
+        params: { ...eliIn(ours.id), key: "sessionsPerUser" },
+        payload: { value: 3, max: 3 },
+      });
+      expect(said.effective).toMatchObject({ value: 3, source: "member" });
+      // The member reads it there, and changes nothing of it.
+      const theirs = (yield* eli.api.settings.account({ query: { workspaceId: ours.id } }))
+        .settings;
+      expect(theirs.find((one) => one.key === "sessionsPerUser")).toMatchObject({
+        effective: { value: 3, source: "member" },
+        above: { max: { value: 3, level: "member" } },
+        changeable: false,
+      });
+      // It holds in that workspace alone.
+      expect(
+        (yield* eli.api.settings.account({ query: { workspaceId: elsewhere.id } })).settings.find(
+          (one) => one.key === "sessionsPerUser",
+        )?.effective.source,
+      ).not.toBe("member");
+
+      // Where they are a member and no admin, they say nothing of another, nor read it.
+      const notAdmin = yield* Effect.flip(
+        dee.api.settings.setMember({
+          params: { ...eliIn(elsewhere.id), key: "sessionsPerUser" },
+          payload: { value: 1 },
+        }),
+      );
+      expect(notAdmin._tag).toBe("Forbidden");
+      const notRead = yield* Effect.flip(dee.api.settings.member({ params: eliIn(elsewhere.id) }));
+      expect(notRead._tag).toBe("Forbidden");
+      // Nor in a workspace they are not in at all.
+      const outside = yield* Effect.flip(
+        eli.api.settings.member({ params: { id: ours.id, accountId: dee.account.id } }),
+      );
+      expect(outside._tag).toBe("Forbidden");
+      const stranger = yield* Control.account("Gus");
+      const unseen = yield* Effect.flip(stranger.api.settings.member({ params: eliIn(ours.id) }));
+      expect(unseen._tag).toBe("WorkspaceNotFound");
+      // Of someone who is no member, there is nothing to say.
+      const none = yield* Effect.flip(
+        dee.api.settings.member({ params: { id: ours.id, accountId: fay.account.id } }),
+      );
+      expect(none._tag).toBe("AccountNotFound");
+    }),
+  );
+
+  it.effect("nobody but an admin reads or says another person's settings", () =>
+    Effect.gen(function* () {
+      const hal = yield* Control.account("Hal");
+      const ivy = yield* Control.account("Ivy");
+      const ivys = { accountId: ivy.account.id };
+      const read = yield* Effect.flip(hal.api.settings.person({ params: ivys }));
+      expect(read._tag).toBe("Forbidden");
+      const set = yield* Effect.flip(
+        hal.api.settings.setPerson({
+          params: { ...ivys, key: "clipboard" },
+          payload: { value: "off" },
+        }),
+      );
+      expect(set._tag).toBe("Forbidden");
+      const cleared = yield* Effect.flip(
+        hal.api.settings.clearPerson({ params: { ...ivys, key: "clipboard" } }),
+      );
+      expect(cleared._tag).toBe("Forbidden");
+      // Their own, by their id, they read as at their own.
+      const own = yield* ivy.api.settings.person({ params: ivys });
+      expect(own.settings.find((one) => one.key === "clipboard")?.bounds).toBe(false);
+    }),
   );
 });
 

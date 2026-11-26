@@ -67,6 +67,7 @@ export const boundBy = (setting: Effective[keyof Effective]) =>
   setting.source === "instance" ||
   setting.source === "workspace" ||
   setting.source === "account" ||
+  setting.source === "member" ||
   setting.source === "session"
     ? setting.source
     : "instance";

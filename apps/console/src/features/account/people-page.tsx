@@ -8,6 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@aperture-browser/ui/components/table";
+import { useNavigate } from "@tanstack/react-router";
 import { Plus, Users } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
@@ -41,7 +42,7 @@ import { ListEmpty } from "#/components/list-empty.tsx";
 import { when } from "#/lib/when.ts";
 
 /** What is asked again before it is done to a person. */
-type Confirming = Exclude<PersonDoing, "details" | "setup-link" | "enable">;
+type Confirming = Exclude<PersonDoing, "details" | "settings" | "setup-link" | "enable">;
 
 const CONFIRM: Record<
   Confirming,
@@ -85,6 +86,7 @@ export function PeoplePage() {
   const removePasskeys = useRemovePasskeysMutation();
   const disable = useDisableAccountMutation();
   const remove = useRemoveAccountMutation();
+  const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
   const [link, setLink] = useState<string>();
   const [opened, setOpened] = useState<string>();
@@ -101,6 +103,8 @@ export function PeoplePage() {
   const select = (account: Account, doing: PersonDoing) => {
     if (doing === "details") {
       setOpened(account.id);
+    } else if (doing === "settings") {
+      void navigate({ to: "/-/people/$accountId/settings", params: { accountId: account.id } });
     } else if (doing === "setup-link") {
       setupLink.mutate(account, { onSuccess: setLink });
     } else if (doing === "enable") {

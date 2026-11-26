@@ -70,7 +70,10 @@ export interface SessionsStoreShape {
     readonly accountId: string | null;
     readonly running: boolean;
   }) => Effect.Effect<number>;
-  /** How many sessions of a workspace are pinned; of an account's own, without one. */
+  /**
+   * How many sessions of a workspace are pinned, of one account alone where it is named;
+   * of an account's own, without one.
+   */
   readonly pinnedOf: (
     workspaceId: string | null,
     accountId: string | null,

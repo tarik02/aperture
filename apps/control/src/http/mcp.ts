@@ -92,7 +92,12 @@ const settingTarget = (where: {
     case "instance":
       return Effect.succeed({ level: "instance" });
     case "account":
-      return Effect.succeed({ level: "account", workspaceId: where.workspace_id ?? null });
+    case "member":
+      return Effect.succeed(
+        where.workspace_id === undefined
+          ? { level: "account", accountId: null }
+          : { level: "member", workspaceId: where.workspace_id, accountId: null },
+      );
     case "workspace":
       return where.workspace_id === undefined
         ? Effect.fail(

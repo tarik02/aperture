@@ -55,7 +55,7 @@ api -X PUT "$APERTURE_URL/api/control/workspaces/$WORKSPACE/members/$BOT" -d '{"
 
 ## Settings
 
-Settings are said at the instance, a workspace, the caller's account and a session, the nearest winning; each level may also set `min`/`max` (or `allowed` for a choice) that the levels below cannot cross. Times are in seconds, `null` is never or no limit.
+Settings are said at the instance, a workspace, an account, an account as a member of a workspace, and a session, the nearest winning; each level may also set `min`/`max` (or `allowed` for a choice) that it and the levels below cannot cross. Times are in seconds, `null` is never or no limit.
 
 ```bash
 api "$APERTURE_URL/api/control/sessions/$SESSION/settings" | jq '.settings[] | {key, effective}'
@@ -63,7 +63,8 @@ api -X PUT "$APERTURE_URL/api/control/workspaces/$WORKSPACE/settings/deleteSuspe
 api -X PUT "$APERTURE_URL/api/control/sessions/$SESSION/pin" -d '{"pinned":true}'
 ```
 
-- `effective.source` says where a value comes from (`instance`, `workspace`, `account`, `session`, `configuration`, `default`, or `node` for each node's own); `locked` is a bound of both ends alike.
+- `effective.source` says where a value comes from (`instance`, `workspace`, `account`, `member`, `session`, `configuration`, `default`, or `node` for each node's own); `locked` is a bound of both ends alike.
+- `/account/settings` (`?workspaceId=` for what the caller has in a workspace) is the caller's own: they say values there, inside bounds an admin set, and no bounds nor quotas (`changeable`, `bounds` say what they may). An admin says an account's at `/accounts/{accountId}/settings`, a workspace's admin a member's at `/workspaces/{id}/members/{accountId}/settings`.
 - A value past a bound above is refused with `SettingOutOfBounds`, whose `level` names who set the bound.
 - A pinned session is never deleted by `deleteSuspendedAfter` or `maxSessionAge`. Who pins is the `pinning` setting; one pin too many is `QuotaExceeded`.
 - Quotas (`sessionsPerUser`, `sessionsPerWorkspace`, `runningSessions`) refuse creating or resuming past them with `QuotaExceeded`; `sessionMemory` and `sessionCpus` bound what each session uses.
