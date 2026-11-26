@@ -286,16 +286,17 @@ function SettingRow({
   ];
 
   const value = (() => {
+    // What is inherited is shown as it would be set: changing it overrides it.
     if (draft.mode === "inherit") {
       if (choice) {
         return (
           <Choice
             aria-label="Value"
-            className="aperture:w-full"
-            disabled
+            className="aperture:w-full aperture:text-muted-foreground"
+            disabled={disabled}
             value={String(inherited.value)}
             options={choiceOptions}
-            onChange={() => undefined}
+            onChange={(chosen) => update({ mode: "set", choice: chosen })}
           />
         );
       }
@@ -305,9 +306,9 @@ function SettingRow({
             settingKey={key}
             label="Value"
             steps
-            disabled
+            disabled={disabled}
             value={amountOf(key, inherited.value)}
-            onChange={() => undefined}
+            onChange={(amount) => update({ mode: "set", value: amount })}
           />
         );
       }
