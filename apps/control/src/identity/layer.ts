@@ -19,6 +19,7 @@ import { AccountsStore } from "../accounts/store.ts";
 import { AccountInvalid, EmailTaken, PersonNotFound } from "../errors.ts";
 import { anonymous } from "../events/schemas.ts";
 import { Events } from "../events/service.ts";
+import * as Metrics from "../metrics.ts";
 import { type ActiveProvider, Providers } from "../providers/service.ts";
 import * as Secrets from "../secrets.ts";
 import { Settings } from "../settings/service.ts";
@@ -360,6 +361,7 @@ export const makeIdentity = Effect.fn("Identity.make")(function* () {
     detail: { readonly method: string; readonly provider?: string },
     from: Option.Option<string>,
   ) {
+    yield* Metrics.signedIn(detail.method);
     const account = personId === undefined ? Option.none() : yield* accounts.findByPerson(personId);
     yield* events.record({
       kind: "sign_in.succeeded",
@@ -382,12 +384,16 @@ export const makeIdentity = Effect.fn("Identity.make")(function* () {
     email: string | undefined,
     from: Option.Option<string>,
   ) =>
-    events.record({
-      kind: "sign_in.failed",
-      actor: anonymous(email ?? null),
-      address: Option.getOrNull(from),
-      detail,
-    });
+    Metrics.refusedSignIn(detail.method, detail.reason).pipe(
+      Effect.andThen(
+        events.record({
+          kind: "sign_in.failed",
+          actor: anonymous(email ?? null),
+          address: Option.getOrNull(from),
+          detail,
+        }),
+      ),
+    );
 
   /** Records what a request to a route that signs someone in came to. */
   const noted = Effect.fn(function* (

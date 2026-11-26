@@ -59,6 +59,7 @@ The pages below, with the packages and the REST API, are also a site: <https://a
 |---|---|
 | [Install](docs/install.md) | NixOS modules, Docker Compose, the container image, keys and tokens, first sign-in, TLS, nodes, data, health |
 | [Configuration](docs/configuration.md) | Every setting an operator sets, with its type and default |
+| [Monitoring](docs/monitoring.md) | Prometheus metrics of the control plane and the nodes, and what became of v1's |
 | [Using](docs/using.md) | MCP for agents, the REST API, embedding a session, share links, the Companion extension |
 | [Upgrading from v1](docs/upgrading-from-v1.md) | What changed, and the one-time migrator |
 | [`skills/aperture`](skills/aperture/SKILL.md) | The workflows an agent follows, written for agents |

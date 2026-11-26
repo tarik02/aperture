@@ -288,6 +288,7 @@ impl Automation {
         let tab = arguments.get("tab").cloned();
         let acted_on = tab.as_ref().and_then(Value::as_u64);
         if let Some(tab) = acted_on.filter(|_| !READS_ONLY.contains(&name)) {
+            self.session.shown.watch(tab as u32);
             self.recordings.follow(tab as u32).await;
         }
         let started = self.recordings.now();
@@ -497,7 +498,10 @@ impl Browser for Session {
             .iter()
             .find(|target| target.id == id)
             .cloned();
-        let tab = self.tab_of(&opened.context("the new tab closed")?);
+        let opened = opened.context("the new tab closed")?;
+        // What the automation opens it acts in next.
+        self.shown.watch(opened.tab);
+        let tab = self.tab_of(&opened);
 
         let cdp = self.cdp(tab).await?;
         let deadline = Instant::now() + LOAD_WITHIN;

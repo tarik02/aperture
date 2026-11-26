@@ -20,10 +20,13 @@ Refusals here are plain text with a status: `401` no good credential, `403` the 
 
 | Route | What it is | Access |
 |---|---|---|
-| `GET /` | The workbench page; append `?token=<ticket>` | watching |
-| `GET /targets` | The tabs: `id`, `tab`, `title`, `url`, size | watching |
+| `GET /` | The workbench page; append `?token=<ticket>`, and `&tab=<tab>` to watch that tab first in place of the one watched last | watching |
+| `GET /targets` | The tabs: `id`, `tab`, `title`, `url`, size, and `watched` for the tab watched last, which a new viewer watches | watching |
 | `GET /targets/{tab}/screenshot.png` | The tab as a PNG, now | watching |
 | `GET /targets/{tab}/favicon` | The icon of the tab's page, as the session's browser fetches it; `204` where the page has none | watching |
+| `GET /preview.png` | A suspended session's picture of the tab watched last, as it was suspended; `404` for one never suspended. Asking leaves the session at rest, as for the two below | watching |
+| `GET /previews` | The tabs of a suspended session as it was suspended: `watched`, and `tabs` with `tab`, `title`, `url`, `icon` (its type or `null`), `picture`; `404` for one last suspended by an earlier release, which has `/preview.png` alone | watching |
+| `GET /previews/{tab}`, `GET /previews/{tab}/favicon` | That tab's picture as a PNG, and its page's icon | watching |
 | `GET /recordings`, `GET /screenshots`, `GET /downloads`, `GET /uploads` | What there is of each, as JSON | `recordings:r`, `downloads:r`, `uploads:r` |
 | `POST /recordings` | Starts recording `tab` (the newest when left out); `follow: true` has it go on with the tab automation acts on | `recordings:w` |
 | `POST /recordings/{id}/stop` | Stops it; the body says how its edit is made: `capture`, `idle`, `ripple`, `burst`, `motion_threshold`, `fps` | `recordings:w` |

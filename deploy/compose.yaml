@@ -54,6 +54,7 @@ services:
       APERTURE_CONTROL_BOOTSTRAP_TOKEN_FILE: /keys/bootstrap-token
       APERTURE_CONTROL_PROXY_TOKEN_FILE: /keys/proxy-token
       APERTURE_CONTROL_REGISTRATION_TOKEN_FILE: /keys/registration-token
+      APERTURE_CONTROL_METRICS_LISTEN: ${APERTURE_CONTROL_METRICS_LISTEN:-}
     volumes:
       - keys:/keys:ro
       - postgres:/run/postgresql
@@ -91,6 +92,8 @@ services:
       APERTURE_TICKET_KEY: /keys/ticket.pub.pem
       APERTURE_FEATURES: ${APERTURE_FEATURES:-sound,uploads,downloads,recordings,clipboard,cdp,mcp}
       APERTURE_RTC_PORTS: ${APERTURE_RTC_PORTS:-60000-60999}
+      APERTURE_METRICS_LISTEN: ${APERTURE_NODE_METRICS_LISTEN:-}
+      APERTURE_METRICS_NO_PER_SESSION: ${APERTURE_METRICS_NO_PER_SESSION:-false}
     volumes:
       - keys:/keys:ro
       - node:/data

@@ -3,6 +3,7 @@
 
 mod asked;
 mod limits;
+mod metrics;
 mod registration;
 mod rpc;
 mod scopes;
@@ -23,7 +24,7 @@ use aperture_store::{
 };
 use axum::{
     Router,
-    extract::Path,
+    extract::{Path, State},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
     routing::get,
@@ -49,6 +50,16 @@ struct Arguments {
     /// by something else.
     #[arg(long, env = "APERTURE_NO_VIEWER")]
     no_viewer: bool,
+    /// Where Prometheus metrics are served, at `/metrics`, such as `127.0.0.1:9464`: an
+    /// address or a Unix socket, as `--listen` takes one, and another than that. They
+    /// are answered to anyone who reaches them. None are served without it, or with it
+    /// empty, as whatever names it whether or not it is wanted sets it.
+    #[arg(long, env = "APERTURE_METRICS_LISTEN")]
+    metrics_listen: Option<String>,
+    /// Leave out of the metrics what each running session uses, labelled with its id:
+    /// several series for every session that runs.
+    #[arg(long, env = "APERTURE_METRICS_NO_PER_SESSION")]
+    metrics_no_per_session: bool,
     /// Sessions and snapshots are kept here. `$XDG_STATE_HOME/aperture` by default.
     #[arg(long, env = "APERTURE_DATA_DIR")]
     data_dir: Option<PathBuf>,
@@ -290,7 +301,32 @@ async fn main() -> anyhow::Result<()> {
             scopes,
         },
     ));
+    // Before anyone is told of the sessions: what the sweep stops is not told as running.
+    sessions.sweep().await;
     tokio::spawn(sessions.clone().suspend_idle());
+    let metrics_listen = arguments
+        .metrics_listen
+        .as_deref()
+        .map(str::trim)
+        .filter(|named| !named.is_empty())
+        .map(str::parse::<Listen>)
+        .transpose()
+        .map_err(|reason| anyhow::anyhow!("--metrics-listen: {reason}"))?;
+    if let Some(listen) = metrics_listen {
+        let serving = metrics::Serving {
+            listen,
+            sessions: sessions.clone(),
+            per_session: !arguments.metrics_no_per_session,
+            data_dir: data_dir.clone(),
+            registers: registration.is_some(),
+        };
+        let served = metrics::listen(serving).await?;
+        tokio::spawn(async move {
+            if let Err(error) = served.await {
+                warn!("the metrics are served no more: {error}");
+            }
+        });
+    }
 
     // A session is created with a storage state as large as its runner takes one, which
     // is more than a request is let be otherwise.
@@ -305,14 +341,48 @@ async fn main() -> anyhow::Result<()> {
         );
     let shown = !arguments.no_viewer;
     let session = aperture_gateway::router(Arc::new(Door(sessions.clone())), shown);
-    let previews = sessions.clone();
-    let mut routes = Router::new()
-        .route(
-            &format!("{}/preview.png", sessions::path("{id}")),
-            get(move |Path(id): Path<String>| async move { preview(&previews, &id) })
-                .layer(axum::middleware::map_response(aperture_gateway::inert)),
-        )
-        .nest(&sessions::path("{id}"), session);
+    let at_rest =
+        Router::new()
+            .route(
+                &format!("{}/preview.png", sessions::path("{id}")),
+                get(
+                    |State(sessions): State<Arc<Sessions>>, Path(id): Path<String>| async move {
+                        let picture = Picture::Png(aperture_runner::PREVIEW.into());
+                        kept(&sessions, &id, picture)
+                    },
+                ),
+            )
+            .route(
+                &format!("{}/previews", sessions::path("{id}")),
+                get(
+                    |State(sessions): State<Arc<Sessions>>, Path(id): Path<String>| async move {
+                        kept(&sessions, &id, Picture::Tabs)
+                    },
+                ),
+            )
+            .route(
+                &format!("{}/previews/{{tab}}", sessions::path("{id}")),
+                get(
+                    |State(sessions): State<Arc<Sessions>>,
+                     Path((id, tab)): Path<(String, u32)>| async move {
+                        let file =
+                            PathBuf::from(aperture_runner::PREVIEWS).join(format!("{tab}.png"));
+                        kept(&sessions, &id, Picture::Png(file))
+                    },
+                ),
+            )
+            .route(
+                &format!("{}/previews/{{tab}}/favicon", sessions::path("{id}")),
+                get(
+                    |State(sessions): State<Arc<Sessions>>,
+                     Path((id, tab)): Path<(String, u32)>| async move {
+                        kept(&sessions, &id, Picture::Icon(tab))
+                    },
+                ),
+            )
+            .layer(axum::middleware::map_response(aperture_gateway::inert))
+            .with_state(sessions.clone());
+    let mut routes = at_rest.nest(&sessions::path("{id}"), session);
     if shown {
         // Routes mounted below a path are not at the path with a slash after it.
         let with_slash = format!("{}/", sessions::path("{id}"));
@@ -357,21 +427,65 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The picture of a session at rest. It is served here and not by the session, which
+/// What is asked of what a session's runner kept of it when it was last suspended.
+enum Picture {
+    /// A picture, below where the runner keeps what it keeps.
+    Png(PathBuf),
+    /// What tells of the pictures of its tabs.
+    Tabs,
+    /// The icon of a tab's page.
+    Icon(u32),
+}
+
+/// The pictures of a session at rest. They are served here and not by the session, which
 /// answers only while it runs.
-fn preview(sessions: &Sessions, id: &str) -> Response {
-    match sessions.preview(id) {
-        Ok(Some(picture)) => (
-            [
-                (header::CONTENT_TYPE, "image/png"),
-                (header::CACHE_CONTROL, "no-cache"),
-            ],
-            picture,
-        )
-            .into_response(),
+fn kept(sessions: &Sessions, id: &str, asked: Picture) -> Response {
+    let previews = std::path::Path::new(aperture_runner::PREVIEWS);
+    let read = |below: &std::path::Path| sessions.kept(id, below);
+    let found = match &asked {
+        Picture::Png(file) => read(file).map(|png| png.map(|png| ("image/png".to_owned(), png))),
+        Picture::Tabs => read(&previews.join(aperture_runner::TABS_KEPT))
+            .map(|told| told.map(|told| ("application/json".to_owned(), told))),
+        // What kind of picture it is was told when it was kept.
+        Picture::Icon(tab) => read(&previews.join(aperture_runner::TABS_KEPT)).and_then(|told| {
+            let kind = told
+                .and_then(|told| serde_json::from_slice::<aperture_runner::KeptTabs>(&told).ok())
+                .and_then(|told| told.tabs.into_iter().find(|kept| kept.tab == *tab))
+                .and_then(|kept| kept.icon);
+            let Some(kind) = kind else {
+                return Ok(None);
+            };
+            let icon = read(&previews.join(format!("{tab}.icon")))?;
+            Ok(icon.map(|icon| (kind, icon)))
+        }),
+    };
+    match found {
+        Ok(Some((kind, bytes))) => {
+            let mut told = vec![
+                (header::CONTENT_TYPE, kind),
+                (header::CACHE_CONTROL, "no-cache".to_owned()),
+            ];
+            if matches!(asked, Picture::Icon(_)) {
+                // An icon is drawn, with styles of its own where it is a drawing.
+                told.push((
+                    header::CONTENT_SECURITY_POLICY,
+                    "default-src 'none'; style-src 'unsafe-inline'; sandbox".to_owned(),
+                ));
+            }
+            let mut answer = bytes.into_response();
+            for (name, value) in told {
+                match header::HeaderValue::try_from(value) {
+                    Ok(value) => {
+                        answer.headers_mut().insert(name, value);
+                    }
+                    Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+                }
+            }
+            answer
+        }
         Ok(None) | Err(sessions::Error::Store(_)) => StatusCode::NOT_FOUND.into_response(),
         Err(err) => {
-            warn!(session = %id, "the session's picture is not read: {err}");
+            warn!(session = %id, "what the session kept of itself is not read: {err}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }

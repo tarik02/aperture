@@ -9,7 +9,10 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     io::{Read, Seek, SeekFrom},
-    os::unix::fs::DirBuilderExt,
+    os::unix::{
+        ffi::OsStrExt,
+        fs::{DirBuilderExt, MetadataExt},
+    },
     path::{Path, PathBuf},
     process::Stdio,
     sync::{Arc, Mutex},
@@ -31,6 +34,7 @@ use tracing::{info, warn};
 use crate::{
     asked::Asked,
     limits::Limits,
+    metrics::{self, Event, Start},
     scopes::{Scopes, Usage},
 };
 
@@ -38,6 +42,8 @@ use crate::{
 const START_WITHIN: Duration = Duration::from_secs(120);
 const STOP_WITHIN: Duration = Duration::from_secs(60);
 const POLL: Duration = Duration::from_millis(50);
+/// How long a runner that let go of its lock takes at most to exit.
+const EXIT_WITHIN: Duration = Duration::from_secs(5);
 /// How much of what a runner wrote the executor logs when its session fails to start.
 const RUNNER_LINES_LOGGED: usize = 20;
 /// How often sessions are looked at for having sat idle too long.
@@ -313,16 +319,17 @@ impl Sessions {
             shared.put_session(&record).await?;
         }
         info!(session = %record.id, ?snapshot_id, "session created");
+        metrics::event(Event::Created);
         if !suspended {
             let _busy = self.busy(&record.id).await;
             self.hold(&record.id, false).await?;
             match storage_state {
-                None => self.start(&record.id).await?,
+                None => self.start(&record.id, Start::Create).await?,
                 Some(state) => {
                     // Said before its browser is there: it is at no moment a session that
                     // runs without what it was to start with.
                     self.restoring(&record.id, true);
-                    if let Err(err) = self.start_as(&record.id, true).await {
+                    if let Err(err) = self.start_as(&record.id, true, Start::Create).await {
                         self.restoring(&record.id, false);
                         return Err(err);
                     }
@@ -342,18 +349,16 @@ impl Sessions {
         self.observe(self.store.session(id)?)
     }
 
-    /// The picture of what the session showed when it was last suspended; none for one
-    /// that never was. Asking for it reaches nobody: a session at rest stays at rest.
-    pub fn preview(&self, id: &str) -> Result<Option<Vec<u8>>> {
-        let picture = self
-            .store
-            .session_paths(id)?
-            .state
-            .join(aperture_runner::PREVIEW);
-        match fs::read(&picture) {
+    /// A file of what the session's runner kept of it, below where it keeps it: the
+    /// pictures of what it showed when it was last suspended. None where there is no such
+    /// file, as for a session that never was suspended. Asking for it reaches nobody: a
+    /// session at rest stays at rest.
+    pub fn kept(&self, id: &str, below: &std::path::Path) -> Result<Option<Vec<u8>>> {
+        let file = self.store.session_paths(id)?.state.join(below);
+        match fs::read(&file) {
             Ok(bytes) => Ok(Some(bytes)),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(err) => Err(Error::Io(picture, err)),
+            Err(err) => Err(Error::Io(file, err)),
         }
     }
 
@@ -414,14 +419,16 @@ impl Sessions {
         self.hold(id, takeover).await?;
         self.bring(id).await?;
         self.store.session(id)?;
-        self.start(id).await?;
+        self.start(id, Start::Resume).await?;
         self.get(id)
     }
 
     pub async fn suspend(&self, id: &str) -> Result<Session> {
         self.store.session(id)?;
         let _busy = self.busy(id).await;
-        self.stop(id).await?;
+        if self.stop(id).await? {
+            metrics::event(Event::Suspended);
+        }
         // Whoever asked for this resumes it too.
         self.store.set_session_asleep(id, false)?;
         self.share(id).await?;
@@ -512,7 +519,9 @@ impl Sessions {
         let _busy = self.busy(id).await;
         // Before it stops: whoever reaches it while it does waits and resumes it.
         self.store.set_session_asleep(id, true)?;
-        self.stop(id).await?;
+        if self.stop(id).await? {
+            metrics::event(Event::IdleSuspended);
+        }
         self.share(id).await
     }
 
@@ -527,7 +536,7 @@ impl Sessions {
             info!(session = %id, "someone reached a session that sat idle; resuming it");
             self.hold(id, false).await?;
             self.bring(id).await?;
-            self.start(id).await?;
+            self.start(id, Start::Wake).await?;
         }
         Ok(())
     }
@@ -599,6 +608,7 @@ impl Sessions {
         drop(busy);
         self.busy.lock().expect("not poisoned").remove(id);
         info!(session = %id, "session deleted");
+        metrics::event(Event::Deleted);
         Ok(())
     }
 
@@ -612,7 +622,7 @@ impl Sessions {
         self.stop(session_id).await?;
         let snapshot = self.store.create_snapshot(session_id, name);
         if running {
-            self.start(session_id).await?;
+            self.start(session_id, Start::Snapshot).await?;
         }
         let snapshot = snapshot?;
         if let Some(remote) = &self.config.snapshots {
@@ -808,13 +818,13 @@ impl Sessions {
 
     /// Starts the session's runner and waits until its browser serves. Does nothing for a
     /// session that has one.
-    async fn start(&self, id: &str) -> Result<()> {
-        self.start_as(id, false).await
+    async fn start(&self, id: &str, kind: Start) -> Result<()> {
+        self.start_as(id, false, kind).await
     }
 
     /// Starts it as one that is given a storage state next, where `restoring`: it says
     /// from its first moment that it is being restored.
-    async fn start_as(&self, id: &str, restoring: bool) -> Result<()> {
+    async fn start_as(&self, id: &str, restoring: bool, kind: Start) -> Result<()> {
         let runtime = self.runtime_dir(id);
         let io = |err| Error::Io(runtime.clone(), err);
         if is_alive(&runtime).map_err(io)? {
@@ -867,12 +877,12 @@ impl Sessions {
             .append(true)
             .open(&log_path)
             .map_err(|err| Error::Io(log_path.clone(), err))?;
+        // What the session's last run left behind would hold its profile, and keep its
+        // scope's name.
+        self.end_leftovers(id).await;
+        let starting = Instant::now();
         let mut command = match &self.config.scopes {
-            Some(scopes) => {
-                // What the session's last run left behind would keep its scope's name.
-                scopes.close(id).await;
-                scopes.start(id, &limits, &self.config.runner)
-            }
+            Some(scopes) => scopes.start(id, &limits, &self.config.runner),
             None => tokio::process::Command::new(&self.config.runner),
         };
         let child = command
@@ -895,8 +905,9 @@ impl Sessions {
         // Whoever started it uses it.
         self.touch(id, 0);
         match self.await_running(id, Some(child)).await {
-            Ok(()) => {}
+            Ok(()) => metrics::started(kind, starting.elapsed()),
             Err(Error::Start { id, mut reason }) => {
+                metrics::event(Event::Failed);
                 // The reason is what the runner saw; why its browser exited is in what the
                 // browser and its sandbox wrote, which is in the session's log alone.
                 let output = last_lines(&log_path, RUNNER_LINES_LOGGED);
@@ -961,21 +972,21 @@ impl Sessions {
     }
 
     /// Stops the session's runner, and with it the browser, and waits for both to be gone.
-    /// A session that failed is left suspended.
-    async fn stop(&self, id: &str) -> Result<()> {
+    /// A session that failed is left suspended. Says whether there was a runner to stop.
+    async fn stop(&self, id: &str) -> Result<bool> {
         let runtime = self.runtime_dir(id);
         let io = |err| Error::Io(runtime.clone(), err);
         let deadline = Instant::now() + STOP_WITHIN;
-        let mut signalled = false;
+        let mut signalled = None;
         while is_alive(&runtime).map_err(io)? {
             // The lock is held, so the pid in the status is the runner's. A runner that
             // has not written one yet does so right away.
             if let Some(status) = read_status(&runtime).map_err(io)? {
                 let pid = status.pid as libc::pid_t;
-                if !signalled {
+                if signalled.is_none() {
                     // Safety: plain signal to a process of this user.
                     unsafe { libc::kill(pid, libc::SIGTERM) };
-                    signalled = true;
+                    signalled = Some(pid);
                 } else if Instant::now() >= deadline {
                     warn!(session = %id, "the runner did not stop in time; killing its group");
                     // Safety: as above, to the group the runner was started as.
@@ -990,14 +1001,86 @@ impl Sessions {
             sleep(POLL).await;
         }
         remove_file(&aperture_runner::status_path(&runtime))?;
-        if let Some(scopes) = &self.config.scopes {
-            scopes.close(id).await;
+        if let Some(pid) = signalled {
+            // It lets go of its lock a moment before it exits, and is no leftover meanwhile.
+            let deadline = Instant::now() + EXIT_WITHIN;
+            while runner_of(pid, &self.config.runtime_root).as_deref() == Some(id)
+                && Instant::now() < deadline
+            {
+                sleep(POLL).await;
+            }
         }
+        self.end_leftovers(id).await;
         self.activity.lock().expect("not poisoned").remove(id);
-        if signalled {
+        if signalled.is_some() {
             info!(session = %id, "session suspended");
         }
-        Ok(())
+        Ok(signalled.is_some())
+    }
+
+    /// Stops the runners that an earlier executor left without the state they are found by,
+    /// as when the runtime directory was removed under them: no request would reach them or
+    /// stop them, and each would hold its session's profile for as long as it runs. Their
+    /// sessions are told as suspended after, which whoever wants them running resumes.
+    /// Runners whose state is there are left alone: they are the sessions this executor
+    /// goes on with.
+    pub async fn sweep(&self) {
+        let mut ids: HashSet<String> = runners(&self.config.runtime_root)
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        if let Some(scopes) = &self.config.scopes {
+            ids.extend(scopes.sessions().await);
+        }
+        let swept = ids.into_iter().map(|id| async move {
+            let _busy = self.busy(&id).await;
+            let runtime = self.runtime_dir(&id);
+            match is_alive(&runtime) {
+                Ok(true) => return,
+                Ok(false) => {}
+                Err(err) => warn!(session = %id, "the session's state is not read: {err}"),
+            }
+            warn!(
+                session = %id,
+                "the session's runner was left without its state; stopping it"
+            );
+            self.end_leftovers(&id).await;
+            if let Err(err) = remove_file(&aperture_runner::status_path(&runtime)) {
+                warn!(session = %id, "{err}");
+            }
+        });
+        futures_util::future::join_all(swept).await;
+    }
+
+    /// Ends what is left of the session while no runner holds its runtime directory: its
+    /// scope, or, without scopes, a runner an earlier executor started that holds a
+    /// directory that is gone.
+    async fn end_leftovers(&self, id: &str) {
+        if let Some(scopes) = &self.config.scopes {
+            scopes.close(id).await;
+            return;
+        }
+        let root = &self.config.runtime_root;
+        let left = runners(root)
+            .into_iter()
+            .filter(|(of, _)| of == id)
+            .map(|(_, pid)| pid);
+        for pid in left {
+            warn!(session = %id, pid, "stopping a runner of the session that has no state");
+            // Safety: plain signal to a process of this user, which was just seen to be
+            // the session's runner.
+            unsafe { libc::kill(pid, libc::SIGTERM) };
+            let deadline = Instant::now() + STOP_WITHIN;
+            while runner_of(pid, root).as_deref() == Some(id) {
+                if Instant::now() >= deadline {
+                    warn!(session = %id, pid, "the runner did not stop in time; killing its group");
+                    // Safety: as above, to the group it was started as.
+                    unsafe { libc::kill(-pid, libc::SIGKILL) };
+                    break;
+                }
+                sleep(POLL).await;
+            }
+        }
     }
 
     async fn busy(&self, id: &str) -> tokio::sync::OwnedMutexGuard<()> {
@@ -1074,6 +1157,43 @@ fn last_lines(path: &Path, count: usize) -> String {
     let text = String::from_utf8_lossy(&bytes);
     let lines: Vec<&str> = text.lines().collect();
     lines[lines.len().saturating_sub(count)..].join("\n")
+}
+
+/// The runners of this user that run a session below `root`, by session: whichever
+/// executor started them, and whether or not their runtime directory is still there.
+fn runners(root: &Path) -> Vec<(String, libc::pid_t)> {
+    let Ok(processes) = fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    processes
+        .filter_map(|entry| entry.ok()?.file_name().to_str()?.parse().ok())
+        .filter_map(|pid| Some((runner_of(pid, root)?, pid)))
+        .collect()
+}
+
+/// The session the process runs as its runner, when it is this user's runner of a session
+/// below `root`. A runner is started with its runtime directory as its one argument.
+fn runner_of(pid: libc::pid_t, root: &Path) -> Option<String> {
+    let process = PathBuf::from(format!("/proc/{pid}"));
+    // Safety: no arguments, cannot fail.
+    if fs::metadata(&process).ok()?.uid() != unsafe { libc::getuid() } {
+        return None;
+    }
+    // Empty for a process that ended and is not reaped yet.
+    let line = fs::read(process.join("cmdline")).ok()?;
+    let arguments: Vec<&[u8]> = line.strip_suffix(b"\0")?.split(|&byte| byte == 0).collect();
+    let [program, runtime] = arguments[..] else {
+        return None;
+    };
+    let program = Path::new(std::ffi::OsStr::from_bytes(program));
+    if program.file_name()? != "aperture-runner" {
+        return None;
+    }
+    let runtime = Path::new(std::ffi::OsStr::from_bytes(runtime));
+    if runtime.parent()? != root {
+        return None;
+    }
+    Some(runtime.file_name()?.to_str()?.to_owned())
 }
 
 fn now_ms() -> u64 {

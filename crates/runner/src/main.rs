@@ -41,7 +41,8 @@ use tracing::{info, warn};
 use crate::{alone::Front, live::record::Recordings};
 
 const TARGET_READY_WITHIN: Duration = Duration::from_secs(30);
-/// How long the session's last picture may take: stopping does not wait on it for long.
+/// How long the last pictures of the session's tabs may take, all of them: stopping does
+/// not wait on them for long.
 const PREVIEW_WITHIN: Duration = Duration::from_secs(2);
 
 // Children are told to die with the thread that started them (see `own`). `main`'s future
@@ -156,6 +157,8 @@ struct Session {
     sound: Arc<live::sound::Sound>,
     /// From when the browser serves DevTools.
     live: Option<Service>,
+    /// The icons of the tabs' pages, and the pages to ask for them, from then too.
+    icons: Option<(Arc<live::icons::Icons>, pages::Pages)>,
     recordings: Option<Recordings>,
     /// Of a session that runs on its own.
     served: Option<JoinHandle<()>>,
@@ -278,6 +281,7 @@ async fn run(spec: &Spec, status: &mut Status, front: Option<&Front>) -> anyhow:
         registry,
         sound,
         live: None,
+        icons: None,
         recordings: None,
         served: None,
     };
@@ -361,7 +365,7 @@ impl Session {
         write_status(&spec.runtime_dir, status)?;
         // The tabs are kept as they are now, not as the browser takes them down.
         self.registry.freeze();
-        self.keep_preview(spec).await;
+        self.keep_previews(spec).await;
         // While the browser still shows what they record.
         if let Some(recordings) = &self.recordings {
             recordings.stop_all().await;
@@ -370,28 +374,99 @@ impl Session {
         Ok(())
     }
 
-    /// Keeps a small picture of what the session showed last, with what the runner keeps
-    /// of it: a session at rest is known by it, on whichever node it is looked at.
-    async fn keep_preview(&self, spec: &Spec) {
-        let Some(window) = self
-            .registry
-            .targets()
-            .borrow()
-            .first()
-            .map(|target| target.window)
+    /// Keeps a small picture of each of the session's tabs, with what the runner keeps of
+    /// it: a session at rest is known by them, on whichever node it is looked at. The one
+    /// of the tab watched last, or of the newest, is the session's own picture.
+    async fn keep_previews(&self, spec: &Spec) {
+        let targets = self.registry.targets().borrow().clone();
+        let watched = self.registry.tabs().watched();
+        let Some(shown) = targets
+            .iter()
+            .find(|target| Some(target.tab) == watched)
+            .or(targets.last())
+            .map(|target| target.tab)
         else {
             return;
         };
-        let kept = async {
-            let frame = timeout(PREVIEW_WITHIN, self.compositor.screenshot(window)).await??;
-            let picture =
-                tokio::task::spawn_blocking(move || live::shots::preview(&frame)).await??;
-            tokio::fs::write(spec.state_dir.join(aperture_runner::PREVIEW), picture).await?;
+        let known: Vec<String> = targets.iter().map(|target| target.id.clone()).collect();
+        let known = &known;
+        // Those that do not come in time are not waited for, nor kept: the picture of a
+        // tab, nor its page's icon, which its page is asked for.
+        let kept = targets.iter().map(|target| async move {
+            let picture = async {
+                let frame = self.compositor.screenshot(target.window).await?;
+                let picture =
+                    tokio::task::spawn_blocking(move || live::shots::preview(&frame)).await??;
+                anyhow::Ok(picture)
+            };
+            let icon = async {
+                let (icons, pages) = self.icons.as_ref()?;
+                icons.of(pages, target, known).await
+            };
+            let (picture, icon) = tokio::join!(
+                timeout(PREVIEW_WITHIN, picture),
+                timeout(PREVIEW_WITHIN, icon)
+            );
+            let picture = picture.map_err(anyhow::Error::from).and_then(|made| made);
+            (target, picture, icon.ok().flatten())
+        });
+        let made = futures_util::future::join_all(kept).await;
+        let written = async {
+            let directory = spec.state_dir.join(aperture_runner::PREVIEWS);
+            let aside = spec
+                .state_dir
+                .join(format!("{}.new", aperture_runner::PREVIEWS));
+            match tokio::fs::remove_dir_all(&aside).await {
+                Ok(()) => {}
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => return Err(err.into()),
+            }
+            tokio::fs::create_dir_all(&aside).await?;
+            let mut told = aperture_runner::KeptTabs {
+                watched: Some(shown),
+                tabs: Vec::new(),
+            };
+            for (target, picture, icon) in made {
+                let picture = picture
+                    .inspect_err(|err| {
+                        warn!(session = %spec.session_id, tab = target.tab, "no picture of a tab is kept: {err:#}");
+                    })
+                    .ok();
+                if let Some(picture) = &picture {
+                    tokio::fs::write(aside.join(format!("{}.png", target.tab)), picture).await?;
+                    if target.tab == shown {
+                        tokio::fs::write(spec.state_dir.join(aperture_runner::PREVIEW), picture)
+                            .await?;
+                    }
+                }
+                if let Some(icon) = &icon {
+                    tokio::fs::write(aside.join(format!("{}.icon", target.tab)), &icon.bytes)
+                        .await?;
+                }
+                told.tabs.push(aperture_runner::KeptTab {
+                    tab: target.tab,
+                    title: target.title.clone(),
+                    url: target.url.clone(),
+                    icon: icon.map(|icon| icon.kind.to_owned()),
+                    picture: picture.is_some(),
+                });
+            }
+            tokio::fs::write(
+                aside.join(aperture_runner::TABS_KEPT),
+                serde_json::to_vec(&told)?,
+            )
+            .await?;
+            match tokio::fs::remove_dir_all(&directory).await {
+                Ok(()) => {}
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => return Err(err.into()),
+            }
+            tokio::fs::rename(&aside, &directory).await?;
             anyhow::Ok(())
         };
-        if let Err(err) = kept.await {
+        if let Err(err) = written.await {
             // The session is suspended all the same.
-            warn!(session = %spec.session_id, "no picture of the session is kept: {err:#}");
+            warn!(session = %spec.session_id, "no pictures of the session's tabs are kept: {err:#}");
         }
     }
 
@@ -442,6 +517,8 @@ impl Session {
             spec.files_dir.clone(),
             &presence,
         ));
+        let icons = Arc::new(live::icons::Icons::default());
+        self.icons = Some((icons.clone(), pages.clone()));
         let served = live::Live {
             browser: devtools,
             compositor: self.compositor.clone(),
@@ -449,7 +526,7 @@ impl Session {
             targets: targets(),
             tabs,
             previews: Arc::default(),
-            icons: Arc::default(),
+            icons: icons.clone(),
             recordings: recordings.clone(),
             pace,
             restore: restore::Restoring::new(spec.restoring),

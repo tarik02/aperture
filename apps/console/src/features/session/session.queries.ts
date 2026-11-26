@@ -38,6 +38,8 @@ const Target = Schema.Struct({
   tab: Schema.Number,
   title: Schema.String,
   url: Schema.String,
+  /** It is the tab watched last, which whoever opens the session watches. */
+  watched: Schema.optional(Schema.Boolean),
 });
 export type Target = typeof Target.Type;
 
@@ -60,5 +62,49 @@ export function useSessionTargetsQuery(session: Session) {
     },
     enabled: path !== null && session.observedState === "running",
     refetchInterval: SHOWN_EVERY,
+  });
+}
+
+/** The tabs of a session as it was last suspended, as its node keeps them beside their pictures. */
+const KeptTabs = Schema.Struct({
+  /** The tab watched last, whose picture is the session's own. */
+  watched: Schema.NullOr(Schema.Number),
+  tabs: Schema.Array(
+    Schema.Struct({
+      tab: Schema.Number,
+      title: Schema.String,
+      url: Schema.String,
+      /** What kind of picture the tab's icon is; none where its page had none. */
+      icon: Schema.NullOr(Schema.String),
+      /** Its picture was kept. */
+      picture: Schema.Boolean,
+    }),
+  ),
+});
+export type KeptTabs = typeof KeptTabs.Type;
+
+const decodeKeptTabs = Schema.decodeUnknownPromise(KeptTabs);
+
+/**
+ * The tabs a session that rests had as it was last suspended; none where its node kept
+ * none of them, as for one suspended before nodes did. Asked again as it rests anew.
+ */
+export function useSessionKeptTabsQuery(session: Session) {
+  const path = session.path;
+  const at = session.observedAt.epochMilliseconds;
+  return useQuery({
+    queryKey: queryKeys.keptTabs(session.id, at),
+    queryFn: async () => {
+      const answer = await fetch(`${path}/previews`);
+      if (answer.status === 404) {
+        return null;
+      }
+      if (!answer.ok) {
+        throw new Error(`the node answered ${answer.status}`);
+      }
+      return decodeKeptTabs(await answer.json());
+    },
+    enabled: path !== null && session.observedState === "suspended",
+    staleTime: Number.POSITIVE_INFINITY,
   });
 }

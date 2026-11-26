@@ -316,3 +316,31 @@ pub const STATE_BYTES: usize = 64 * 1024 * 1024;
 
 /// The picture of what a session showed last, in what its runner keeps of it.
 pub const PREVIEW: &str = "preview.png";
+
+/// The pictures of a session's tabs as it was last suspended, in what its runner keeps of
+/// it: `<tab>.png` and `<tab>.icon` of each, and [`TABS_KEPT`] that tells of them. A session
+/// suspended by an earlier runner has none, only its [`PREVIEW`].
+pub const PREVIEWS: &str = "previews";
+
+/// What tells of the pictures in [`PREVIEWS`], written there last.
+pub const TABS_KEPT: &str = "tabs.json";
+
+/// The tabs of a session as it was last suspended.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct KeptTabs {
+    /// The tab that was watched last, whose picture is the session's [`PREVIEW`].
+    pub watched: Option<u32>,
+    /// In the order they came to be.
+    pub tabs: Vec<KeptTab>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeptTab {
+    pub tab: u32,
+    pub title: String,
+    pub url: String,
+    /// What kind of picture the tab's icon is; none where its page has none.
+    pub icon: Option<String>,
+    /// Its picture is kept: one that did not come in time is not.
+    pub picture: bool,
+}
