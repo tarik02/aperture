@@ -1026,7 +1026,9 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
         yield* rested(page);
         yield* shot(page, fs, "console-settings-person");
         // What is changed is saved at the dialog's foot, and not closed away unasked.
-        yield* page.click(`${running} [aria-label="Less"]`);
+        yield* page.click(
+          `${DIALOG} [data-console-setting="suspendIdleAfter"] [aria-label="More"]`,
+        );
         yield* page.until(
           `document.querySelector("[data-console-settings-footer]")?.textContent.includes("1 unsaved change")`,
         );
