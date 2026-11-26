@@ -238,7 +238,9 @@ export function TabCard({ session, tab }: { session: Session; tab: ShownTab }) {
     <article
       data-console-tab-card={tab.tab}
       data-console-tab-session={session.id}
-      className="aperture:group/card aperture:relative aperture:aspect-[4/3] aperture:rounded-xl aperture:bg-muted aperture:ring-1 aperture:ring-foreground/10"
+      data-watched={tab.watched ? "" : undefined}
+      title={tab.watched ? "Watched last: the session opens on it" : undefined}
+      className="aperture:group/card aperture:relative aperture:aspect-[4/3] aperture:rounded-xl aperture:bg-muted aperture:ring-1 aperture:ring-foreground/10 aperture:data-watched:ring-2 aperture:data-watched:ring-primary"
     >
       <div className="aperture:absolute aperture:inset-0 aperture:[clip-path:inset(0_round_calc(var(--radius)*1.4))]">
         <Link

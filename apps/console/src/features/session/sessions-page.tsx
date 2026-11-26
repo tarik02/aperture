@@ -16,6 +16,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { filter, Filters } from "#/components/filter-menu.tsx";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
@@ -93,8 +94,8 @@ const tabMatches = (tab: { title: string; url: string }, sought: string) =>
   [tab.title, tab.url].some((text) => text.toLowerCase().includes(sought));
 
 /**
- * A session's tabs, each as a card of its own, under the session's name: those that are
- * sought, all of them where the session itself is. Nothing where none is.
+ * A session as a row: what it is, then its tabs side by side, those that are sought, all
+ * of them where the session itself is. Nothing where none is.
  */
 function SessionTabs({ session, sought }: { session: Session; sought: string }) {
   const { tabs } = useSessionPicture(session, TAB_WIDTH);
@@ -110,17 +111,37 @@ function SessionTabs({ session, sought }: { session: Session; sought: string }) 
     <section
       data-console-session-tabs-group={session.id}
       aria-label={name}
-      className="aperture:grid aperture:gap-2"
+      className="aperture:grid aperture:gap-3 aperture:border-b aperture:border-border aperture:pb-4 aperture:last:border-b-0 aperture:md:grid-cols-[13rem_minmax(0,1fr)]"
     >
-      <h2 className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-2 aperture:text-sm aperture:font-medium">
-        <span className="aperture:truncate">{name}</span>
-        <SessionStatusBadge session={session} />
-      </h2>
-      <div className={CARD_GRID}>
-        {shown.map((tab) => (
-          <TabCard key={tab.tab} session={session} tab={tab} />
-        ))}
+      <div className="aperture:flex aperture:min-w-0 aperture:flex-col aperture:gap-1.5 aperture:pt-1">
+        <h2 className="aperture:min-w-0 aperture:text-sm aperture:font-medium">
+          <Link
+            to="/-/sessions/$sessionId"
+            params={{ sessionId: session.id }}
+            title={name}
+            className="aperture:block aperture:truncate aperture:hover:underline"
+          >
+            {name}
+          </Link>
+        </h2>
+        <div className="aperture:flex aperture:flex-wrap aperture:items-center aperture:gap-2">
+          <SessionStatusBadge session={session} />
+          <span className="aperture:text-xs aperture:text-muted-foreground">
+            {tabs.length === 1 ? "1 tab" : `${tabs.length} tabs`}
+          </span>
+        </div>
+        <span className="aperture:truncate aperture:font-mono aperture:text-[0.7rem] aperture:text-muted-foreground/80">
+          {session.id}
+        </span>
       </div>
+      {/* One row however many there are: the page scrolls by sessions, a row by tabs. */}
+      <ul className="aperture:flex aperture:snap-x aperture:gap-3 aperture:overflow-x-auto aperture:p-1 aperture:pb-2 aperture:[scrollbar-width:thin]">
+        {shown.map((tab) => (
+          <li key={tab.tab} className="aperture:w-60 aperture:shrink-0 aperture:snap-start">
+            <TabCard session={session} tab={tab} />
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
@@ -333,7 +354,7 @@ export function SessionsPage() {
               </ListEmpty>
             )
           ) : view === "tabs" ? (
-            <div data-console-tabs className="aperture:grid aperture:gap-6">
+            <div data-console-tabs className="aperture:grid aperture:gap-4">
               {ordered.map((session) => (
                 <SessionTabs key={session.id} session={session} sought={sought} />
               ))}
