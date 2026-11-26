@@ -10,12 +10,12 @@ import {
   SidebarInset,
   SidebarProvider,
   SidebarTrigger,
-  useSidebar,
 } from "@aperture-browser/ui/components/sidebar";
 import { cn } from "@aperture-browser/ui/utils";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AppSidebar } from "#/components/app-sidebar.tsx";
+import { SidebarGoesAway } from "#/components/sidebar-goes-away.tsx";
 import { PageCrumb } from "#/components/page-crumb.tsx";
 import { PageHeaderActionsTarget } from "#/components/page-header-actions.tsx";
 import { WindowTitlebar } from "#/components/window-titlebar.tsx";
@@ -38,56 +38,6 @@ const INSET =
 
 const TITLE =
   "aperture:min-w-0 aperture:shrink-0 aperture:truncate aperture:pr-2 aperture:text-sm aperture:font-semibold aperture:max-sm:shrink";
-
-/** What is open over the page and has an Escape of its own: a menu, a list, a dialog. */
-const OWN_ESCAPE = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
-const POPUP_OPEN = '[data-slot$="-content"][data-open]';
-
-/**
- * The sidebar beside a session is out of the way until it is asked for, and goes again as
- * a sheet does: for Escape, and for a press in the session or anywhere else beside it. A
- * press in what was opened from it, as a menu, is in it; its button is its own to press.
- * Escape that closes it is not the page's.
- */
-function SidebarGoesAway() {
-  const { open, setOpen, isMobile } = useSidebar();
-  useEffect(() => {
-    // A narrow window has it as a sheet, which goes by itself.
-    if (!open || isMobile) {
-      return undefined;
-    }
-    const pressed = (event: PointerEvent) => {
-      const target = event.target;
-      if (
-        target instanceof Element &&
-        target.closest('[data-slot="sidebar-inset"]') !== null &&
-        target.closest('[data-sidebar="trigger"]') === null
-      ) {
-        setOpen(false);
-      }
-    };
-    const escaped = (event: KeyboardEvent) => {
-      if (
-        event.key !== "Escape" ||
-        event.defaultPrevented ||
-        (event.target instanceof Element && event.target.closest(OWN_ESCAPE) !== null) ||
-        document.querySelector(POPUP_OPEN) !== null
-      ) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      setOpen(false);
-    };
-    document.addEventListener("pointerdown", pressed, true);
-    window.addEventListener("keydown", escaped, true);
-    return () => {
-      document.removeEventListener("pointerdown", pressed, true);
-      window.removeEventListener("keydown", escaped, true);
-    };
-  }, [open, isMobile, setOpen]);
-  return null;
-}
 
 export function AppShell({ layout, children }: AppShellProps) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
