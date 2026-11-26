@@ -85,3 +85,14 @@ export function useSessionActionMutation(action: "suspend" | "resume" | "delete"
     onSettled: () => queries.invalidateQueries({ queryKey: queryKeys.sessions }),
   });
 }
+
+/** Pins a session, which keeps it from being deleted by itself, or unpins it. */
+export function usePinSessionMutation() {
+  const queries = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, pinned }: { id: string; pinned: boolean }) =>
+      call((api) => api.sessions.pin({ params: { id }, payload: { pinned } })),
+    onError: (error) => toastMutationError(error, "The session was not pinned"),
+    onSettled: () => queries.invalidateQueries({ queryKey: queryKeys.sessions }),
+  });
+}

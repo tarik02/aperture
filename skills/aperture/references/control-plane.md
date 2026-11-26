@@ -53,6 +53,24 @@ api -X PUT "$APERTURE_URL/api/control/workspaces/$WORKSPACE/members/$BOT" -d '{"
 - An admin (a person's console session, or a token with the `admin` scope) is told every workspace; `role` is `null` in one they are not in. There they read: the workspace, its members, its sessions and snapshots, a watching ticket, a file link that reads. Acting there (creating, changing, suspending, resuming or deleting a session, a ticket with access, an upload link, a share link, taking, changing or deleting a snapshot, a session from its snapshots) is refused with `Forbidden` until they admit themselves with `PUT /workspaces/{id}/members/{accountId}`. Another account's own sessions and snapshots, of no workspace, an admin acts on as before.
 - A workspace is deleted once no session and no snapshot is of it.
 
+## Settings
+
+Settings are said at the instance, a workspace, an account, an account as a member of a workspace, and a session, the nearest winning; each level may also set `min`/`max` (or `allowed` for a choice) that it and the levels below cannot cross. Times are in seconds, `null` is never or no limit.
+
+```bash
+api "$APERTURE_URL/api/control/sessions/$SESSION/settings" | jq '.settings[] | {key, effective}'
+api -X PUT "$APERTURE_URL/api/control/workspaces/$WORKSPACE/settings/deleteSuspendedAfter" -d '{"value":604800,"max":2592000}'
+api -X PUT "$APERTURE_URL/api/control/sessions/$SESSION/pin" -d '{"pinned":true}'
+```
+
+- `effective.source` says where a value comes from (`instance`, `workspace`, `account`, `member`, `session`, `configuration`, `default`, or `node` for each node's own); `locked` is a bound of both ends alike.
+- `/account/settings` (`?workspaceId=` for what the caller has in a workspace) is the caller's own: they say values there, inside bounds an admin set, and no bounds (`changeable`, `bounds` say what they may). A quota below the instance is at most what the levels above make of it: a person lowers their own, and raises it no further than an admin's. An admin says an account's at `/accounts/{accountId}/settings`, a workspace's admin a member's at `/workspaces/{id}/members/{accountId}/settings`.
+- A value past a bound above is refused with `SettingOutOfBounds`, whose `level` names who set the bound.
+- A pinned session is never deleted by `deleteSuspendedAfter` or `maxSessionAge`. Who pins is the `pinning` setting; one pin too many is `QuotaExceeded`.
+- Quotas (`sessionsPerUser`, `sessionsPerWorkspace`, `runningSessions`) refuse creating or resuming past them with `QuotaExceeded`; `sessionMemory` and `sessionCpus` bound what each session uses.
+- `clipboard`, `uploads`, `downloads` and `recording` hold every ticket into a session; a file link for what is off is `Forbidden`. A share link or an API token longer than `shareLinkMaxLifetime` / `apiTokenMaxLifetime`, or one that never runs out where those are set, is `SettingOutOfBounds`.
+- Over MCP: `settings.get`, `settings.set`, `settings.clear`, `sessions.pin`.
+
 ## Events
 
 `GET /events` (`events:read`) lists what was done, newest first, as `{events, next}`; pass `next` back as `cursor`. Filters: `kind`, `resourceKind`, `resourceId`, `workspaceId`, `actor`, `since`, `until`, `limit` (at most 200). A token reads the events of its own account and of the workspaces that is in; an admin reads all.

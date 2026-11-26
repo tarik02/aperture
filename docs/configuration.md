@@ -3,6 +3,7 @@
 Every program takes its settings from its environment. The NixOS modules set the variables below from their options; an option's `environment` attribute set passes any variable that has no option of its own.
 
 - [Control plane](#control-plane)
+- [Settings](#settings)
 - [Sign-in providers](#sign-in-providers)
 - [Node](#node)
 - [Session features](#session-features)
@@ -38,6 +39,56 @@ Every program takes its settings from its environment. The NixOS modules set the
 | `APERTURE_CONTROL_CONSOLE_DIR` | set by the package | path | the console the package was built with | A directory with the console's files, served beside the API. Unset, no console is served |
 
 `<keys>` is `services.aperture.keys.directory`, `/var/lib/aperture-keys` by default. `listenHost`, `listenPort`, `package` and `environment` are the remaining options.
+
+## Settings
+
+What sessions are held to is said at five levels, from the widest: the **instance**, a **workspace**, a **user** wherever they are, a user as a **member** of one workspace, and a **session**. A session has what the nearest level that says a value says; where none does, what the control plane's environment says, and otherwise the default below. A session of no workspace skips the workspace and member levels, and a user's settings hold for every session they make, in a workspace or of their own.
+
+An admin says a user's settings and a workspace's admin a member's, values and bounds; the user says their own values at both, inside those bounds, which they neither change nor clear. A bound a user set on themselves would hold nobody but them, who could lift it again. Bounds an admin says at a workspace, a member or a session are the admins' alone: the workspace's admins say the value inside them, and neither change nor clear them, as a user does with theirs. The quotas (`maxPinnedSessions`, `sessionsPerUser`, `runningSessions`, `sessionMemory` and `sessionCpus`) only narrow below the instance: a level's value is at most what the levels above make of it, and no limit is refused under a number, as `SettingOutOfBounds` naming the level that holds it. A quota an admin says of a user or a member is the most they have: they lower their own, and raise it again as far as that. Of `sessionMemory` and `sessionCpus`, where neither the instance nor the environment says a value, what each node has of its own is the most: a level below says less, which the node holds its sessions to, and no limit is refused; a value past the node's own is held to the node's, and the setting is told with `perNode`.
+
+A level says a value, which the levels below it may say otherwise, and bounds they may not cross: `min` and `max` for a time or a count, `allowed` for a choice. A lock is a bound of both ends alike. Choices a level allows that leave none of those allowed above, as a lock above said after them, hold as those above. A value or a bound that crosses a bound above is refused as `SettingOutOfBounds`, which names the level that sets it. A value said before a level above narrowed its bounds is held to them: the bound is what the session has, and is told as coming from that level. So is a bound said before: a level's `max` below the `min` above, or its `min` past the `max` above, holds as that bound above. Times are in seconds over the API, and `null` is never, or no limit.
+
+A bound alone never turns deleting on. Where no level says a value of `deleteSuspendedAfter`, `maxSessionAge` or `recordingRetention`, and the environment does not either, it stays never under any `min` and `max`, a lock among them: the bounds hold the value some level says, once one does. A `max` of `suspendIdleAfter` holds where nothing says a value: the session sits idle that long at most.
+
+| Level | Says it | Reads it |
+|---|---|---|
+| Instance | an admin: the console's **Settings**, `PUT /api/control/settings/<key>` | anyone signed in |
+| Workspace | an admin of the workspace, or an admin: **Workspaces › Settings**, `PUT /api/control/workspaces/<id>/settings/<key>` | its members, and admins |
+| User | an admin: **People › Settings**, `PUT /api/control/accounts/<id>/settings/<key>`; the user, their values: **Account › Settings**, `PUT /api/control/account/settings/<key>` | the user, and admins |
+| Member | an admin of the workspace, or an admin: **Workspaces › Members › Settings**, `PUT /api/control/workspaces/<id>/members/<accountId>/settings/<key>`; the member, their values: **Account › Settings** with the workspace selected, `PUT /api/control/account/settings/<key>?workspaceId=<id>` | the member, and the admins of it |
+| Session | whoever made it, or an admin of its workspace: the session's **Settings**, `PUT /api/control/sessions/<id>/settings/<key>` | whoever sees the session; what comes from its maker's user or member level as from `owner`, with none of those levels' bounds, to whoever does not read them |
+
+Each is told with what it comes to and where that comes from: the console shows `1 hour · from workspace, locked`, the API and the MCP tools `settings.get`, `settings.set` and `settings.clear` say it as `effective`. The instance's are changed through the API and the console alone.
+
+| Setting | Levels | Variable | Default | |
+|---|---|---|---|---|
+| `suspendIdleAfter` | all | `APERTURE_CONTROL_SUSPEND_IDLE_AFTER` | each node's own | How long nobody may use a session before its node suspends it. Where nothing says it, a node holds its sessions to its own [`APERTURE_SUSPEND_IDLE_AFTER`](#limits). The control plane passes what it comes to to the session's node when the session is made, and again within a minute of any change |
+| `pinnedStayAwake` | instance, workspace, user, member | `APERTURE_CONTROL_PINNED_STAY_AWAKE` | `false` | Whether a pinned session is kept from being suspended for sitting idle. A `max` of `suspendIdleAfter` holds over it: a pinned session sits idle that long at most, and its settings say so |
+| `deleteSuspendedAfter` | all | `APERTURE_CONTROL_DELETE_SUSPENDED_AFTER` | never | How long a session may stay suspended before it is deleted, profile, files and all |
+| `maxSessionAge` | all | `APERTURE_CONTROL_MAX_SESSION_AGE` | never | How long after it was made a session is deleted |
+| `purgeDeletedAfter` | instance | `APERTURE_CONTROL_PURGE_DELETED_AFTER` | never | How long what was [marked deleted](install.md#where-data-lives) is kept before it is removed for good: the records of sessions and their share links, snapshots, API tokens, grants, memberships, workspaces nothing names any more, and registration tokens no node names. Accounts, nodes, apps and sign-in providers stay marked |
+| `pinning` | instance, workspace | `APERTURE_CONTROL_PINNING` | `admins` | Who pins a session: `anyone` who acts on it, the `admins` of its workspace (the owner, of a session of no workspace), or `nobody` |
+| `maxPinnedSessions` | instance, workspace, user, member | `APERTURE_CONTROL_MAX_PINNED_SESSIONS` | no limit | How many sessions of a workspace, or of a user's own, are pinned at most; said of a user or a member, how many of theirs in the workspace, besides the workspace's own. One more is refused as `QuotaExceeded` |
+| `sessionsPerUser` | instance, workspace, user, member | `APERTURE_CONTROL_SESSIONS_PER_USER` | no limit | How many sessions one user has in a workspace, or of their own, at most |
+| `sessionsPerWorkspace` | instance, workspace | `APERTURE_CONTROL_SESSIONS_PER_WORKSPACE` | no limit | How many sessions a workspace has at most |
+| `runningSessions` | instance, workspace, user, member | `APERTURE_CONTROL_RUNNING_SESSIONS` | no limit | How many sessions of a workspace, or of a user's own, are asked to run at once at most; said of a user or a member, how many of theirs in the workspace, besides the workspace's own: creating one that runs and resuming one are refused past it. One its node suspended for sitting idle is counted, as its node resumes it whenever someone reaches it; one its node lost, or that failed, is not, and resuming it is counted |
+| `sessionMemory` | all | `APERTURE_CONTROL_SESSION_MEMORY` | each node's own | The memory a session may use, in bytes; a variable takes `512M` or `4G`. Held only on a node that runs sessions as [scopes](#limits); another's sessions are held to nothing |
+| `clipboard` | all | `APERTURE_CONTROL_CLIPBOARD` | `rw` | What is copied passes between a session and its clients both ways (`rw`), only out of the session to them (`ro`), or not at all (`off`) |
+| `uploads` | all | `APERTURE_CONTROL_UPLOADS` | `true` | Whether files are put into a session |
+| `downloads` | all | `APERTURE_CONTROL_DOWNLOADS` | `true` | Whether a session's browser downloads files, and they are read out of it |
+| `recording` | all | `APERTURE_CONTROL_RECORDING` | `true` | Whether a session's tabs are recorded and screenshots taken. What was recorded before is still read |
+| `recordingRetention` | all | `APERTURE_CONTROL_RECORDING_RETENTION` | kept for good | How long a session's recordings and screenshots are kept: its node removes each whole, all its files together, once the newest of them was last changed longer ago, looking at the sessions at rest every ten minutes, or as its [`APERTURE_RECORDINGS_CHECK`](#limits) says. A session that runs keeps all of its until it is next suspended, by someone or for sitting idle; one that was still recorded or edited when it stopped stays |
+| `shareLinkMaxLifetime` | all | `APERTURE_CONTROL_SHARE_LINK_MAX_LIFETIME` | no limit | How long a share link into a session is good for at most. A longer one, or one that never runs out, is refused as `SettingOutOfBounds` |
+| `apiTokenMaxLifetime` | instance, user | `APERTURE_CONTROL_API_TOKEN_MAX_LIFETIME` | no limit | How long an API token is good for at most, as `shareLinkMaxLifetime` is for links. Tokens brought from v1 keep what they had |
+| `sessionCpus` | all | `APERTURE_CONTROL_SESSION_CPUS` | each node's own | The processors' worth of time a session may use, such as `1.5`. As `sessionMemory`, on a node that runs sessions as scopes |
+
+A variable takes a time as `30 minutes` or `7 days`, `never` for never, and `none` for no limit; one that says nothing the setting takes stops the program from starting. A level of the instance kept in the database says otherwise than the variable.
+
+A session past a quota is refused as `QuotaExceeded`, which names what was counted, the most there may be, and the level that says so. Quotas count records: of those asked to run, a session that its node lost or that failed is not counted, and one its node lost is deleted though it is on no node. Requests at once are counted one after the other, each with what it writes, so that together they get no further past a quota than one would. What a session may use is passed to its node when it is made, and again within a minute of a change; its node holds it to that from when its browser next starts. Disk is not limited: a node does not tell what a session's files take without walking them.
+
+What the clipboard, uploads, downloads and recording settings turn off is held where it happens, whoever asks: every ticket into the session the control plane signs, the console's, a share link's guest's, an agent's and a file link's, gives none of it, and a file link for it is refused. A session made while one is off is made without that [feature](#session-features) on its node too, so that its own automation does none of it either; one turned off after a session was made holds for its tickets from then on, and is passed to its node within a minute: the session's own automation, `mcp` and `cdp`, does none of it from when its browser next starts. A browser that runs keeps what it started with until it is suspended or resumed.
+
+A **pinned** session is never deleted by itself: `deleteSuspendedAfter` and `maxSessionAge` pass it by. It is pinned with `PUT /api/control/sessions/<id>/pin`, the MCP tool `sessions.pin`, or **Pin** in its menu, by whom `pinning` says; whoever acts on a session unpins it, whatever `pinning` says. The control plane looks at sessions once a minute, and decides again as it deletes one whether it is still due to go: one pinned or resumed meanwhile stays. A session it deletes is recorded as `session.deleted` by Aperture, with the reason. A session on a node that does not answer is deleted the next time it does. A session its node lost is suspended no longer, and `deleteSuspendedAfter` passes it by.
 
 ## Sign-in providers
 
@@ -123,7 +174,8 @@ Resource limits need `APERTURE_SESSION_SCOPES`, which runs each session as a sys
 | `APERTURE_SESSION_SWAP` | size | none | The swap a session with a memory limit may use on top of it |
 | `APERTURE_SESSION_CPUS` | number, such as `2` or `1.5` | none | The processors' worth of time a session may use |
 | `APERTURE_SESSION_TASKS` | integer | none | The processes and threads a session may have |
-| `APERTURE_SUSPEND_IDLE_AFTER` | time, such as `30m` | none | How long nobody may use a session before it is suspended. It is resumed when someone reaches it again. This one needs no scopes |
+| `APERTURE_RECORDINGS_CHECK` | time, such as `10m` | `10m` | How often the sessions at rest are looked at for recordings and screenshots kept longer than [`recordingRetention`](#settings) says, which are removed. This one needs no scopes |
+| `APERTURE_SUSPEND_IDLE_AFTER` | time, such as `30m` | none | How long nobody may use a session before it is suspended. It is resumed when someone reaches it again. This one needs no scopes. A session the control plane's [setting](#settings) `suspendIdleAfter` says otherwise of has that instead |
 
 None of these has a module option: set them in `services.aperture.node.environment`.
 

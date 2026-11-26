@@ -8,6 +8,7 @@ import type {
   SessionElsewhere,
   SessionHasNoNode,
   SessionNotFound,
+  SettingOutOfBounds,
   ShareNotFound,
   ShareRefused,
   TooManyTries,
@@ -37,7 +38,7 @@ export interface SharesShape {
     },
   ) => Effect.Effect<
     { readonly share: Share; readonly secret: string },
-    Forbidden | SessionNotFound
+    Forbidden | SessionNotFound | SettingOutOfBounds
   >;
   /** The links into the caller's session, those that ran out among them. */
   readonly list: (

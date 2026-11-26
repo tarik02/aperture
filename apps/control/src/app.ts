@@ -30,6 +30,9 @@ import * as SessionTools from "./mcp/layer.ts";
 import * as RoutingRoutes from "./http/routing.ts";
 import * as ShareRoutes from "./http/shares.ts";
 import * as Nodes from "./nodes/layer.ts";
+import * as Lifecycle from "./policy/lifecycle.ts";
+import * as Policy from "./policy/layer.ts";
+import * as PolicyStoreSql from "./policy/store-sql.ts";
 import * as NodesStoreSql from "./nodes/store-sql.ts";
 import * as Providers from "./providers/layer.ts";
 import * as ProvidersStoreSql from "./providers/store-sql.ts";
@@ -53,6 +56,7 @@ export const stores = Layer.mergeAll(
   EventsStoreSql.layer,
   GrantsStoreSql.layer,
   NodesStoreSql.layer,
+  PolicyStoreSql.layer,
   ProvidersStoreSql.layer,
   SessionsStoreSql.layer,
   SharesStoreSql.layer,
@@ -77,6 +81,8 @@ export const services = Layer.mergeAll(
     ),
   ),
   Layer.provideMerge(Nodes.layer),
+  // Below what makes tickets: a ticket gives what the session's settings leave.
+  Layer.provideMerge(Policy.layer),
 );
 
 const api = HttpApiBuilder.layer(Api, { openapiPath: `${PREFIX}/openapi.json` }).pipe(
@@ -127,6 +133,7 @@ const serving = Layer.mergeAll(
   V1Credentials.announce,
   Forgetting.layer,
   EventsForgetting.layer,
+  Lifecycle.layer,
 ).pipe(Layer.provide(services));
 
 /**

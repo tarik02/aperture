@@ -15,11 +15,12 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import { Accounts } from "../accounts/service.ts";
-import { Forbidden } from "../errors.ts";
+import { Forbidden, SettingInvalid } from "../errors.ts";
 import { SessionTools, type SessionToolError } from "../mcp/service.ts";
 import sessionTools from "../mcp/gen/session-tools.json" with { type: "json" };
 import { ControlTools } from "../mcp/toolkit.ts";
 import * as Metrics from "../metrics.ts";
+import { Policy, type Target } from "../policy/service.ts";
 import { Sessions } from "../sessions/service.ts";
 import { Settings } from "../settings/service.ts";
 import { Shares } from "../shares/service.ts";
@@ -30,7 +31,14 @@ import { actorOf, Doer } from "../events/doer.ts";
 import { Events } from "../events/service.ts";
 import { callerOf } from "./caller.ts";
 import { doing } from "./doer.ts";
-import { sessionsAsked, shareUrl, snapshotsAsked, telling, ticketScope } from "./handlers.ts";
+import {
+  sessionsAsked,
+  settingScopes,
+  shareUrl,
+  snapshotsAsked,
+  telling,
+  ticketScope,
+} from "./handlers.ts";
 import { anyOrigin, originOf } from "./origin.ts";
 
 /** Where agents reach every session their token does, over MCP. */
@@ -74,6 +82,37 @@ const anyone = Effect.serviceOption(CurrentCaller).pipe(
   ),
 );
 
+/** The level a settings tool names, with what it names it by. */
+const settingTarget = (where: {
+  readonly level: Target["level"];
+  readonly workspace_id?: string | undefined;
+  readonly session_id?: string | undefined;
+}): Effect.Effect<Target, SettingInvalid> => {
+  switch (where.level) {
+    case "instance":
+      return Effect.succeed({ level: "instance" });
+    case "account":
+    case "member":
+      return Effect.succeed(
+        where.workspace_id === undefined
+          ? { level: "account", accountId: null }
+          : { level: "member", workspaceId: where.workspace_id, accountId: null },
+      );
+    case "workspace":
+      return where.workspace_id === undefined
+        ? Effect.fail(
+            new SettingInvalid({ key: "", message: "a workspace is named by its workspace_id" }),
+          )
+        : Effect.succeed({ level: "workspace", id: where.workspace_id });
+    case "session":
+      return where.session_id === undefined
+        ? Effect.fail(
+            new SettingInvalid({ key: "", message: "a session is named by its session_id" }),
+          )
+        : Effect.succeed({ level: "session", id: where.session_id });
+  }
+};
+
 const handlers = ControlTools.toLayer(
   Effect.gen(function* () {
     const sessions = yield* Sessions;
@@ -82,6 +121,7 @@ const handlers = ControlTools.toLayer(
     const workspaces = yield* Workspaces;
     const events = yield* Events;
     const settings = yield* Settings;
+    const policy = yield* Policy;
     const tell = yield* telling;
     /** Where the request that calls came to, for the addresses a tool tells. */
     const origin = Effect.serviceOption(HttpServerRequest.HttpServerRequest).pipe(
@@ -135,6 +175,31 @@ const handlers = ControlTools.toLayer(
         Effect.flatMap(calling("sessions:write"), (caller) =>
           sessions.delete(caller, session_id),
         ).pipe(Effect.as({ deleted: session_id })),
+      "sessions.pin": ({ session_id, pinned }) =>
+        Effect.flatMap(calling("sessions:write"), (caller) =>
+          sessions.pin(caller, session_id, pinned),
+        ).pipe(Effect.flatMap(tell.one)),
+      "settings.get": Effect.fn(function* (asked) {
+        const target = yield* settingTarget(asked);
+        const [scope] = settingScopes(target);
+        const caller = scope === null ? yield* anyone : yield* calling(scope);
+        return { settings: yield* policy.views(caller, target) };
+      }),
+      "settings.set": Effect.fn(function* ({ key, value, min, max, allowed, ...where }) {
+        const target = yield* settingTarget(where);
+        const caller = yield* calling(settingScopes(target)[1]);
+        return yield* policy.set(caller, target, key, {
+          ...(value === undefined ? {} : { value }),
+          ...(min === undefined ? {} : { min }),
+          ...(max === undefined ? {} : { max }),
+          ...(allowed === undefined ? {} : { allowed }),
+        });
+      }),
+      "settings.clear": Effect.fn(function* ({ key, ...where }) {
+        const target = yield* settingTarget(where);
+        const caller = yield* calling(settingScopes(target)[1]);
+        return yield* policy.clear(caller, target, key);
+      }),
       "sessions.promote": (asked) =>
         Effect.flatMap(calling("snapshots:write"), (caller) =>
           snapshots.take(caller, asked.session_id, {

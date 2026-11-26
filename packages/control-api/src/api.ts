@@ -22,6 +22,7 @@ import {
   ProviderInvalid,
   ProviderNotFound,
   ProviderTaken,
+  QuotaExceeded,
   GrantNotFound,
   NodeNotFound,
   NodeRefused,
@@ -32,6 +33,8 @@ import {
   RegistrationTokenNotFound,
   SessionHasNoNode,
   SessionNotFound,
+  SettingInvalid,
+  SettingOutOfBounds,
   ShareNotFound,
   SnapshotNotFound,
   Unauthorized,
@@ -52,6 +55,7 @@ import {
   ShareRole,
   TokenResources,
 } from "./schemas.ts";
+import { SettingEntry, SettingKey, SettingView, SettingViews } from "./policy.ts";
 
 /** Where the control plane's API is, apart from the routes of sessions and of nodes. */
 export const PREFIX = "/api/control";
@@ -210,6 +214,10 @@ export const Session = Schema.Struct({
    * address; none for a session on no node. It changes when the session moves.
    */
   path: Schema.NullOr(Schema.String),
+  /** Whether it is kept from being deleted by itself, as its settings would have it. */
+  pinned: Schema.Boolean,
+  /** Since when its node says it is suspended, while it says so. */
+  suspendedSince: Schema.NullOr(Schema.DateTimeUtcFromString),
 });
 
 export const Snapshot = Schema.Struct({
@@ -500,7 +508,7 @@ export class AccountsGroup extends HttpApiGroup.make("accounts")
     HttpApiEndpoint.post("createOwnToken", "/account/tokens", {
       payload: NewApiToken,
       success: ApiTokenCreated.pipe(HttpApiSchema.status(201)),
-      error: Forbidden,
+      error: [Forbidden, SettingOutOfBounds],
     }),
     HttpApiEndpoint.delete("revokeToken", "/account/tokens/:id", {
       params: { id: Id },
@@ -573,7 +581,7 @@ export class AccountsGroup extends HttpApiGroup.make("accounts")
       params: { id: Id },
       payload: NewApiToken,
       success: ApiTokenCreated.pipe(HttpApiSchema.status(201)),
-      error: [Forbidden, AccountNotFound],
+      error: [Forbidden, AccountNotFound, SettingOutOfBounds],
     }),
     HttpApiEndpoint.get("tokensOf", "/accounts/:id/tokens", {
       params: { id: Id },
@@ -665,7 +673,7 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
         storageState: Schema.optional(StorageState),
       }),
       success: Session.pipe(HttpApiSchema.status(201)),
-      error: [Forbidden, WorkspaceNotFound, SnapshotNotFound, NoNode, NodeRefused],
+      error: [Forbidden, WorkspaceNotFound, SnapshotNotFound, NoNode, NodeRefused, QuotaExceeded],
     }),
     HttpApiEndpoint.get("get", "/sessions/:id", {
       params: session,
@@ -700,7 +708,13 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
     HttpApiEndpoint.post("resume", "/sessions/:id/resume", {
       params: session,
       success: Session,
-      error: ofNode,
+      error: [...ofNode, QuotaExceeded],
+    }),
+    HttpApiEndpoint.put("pin", "/sessions/:id/pin", {
+      params: session,
+      payload: Schema.Struct({ pinned: Schema.Boolean }),
+      success: Session,
+      error: [Forbidden, SessionNotFound, QuotaExceeded],
     }),
     HttpApiEndpoint.delete("delete", "/sessions/:id", { params: session, error: ofNode }),
     HttpApiEndpoint.post("createTicket", "/sessions/:id/tickets", {
@@ -759,7 +773,7 @@ export class SharesGroup extends HttpApiGroup.make("shares")
         ),
       }),
       success: ShareCreated.pipe(HttpApiSchema.status(201)),
-      error: [Forbidden, SessionNotFound],
+      error: [Forbidden, SessionNotFound, SettingOutOfBounds],
     }),
     HttpApiEndpoint.delete("revoke", "/sessions/:id/shares/:shareId", {
       params: { ...session, shareId: Id },
@@ -1055,6 +1069,119 @@ export const About = Schema.Struct({
   commit: Schema.NullOr(Schema.String),
 });
 
+const refusedSetting = [Forbidden, WorkspaceNotFound, SessionNotFound, AccountNotFound] as const;
+const changedSetting = [...refusedSetting, SettingInvalid, SettingOutOfBounds] as const;
+const setting = { key: SettingKey };
+/** The workspace the caller's settings are said in, as its member: none for what is their own. */
+const inWorkspace = { workspaceId: Schema.optional(Schema.NonEmptyString) };
+const person = { accountId: Id };
+const member = { id: Id, accountId: Id };
+
+export class SettingsGroup extends HttpApiGroup.make("settings")
+  .add(
+    HttpApiEndpoint.get("instance", "/settings", { success: SettingViews, error: refusedSetting }),
+    HttpApiEndpoint.put("setInstance", "/settings/:key", {
+      params: setting,
+      payload: SettingEntry,
+      success: SettingView,
+      error: changedSetting,
+    }),
+    HttpApiEndpoint.delete("clearInstance", "/settings/:key", {
+      params: setting,
+      success: SettingView,
+      error: refusedSetting,
+    }),
+    HttpApiEndpoint.get("workspace", "/workspaces/:id/settings", {
+      params: { id: Id },
+      success: SettingViews,
+      error: refusedSetting,
+    }),
+    HttpApiEndpoint.put("setWorkspace", "/workspaces/:id/settings/:key", {
+      params: { id: Id, ...setting },
+      payload: SettingEntry,
+      success: SettingView,
+      error: changedSetting,
+    }),
+    HttpApiEndpoint.delete("clearWorkspace", "/workspaces/:id/settings/:key", {
+      params: { id: Id, ...setting },
+      success: SettingView,
+      error: refusedSetting,
+    }),
+    HttpApiEndpoint.get("account", "/account/settings", {
+      query: inWorkspace,
+      success: SettingViews,
+      error: refusedSetting,
+    }),
+    HttpApiEndpoint.put("setAccount", "/account/settings/:key", {
+      params: setting,
+      query: inWorkspace,
+      payload: SettingEntry,
+      success: SettingView,
+      error: changedSetting,
+    }),
+    HttpApiEndpoint.delete("clearAccount", "/account/settings/:key", {
+      params: setting,
+      query: inWorkspace,
+      success: SettingView,
+      error: refusedSetting,
+    }),
+    HttpApiEndpoint.get("person", "/accounts/:accountId/settings", {
+      params: person,
+      success: SettingViews,
+      error: refusedSetting,
+    }),
+    HttpApiEndpoint.put("setPerson", "/accounts/:accountId/settings/:key", {
+      params: { ...person, ...setting },
+      payload: SettingEntry,
+      success: SettingView,
+      error: changedSetting,
+    }),
+    HttpApiEndpoint.delete("clearPerson", "/accounts/:accountId/settings/:key", {
+      params: { ...person, ...setting },
+      success: SettingView,
+      error: refusedSetting,
+    }),
+    HttpApiEndpoint.get("member", "/workspaces/:id/members/:accountId/settings", {
+      params: member,
+      success: SettingViews,
+      error: refusedSetting,
+    }),
+    HttpApiEndpoint.put("setMember", "/workspaces/:id/members/:accountId/settings/:key", {
+      params: { ...member, ...setting },
+      payload: SettingEntry,
+      success: SettingView,
+      error: changedSetting,
+    }),
+    HttpApiEndpoint.delete("clearMember", "/workspaces/:id/members/:accountId/settings/:key", {
+      params: { ...member, ...setting },
+      success: SettingView,
+      error: refusedSetting,
+    }),
+    HttpApiEndpoint.get("session", "/sessions/:id/settings", {
+      params: session,
+      success: SettingViews,
+      error: refusedSetting,
+    }),
+    HttpApiEndpoint.put("setSession", "/sessions/:id/settings/:key", {
+      params: { ...session, ...setting },
+      payload: SettingEntry,
+      success: SettingView,
+      error: changedSetting,
+    }),
+    HttpApiEndpoint.delete("clearSession", "/sessions/:id/settings/:key", {
+      params: { ...session, ...setting },
+      success: SettingView,
+      error: refusedSetting,
+    }),
+  )
+  .annotateMerge(
+    OpenApi.annotations({
+      title: "Settings",
+      description:
+        "What sessions are held to, said at five levels: the deployment, a workspace, a person (an account) wherever they are, a person as a member of one workspace, and a session. The nearest level that says a value is what a session has; a level also sets bounds, `min` and `max` or what is `allowed`, that it and the levels below it may not cross, and a bound of both ends alike is a lock. Each setting is told with what it comes to and where that comes from. The deployment's are an admin's to say and anyone's to read; a workspace's are its admins' to say and its members' to read. A person's are said at `/accounts/:accountId/settings` by an admin, and a member's at `/workspaces/:id/members/:accountId/settings` by an admin of the workspace or of the deployment; whoever says them reads them, and so does the person, at `/account/settings` (with `workspaceId` for what they have in a workspace). There the person says their own values, inside the bounds an admin set, which they neither change nor clear. A quota (sessions, running and pinned sessions, memory and processors) is held below the deployment to at most what the levels above make of it, and is no limit only under no limit: a person lowers their own, and raises it again no further than that, nor than a value an admin said of them. A session's are said by whoever made it or an admin of its workspace. Times are in seconds, and `null` is never or no limit.",
+    }),
+  ) {}
+
 export class AboutGroup extends HttpApiGroup.make("about")
   .add(HttpApiEndpoint.get("get", "/about", { success: About }))
   .annotateMerge(
@@ -1074,6 +1201,7 @@ export class Api extends HttpApi.make("control")
     NodesGroup,
     ProvidersGroup,
     SessionsGroup,
+    SettingsGroup,
     SharesGroup,
     SnapshotsGroup,
     WorkspacesGroup,

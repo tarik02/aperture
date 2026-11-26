@@ -1,4 +1,5 @@
-//! What a session may use, and how long it may sit idle before it is suspended.
+//! What a session may use, how long it may sit idle before it is suspended, and how long
+//! its recordings are kept.
 
 use std::time::Duration;
 
@@ -23,6 +24,9 @@ pub struct Limits {
     /// How long nobody may use the session before it is suspended.
     #[serde(default)]
     pub idle_ms: Option<u64>,
+    /// How long its recordings and screenshots are kept before they are removed.
+    #[serde(default)]
+    pub keep_recordings_ms: Option<u64>,
 }
 
 impl Limits {
@@ -35,6 +39,10 @@ impl Limits {
             cpus: self.cpus.or(defaults.cpus).filter(|&cpus| cpus > 0.0),
             tasks: self.tasks.or(defaults.tasks).filter(|&tasks| tasks > 0),
             idle_ms: self.idle_ms.or(defaults.idle_ms).filter(|&ms| ms > 0),
+            keep_recordings_ms: self
+                .keep_recordings_ms
+                .or(defaults.keep_recordings_ms)
+                .filter(|&ms| ms > 0),
         }
     }
 
@@ -54,6 +62,10 @@ impl Limits {
 
     pub fn idle(&self) -> Option<Duration> {
         self.idle_ms.map(Duration::from_millis)
+    }
+
+    pub fn keep_recordings(&self) -> Option<Duration> {
+        self.keep_recordings_ms.map(Duration::from_millis)
     }
 }
 

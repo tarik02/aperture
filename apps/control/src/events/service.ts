@@ -17,6 +17,11 @@ export interface Happened {
   /** The account what it was about is of, or was done to. */
   readonly ownerId?: string | null;
   readonly workspaceId?: string | null;
+  /**
+   * Whether of those in its workspace, its admins alone read it: what is said of one of its
+   * members is theirs and the admins' to know.
+   */
+  readonly adminsOnly?: boolean;
   /** What else there is to say of it. Never a secret, nor anything a secret is made of. */
   readonly detail?: EventDetail;
   /** Who did it, where that is not whoever the fiber's request came from. */
@@ -58,7 +63,8 @@ export interface EventsShape {
   readonly record: (event: Happened) => Effect.Effect<void>;
   /**
    * Events, the newest first. An admin reads all; anyone else what their own account did
-   * or had done to it, and what was done in the workspaces they are in. A token held to
+   * or had done to it, and what was done in the workspaces they are in, those for a
+   * workspace's admins where they are one. A token held to
    * resources reads only what is about those.
    */
   readonly list: (caller: Caller, asked: Asked) => Effect.Effect<Page, Forbidden>;

@@ -25,6 +25,12 @@ export const Session = Schema.Struct({
   tags: Schema.Record(Schema.String, Schema.String),
   createdAt: Schema.DateTimeUtcFromDate,
   observedAt: Schema.DateTimeUtcFromDate,
+  /** Whether it is kept from being deleted by itself. */
+  pinned: Schema.Boolean,
+  /** Since when its node says it is suspended, while it says so. */
+  suspendedSince: Schema.NullOr(Schema.DateTimeUtcFromDate),
+  /** Suspended by its node for sitting idle, until someone reaches it. */
+  asleep: Schema.Boolean,
 });
 export type Session = typeof Session.Type;
 
@@ -33,6 +39,8 @@ export interface Observation {
   readonly id: string;
   readonly state: ObservedState;
   readonly failure: string | null;
+  /** Suspended by its node for sitting idle, until someone reaches it. */
+  readonly asleep: boolean;
 }
 
 /** A ticket into a session, and where its holder goes with it. */

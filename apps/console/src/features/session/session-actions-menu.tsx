@@ -26,9 +26,12 @@ import {
   Link2,
   type LucideIcon,
   Pause,
+  Pin,
+  PinOff,
   Play,
   Plug,
   Share2,
+  SlidersHorizontal,
   Tags,
   Trash2,
   Waypoints,
@@ -40,11 +43,13 @@ import { DescribeDialog } from "#/components/describe-dialog.tsx";
 import { SessionMcpDialog } from "#/features/mcp/session-mcp-dialog.tsx";
 import { SessionProxyDialog } from "#/features/proxy/session-proxy-dialog.tsx";
 import { SessionDetailsDialog } from "#/features/session/session-details-dialog.tsx";
+import { SessionSettingsDialog } from "#/features/settings/session-settings-dialog.tsx";
 import { SessionShareDialog } from "#/features/share/session-share-dialog.tsx";
 import { type Guarded, useAccess } from "#/features/auth/access.ts";
 import type { Session } from "#/features/session/session.queries.ts";
 import {
   useDescribeSessionMutation,
+  usePinSessionMutation,
   useSessionActionMutation,
 } from "#/features/session/session.mutations.ts";
 import { SaveSnapshotDialog } from "#/features/snapshot/save-snapshot-dialog.tsx";
@@ -76,8 +81,9 @@ export function useSessionActions(session: Session, onDeleted?: () => void) {
   const resume = useSessionActionMutation("resume");
   const remove = useSessionActionMutation("delete");
   const describe = useDescribeSessionMutation();
+  const pin = usePinSessionMutation();
   const [dialog, setDialog] = useState<
-    "delete" | "snapshot" | "describe" | "proxy" | "details" | "mcp" | "share" | null
+    "delete" | "snapshot" | "describe" | "proxy" | "details" | "mcp" | "share" | "settings" | null
   >(null);
   const placed = session.nodeId !== null;
 
@@ -110,6 +116,20 @@ export function useSessionActions(session: Session, onDeleted?: () => void) {
       icon: Tags,
       needs: "sessions:write",
       onSelect: () => setDialog("describe"),
+    },
+    {
+      key: "settings",
+      label: "Settings",
+      icon: SlidersHorizontal,
+      onSelect: () => setDialog("settings"),
+    },
+    {
+      key: "pin",
+      label: session.pinned ? "Unpin" : "Pin",
+      icon: session.pinned ? PinOff : Pin,
+      needs: "sessions:write",
+      disabled: pin.isPending,
+      onSelect: () => pin.mutate({ id: session.id, pinned: !session.pinned }),
     },
     {
       key: "proxy",
@@ -196,6 +216,11 @@ export function useSessionActions(session: Session, onDeleted?: () => void) {
         session={session}
         open={dialog === "details"}
         onOpenChange={(open) => setDialog(open ? "details" : null)}
+      />
+      <SessionSettingsDialog
+        sessionId={session.id}
+        open={dialog === "settings"}
+        onOpenChange={(open) => setDialog(open ? "settings" : null)}
       />
       <SessionProxyDialog
         sessionId={session.id}

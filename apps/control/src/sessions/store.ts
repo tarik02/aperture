@@ -34,6 +34,12 @@ export interface SessionDescription {
   readonly tags?: Readonly<Record<string, string>> | undefined;
 }
 
+/** Since when a session is to go by itself: made, or suspended, before; none for never. */
+export interface ExpiryDue {
+  readonly createdBefore: Date | null;
+  readonly suspendedBefore: Date | null;
+}
+
 /** Where the records of sessions are kept: whose each is, where it runs, how it was last seen. */
 export interface SessionsStoreShape {
   readonly insert: (session: NewSession) => Effect.Effect<Session>;
@@ -54,8 +60,43 @@ export interface SessionsStoreShape {
   readonly proxyOf: (id: string) => Effect.Effect<Option.Option<string>>;
   readonly keepProxy: (id: string, sealed: string | null) => Effect.Effect<void>;
   readonly desire: (id: string, state: DesiredState) => Effect.Effect<void>;
+  readonly pin: (id: string, pinned: boolean) => Effect.Effect<void>;
+  /**
+   * How many sessions there are of a workspace, or of an account's own without one: of
+   * one account alone where it is named, and where so asked, those asked to run that their
+   * node has and that have not failed, asleep or not.
+   */
+  readonly count: (asked: {
+    readonly workspaceId: string | null;
+    readonly accountId: string | null;
+    readonly running: boolean;
+  }) => Effect.Effect<number>;
+  /**
+   * How many sessions of a workspace are pinned, of one account alone where it is named;
+   * of an account's own, without one.
+   */
+  readonly pinnedOf: (
+    workspaceId: string | null,
+    accountId: string | null,
+  ) => Effect.Effect<number>;
+  /**
+   * Runs what is given in one transaction, alone among all that is run so for the same
+   * workspace, or for the same account's own sessions: what counts sessions for a quota
+   * and then writes one.
+   */
+  readonly alone: <A, E, R>(
+    scope: { readonly workspaceId: string | null; readonly accountId: string | null },
+    effect: Effect.Effect<A, E, R>,
+  ) => Effect.Effect<A, E, R>;
   /** Deletes a session's record and its share links: kept, and found by nothing again. */
   readonly delete: (id: string, at: Date) => Effect.Effect<void>;
+  /**
+   * Deletes a session as `delete` does if it is still due to go by itself when it is
+   * deleted: not pinned, and made or suspended before then. None for one that is not.
+   */
+  readonly expire: (id: string, due: ExpiryDue, at: Date) => Effect.Effect<Option.Option<Session>>;
+  /** Takes back a delete made at that time, of a session whose node did not delete it. */
+  readonly restore: (id: string, at: Date) => Effect.Effect<void>;
   /** Writes what a node said of a session that is on it; the node is in reach, then. */
   readonly observe: (nodeId: string, seen: Observation, now: Date) => Effect.Effect<void>;
   /** Takes a session off a node that has it no more. */

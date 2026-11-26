@@ -9,6 +9,7 @@ import {
   LogIn,
   ScrollText,
   Server,
+  SlidersHorizontal,
   Ticket,
   Users,
 } from "lucide-react";
@@ -25,6 +26,7 @@ export type NavItem = {
     | "/-/people"
     | "/-/service-accounts"
     | "/-/sign-in-providers"
+    | "/-/settings"
     | "/-/audit";
   icon: LucideIcon;
   group: "workspace" | "account" | "admin";
@@ -72,6 +74,13 @@ export const primaryNavItems: NavItem[] = [
     title: "Sign-in providers",
     to: "/-/sign-in-providers",
     icon: LogIn,
+    group: "admin",
+    needs: "admin",
+  },
+  {
+    title: "Settings",
+    to: "/-/settings",
+    icon: SlidersHorizontal,
     group: "admin",
     needs: "admin",
   },

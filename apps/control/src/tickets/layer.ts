@@ -8,6 +8,9 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { exportJWK, importJWK, importPKCS8, jwtVerify, SignJWT } from "jose";
 import { TicketKeyUnusable } from "../errors.ts";
+import { heldAccess } from "../policy/data.ts";
+import { Policy } from "../policy/service.ts";
+import { SessionsStore } from "../sessions/store.ts";
 import { Settings } from "../settings/service.ts";
 import type { TicketRequest } from "./schemas.ts";
 import { Tickets } from "./service.ts";
@@ -47,9 +50,27 @@ const decodeClaims = Schema.decodeUnknownOption(Claims);
 export const makeTickets = Effect.fn("Tickets.make")(function* () {
   const settings = yield* Settings;
   const keys = yield* readKey();
+  const policy = yield* Policy;
+  const sessions = yield* SessionsStore;
+
+  /** What a ticket gives of what was asked: what the session's settings turn off is not. */
+  const held = Effect.fn(function* (ticket: TicketRequest) {
+    const session = yield* sessions.find(ticket.sessionId);
+    if (Option.isNone(session)) {
+      return ticket.access;
+    }
+    const effective = yield* policy.of({
+      workspaceId: session.value.workspaceId,
+      accountId: session.value.accountId,
+      sessionId: session.value.id,
+      pinned: session.value.pinned,
+    });
+    return heldAccess(ticket.access, effective);
+  });
 
   const issue = Effect.fn("Tickets.issue")(function* (ticket: TicketRequest) {
     const now = yield* Clock.currentTimeMillis;
+    const access = yield* held(ticket);
     const until =
       ticket.until === undefined || ticket.until === null
         ? undefined
@@ -64,7 +85,7 @@ export const makeTickets = Effect.fn("Tickets.make")(function* () {
         name: ticket.name,
         sid: ticket.sessionId,
         exp: expires,
-        access: ticket.access,
+        access,
         ...(until === undefined ? {} : { until }),
         ...(ticket.path === undefined ? {} : { path: ticket.path }),
         ...(ticket.tab === undefined ? {} : { tab: ticket.tab }),

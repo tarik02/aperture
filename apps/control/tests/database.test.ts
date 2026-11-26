@@ -23,7 +23,12 @@ suite(database)("the database", (it) => {
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       const applied = yield* Database.migrate;
-      expect(applied.map(([, name]) => name)).toEqual(["initial", "v1_credentials", "share_tabs"]);
+      expect(applied.map(([, name]) => name)).toEqual([
+        "initial",
+        "v1_credentials",
+        "share_tabs",
+        "policy",
+      ]);
 
       const tables = yield* sql`
         SELECT table_name FROM information_schema.tables
@@ -44,6 +49,7 @@ suite(database)("the database", (it) => {
         "registration_tokens",
         "session_shares",
         "sessions",
+        "settings",
         "snapshots",
         "v1_api_tokens",
         "workspace_members",

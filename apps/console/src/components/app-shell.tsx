@@ -13,7 +13,7 @@ import {
 } from "@aperture-browser/ui/components/sidebar";
 import { cn } from "@aperture-browser/ui/utils";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { AppSidebar } from "#/components/app-sidebar.tsx";
 import { SidebarGoesAway } from "#/components/sidebar-goes-away.tsx";
 import { PageCrumb } from "#/components/page-crumb.tsx";
@@ -42,7 +42,8 @@ const TITLE =
 export function AppShell({ layout, children }: AppShellProps) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [headerActions, setHeaderActions] = useState<HTMLDivElement | null>(null);
-  const [crumb, setCrumb] = useState<string>();
+  const [crumbs, setCrumb] = useState<ReadonlyArray<string>>();
+  const crumb = crumbs?.join(" · ");
   const item = resolveNavItem(pathname);
   const page = item?.title ?? "Sessions";
   // The workbench names the tab itself, after what its session shows.
@@ -87,12 +88,28 @@ export function AppShell({ layout, children }: AppShellProps) {
                   </BreadcrumbLink>
                 </BreadcrumbItem>
                 <BreadcrumbSeparator className="aperture:max-sm:hidden" />
+                {crumbs?.slice(0, -1).map((one) => (
+                  <Fragment key={one}>
+                    <BreadcrumbItem className="aperture:min-w-0 aperture:max-sm:hidden">
+                      <span className="aperture:truncate">{one}</span>
+                    </BreadcrumbItem>
+                    <BreadcrumbSeparator className="aperture:max-sm:hidden" />
+                  </Fragment>
+                ))}
                 <BreadcrumbItem className="aperture:min-w-0">
                   <BreadcrumbPage
                     data-console-crumb
                     className="aperture:truncate aperture:font-semibold"
                   >
-                    {crumb}
+                    {/* A phone's bar has room for the last alone: whose it is goes with it. */}
+                    {crumbs !== undefined && crumbs.length > 1 ? (
+                      <>
+                        <span className="aperture:sm:hidden">{crumb}</span>
+                        <span className="aperture:max-sm:hidden">{crumbs.at(-1)}</span>
+                      </>
+                    ) : (
+                      crumb
+                    )}
                   </BreadcrumbPage>
                 </BreadcrumbItem>
               </BreadcrumbList>

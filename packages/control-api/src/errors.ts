@@ -211,3 +211,41 @@ export class FileLinkInvalid extends Schema.TaggedError<FileLinkInvalid>()(
   { message: Schema.String },
   { httpApiStatus: 400 },
 ) {}
+
+/** What was said of a setting is not what it takes, or not where it was said. */
+export class SettingInvalid extends Schema.TaggedError<SettingInvalid>()(
+  "SettingInvalid",
+  { key: Schema.String, message: Schema.String },
+  { httpApiStatus: 400 },
+) {}
+
+/** What was said of a setting crosses a bound that `level` sets. */
+export class SettingOutOfBounds extends Schema.TaggedError<SettingOutOfBounds>()(
+  "SettingOutOfBounds",
+  {
+    key: Schema.String,
+    level: Schema.Literals(["instance", "workspace", "account", "member", "session"]),
+    message: Schema.String,
+  },
+  { httpApiStatus: 400 },
+) {}
+
+/** As many as `level` lets there be are there already: `what` says of what. */
+export class QuotaExceeded extends Schema.TaggedError<QuotaExceeded>()(
+  "QuotaExceeded",
+  {
+    what: Schema.String,
+    level: Schema.Literals([
+      "default",
+      "configuration",
+      "instance",
+      "workspace",
+      "account",
+      "member",
+      "session",
+    ]),
+    limit: Schema.Number,
+    message: Schema.String,
+  },
+  { httpApiStatus: 409 },
+) {}

@@ -1,7 +1,17 @@
-import type { EventKind } from "@aperture-browser/control-api";
+import type { EventKind, SettingKey, SettingLevel } from "@aperture-browser/control-api";
 import type { Event } from "#/features/audit/event.queries.ts";
+import { LEVEL_WORDS, SETTING_WORDS } from "#/features/settings/setting-words.ts";
 
 const said = (value: unknown) => (typeof value === "string" && value !== "" ? value : undefined);
+
+/** Which setting an event is of, by its title, and at which level, as a sentence ends. */
+const settingOf = (event: Event) => {
+  const key = said(event.detail["key"]);
+  const level = said(event.detail["level"]);
+  const title = key === undefined ? undefined : SETTING_WORDS[key as SettingKey]?.label;
+  const where = level === undefined ? undefined : LEVEL_WORDS[level as SettingLevel];
+  return `${title === undefined ? "a setting" : `“${title}”`} for the ${where ?? "instance"}`;
+};
 
 /** What someone proved themselves by, as a sentence ends with it. */
 const proven = (event: Event) => {
@@ -65,7 +75,12 @@ export const HAPPENED: Readonly<Record<EventKind, (event: Event) => string>> = {
   "session.created": () => "Created the session",
   "session.suspended": () => "Suspended the session",
   "session.resumed": () => "Resumed the session",
-  "session.deleted": () => "Deleted the session",
+  "session.deleted": (event) =>
+    said(event.detail["reason"]) === undefined
+      ? "Deleted the session"
+      : `Deleted the session: ${said(event.detail["reason"])}`,
+  "session.pinned": () => "Pinned the session",
+  "session.unpinned": () => "Unpinned the session",
   "snapshot.taken": () => "Saved the snapshot",
   "snapshot.replaced": () => "Replaced the snapshot with a newer one",
   "snapshot.deleted": () => "Deleted the snapshot",
@@ -83,6 +98,8 @@ export const HAPPENED: Readonly<Record<EventKind, (event: Event) => string>> = {
   "provider.enabled": () => "Enabled the sign-in provider",
   "provider.disabled": () => "Disabled the sign-in provider",
   "provider.removed": () => "Removed the sign-in provider",
+  "setting.changed": (event) => `Changed ${settingOf(event)}`,
+  "setting.cleared": (event) => `Cleared ${settingOf(event)}`,
 };
 
 /** The kinds of events as a list to choose from tells them, those of one thing together. */
@@ -140,6 +157,8 @@ export const KINDS: ReadonlyArray<{
       { value: "session.suspended", label: "Session suspended" },
       { value: "session.resumed", label: "Session resumed" },
       { value: "session.deleted", label: "Session deleted" },
+      { value: "session.pinned", label: "Session pinned" },
+      { value: "session.unpinned", label: "Session unpinned" },
     ],
   },
   {
@@ -167,6 +186,13 @@ export const KINDS: ReadonlyArray<{
       { value: "node.refused", label: "Node refused its name" },
       { value: "node.released", label: "Node released" },
       { value: "node.silent", label: "Node fell silent" },
+    ],
+  },
+  {
+    label: "Settings",
+    kinds: [
+      { value: "setting.changed", label: "Setting changed" },
+      { value: "setting.cleared", label: "Setting cleared" },
     ],
   },
 ];

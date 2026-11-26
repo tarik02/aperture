@@ -168,6 +168,8 @@ export const EventKind = Schema.Literals([
   "session.suspended",
   "session.resumed",
   "session.deleted",
+  "session.pinned",
+  "session.unpinned",
   "snapshot.taken",
   "snapshot.replaced",
   "snapshot.deleted",
@@ -183,6 +185,8 @@ export const EventKind = Schema.Literals([
   "provider.enabled",
   "provider.disabled",
   "provider.removed",
+  "setting.changed",
+  "setting.cleared",
 ]);
 export type EventKind = typeof EventKind.Type;
 

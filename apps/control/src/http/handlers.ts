@@ -1,4 +1,12 @@
-import { type Access, Api, covers, CurrentCaller, Scope } from "@aperture-browser/control-api";
+import {
+  type Access,
+  Api,
+  covers,
+  CurrentCaller,
+  Scope,
+  type SettingEntry,
+  type SettingKey,
+} from "@aperture-browser/control-api";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -15,6 +23,8 @@ import { Events } from "../events/service.ts";
 import { Grants } from "../grants/service.ts";
 import { Identity } from "../identity/service.ts";
 import { Nodes } from "../nodes/service.ts";
+import { withinLifetime } from "../policy/data.ts";
+import { Policy, type Target } from "../policy/service.ts";
 import { Providers } from "../providers/service.ts";
 import { sessionPath } from "../routing/paths.ts";
 import type { Session } from "../sessions/schemas.ts";
@@ -63,6 +73,23 @@ const accounts = HttpApiBuilder.group(
   "accounts",
   Effect.fn(function* (handlers) {
     const accounts = yield* Accounts;
+    const policy = yield* Policy;
+    /** Refuses a token that lasts longer than its account's settings let one. */
+    const tokenLifetime = Effect.fn(function* (accountId: string, days: number | undefined) {
+      const effective = yield* policy.of({
+        workspaceId: null,
+        accountId,
+        sessionId: null,
+        pinned: false,
+      });
+      yield* withinLifetime(
+        effective.apiTokenMaxLifetime,
+        "apiTokenMaxLifetime",
+        "an API token",
+        lasting(days),
+        Duration.toSeconds,
+      );
+    });
     return handlers
       .handle(
         "current",
@@ -99,6 +126,7 @@ const accounts = HttpApiBuilder.group(
         "createToken",
         Effect.fn(function* ({ params, payload }) {
           const caller = yield* admin;
+          yield* tokenLifetime(params.id, payload.expiresInDays);
           const { token, secret } = yield* accounts.createToken(
             params.id,
             payload.name,
@@ -151,6 +179,7 @@ const accounts = HttpApiBuilder.group(
               message: "a token held to resources makes no tokens",
             });
           }
+          yield* tokenLifetime(account.id, payload.expiresInDays);
           // A token makes none that does more than itself.
           const beyond = payload.scopes.find((scope) => !covers(caller.scopes, scope));
           if (beyond !== undefined) {
@@ -485,6 +514,11 @@ const sessions = HttpApiBuilder.group(
           sessions.resume(caller, params.id),
         ).pipe(Effect.flatMap(tell.one)),
       )
+      .handle("pin", ({ params, payload }) =>
+        Effect.flatMap(scoped("sessions:write"), (caller) =>
+          sessions.pin(caller, params.id, payload.pinned),
+        ).pipe(Effect.flatMap(tell.one)),
+      )
       .handle("delete", ({ params }) =>
         Effect.flatMap(scoped("sessions:write"), (caller) => sessions.delete(caller, params.id)),
       )
@@ -647,6 +681,91 @@ const workspaces = HttpApiBuilder.group(
   }),
 );
 
+/** The scope a token reads a level's settings with, and the one it changes them with. */
+export const settingScopes = (target: Target): readonly [Scope | null, Scope] => {
+  switch (target.level) {
+    case "instance":
+      return [null, "admin"];
+    case "workspace":
+      return ["workspaces:read", "workspaces:write"];
+    // Another's are an admin's, and a member's an admin's of the workspace too.
+    case "account":
+      return target.accountId === null ? ["sessions:read", "sessions:write"] : [null, "admin"];
+    case "member":
+      return target.accountId === null
+        ? ["sessions:read", "sessions:write"]
+        : ["workspaces:read", "workspaces:write"];
+    case "session":
+      return ["sessions:read", "sessions:write"];
+  }
+};
+
+const settings = HttpApiBuilder.group(
+  Api,
+  "settings",
+  Effect.fn(function* (handlers) {
+    const policy = yield* Policy;
+    const reading = (target: Target) => {
+      const [scope] = settingScopes(target);
+      return Effect.gen(function* () {
+        const caller = scope === null ? yield* CurrentCaller : yield* scoped(scope);
+        return { settings: yield* policy.views(caller, target) };
+      });
+    };
+    const setting = (target: Target, key: SettingKey, entry: SettingEntry) =>
+      Effect.flatMap(scoped(settingScopes(target)[1]), (caller) =>
+        policy.set(caller, target, key, entry),
+      );
+    const clearing = (target: Target, key: SettingKey) =>
+      Effect.flatMap(scoped(settingScopes(target)[1]), (caller) =>
+        policy.clear(caller, target, key),
+      );
+    const instance = { level: "instance" } as const;
+    const workspace = (id: string) => ({ level: "workspace", id }) as const;
+    const account = (workspaceId: string | undefined): Target =>
+      workspaceId === undefined
+        ? { level: "account", accountId: null }
+        : { level: "member", workspaceId, accountId: null };
+    const person = (accountId: string) => ({ level: "account", accountId }) as const;
+    const member = (workspaceId: string, accountId: string) =>
+      ({ level: "member", workspaceId, accountId }) as const;
+    const session = (id: string) => ({ level: "session", id }) as const;
+    return handlers
+      .handle("instance", () => reading(instance))
+      .handle("setInstance", ({ params, payload }) => setting(instance, params.key, payload))
+      .handle("clearInstance", ({ params }) => clearing(instance, params.key))
+      .handle("workspace", ({ params }) => reading(workspace(params.id)))
+      .handle("setWorkspace", ({ params, payload }) =>
+        setting(workspace(params.id), params.key, payload),
+      )
+      .handle("clearWorkspace", ({ params }) => clearing(workspace(params.id), params.key))
+      .handle("account", ({ query }) => reading(account(query.workspaceId)))
+      .handle("setAccount", ({ params, query, payload }) =>
+        setting(account(query.workspaceId), params.key, payload),
+      )
+      .handle("clearAccount", ({ params, query }) =>
+        clearing(account(query.workspaceId), params.key),
+      )
+      .handle("person", ({ params }) => reading(person(params.accountId)))
+      .handle("setPerson", ({ params, payload }) =>
+        setting(person(params.accountId), params.key, payload),
+      )
+      .handle("clearPerson", ({ params }) => clearing(person(params.accountId), params.key))
+      .handle("member", ({ params }) => reading(member(params.id, params.accountId)))
+      .handle("setMember", ({ params, payload }) =>
+        setting(member(params.id, params.accountId), params.key, payload),
+      )
+      .handle("clearMember", ({ params }) =>
+        clearing(member(params.id, params.accountId), params.key),
+      )
+      .handle("session", ({ params }) => reading(session(params.id)))
+      .handle("setSession", ({ params, payload }) =>
+        setting(session(params.id), params.key, payload),
+      )
+      .handle("clearSession", ({ params }) => clearing(session(params.id), params.key));
+  }),
+);
+
 const about = HttpApiBuilder.group(
   Api,
   "about",
@@ -672,6 +791,7 @@ export const layer = Layer.mergeAll(
   nodes,
   providers,
   sessions,
+  settings,
   shares,
   signIn,
   snapshots,

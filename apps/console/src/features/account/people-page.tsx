@@ -33,6 +33,7 @@ import {
   personActions,
 } from "#/features/account/person-actions-menu.tsx";
 import { PersonCreateDialog } from "#/features/account/person-create-dialog.tsx";
+import { SettingsDialog } from "#/features/settings/settings-dialog.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
 import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
@@ -41,7 +42,7 @@ import { ListEmpty } from "#/components/list-empty.tsx";
 import { when } from "#/lib/when.ts";
 
 /** What is asked again before it is done to a person. */
-type Confirming = Exclude<PersonDoing, "details" | "setup-link" | "enable">;
+type Confirming = Exclude<PersonDoing, "details" | "settings" | "setup-link" | "enable">;
 
 const CONFIRM: Record<
   Confirming,
@@ -88,6 +89,8 @@ export function PeoplePage() {
   const [creating, setCreating] = useState(false);
   const [link, setLink] = useState<string>();
   const [opened, setOpened] = useState<string>();
+  const [setting, setSetting] = useState<Account>();
+  const set = useLast(setting);
   const [confirming, setConfirming] = useState<{ doing: Confirming; account: Account }>();
   const confirmed = useLast(confirming);
   const people = accounts.data?.filter((account) => account.kind === "person");
@@ -101,6 +104,8 @@ export function PeoplePage() {
   const select = (account: Account, doing: PersonDoing) => {
     if (doing === "details") {
       setOpened(account.id);
+    } else if (doing === "settings") {
+      setSetting(account);
     } else if (doing === "setup-link") {
       setupLink.mutate(account, { onSuccess: setLink });
     } else if (doing === "enable") {
@@ -212,6 +217,12 @@ export function PeoplePage() {
         account={people?.find((account) => account.id === opened)}
         open={opened !== undefined && people?.some((account) => account.id === opened) === true}
         onOpenChange={(open) => (open ? undefined : setOpened(undefined))}
+      />
+      <SettingsDialog
+        target={{ level: "account", accountId: set?.id ?? "" }}
+        title={`Settings of ${set?.name ?? ""}`}
+        open={setting !== undefined}
+        onOpenChange={(open) => (open ? undefined : setSetting(undefined))}
       />
       <PersonCreateDialog
         open={creating}

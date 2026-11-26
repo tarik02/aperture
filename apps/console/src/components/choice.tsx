@@ -8,7 +8,12 @@ import {
   SelectValue,
 } from "@aperture-browser/ui/components/select";
 
-type Option<Value extends string> = { readonly value: Value; readonly label: string };
+type Option<Value extends string> = {
+  readonly value: Value;
+  readonly label: string;
+  /** Shown, and not to be chosen. */
+  readonly disabled?: boolean;
+};
 
 type ChoiceProps<Value extends string> = {
   value: Value;
@@ -20,6 +25,7 @@ type ChoiceProps<Value extends string> = {
   }>;
   onChange: (value: Value) => void;
   size?: "sm" | "default";
+  disabled?: boolean;
   id?: string;
   "aria-label"?: string;
   className?: string;
@@ -32,6 +38,7 @@ export function Choice<Value extends string>({
   groups = [],
   onChange,
   size,
+  disabled,
   id,
   className,
   "aria-label": label,
@@ -40,6 +47,7 @@ export function Choice<Value extends string>({
     <Select
       items={[...options, ...groups.flatMap((group) => group.options)]}
       value={value}
+      disabled={disabled}
       onValueChange={(next) => {
         if (next !== null) {
           onChange(next);
@@ -57,7 +65,7 @@ export function Choice<Value extends string>({
       >
         <SelectGroup>
           {options.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
+            <SelectItem key={option.value} value={option.value} disabled={option.disabled}>
               {option.label}
             </SelectItem>
           ))}
@@ -66,7 +74,7 @@ export function Choice<Value extends string>({
           <SelectGroup key={group.label}>
             <SelectLabel>{group.label}</SelectLabel>
             {group.options.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
+              <SelectItem key={option.value} value={option.value} disabled={option.disabled}>
                 {option.label}
               </SelectItem>
             ))}

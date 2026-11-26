@@ -4,9 +4,15 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
+import { isSqlError } from "effect/sql/SqlError";
 import { all, done, first, one } from "../store/rows.ts";
 import { type Observation, Session } from "./schemas.ts";
-import { type NewSession, type SessionDescription, SessionsStore } from "./store.ts";
+import {
+  type ExpiryDue,
+  type NewSession,
+  type SessionDescription,
+  SessionsStore,
+} from "./store.ts";
 
 const Id = Schema.Struct({ id: Schema.String });
 const StateCount = Schema.Struct({
@@ -103,8 +109,70 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
   });
 
   const desire = Effect.fn("SessionsStore.desire")(function* (id: string, state: DesiredState) {
-    yield* sql`UPDATE live_sessions SET desired_state = ${state} WHERE id = ${id}`.pipe(done);
+    // One that is to run is suspended no longer, for what deletes the suspended ones.
+    yield* sql`
+      UPDATE live_sessions
+      SET desired_state = ${state}, asleep = false,
+        suspended_since = CASE WHEN ${state} = 'suspended' THEN suspended_since END
+      WHERE id = ${id}
+    `.pipe(done);
   });
+
+  const pin = Effect.fn("SessionsStore.pin")(function* (id: string, pinned: boolean) {
+    yield* sql`UPDATE live_sessions SET pinned = ${pinned} WHERE id = ${id}`.pipe(done);
+  });
+
+  const pinnedOf = Effect.fn("SessionsStore.pinnedOf")(function* (
+    workspaceId: string | null,
+    accountId: string | null,
+  ) {
+    const { count } = yield* sql`
+      SELECT count(*)::int AS count FROM live_sessions
+      WHERE pinned AND ${
+        workspaceId === null
+          ? sql`workspace_id IS NULL AND account_id = ${accountId}`
+          : accountId === null
+            ? sql`workspace_id = ${workspaceId}`
+            : sql`workspace_id = ${workspaceId} AND account_id = ${accountId}`
+      }
+    `.pipe(one(Schema.Struct({ count: Schema.Number })));
+    return count;
+  });
+
+  const count = Effect.fn("SessionsStore.count")(function* (asked: {
+    readonly workspaceId: string | null;
+    readonly accountId: string | null;
+    readonly running: boolean;
+  }) {
+    const { count } = yield* sql`
+      SELECT count(*)::int AS count FROM live_sessions
+      WHERE ${sql.and([
+        asked.workspaceId === null
+          ? sql`workspace_id IS NULL`
+          : sql`workspace_id = ${asked.workspaceId}`,
+        ...(asked.accountId === null ? [] : [sql`account_id = ${asked.accountId}`]),
+        // One its node suspended for sitting idle runs again whenever someone reaches it,
+        // which nothing refuses; one its node lost, or that does not start, runs nothing.
+        ...(asked.running
+          ? [sql`desired_state = 'running' AND observed_state NOT IN ('gone', 'failed')`]
+          : []),
+      ])}
+    `.pipe(one(Schema.Struct({ count: Schema.Number })));
+    return count;
+  });
+
+  const alone = <A, E, R>(
+    scope: { readonly workspaceId: string | null; readonly accountId: string | null },
+    effect: Effect.Effect<A, E, R>,
+  ) =>
+    Effect.gen(function* () {
+      const key =
+        scope.workspaceId === null
+          ? `account:${scope.accountId ?? ""}`
+          : `workspace:${scope.workspaceId}`;
+      yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`.pipe(done);
+      return yield* effect;
+    }).pipe(sql.withTransaction, Effect.catchIf(isSqlError, Effect.die));
 
   const delete_ = Effect.fn("SessionsStore.delete")(function* (id: string, at: Date) {
     yield* Effect.gen(function* () {
@@ -116,6 +184,42 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     }).pipe(sql.withTransaction, Effect.orDie);
   });
 
+  const expire = Effect.fn("SessionsStore.expire")(function* (
+    id: string,
+    due: ExpiryDue,
+    at: Date,
+  ) {
+    return yield* Effect.gen(function* () {
+      const expired = yield* sql`
+        UPDATE live_sessions SET deleted_at = ${at}
+        WHERE id = ${id} AND NOT pinned AND ${sql.or([
+          ...(due.createdBefore === null ? [] : [sql`created_at <= ${due.createdBefore}`]),
+          ...(due.suspendedBefore === null ? [] : [sql`suspended_since <= ${due.suspendedBefore}`]),
+          // With neither, nothing is due.
+          sql`false`,
+        ])}
+        RETURNING *
+      `.pipe(first(Session));
+      if (Option.isSome(expired)) {
+        yield* sql`
+          UPDATE live_session_shares SET deleted_at = ${at} WHERE session_id = ${id}
+        `.pipe(done);
+      }
+      return expired;
+    }).pipe(sql.withTransaction, Effect.orDie);
+  });
+
+  const restore = Effect.fn("SessionsStore.restore")(function* (id: string, at: Date) {
+    yield* Effect.gen(function* () {
+      yield* sql`UPDATE sessions SET deleted_at = NULL WHERE id = ${id} AND deleted_at = ${at}`.pipe(
+        done,
+      );
+      yield* sql`
+        UPDATE session_shares SET deleted_at = NULL WHERE session_id = ${id} AND deleted_at = ${at}
+      `.pipe(done);
+    }).pipe(sql.withTransaction, Effect.orDie);
+  });
+
   const observe = Effect.fn("SessionsStore.observe")(function* (
     nodeId: string,
     seen: Observation,
@@ -123,8 +227,11 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
   ) {
     yield* sql`
       UPDATE live_sessions
-      SET observed_state = ${seen.state}, failure = ${seen.failure},
-        unreachable_since = NULL, observed_at = ${now}
+      SET observed_state = ${seen.state}, failure = ${seen.failure}, asleep = ${seen.asleep},
+        unreachable_since = NULL, observed_at = ${now},
+        suspended_since = CASE
+          WHEN ${seen.state} = 'suspended' THEN COALESCE(suspended_since, ${now})
+        END
       WHERE id = ${seen.id} AND node_id = ${nodeId}
     `.pipe(done);
   });
@@ -133,7 +240,7 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     yield* sql`
       UPDATE live_sessions
       SET node_id = NULL, observed_state = 'gone', unreachable_since = NULL,
-        observed_at = ${now}
+        suspended_since = NULL, observed_at = ${now}
       WHERE id = ${id} AND node_id = ${nodeId}
     `.pipe(done);
   });
@@ -171,7 +278,13 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
     proxyOf,
     keepProxy,
     desire,
+    pin,
+    pinnedOf,
+    count,
+    alone,
     delete: delete_,
+    expire,
+    restore,
     observe,
     gone,
     unreachable,

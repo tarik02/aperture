@@ -136,6 +136,10 @@ struct Arguments {
     /// left running without one.
     #[arg(long, env = "APERTURE_SUSPEND_IDLE_AFTER", value_parser = limits::stretch)]
     suspend_idle_after: Option<Duration>,
+    /// How often sessions at rest are looked at for recordings and screenshots kept longer
+    /// than their sessions keep them, which are removed.
+    #[arg(long, env = "APERTURE_RECORDINGS_CHECK", default_value = "10m", value_parser = limits::stretch)]
+    recordings_check: Duration,
     /// An origin whose pages may reach the sessions from a browser, such as
     /// `https://app.example.com`, or `*` for any. A browser refuses the pages of every
     /// other origin but the executor's own. May be repeated.
@@ -218,6 +222,7 @@ async fn main() -> anyhow::Result<()> {
         idle_ms: arguments
             .suspend_idle_after
             .map(|after| after.as_millis() as u64),
+        keep_recordings_ms: None,
     }
     .over(Limits::default());
     limits.check().map_err(anyhow::Error::msg)?;
@@ -298,12 +303,14 @@ async fn main() -> anyhow::Result<()> {
             runner: options::executable(&runner)?,
             setup: arguments.options.setup()?,
             limits,
+            recordings_check: arguments.recordings_check,
             scopes,
         },
     ));
     // Before anyone is told of the sessions: what the sweep stops is not told as running.
     sessions.sweep().await;
     tokio::spawn(sessions.clone().suspend_idle());
+    tokio::spawn(sessions.clone().forget_recordings());
     let metrics_listen = arguments
         .metrics_listen
         .as_deref()

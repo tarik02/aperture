@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { cn } from "@aperture-browser/ui/utils";
-import { Layers } from "lucide-react";
+import { Layers, Pin } from "lucide-react";
 import { type KeyboardEvent, type PointerEvent, useRef, useState } from "react";
 import { TagList } from "#/components/tag-list.tsx";
 import {
@@ -120,6 +120,15 @@ export function SessionCard({ session, selected, onSelect }: SessionCardProps) {
                     <Layers />
                     {tabs.length}
                   </button>
+                ) : null}
+                {session.pinned ? (
+                  <span
+                    data-console-session-pinned
+                    title="Pinned: never deleted by itself"
+                    className="aperture:flex aperture:size-5 aperture:items-center aperture:justify-center aperture:rounded-md aperture:bg-background/90 aperture:[&>svg]:size-3"
+                  >
+                    <Pin aria-label="Pinned" />
+                  </span>
                 ) : null}
               </span>
               {onSelect === undefined ? null : (

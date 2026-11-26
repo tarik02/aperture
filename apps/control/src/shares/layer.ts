@@ -31,6 +31,8 @@ import { after, ago, now } from "../time.ts";
 import { type Entered, type Guest, guestsOf, type Share } from "./schemas.ts";
 import { Shares } from "./service.ts";
 import { SharesStore } from "./store.ts";
+import { withinLifetime } from "../policy/data.ts";
+import { Policy } from "../policy/service.ts";
 
 /**
  * What each kind of link gives besides watching. Nothing of the session's files, its
@@ -90,6 +92,7 @@ export const makeShares = Effect.fn("Shares.make")(function* () {
   const settings = yield* Settings;
   const client = yield* HttpClient.HttpClient;
   const events = yield* Events;
+  const policy = yield* Policy;
   const crypto = yield* Effect.context<Crypto.Crypto>();
   /** The secrets that were no link's, by where they came from: how many since when. */
   const tried = new Map<string, { count: number; since: number }>();
@@ -180,6 +183,19 @@ export const makeShares = Effect.fn("Shares.make")(function* () {
     const account = yield* accountOf(caller);
     const name = link.name?.trim() ?? "";
     const session = yield* sessions.acted(caller, sessionId);
+    const effective = yield* policy.of({
+      workspaceId: session.workspaceId,
+      accountId: session.accountId,
+      sessionId: session.id,
+      pinned: session.pinned,
+    });
+    yield* withinLifetime(
+      effective.shareLinkMaxLifetime,
+      "shareLinkMaxLifetime",
+      "a share link",
+      link.lasts,
+      Duration.toSeconds,
+    );
     const secret = yield* Secrets.make("aps");
     const share = yield* store.insert({
       id: yield* Secrets.id,

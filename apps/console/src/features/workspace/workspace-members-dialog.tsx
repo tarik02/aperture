@@ -25,7 +25,7 @@ import {
   ItemTitle,
 } from "@aperture-browser/ui/components/item";
 import { useForm, useStore } from "@tanstack/react-form";
-import { Trash2, Users } from "lucide-react";
+import { SlidersHorizontal, Trash2, Users } from "lucide-react";
 import { useRef, useState } from "react";
 import { Choice } from "#/components/choice.tsx";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
@@ -34,6 +34,7 @@ import { ITEM_ROW, LinesSkeleton, WHOLE } from "#/components/list-skeleton.tsx";
 import { TextField } from "#/components/text-field.tsx";
 import { type Account, useAccountsQuery } from "#/features/account/account.queries.ts";
 import { useMay } from "#/features/auth/access.ts";
+import { SettingsDialog } from "#/features/settings/settings-dialog.tsx";
 import {
   useAdmitMemberMutation,
   useDismissMemberMutation,
@@ -73,6 +74,8 @@ export function WorkspaceMembersDialog({
   const [removing, setRemoving] = useState<{ accountId: string; name: string }>();
   const removed = useLast(removing);
   const members = useWorkspaceMembersQuery(workspace.id, open);
+  const [setting, setSetting] = useState<{ accountId: string; name: string }>();
+  const set = useLast(setting);
   const inside = new Set(members.data?.map((member) => member.accountId));
   /** Whose the address that was typed is, as it was found when the form was sent. */
   const found = useRef("");
@@ -215,6 +218,16 @@ export function WorkspaceMembersDialog({
                     <Button
                       size="icon-sm"
                       variant="ghost"
+                      aria-label={`Settings of ${member.name}`}
+                      title="Settings"
+                      data-console-member-settings
+                      onClick={() => setSetting(member)}
+                    >
+                      <SlidersHorizontal />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
                       aria-label={`Remove ${member.name}`}
                       onClick={() => setRemoving(member)}
                     >
@@ -232,6 +245,16 @@ export function WorkspaceMembersDialog({
             ))}
           </ItemGroup>
         </DialogBody>
+        <SettingsDialog
+          target={{
+            level: "member",
+            workspaceId: workspace.id,
+            accountId: set?.accountId ?? "",
+          }}
+          title={`Settings of ${set?.name ?? ""} in ${workspace.name}`}
+          open={setting !== undefined}
+          onOpenChange={(next) => (next ? undefined : setSetting(undefined))}
+        />
         <ConfirmDialog
           open={removing !== undefined}
           title={`Remove ${removed?.name ?? "this member"}?`}

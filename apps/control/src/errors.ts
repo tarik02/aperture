@@ -97,3 +97,13 @@ export class DiscoveryFailed extends Schema.TaggedError<DiscoveryFailed>()("Disc
   /** Why, each a sentence an admin reads. */
   problems: Schema.Array(Schema.String),
 }) {}
+
+/** A variable that says a setting for the deployment says nothing that setting takes. */
+export class SettingDefaultUnusable extends Schema.TaggedError<SettingDefaultUnusable>()(
+  "SettingDefaultUnusable",
+  { variable: Schema.String, reason: Schema.String },
+) {
+  override get message() {
+    return `${this.variable} cannot be used: ${this.reason}`;
+  }
+}

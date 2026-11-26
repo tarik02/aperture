@@ -130,6 +130,28 @@ impl ExecutorService for Executor {
         Response::ok(pb::UpdateSessionProxyResponse::default())
     }
 
+    async fn update_session_limits(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, pb::UpdateSessionLimitsRequest>,
+    ) -> ServiceResult<pb::UpdateSessionLimitsResponse> {
+        let request = request.to_owned_message();
+        let limits = request.limits.as_option().map(limits).unwrap_or_default();
+        self.0.set_limits(&request.id, limits).await?;
+        Response::ok(pb::UpdateSessionLimitsResponse::default())
+    }
+
+    async fn update_session_features(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, pb::UpdateSessionFeaturesRequest>,
+    ) -> ServiceResult<pb::UpdateSessionFeaturesResponse> {
+        let request = request.to_owned_message();
+        let features = features_asked(request.features.as_option())?;
+        self.0.set_features(&request.id, features).await?;
+        Response::ok(pb::UpdateSessionFeaturesResponse::default())
+    }
+
     async fn delete_session(
         &self,
         _ctx: RequestContext,
@@ -370,26 +392,35 @@ fn limits_message(limits: Limits) -> pb::Limits {
         cpus: limits.cpus,
         tasks: limits.tasks,
         suspend_idle_after: limits.idle().map(Duration::from).into(),
+        keep_recordings: limits.keep_recordings().map(Duration::from).into(),
         ..Default::default()
     }
+}
+
+/// What a request says a session offers; none for all the executor's sessions do.
+fn features_asked(features: Option<&pb::Features>) -> Result<Option<Vec<Feature>>, ConnectError> {
+    let Some(features) = features else {
+        return Ok(None);
+    };
+    let known = features.on.iter().map(|asked| {
+        let named = FEATURES
+            .into_iter()
+            .find(|(feature, _)| asked.as_known() == Some(*feature));
+        named.map(|(_, feature)| feature)
+    });
+    let known: Option<Vec<Feature>> = known.collect();
+    known.map(Some).ok_or_else(|| {
+        ConnectError::new(
+            ErrorCode::InvalidArgument,
+            "a feature that is none".to_owned(),
+        )
+    })
 }
 
 /// What a request says of the session's own options.
 fn options(request: &pb::CreateSessionRequest) -> Result<Asked, ConnectError> {
     let unknown = |what: &str| ConnectError::new(ErrorCode::InvalidArgument, what.to_owned());
-    let features = match request.features.as_option() {
-        Some(features) => {
-            let known = features.on.iter().map(|asked| {
-                let named = FEATURES
-                    .into_iter()
-                    .find(|(feature, _)| asked.as_known() == Some(*feature));
-                named.map(|(_, feature)| feature)
-            });
-            let known: Option<Vec<Feature>> = known.collect();
-            Some(known.ok_or_else(|| unknown("a feature that is none"))?)
-        }
-        None => None,
-    };
+    let features = features_asked(request.features.as_option())?;
     let network = request.network.as_option();
     let tcp = match network.map(|network| network.tcp.as_known()) {
         None | Some(Some(pb::NetworkTcp::NETWORK_TCP_UNSPECIFIED)) => None,
@@ -416,6 +447,10 @@ fn limits(limits: &pb::Limits) -> Limits {
         idle_ms: limits.suspend_idle_after.as_option().map(|after| {
             Every::try_from(after.clone()).map_or(0, |after| after.as_millis() as u64)
         }),
+        keep_recordings_ms: limits
+            .keep_recordings
+            .as_option()
+            .map(|kept| Every::try_from(kept.clone()).map_or(0, |kept| kept.as_millis() as u64)),
     }
 }
 
