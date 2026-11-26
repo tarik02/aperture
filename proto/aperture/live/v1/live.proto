@@ -166,6 +166,9 @@ message Hello {
   // The client takes the session's sound on the session socket, as `audio`. A client
   // with a WebRTC connection takes it there instead, on an audio track it offers.
   bool audio = 5;
+  // The tab the client watches first; the one watched last in the session when left out,
+  // or when the session has no such tab. A hello that comes again leaves the tab watched.
+  optional uint32 tab = 6;
 }
 
 // The form a target's video takes.

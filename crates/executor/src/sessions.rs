@@ -349,18 +349,16 @@ impl Sessions {
         self.observe(self.store.session(id)?)
     }
 
-    /// The picture of what the session showed when it was last suspended; none for one
-    /// that never was. Asking for it reaches nobody: a session at rest stays at rest.
-    pub fn preview(&self, id: &str) -> Result<Option<Vec<u8>>> {
-        let picture = self
-            .store
-            .session_paths(id)?
-            .state
-            .join(aperture_runner::PREVIEW);
-        match fs::read(&picture) {
+    /// A file of what the session's runner kept of it, below where it keeps it: the
+    /// pictures of what it showed when it was last suspended. None where there is no such
+    /// file, as for a session that never was suspended. Asking for it reaches nobody: a
+    /// session at rest stays at rest.
+    pub fn kept(&self, id: &str, below: &std::path::Path) -> Result<Option<Vec<u8>>> {
+        let file = self.store.session_paths(id)?.state.join(below);
+        match fs::read(&file) {
             Ok(bytes) => Ok(Some(bytes)),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(err) => Err(Error::Io(picture, err)),
+            Err(err) => Err(Error::Io(file, err)),
         }
     }
 

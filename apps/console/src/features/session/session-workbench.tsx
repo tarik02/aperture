@@ -250,8 +250,20 @@ function useDrawn(workbench: React.RefObject<HTMLElement | null>, path: string) 
  * One session, opened: its workbench, connected at the session's path. The browser
  * carries what lets it in, and the proxy before the nodes turns that into a ticket.
  */
-export function SessionWorkbench({ sessionId }: { sessionId: string }) {
+export function SessionWorkbench({ sessionId, tab }: { sessionId: string; tab?: number }) {
   const session = useSessionQuery(sessionId);
+  // The tab asked for is the one watched first, and no more: the address says it no
+  // longer, and the session's own choice is what a reload comes back to.
+  const [asked, setAsked] = useState({ id: sessionId, tab });
+  if (asked.id !== sessionId) {
+    setAsked({ id: sessionId, tab });
+  }
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (tab !== undefined) {
+      void navigate({ to: ".", search: {}, replace: true });
+    }
+  }, [tab, navigate]);
   const resume = useSessionActionMutation("resume");
   const account = useAccountQuery();
   const onlooks = useOnlooks()(session.data?.workspaceId ?? null);
@@ -274,6 +286,14 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
         ?.title,
   );
   useDocumentTitle(watched || (session.data?.label ?? "Session"));
+  // Once the session shows a tab, a connection made again shows the one watched then.
+  const selected = useSyncExternalStore(
+    client?.subscribe ?? idle,
+    () => client?.getSnapshot().selected,
+  );
+  if (selected !== undefined && asked.tab !== undefined) {
+    setAsked({ id: sessionId, tab: undefined });
+  }
   const unanswered = useUnanswered(session);
 
   useEffect(() => {
@@ -393,17 +413,19 @@ export function SessionWorkbench({ sessionId }: { sessionId: string }) {
       </WorkbenchSkeleton>
     );
   }
-  return <Running session={{ ...session.data, path }} kept={kept} watch={watch} />;
+  return <Running session={{ ...session.data, path }} kept={kept} watch={watch} tab={asked.tab} />;
 }
 
 type RunningProps = {
   session: SessionRecord & { path: string };
   kept: string | undefined;
+  /** The tab watched first; the one the session watched last without. */
+  tab: number | undefined;
   watch: (opened: Session | null) => void;
 };
 
 /** The session's workbench, with what is done with the session in its menu. */
-function Running({ session, kept, watch }: RunningProps) {
+function Running({ session, kept, watch, tab }: RunningProps) {
   const workbench = useRef<HTMLDivElement>(null);
   const drawn = useDrawn(workbench, session.path);
   const { theme, setTheme } = useTheme();
@@ -422,6 +444,7 @@ function Running({ session, kept, watch }: RunningProps) {
         <ApertureSession
           key={session.path}
           url={session.path}
+          tab={tab}
           theme={isTheme(theme) ? theme : "system"}
           onThemeChange={setTheme}
           onSession={watch}

@@ -261,6 +261,8 @@ fn needs(method: &Method, rest: &str) -> Needs {
         ("targets", _) if reads => Needs::Watching,
         // What the session showed when it last rested, for whoever may watch it.
         ("preview.png", None) if reads => Needs::Watching,
+        // And what each of its tabs showed then.
+        ("previews", _) if reads => Needs::Watching,
         ("targets", Some(_)) if rest.ends_with("/viewport") || rest.ends_with("/mode") => {
             Needs::Writing(Area::Tabs)
         }
@@ -344,6 +346,10 @@ mod tests {
             (&post, "/ws", Operator),
             (&get, "/ws/more", Operator),
             (&get, "/preview.png/more", Operator),
+            (&get, "/previews", Watching),
+            (&get, "/previews/7", Watching),
+            (&get, "/previews/7/favicon", Watching),
+            (&put, "/previews/7", Operator),
             (&put, "/targets/7/viewport", Writing(Tabs)),
             (&put, "/targets/7/mode", Writing(Tabs)),
             (&post, "/targets", Operator),
