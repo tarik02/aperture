@@ -1,7 +1,7 @@
 import type { SettingEntry, SettingKey, SettingView } from "@aperture-browser/control-api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LEVEL_WORDS, SETTING_WORDS } from "#/features/settings/setting-words.ts";
-import { call, type Client, isFailure } from "#/lib/api.ts";
+import { LEVEL_WORDS } from "#/features/settings/setting-words.ts";
+import { call, type Client, isFailure, told } from "#/lib/api.ts";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { queryKeys } from "#/lib/query-keys.ts";
 
@@ -78,38 +78,45 @@ export function useSettingsQuery(target: SettingsTarget, enabled = true) {
   });
 }
 
-/** What a refusal of a setting says, naming the level whose bound it crossed. */
-const refusal = (key: SettingKey, error: unknown) =>
-  isFailure(error) && error._tag === "SettingOutOfBounds" && "level" in error
-    ? {
-        _tag: error._tag,
-        message: `${SETTING_WORDS[key].label}: the ${
-          LEVEL_WORDS[error.level as keyof typeof LEVEL_WORDS] ?? "level above"
-        } does not let it be that`,
-      }
-    : error;
+/** What a refusal of a setting says, on the row of the setting. */
+const refusal = (error: unknown) => {
+  if (isFailure(error) && error._tag === "SettingOutOfBounds" && "level" in error) {
+    const level = LEVEL_WORDS[error.level as keyof typeof LEVEL_WORDS] ?? "level above";
+    return `The ${level} does not let it be that.`;
+  }
+  if (isFailure(error) && error._tag === "SettingInvalid") {
+    return error.message ?? told(error);
+  }
+  return told(error);
+};
 
-/** Whatever a setting comes to below a level may change with it: every answer is stale. */
-const invalidate = (queries: ReturnType<typeof useQueryClient>) =>
-  queries.invalidateQueries({ queryKey: queryKeys.settingsAll });
+/** What is said of each setting that changed: an entry, or nothing to say it no more. */
+export type SettingChange = { readonly key: SettingKey; readonly entry: SettingEntry | null };
 
-export function useSetSettingMutation(target: SettingsTarget) {
+/**
+ * Says all the changes at once. Each is said or refused alone: what was refused comes back,
+ * by setting, with why, once what was said is read again.
+ */
+export function useSaveSettingsMutation(target: SettingsTarget) {
   const queries = useQueryClient();
   return useMutation({
-    mutationFn: ({ key, entry }: { key: SettingKey; entry: SettingEntry }) =>
-      call(write(target, key, entry)).catch((error: unknown) => {
-        throw refusal(key, error);
-      }),
-    onError: (error) => toastMutationError(error, "The setting was not changed"),
-    onSettled: () => invalidate(queries),
-  });
-}
-
-export function useClearSettingMutation(target: SettingsTarget) {
-  const queries = useQueryClient();
-  return useMutation({
-    mutationFn: (key: SettingKey) => call(clear(target, key)),
-    onError: (error) => toastMutationError(error, "The setting was not cleared"),
-    onSettled: () => invalidate(queries),
+    mutationFn: async (
+      said: ReadonlyArray<SettingChange>,
+    ): Promise<Partial<Record<SettingKey, string>>> => {
+      const results = await Promise.allSettled(
+        said.map(({ key, entry }) =>
+          entry === null ? call(clear(target, key)) : call(write(target, key, entry)),
+        ),
+      );
+      // Whatever a setting comes to below a level may change with it: every answer is stale.
+      await queries.invalidateQueries({ queryKey: queryKeys.settingsAll });
+      return Object.fromEntries(
+        said.flatMap(({ key }, at) => {
+          const result = results[at];
+          return result?.status === "rejected" ? [[key, refusal(result.reason)]] : [];
+        }),
+      );
+    },
+    onError: (error) => toastMutationError(error, "The settings were not saved"),
   });
 }

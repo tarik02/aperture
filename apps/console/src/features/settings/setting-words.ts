@@ -1,44 +1,133 @@
 import {
   SETTINGS,
-  type SettingEffective,
   type SettingKey,
   type SettingLevel,
   type SettingSource,
   type SettingValue,
 } from "@aperture-browser/control-api";
 
-/** What each setting is called, and in which group it is shown. */
+/** What each setting is called, what it does in a line, and what its none is called. */
 export const SETTING_WORDS: Readonly<
-  Record<SettingKey, { readonly label: string; readonly group: string; readonly none?: string }>
+  Record<
+    SettingKey,
+    { readonly label: string; readonly description: string; readonly none?: string }
+  >
 > = {
-  suspendIdleAfter: { label: "Suspend when idle for", group: "Lifecycle", none: "Never" },
-  pinnedStayAwake: { label: "Pinned sessions stay awake", group: "Lifecycle" },
-  deleteSuspendedAfter: {
-    label: "Delete when suspended for",
-    group: "Lifecycle",
+  suspendIdleAfter: {
+    label: "Suspend when idle",
+    description: "A session nobody uses for this long is suspended.",
     none: "Never",
   },
-  maxSessionAge: { label: "Delete when older than", group: "Lifecycle", none: "Never" },
-  purgeDeletedAfter: { label: "Purge deleted records after", group: "Lifecycle", none: "Never" },
-  pinning: { label: "Who pins sessions", group: "Pinning" },
-  maxPinnedSessions: { label: "Pinned sessions at most", group: "Pinning", none: "No limit" },
-  sessionsPerUser: { label: "Sessions per user", group: "Quotas", none: "No limit" },
-  sessionsPerWorkspace: { label: "Sessions per workspace", group: "Quotas", none: "No limit" },
-  runningSessions: { label: "Sessions running at once", group: "Quotas", none: "No limit" },
-  sessionMemory: { label: "Memory per session", group: "Quotas", none: "No limit" },
-  sessionCpus: { label: "Processors per session", group: "Quotas", none: "No limit" },
-  clipboard: { label: "Clipboard", group: "Data" },
-  uploads: { label: "Uploads allowed", group: "Data" },
-  downloads: { label: "Downloads allowed", group: "Data" },
-  recording: { label: "Recording allowed", group: "Data" },
-  recordingRetention: { label: "Keep recordings for", group: "Data", none: "Ever" },
-  shareLinkMaxLifetime: { label: "Share links last at most", group: "Data", none: "No limit" },
-  apiTokenMaxLifetime: { label: "API tokens last at most", group: "Data", none: "No limit" },
+  pinnedStayAwake: {
+    label: "Pinned sessions stay awake",
+    description: "A pinned session is not suspended for sitting idle.",
+  },
+  deleteSuspendedAfter: {
+    label: "Delete when suspended",
+    description: "A session suspended this long is deleted, unless it is pinned.",
+    none: "Never",
+  },
+  maxSessionAge: {
+    label: "Delete when older than",
+    description: "A session this old is deleted, unless it is pinned.",
+    none: "Never",
+  },
+  purgeDeletedAfter: {
+    label: "Purge deleted records",
+    description: "What was deleted is removed from the database for good after this.",
+    none: "Never",
+  },
+  pinning: { label: "Who pins sessions", description: "Who may pin a session to keep it." },
+  maxPinnedSessions: {
+    label: "Pinned sessions",
+    description: "How many sessions are pinned at most.",
+    none: "No limit",
+  },
+  sessionsPerUser: {
+    label: "Sessions per user",
+    description: "How many sessions one user has at most.",
+    none: "No limit",
+  },
+  sessionsPerWorkspace: {
+    label: "Sessions per workspace",
+    description: "How many sessions a workspace has at most.",
+    none: "No limit",
+  },
+  runningSessions: {
+    label: "Running sessions",
+    description: "How many sessions run at once at most.",
+    none: "No limit",
+  },
+  sessionMemory: {
+    label: "Memory per session",
+    description: "The memory one session may use.",
+    none: "No limit",
+  },
+  sessionCpus: {
+    label: "Processors per session",
+    description: "The processors' worth of time one session may use.",
+    none: "No limit",
+  },
+  clipboard: {
+    label: "Clipboard",
+    description: "Which way what is copied passes between a session and who uses it.",
+  },
+  uploads: { label: "Uploads", description: "Files may be put into a session." },
+  downloads: {
+    label: "Downloads",
+    description: "A session's browser may download files, and they may be taken out.",
+  },
+  recording: {
+    label: "Recording",
+    description: "A session's tabs are recorded and screenshots of them kept.",
+  },
+  recordingRetention: {
+    label: "Keep recordings",
+    description: "Recordings and screenshots are removed after this.",
+    none: "Forever",
+  },
+  shareLinkMaxLifetime: {
+    label: "Share link lifetime",
+    description: "How long a share link stays good at most.",
+    none: "No limit",
+  },
+  apiTokenMaxLifetime: {
+    label: "API token lifetime",
+    description: "How long an API token stays good at most.",
+    none: "No limit",
+  },
 };
 
+/** The settings in the groups they are shown in, in the order they are shown. */
+export const SETTING_GROUPS: ReadonlyArray<{
+  readonly title: string;
+  readonly keys: ReadonlyArray<SettingKey>;
+}> = [
+  {
+    title: "Lifecycle",
+    keys: ["suspendIdleAfter", "deleteSuspendedAfter", "maxSessionAge", "purgeDeletedAfter"],
+  },
+  { title: "Pinning", keys: ["pinning", "maxPinnedSessions", "pinnedStayAwake"] },
+  {
+    title: "Quotas",
+    keys: [
+      "sessionsPerUser",
+      "sessionsPerWorkspace",
+      "runningSessions",
+      "sessionMemory",
+      "sessionCpus",
+    ],
+  },
+  {
+    title: "Data",
+    keys: ["clipboard", "uploads", "downloads", "recording", "recordingRetention"],
+  },
+  { title: "Access", keys: ["shareLinkMaxLifetime", "apiTokenMaxLifetime"] },
+];
+
 const CHOICE_WORDS: Readonly<Record<string, string>> = {
-  true: "Yes",
-  false: "No",
+  true: "On",
+  false: "Off",
   anyone: "Anyone",
   admins: "Admins",
   nobody: "Nobody",
@@ -55,7 +144,7 @@ export const LEVEL_WORDS: Readonly<Record<SettingLevel, string>> = {
   session: "session",
 };
 
-const SOURCE_WORDS: Readonly<Record<SettingSource, string>> = {
+export const SOURCE_WORDS: Readonly<Record<SettingSource, string>> = {
   ...LEVEL_WORDS,
   default: "default",
   configuration: "configuration",
@@ -65,9 +154,9 @@ const SOURCE_WORDS: Readonly<Record<SettingSource, string>> = {
 /** The units a time or a size is said in, the largest first; none for a count. */
 const UNITS = {
   duration: [
-    { value: "days", label: "days", factor: 86_400 },
-    { value: "hours", label: "hours", factor: 3600 },
-    { value: "minutes", label: "minutes", factor: 60 },
+    { value: "days", label: "d", factor: 86_400 },
+    { value: "hours", label: "h", factor: 3600 },
+    { value: "minutes", label: "min", factor: 60 },
   ],
   bytes: [
     { value: "GiB", label: "GiB", factor: 1024 ** 3 },
@@ -123,18 +212,3 @@ export const valueWords = (key: SettingKey, value: SettingValue) => {
       return CHOICE_WORDS[String(value)] ?? String(value);
   }
 };
-
-/** Where what a setting comes to comes from, and whether it is held there: `from workspace, locked`. */
-export const sourceWords = (effective: SettingEffective) => {
-  const from =
-    effective.source === "node" ? "as each node has it" : `from ${SOURCE_WORDS[effective.source]}`;
-  return [from, effective.locked ? "locked" : null, effective.clamped ? "bounded" : null]
-    .filter((said) => said !== null)
-    .join(", ");
-};
-
-/** What a setting comes to and where from, in one line: `1 hour · from workspace, locked`. */
-export const effectiveWords = (key: SettingKey, effective: SettingEffective) =>
-  effective.source === "node"
-    ? "Each node's own"
-    : `${valueWords(key, effective.value)} · ${sourceWords(effective)}`;

@@ -291,6 +291,8 @@ export const SettingView = Schema.Struct({
   here: Schema.NullOr(SettingEntry),
   /** What it comes to here, where nothing below says otherwise. */
   effective: SettingEffective,
+  /** What the levels above make of it: what it comes to here where this level says nothing. */
+  inherited: SettingEffective,
   /** The bounds the levels above set, which this one may not cross. */
   above: SettingBounds,
   /** Whether the caller changes what this level says of it. */
