@@ -149,6 +149,52 @@ impl Scopes {
         })
     }
 
+    /// The sessions that have a scope, whatever runs in it.
+    pub async fn sessions(&self) -> Vec<String> {
+        let mut command = Command::new(&self.systemctl);
+        if self.user {
+            command.arg("--user");
+        }
+        let listed = command
+            .args([
+                "list-units",
+                "--all",
+                "--plain",
+                "--no-legend",
+                "--full",
+                "--type=scope",
+            ])
+            .arg(Self::unit("*"))
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .await;
+        let listed = match listed {
+            Ok(listed) if listed.status.success() => listed.stdout,
+            Ok(listed) => {
+                warn!(status = %listed.status, "systemctl did not list the sessions' scopes");
+                return Vec::new();
+            }
+            Err(err) => {
+                warn!(%err, "failed to run systemctl to list the sessions' scopes");
+                return Vec::new();
+            }
+        };
+        String::from_utf8_lossy(&listed)
+            .lines()
+            // A unit that failed may be marked before its name.
+            .filter_map(|line| {
+                line.split_whitespace()
+                    .find(|word| word.ends_with(".scope"))
+            })
+            .filter_map(|unit| {
+                unit.strip_prefix("aperture-session-")?
+                    .strip_suffix(".scope")
+                    .map(str::to_owned)
+            })
+            .collect()
+    }
+
     /// Ends whatever the session left running. Its scope goes with its last process.
     pub async fn close(&self, id: &str) {
         let mut command = Command::new(&self.systemctl);

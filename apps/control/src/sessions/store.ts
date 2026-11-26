@@ -20,6 +20,15 @@ export interface NewSession {
   readonly now: Date;
 }
 
+/** How many sessions a node has in one desired and observed state. */
+export interface StateCount {
+  /** The node's name; none for the sessions that are gone from their nodes. */
+  readonly node: string | null;
+  readonly desiredState: DesiredState;
+  readonly observedState: ObservedState;
+  readonly count: number;
+}
+
 export interface SessionDescription {
   readonly label?: string | null | undefined;
   readonly tags?: Readonly<Record<string, string>> | undefined;
@@ -36,6 +45,8 @@ export interface SessionsStoreShape {
   readonly insert: (session: NewSession) => Effect.Effect<Session>;
   readonly find: (id: string) => Effect.Effect<Option.Option<Session>>;
   readonly list: () => Effect.Effect<ReadonlyArray<Session>>;
+  /** How many sessions there are of each node and state; none of a state no session is in. */
+  readonly countStates: () => Effect.Effect<ReadonlyArray<StateCount>>;
   /** An account's own sessions, and those of these workspaces. */
   readonly listOf: (
     accountId: string,

@@ -147,6 +147,14 @@ in
       example = "1 year";
       description = "How long an event is kept before it is forgotten: what was done by whom, as an admin reads it.";
     };
+    metrics = {
+      enable = lib.mkEnableOption "Prometheus metrics of the control plane, at `/metrics` on an address of their own";
+      listen = lib.mkOption {
+        type = lib.types.str;
+        default = "127.0.0.1:9465";
+        description = "Where the metrics are served, as `host:port` or `[host]:port`: another port than `listenPort`, and than a node's metrics on the same machine. The endpoint has no authentication: keep it on loopback unless Prometheus runs on another machine, and then let only that machine reach it.";
+      };
+    };
     environment = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       default = { };
@@ -198,6 +206,7 @@ in
       }
       // lib.optionalAttrs (cfg.publicUrl != null) { APERTURE_CONTROL_PUBLIC_URL = cfg.publicUrl; }
       // lib.optionalAttrs (cfg.internalUrl != null) { APERTURE_CONTROL_INTERNAL_URL = cfg.internalUrl; }
+      // lib.optionalAttrs cfg.metrics.enable { APERTURE_CONTROL_METRICS_LISTEN = cfg.metrics.listen; }
       // lib.optionalAttrs (cfg.proxyTokenFile != null) {
         APERTURE_CONTROL_PROXY_TOKEN_FILE = cfg.proxyTokenFile;
       }

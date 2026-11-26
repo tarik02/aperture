@@ -31,6 +31,8 @@ const token = query.get("token") ?? undefined;
 const name = query.get("name") ?? undefined;
 const asked = query.get("pixels");
 const pixels = isWay(asked) ? asked : undefined;
+// `tab=N` is the tab watched first, in place of the one the session watched last.
+const tab = Number.parseInt(query.get("tab") ?? "", 10);
 // `fit=0` leaves targets the size they have, for whoever watches without changing them.
 const fit = !["0", "off", "false"].includes(query.get("fit") ?? "");
 
@@ -71,6 +73,7 @@ function Workbench() {
       token={token}
       name={name}
       pixels={pixels}
+      tab={Number.isInteger(tab) && tab >= 0 ? tab : undefined}
       fit={fit}
       theme={theme}
       onThemeChange={changeTheme}

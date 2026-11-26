@@ -47,6 +47,8 @@ From TypeScript, [`@aperture-browser/control-api`](../packages/control-api) is t
 
 A session can be created with what its browser is to start with: `storageState` in the body of `POST /sessions` is a [storage state](../skills/aperture/references/session.md#storage-state), with cookies, the storage of origins and the tabs to open. The request answers once the session's browser runs, with `observedState` `restoring`: the state is put in after, storage and cookies before any of its tabs is opened. The session is `running` once all of it is in. Ask for it until then, as a session takes no input, runs no browser tool and offers no DevTools while it is being restored; whoever opens it meanwhile sees its tabs arrive. One whose browser does not take the state is stopped and `failed`, with `failure` saying why.
 
+A session whose `desiredState` is `running` and whose node has it at rest, as after the node lost what it ran, is started again by the control plane: a few seconds after it is first seen so, then at longer intervals. After three tries it is `failed`, with `failure` saying why, until it is resumed or suspended. One that was suspended for sitting idle is not: whoever reaches it resumes it.
+
 A session is ready once its `observedState` is `running`. Its own routes (`/targets`, `/files`, `/cdp`, `/mcp` and the rest) are below `$APERTURE_URL<path>`, and take the same API token; [`session.md`](../skills/aperture/references/session.md) lists them.
 
 ## Recording a tab

@@ -9,6 +9,7 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import { type SettingKey, type SettingValue, SETTINGS } from "@aperture-browser/control-api";
 import {
+  MetricsListenUnusable,
   ProvidersUnusable,
   SecretFileUnusable,
   SettingDefaultUnusable,
@@ -45,6 +46,11 @@ const given = Config.all({
   databaseUrl: Config.Redacted("APERTURE_CONTROL_DATABASE_URL"),
   listenHost: Config.String("APERTURE_CONTROL_LISTEN_HOST").pipe(Config.withDefault("127.0.0.1")),
   listenPort: Config.Port("APERTURE_CONTROL_LISTEN_PORT").pipe(Config.withDefault(7800)),
+  // Set empty where whatever starts the program names it whether or not it is wanted.
+  metricsListen: Config.String("APERTURE_CONTROL_METRICS_LISTEN").pipe(
+    Config.withDefault(""),
+    Config.map((named) => Option.liftPredicate(named.trim(), (told) => told !== "")),
+  ),
   internalUrl: Config.option(Config.NonEmptyString("APERTURE_CONTROL_INTERNAL_URL")),
   publicUrl: Config.option(Config.NonEmptyString("APERTURE_CONTROL_PUBLIC_URL")),
   // This machine's own by default: a proxy beside the program is the usual one.
@@ -88,6 +94,19 @@ const given = Config.all({
     Config.map((commit) => Option.liftPredicate(commit.trim(), (told) => told !== "")),
   ),
 });
+
+const HOST_AND_PORT = /^(?:\[(?<inBrackets>[^\]]+)\]|(?<host>[^:[\]]+)):(?<port>\d{1,5})$/u;
+const PORTS = 65_535;
+
+/** An address as `host:port`, or `[host]:port` for one of IPv6. */
+const addressIn = (named: string) => {
+  const found = HOST_AND_PORT.exec(named)?.groups;
+  const host = found?.["inBrackets"] ?? found?.["host"];
+  const port = Number(found?.["port"]);
+  return host === undefined || port > PORTS
+    ? Effect.fail(new MetricsListenUnusable({ named }))
+    : Effect.succeed({ host, port });
+};
 
 /** The secret a file holds, less the space around it. */
 const secretIn = Effect.fn("Settings.secretIn")(function* (file: string) {
@@ -198,6 +217,7 @@ export const makeSettings = Effect.fn("Settings.make")(function* () {
     registrationTokenFile,
     providers,
     trustedProxies,
+    metricsListen,
     ...settings
   } = yield* given;
   const fromFile = yield* optionalSecretIn(bootstrapTokenFile);
@@ -220,6 +240,9 @@ export const makeSettings = Effect.fn("Settings.make")(function* () {
     ...settings,
     settingDefaults: yield* settingDefaults(),
     trustedProxies: trusted,
+    metricsListen: Option.isNone(metricsListen)
+      ? Option.none()
+      : Option.some(yield* addressIn(metricsListen.value)),
     bootstrapToken: bootstrap.value,
     providers: yield* providersIn(providers),
     proxyToken: yield* optionalSecretIn(proxyTokenFile),

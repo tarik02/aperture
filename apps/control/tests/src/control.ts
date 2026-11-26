@@ -52,6 +52,8 @@ export interface ControlOptions {
    * deployment, or the same one started again.
    */
   readonly beside?: ControlService;
+  /** Serve Prometheus metrics on an address of their own. */
+  readonly metrics?: boolean;
 }
 
 /** What a node says of itself in a keepalive, as JSON has it. */
@@ -80,6 +82,8 @@ export type Client = Effect.Success<ReturnType<typeof client>>;
 /** A control plane on a database of its own, as `main.ts` runs it. */
 export interface ControlService {
   readonly url: string;
+  /** Where its metrics are, where it serves them. */
+  readonly metricsUrl: string | undefined;
   readonly bootstrapToken: string;
   /** What it was started with, as its environment: for a program that is run beside it. */
   readonly settings: Readonly<Record<string, string>>;
@@ -163,8 +167,12 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
 
   // Its own address is what it tells a proxy to ask it at.
   const port = yield* freePort;
+  const metricsPort = options.metrics === true ? yield* freePort : undefined;
   const settings: Record<string, string> = {
     APERTURE_CONTROL_LISTEN_PORT: String(port),
+    ...(metricsPort === undefined
+      ? {}
+      : { APERTURE_CONTROL_METRICS_LISTEN: `127.0.0.1:${metricsPort}` }),
     ...shared,
     // Checks sign in more often from one address than anyone is let.
     APERTURE_CONTROL_RATE_LIMIT: String(options.rateLimit ?? false),
@@ -224,6 +232,7 @@ export const start = Effect.fn("Control.start")(function* (options: ControlOptio
 
   return {
     url,
+    metricsUrl: metricsPort === undefined ? undefined : `http://127.0.0.1:${metricsPort}/metrics`,
     bootstrapToken: BOOTSTRAP,
     settings,
     ticketKey,
