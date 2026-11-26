@@ -4,7 +4,7 @@ import * as Schema from "effect/Schema";
  * Where a setting is said, from the widest to the narrowest: the whole deployment, a
  * workspace, a person (an account) wherever they are, a person as a member of one
  * workspace, and one session. What the nearest of them says is what a session has. An
- * admin says a person's bounds, and what is a quota; the person says the rest of its values.
+ * admin says a person's bounds; the person says its values inside them.
  */
 export const SettingLevel = Schema.Literals([
   "instance",
@@ -24,7 +24,10 @@ export const LEVELS: ReadonlyArray<SettingLevel> = [
   "session",
 ];
 
-/** The levels a person says values of for themselves, as an admin says them of them too. */
+/**
+ * The levels a person says values of for themselves, as an admin says them of them too. A
+ * quota's value an admin says there is also its most: the person says less, and no more.
+ */
 export const PERSONAL: ReadonlyArray<SettingLevel> = ["account", "member", "session"];
 
 /**
@@ -75,8 +78,9 @@ export interface SettingDefinition {
    */
   readonly deletes?: true;
   /**
-   * Whether it limits how much a person uses: at the levels a person says values at for
-   * themselves, only an admin says it.
+   * Whether it limits how much is used. Below the deployment, a level's value is at most
+   * what the levels above make of it: no level gives more than it was given, and none of
+   * them is no limit under a number.
    */
   readonly quota?: true;
 }
@@ -345,6 +349,5 @@ export const SettingViews = Schema.Struct({ settings: Schema.Array(SettingView) 
 export const saidAt = (key: SettingKey, level: SettingLevel) =>
   (SETTINGS[key].levels as ReadonlyArray<SettingLevel>).includes(level);
 
-/** Whether a setting is an admin's alone to say at a level, where a person says the rest. */
-export const adminsOnly = (key: SettingKey, level: SettingLevel) =>
-  (SETTINGS[key] as SettingDefinition).quota === true && PERSONAL.includes(level);
+/** Whether a setting is a quota, whose values hold the levels below to at most them. */
+export const isQuota = (key: SettingKey) => (SETTINGS[key] as SettingDefinition).quota === true;

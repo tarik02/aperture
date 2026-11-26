@@ -1003,7 +1003,7 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
         const person = { accountId: plain.id };
         yield* looker.api.settings.setPerson({
           params: { ...person, key: "runningSessions" },
-          payload: { value: 2, min: 2, max: 2 },
+          payload: { value: 2 },
         });
         yield* looker.api.settings.setPerson({
           params: { ...person, key: "maxSessionAge" },
@@ -1014,8 +1014,13 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
         yield* page.click(`[data-console-person-action="settings"]`);
         const running = `[data-console-settings="account"] [data-console-setting="runningSessions"]`;
         yield* page.until(`!!document.querySelector('${running}')`);
-        // A value held from both ends is enforced: the levels below take nothing else.
-        expect(yield* page.text(running)).toContain("Enforce");
+        // A quota said of a person is the most they have, and shown as the value it is.
+        expect(yield* page.text(running)).toContain("Override");
+        expect(
+          yield* page.evaluate(
+            `!!document.querySelector('${running} [data-console-setting-limit][aria-pressed="true"]')`,
+          ),
+        ).toBe(false);
         yield* shot(page, fs, "console-settings-person");
 
         // And what an admin of a workspace says of one of its members there, from its members.
@@ -1034,7 +1039,7 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
         yield* page.until(`!document.querySelector('${DIALOG}')`);
         // Of what the person has as a member, the levels above are said where they hold it.
         expect(yield* page.text(`[data-console-setting="runningSessions"]`)).toContain(
-          "Locked by the user",
+          "At most 2 by this person",
         );
         yield* shot(page, fs, "console-settings-member");
         expect(page.errors()).toEqual([]);
@@ -1064,9 +1069,15 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
         yield* page.until(
           `!!document.querySelector('[data-console-settings="member"] [data-console-setting="clipboard"]')`,
         );
-        expect(yield* page.text(`[data-console-setting="runningSessions"]`)).toContain(
-          "Locked by an admin",
-        );
+        // A quota they lower themselves, up to what an admin gave them.
+        const own = `[data-console-setting="runningSessions"]`;
+        expect(yield* page.text(own)).toContain("At most 2 by an admin");
+        expect(yield* page.text(own)).toContain("Inherit · admin");
+        expect(
+          yield* page.evaluate(
+            `!!document.querySelector('${own} input[aria-label="Value"]:not(:disabled)')`,
+          ),
+        ).toBe(true);
         expect(yield* page.text(`[data-console-setting="clipboard"]`)).toContain(
           "by a workspace admin",
         );

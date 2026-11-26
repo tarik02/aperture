@@ -64,7 +64,7 @@ api -X PUT "$APERTURE_URL/api/control/sessions/$SESSION/pin" -d '{"pinned":true}
 ```
 
 - `effective.source` says where a value comes from (`instance`, `workspace`, `account`, `member`, `session`, `configuration`, `default`, or `node` for each node's own); `locked` is a bound of both ends alike.
-- `/account/settings` (`?workspaceId=` for what the caller has in a workspace) is the caller's own: they say values there, inside bounds an admin set, and no bounds nor quotas (`changeable`, `bounds` say what they may). An admin says an account's at `/accounts/{accountId}/settings`, a workspace's admin a member's at `/workspaces/{id}/members/{accountId}/settings`.
+- `/account/settings` (`?workspaceId=` for what the caller has in a workspace) is the caller's own: they say values there, inside bounds an admin set, and no bounds (`changeable`, `bounds` say what they may). A quota below the instance is at most what the levels above make of it: a person lowers their own, and raises it no further than an admin's. An admin says an account's at `/accounts/{accountId}/settings`, a workspace's admin a member's at `/workspaces/{id}/members/{accountId}/settings`.
 - A value past a bound above is refused with `SettingOutOfBounds`, whose `level` names who set the bound.
 - A pinned session is never deleted by `deleteSuspendedAfter` or `maxSessionAge`. Who pins is the `pinning` setting; one pin too many is `QuotaExceeded`.
 - Quotas (`sessionsPerUser`, `sessionsPerWorkspace`, `runningSessions`) refuse creating or resuming past them with `QuotaExceeded`; `sessionMemory` and `sessionCpus` bound what each session uses.

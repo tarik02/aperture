@@ -1,4 +1,5 @@
 import {
+  type SettingBound,
   type SettingBounds,
   type SettingDefinition,
   type SettingEffective,
@@ -6,6 +7,7 @@ import {
   type SettingKey,
   type SettingLevel,
   type SettingValue,
+  isQuota,
   LEVELS,
   SETTINGS,
   saidAt,
@@ -95,12 +97,61 @@ const lockedBy = (bounds: SettingBounds) =>
   (bounds.allowed !== null && bounds.allowed.values.length === 1);
 
 /**
+ * A quota's chain with what the levels above a level make of it as a bound of most before
+ * it: the deployment's value, or the base where it says none, and the least of those said
+ * after it. A value said below is held to it; never or no limit is held to it too.
+ */
+const capped = (key: SettingKey, chain: Chain, base: Base): Chain => {
+  if (!isQuota(key)) {
+    return chain;
+  }
+  let cap: SettingBound | null =
+    typeof base.value === "number" ? { value: base.value, level: "instance" } : null;
+  return chain.flatMap((link) => {
+    const value = link.entry?.value;
+    if (link.level === "instance") {
+      if (value !== undefined) {
+        cap = typeof value === "number" ? { value, level: "instance" } : null;
+      }
+      return [link];
+    }
+    const held = cap === null ? [] : [{ level: cap.level, entry: { max: cap.value } }];
+    if (typeof value === "number" && (cap === null || value < cap.value)) {
+      cap = { value, level: link.level };
+    }
+    return [...held, link];
+  });
+};
+
+/**
+ * The bounds a level is held to, with what the levels above make of a quota as the most:
+ * none past it, and no limit under a number.
+ */
+export const heldBelow = (
+  key: SettingKey,
+  level: SettingLevel,
+  bounds: SettingBounds,
+  inherited: SettingEffective,
+): SettingBounds => {
+  if (!isQuota(key) || level === "instance" || typeof inherited.value !== "number") {
+    return bounds;
+  }
+  if (bounds.max !== null && bounds.max.value <= inherited.value) {
+    return bounds;
+  }
+  const from = LEVELS.find((one) => one === inherited.source) ?? "instance";
+  return { ...bounds, max: { value: inherited.value, level: from } };
+};
+
+/**
  * What a setting comes to at the end of a chain: the value of the nearest level that says
  * one, or the base, held to every bound of the chain. A value that crosses one is taken as
  * the bound, from the level that sets it; a choice that is not allowed gives way to the
- * nearest one above it that is, and to the first that is allowed where none is.
+ * nearest one above it that is, and to the first that is allowed where none is. A quota is
+ * held to what the levels above make of it as well.
  */
-export const resolve = (key: SettingKey, chain: Chain, base: Base): SettingEffective => {
+export const resolve = (key: SettingKey, given: Chain, base: Base): SettingEffective => {
+  const chain = capped(key, given, base);
   const bounds = boundsOf(chain);
   const locked = lockedBy(bounds);
   const said = [...chain]

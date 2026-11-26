@@ -1,9 +1,9 @@
 import {
   type SettingKey,
+  type SettingEffective,
   type SettingLevel,
   type SettingSource,
   type SettingView,
-  adminsOnly,
   saidAt,
 } from "@aperture-browser/control-api";
 import { Button } from "@aperture-browser/ui/components/button";
@@ -210,15 +210,36 @@ function AmountField({
 }
 
 /**
- * Who a level is, as a note says what holds a setting: to a person, who says no bounds of
- * their own, whoever said those of their own levels is an admin.
+ * Who a level is, as a note says what holds a setting. To a person, who says no bounds of
+ * their own, whoever held them at their own levels is an admin; to an admin, a person's
+ * level is that of the person whose settings they are.
  */
-const byWhom = (setting: SettingView, level: SettingSource) =>
+const byWhom = (setting: SettingView, level: SettingSource, at: SettingLevel) =>
   !setting.bounds && level === "account"
     ? "an admin"
     : !setting.bounds && level === "member"
       ? "a workspace admin"
-      : `the ${SOURCE_WORDS[level]}`;
+      : level === "account" && (at === "account" || at === "member")
+        ? "this person"
+        : `the ${SOURCE_WORDS[level]}`;
+
+/**
+ * Where what a level inherits comes from, as its mode says it. To a person on their own
+ * page, their level of no workspace says what they said there, or what an admin held them
+ * to; the member level is never above them.
+ */
+const inheritedWords = (setting: SettingView, inherited: SettingEffective, at: SettingLevel) => {
+  const { source, value } = inherited;
+  if (!setting.bounds && source === "account") {
+    const held = setting.above.max;
+    return held !== null && held.level === "account" && held.value === value
+      ? "admin"
+      : "your account";
+  }
+  return setting.bounds && source === "account" && at === "member"
+    ? "this person"
+    : SOURCE_WORDS[source];
+};
 
 /** The few words under a setting that say what holds it, and why it was not saved. */
 function notesOf(setting: SettingView, level: SettingLevel) {
@@ -231,33 +252,28 @@ function notesOf(setting: SettingView, level: SettingLevel) {
         ? above.allowed.level
         : null;
   if (lockedAt !== null) {
-    notes.push(`Locked by ${byWhom(setting, lockedAt)}`);
+    notes.push(`Locked by ${byWhom(setting, lockedAt, level)}`);
   } else {
     if (above.min !== null) {
       notes.push(
-        `At least ${valueWords(key, above.min.value)} by ${byWhom(setting, above.min.level)}`,
+        `At least ${valueWords(key, above.min.value)} by ${byWhom(setting, above.min.level, level)}`,
       );
     }
     if (above.max !== null) {
       notes.push(
-        `At most ${valueWords(key, above.max.value)} by ${byWhom(setting, above.max.level)}`,
+        `At most ${valueWords(key, above.max.value)} by ${byWhom(setting, above.max.level, level)}`,
       );
     }
     if (above.allowed !== null) {
       notes.push(
-        `Only ${above.allowed.values.map((one) => valueWords(key, one)).join(", ")} by ${byWhom(
-          setting,
-          above.allowed.level,
-        )}`,
+        `Only ${above.allowed.values.map((one) => valueWords(key, one)).join(", ")} by ${byWhom(setting, above.allowed.level, level)}`,
       );
     }
   }
   if (effective.clamped && here?.value !== undefined && effective.source !== "node") {
     notes.push(
-      `Held to ${valueWords(key, effective.value)} by ${byWhom(setting, effective.source)}`,
+      `Held to ${valueWords(key, effective.value)} by ${byWhom(setting, effective.source, level)}`,
     );
-  } else if (here?.value !== undefined && !setting.changeable && adminsOnly(key, level)) {
-    notes.push(`Set by ${byWhom(setting, level)}`);
   }
   return { notes, locked: lockedAt !== null };
 }
@@ -287,7 +303,10 @@ function SettingRow({
   const update = (part: Partial<Draft>) => editor.change(setting, (old) => ({ ...old, ...part }));
 
   const modes: ReadonlyArray<{ value: Mode; label: string }> = [
-    { value: "inherit", label: `Inherit · ${SOURCE_WORDS[inherited.source]}` },
+    {
+      value: "inherit",
+      label: `Inherit · ${inheritedWords(setting, inherited, editor.target.level)}`,
+    },
     { value: "set", label: "Override" },
     ...(!choice && words.none !== undefined ? [{ value: "none" as const, label: words.none }] : []),
     ...(bounds ? [{ value: "enforce" as const, label: "Enforce" }] : []),
@@ -331,7 +350,7 @@ function SettingRow({
           disabled={disabled}
           placeholder={
             draft.mode === "inherit" && inherited.source === "node"
-              ? "Each node's own"
+              ? "Per node"
               : valueWords(key, null)
           }
           value={{ ...draft.value, amount: "" }}

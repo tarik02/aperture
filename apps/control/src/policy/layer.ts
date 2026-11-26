@@ -5,7 +5,8 @@ import {
   type SettingEntry,
   type SettingKey,
   type SettingView,
-  adminsOnly,
+  isQuota,
+  PERSONAL,
   SETTINGS,
   saidAt,
 } from "@aperture-browser/control-api";
@@ -23,7 +24,7 @@ import { SessionsStore } from "../sessions/store.ts";
 import { Settings } from "../settings/service.ts";
 import { now } from "../time.ts";
 import { WorkspacesStore } from "../workspaces/store.ts";
-import { awake, type Base, boundsOf, type Chain, check, resolve } from "./cascade.ts";
+import { awake, type Base, boundsOf, type Chain, check, heldBelow, resolve } from "./cascade.ts";
 import { type Effective, type Place, Policy, type Target } from "./service.ts";
 import { PolicyStore, type Said, type Scope } from "./store.ts";
 
@@ -271,13 +272,19 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
     const entry = saidHere ? index.get(at(here, key)) : undefined;
     // Who says no bounds here is held to those of this level as to those above.
     const own = bounds ? entry : entry?.value === undefined ? undefined : { value: entry.value };
+    const inherited = effectiveOne(index, scopes.slice(0, -1), pinned, key);
     return {
       key,
       here: own ?? null,
       effective: effectiveOne(index, scopes, pinned, key),
-      inherited: effectiveOne(index, scopes.slice(0, -1), pinned, key),
-      above: boundsOf(bounds ? chain.filter((link) => link.level !== here.level) : chain),
-      changeable: values && saidHere && (bounds || !adminsOnly(key, here.level)),
+      inherited,
+      above: heldBelow(
+        key,
+        here.level,
+        boundsOf(bounds ? chain.filter((link) => link.level !== here.level) : chain),
+        inherited,
+      ),
+      changeable: values && saidHere,
       bounds: bounds && saidHere,
     };
   };
@@ -325,12 +332,11 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
               : "the settings of a session are for whoever made it, or an admin of its workspace, to say",
     });
 
-  /** Why a caller who says the values of a level does not say this of it. */
-  const refusedBelowAdmins = (target: Target, key: SettingKey, quota: boolean) =>
+  /** Why a caller who says the values of a level does not say its bounds. */
+  const boundsRefused = (target: Target) =>
     new Forbidden({
-      message: quota
-        ? `${key} limits how much is used, and is ${target.level === "member" ? "for an admin of the workspace" : "for an admin"} to say`
-        : target.level === "member"
+      message:
+        target.level === "member"
           ? "the bounds of a member's settings are for an admin of the workspace to say"
           : target.level === "account"
             ? "the bounds of a person's settings are an admin's to say"
@@ -351,18 +357,26 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
     const before = indexOf(yield* store.of(reach.scopes));
     const chain = chainOf(before, reach.scopes, key);
     const there = before.get(at(here, key));
+    const inherited = effectiveOne(before, reach.scopes.slice(0, -1), reach.pinned, key);
     let said = entry;
     let above = boundsOf(chain.filter((link) => link.level !== here.level));
     if (!reach.bounds && saidAt(key, here.level)) {
-      const quota = adminsOnly(key, here.level);
-      if (quota || boundsChange(entry, there)) {
-        return yield* refusedBelowAdmins(target, key, quota);
+      if (boundsChange(entry, there)) {
+        return yield* boundsRefused(target);
       }
       // The value alone is theirs: the bounds stay, and hold it as those above do.
       said = { ...(entry.value === undefined ? {} : { value: entry.value }), ...boundsPart(there) };
       above = boundsOf(chain);
+    } else if (
+      isQuota(key) &&
+      PERSONAL.includes(here.level) &&
+      typeof entry.value === "number" &&
+      entry.max === undefined
+    ) {
+      // What an admin gives a person is the most they have: they say less, and no more.
+      said = { ...entry, max: entry.value };
     }
-    const checked = check(key, here.level, said, above);
+    const checked = check(key, here.level, said, heldBelow(key, here.level, above, inherited));
     if (Result.isFailure(checked)) {
       return yield* checked.failure;
     }
@@ -390,9 +404,6 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
     const kept = reach.bounds
       ? {}
       : boundsPart(indexOf(yield* store.of([here])).get(at(here, key)));
-    if (!reach.bounds && adminsOnly(key, here.level) && saidAt(key, here.level)) {
-      return yield* refusedBelowAdmins(target, key, true);
-    }
     // Who says no bounds clears the value alone.
     if (saysSomething(kept)) {
       yield* store.put({ ...here, key, entry: kept }, yield* now);

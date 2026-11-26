@@ -126,6 +126,39 @@ describe("what a setting comes to", () => {
     });
   });
 
+  it("is a quota no greater than what the levels above make of it", () => {
+    const given = [
+      { level: "instance", entry: { value: 5 } },
+      { level: "workspace", entry: { value: 10 } },
+      { level: "account", entry: { value: 3 } },
+      { level: "member", entry: { value: null } },
+    ] as const;
+    expect(resolve("runningSessions", given.slice(0, 2), configured)).toEqual({
+      value: 5,
+      source: "instance",
+      locked: false,
+      clamped: true,
+    });
+    expect(resolve("runningSessions", given, configured)).toMatchObject({
+      value: 3,
+      source: "account",
+      clamped: true,
+    });
+    // The deployment's says otherwise than the environment, either way.
+    expect(
+      resolve("runningSessions", [{ level: "instance", entry: { value: 9 } }], {
+        value: 4,
+        source: "configuration",
+      }),
+    ).toMatchObject({ value: 9, source: "instance" });
+    expect(
+      resolve("runningSessions", [{ level: "workspace", entry: { value: 9 } }], {
+        value: 4,
+        source: "configuration",
+      }),
+    ).toMatchObject({ value: 4, source: "instance", clamped: true });
+  });
+
   it("is a choice that is allowed, the nearest one above where the nearest is not", () => {
     const narrowed = [
       { level: "instance", entry: { value: "admins" } },
@@ -400,10 +433,12 @@ suite(Control.layer())("settings over the API", (it) => {
         changeable: true,
         bounds: false,
       });
+      // An admin's quota, said as a value alone, is the most the person has.
       expect(read.find((one) => one.key === "runningSessions")).toMatchObject({
         here: { value: 2 },
         effective: { value: 2, source: "account" },
-        changeable: false,
+        above: { max: { value: 2, level: "account" } },
+        changeable: true,
       });
 
       // They say their own value inside the bound, and none past it.
@@ -433,26 +468,6 @@ suite(Control.layer())("settings over the API", (it) => {
         )?.here,
       ).toEqual({ max: 7200 });
 
-      // Nor do they set bounds on themselves, nor a quota, nor clear one.
-      for (const payload of [{ max: 86_400 }, { value: 3600, max: 3600 }]) {
-        const bound = yield* Effect.flip(
-          cy.api.settings.setAccount({ params: { key: "maxSessionAge" }, query: {}, payload }),
-        );
-        expect(bound._tag, JSON.stringify(payload)).toBe("Forbidden");
-      }
-      const quota = yield* Effect.flip(
-        cy.api.settings.setAccount({
-          params: { key: "runningSessions" },
-          query: {},
-          payload: { value: 10 },
-        }),
-      );
-      expect(quota._tag).toBe("Forbidden");
-      const unquota = yield* Effect.flip(
-        cy.api.settings.clearAccount({ params: { key: "sessionMemory" }, query: {} }),
-      );
-      expect(unquota._tag).toBe("Forbidden");
-
       // What the admin did is told as theirs, of the person, to the person as well.
       const { events } = yield* cy.api.events.list({ query: { resourceId: cy.account.id } });
       expect(
@@ -464,6 +479,54 @@ suite(Control.layer())("settings over the API", (it) => {
         [admin.account.id, cy.account.id],
         [admin.account.id, cy.account.id],
       ]);
+
+      // Nor do they set bounds on themselves.
+      for (const payload of [{ max: 86_400 }, { value: 3600, max: 3600 }]) {
+        const bound = yield* Effect.flip(
+          cy.api.settings.setAccount({ params: { key: "maxSessionAge" }, query: {}, payload }),
+        );
+        expect(bound._tag, JSON.stringify(payload)).toBe("Forbidden");
+      }
+
+      // A quota they lower, and raise again as far as the admin's, and no further.
+      const running = (value: number | null) =>
+        cy.api.settings.setAccount({
+          params: { key: "runningSessions" },
+          query: {},
+          payload: { value },
+        });
+      expect((yield* running(1)).effective).toMatchObject({ value: 1, source: "account" });
+      expect((yield* running(2)).effective).toMatchObject({ value: 2, source: "account" });
+      for (const value of [3, null]) {
+        expect(yield* Effect.flip(running(value)), String(value)).toMatchObject({
+          _tag: "SettingOutOfBounds",
+          level: "account",
+        });
+      }
+      // Cleared, theirs is the admin's most again.
+      expect(
+        (yield* cy.api.settings.clearAccount({ params: { key: "runningSessions" }, query: {} }))
+          .effective,
+      ).toMatchObject({ value: 2, source: "account" });
+      // As a member of a workspace, theirs there is held to it as well: no limit is no less.
+      const team = yield* admin.api.workspaces.create({ payload: { name: "Cy's" } });
+      yield* admin.api.workspaces.admit({
+        params: { id: team.id, accountId: cy.account.id },
+        payload: { role: "member" },
+      });
+      const there = (value: number | null) =>
+        cy.api.settings.setAccount({
+          params: { key: "runningSessions" },
+          query: { workspaceId: team.id },
+          payload: { value },
+        });
+      expect((yield* there(1)).effective).toMatchObject({ value: 1, source: "member" });
+      for (const value of [3, null]) {
+        expect(yield* Effect.flip(there(value)), String(value)).toMatchObject({
+          _tag: "SettingOutOfBounds",
+          level: "account",
+        });
+      }
       expect((yield* root.settings.person({ params: theirs })).settings.length).toBeGreaterThan(0);
     }),
   );
@@ -498,7 +561,7 @@ suite(Control.layer())("settings over the API", (it) => {
       expect(theirs.find((one) => one.key === "sessionsPerUser")).toMatchObject({
         effective: { value: 3, source: "member" },
         above: { max: { value: 3, level: "member" } },
-        changeable: false,
+        changeable: true,
       });
       // It holds in that workspace alone.
       expect(

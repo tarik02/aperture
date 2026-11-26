@@ -7,6 +7,7 @@ import {
   type SettingLevel,
   type SettingValue,
   type SettingView,
+  isQuota,
   saidAt,
 } from "@aperture-browser/control-api";
 import { factorOf, inUnits, unitsOf } from "#/features/settings/setting-words.ts";
@@ -66,9 +67,22 @@ const enforcedOf = (key: SettingKey, entry: SettingEntry | null) => {
     : entry.min === value && entry.max === value;
 };
 
+/**
+ * What a level says, without a quota's most that is its value: a quota's value holds the
+ * levels below to it, and a person's at most to it as well, whether or not it is said.
+ */
+const plain = (key: SettingKey, entry: SettingEntry | null): SettingEntry | null => {
+  if (entry === null || !isQuota(key) || entry.min !== undefined || entry.max !== entry.value) {
+    return entry;
+  }
+  const { max: _, ...rest } = entry;
+  return rest;
+};
+
 /** What a level says of a setting, as it is edited. */
 export const draftOf = (setting: SettingView): Draft => {
-  const { key, here } = setting;
+  const { key } = setting;
+  const here = plain(key, setting.here);
   const said = here?.value;
   const inherited = inheritedOf(setting).value;
   const enforced = enforcedOf(key, here);
@@ -145,16 +159,21 @@ export const entryOf = (
   return { entry };
 };
 
-const canonical = (entry: SettingEntry) =>
-  JSON.stringify({
+const canonical = (key: SettingKey, said: SettingEntry) => {
+  const entry = plain(key, said) ?? {};
+  return JSON.stringify({
     value: entry.value,
     min: entry.min,
     max: entry.max,
     allowed: entry.allowed === undefined ? undefined : entry.allowed.map(String).toSorted(),
   });
+};
 
 /** Whether a draft says other than what the level says now. */
 export const changes = (setting: SettingView, draft: Draft, bounds: boolean) => {
   const made = entryOf(setting.key, draft, bounds);
-  return "problem" in made || canonical(made.entry) !== canonical(setting.here ?? {});
+  return (
+    "problem" in made ||
+    canonical(setting.key, made.entry) !== canonical(setting.key, setting.here ?? {})
+  );
 };
