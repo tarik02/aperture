@@ -151,6 +151,7 @@ export const SOURCE_WORDS: Readonly<Record<SettingSource, string>> = {
   default: "default",
   configuration: "configuration",
   node: "node",
+  owner: "owner",
 };
 
 /**

@@ -14,6 +14,7 @@ const Row = Schema.Struct({
   min: Schema.NullOr(Schema.Number),
   max: Schema.NullOr(Schema.Number),
   allowed: Schema.NullOr(Schema.Array(SettingValue)),
+  boundsByAdmin: Schema.Boolean,
 });
 
 const decodeValue = Schema.decodeUnknownSync(Schema.fromJsonString(SettingValue));
@@ -24,7 +25,7 @@ const isKey = Schema.is(SettingKey);
  * left out: it was said before the setting went.
  */
 const said = (rows: ReadonlyArray<typeof Row.Type>): ReadonlyArray<Said> =>
-  rows.flatMap(({ level, scopeId, key, value, min, max, allowed }) =>
+  rows.flatMap(({ level, scopeId, key, value, min, max, allowed, boundsByAdmin }) =>
     isKey(key)
       ? [
           {
@@ -37,6 +38,7 @@ const said = (rows: ReadonlyArray<typeof Row.Type>): ReadonlyArray<Said> =>
               ...(max === null ? {} : { max }),
               ...(allowed === null ? {} : { allowed }),
             },
+            byAdmin: boundsByAdmin,
           },
         ]
       : [],
@@ -64,20 +66,23 @@ export const makePolicyStore = Effect.fn("PolicyStore.make")(function* () {
   });
 
   const put = Effect.fn("PolicyStore.put")(function* (
-    { level, scopeId, key, entry }: Said,
+    { level, scopeId, key, entry, byAdmin }: Said,
     at: Date,
   ) {
     const value = entry.value === undefined ? null : JSON.stringify(entry.value);
     const allowed = entry.allowed === undefined ? null : JSON.stringify(entry.allowed);
     yield* sql`
-      INSERT INTO settings (level, scope_id, key, value, min, max, allowed, updated_at)
+      INSERT INTO settings (
+        level, scope_id, key, value, min, max, allowed, bounds_by_admin, updated_at
+      )
       VALUES (
         ${level}, ${scopeId}, ${key}, ${value}, ${entry.min ?? null}, ${entry.max ?? null},
-        ${allowed}::jsonb, ${at}
+        ${allowed}::jsonb, ${byAdmin}, ${at}
       )
       ON CONFLICT (level, scope_id, key) DO UPDATE SET
         value = EXCLUDED.value, min = EXCLUDED.min, max = EXCLUDED.max,
-        allowed = EXCLUDED.allowed, updated_at = EXCLUDED.updated_at
+        allowed = EXCLUDED.allowed, bounds_by_admin = EXCLUDED.bounds_by_admin,
+        updated_at = EXCLUDED.updated_at
     `.pipe(done);
   });
 
@@ -116,19 +121,23 @@ export const makePolicyStore = Effect.fn("PolicyStore.make")(function* () {
             SELECT 1 FROM nodes WHERE registration_token_id = registration_tokens.id
           )
       `.pipe(done);
-      // What was said of something deleted stays with its record, and goes with it.
+      // What was said of something deleted stays with its record, and goes with it. One
+      // statement for each level, so that each is one join against what is left and not a
+      // look for each row: a scope is text, which no index of the ids serves.
       yield* sql`
-        DELETE FROM settings
-        WHERE (level = 'session' AND NOT EXISTS (
-            SELECT 1 FROM sessions WHERE id = settings.scope_id
-          ))
-          OR (level = 'workspace' AND NOT EXISTS (
-            SELECT 1 FROM workspaces WHERE id::text = settings.scope_id
-          ))
-          OR (level = 'member' AND NOT EXISTS (
+        DELETE FROM settings WHERE level = 'session'
+          AND NOT EXISTS (SELECT 1 FROM sessions WHERE id = settings.scope_id)
+      `.pipe(done);
+      yield* sql`
+        DELETE FROM settings WHERE level = 'workspace'
+          AND NOT EXISTS (SELECT 1 FROM workspaces WHERE id::text = settings.scope_id)
+      `.pipe(done);
+      yield* sql`
+        DELETE FROM settings WHERE level = 'member'
+          AND NOT EXISTS (
             SELECT 1 FROM workspace_members
             WHERE workspace_id::text || ':' || account_id::text = settings.scope_id
-          ))
+          )
       `.pipe(done);
     }).pipe(sql.withTransaction, Effect.orDie);
   });

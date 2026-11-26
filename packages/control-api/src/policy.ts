@@ -33,7 +33,8 @@ export const PERSONAL: ReadonlyArray<SettingLevel> = ["account", "member", "sess
 /**
  * Where what a session has comes from: a level, the control plane's settings, what the
  * program has where nothing is said, or each node's own, for what a node holds sessions
- * to and nobody said.
+ * to and nobody said. `owner` is a level of the person a session or a membership is of,
+ * told so to whoever does not read that person's settings.
  */
 export const SettingSource = Schema.Literals([
   "default",
@@ -44,6 +45,7 @@ export const SettingSource = Schema.Literals([
   "member",
   "session",
   "node",
+  "owner",
 ]);
 export type SettingSource = typeof SettingSource.Type;
 
@@ -80,7 +82,8 @@ export interface SettingDefinition {
   /**
    * Whether it limits how much is used. Below the deployment, a level's value is at most
    * what the levels above make of it: no level gives more than it was given, and none of
-   * them is no limit under a number.
+   * them is no limit under a number. Of one each node has its own of, that is at most the
+   * node's own, where neither the deployment nor the environment says otherwise.
    */
   readonly quota?: true;
 }
@@ -318,6 +321,12 @@ export const SettingEffective = Schema.Struct({
   locked: Schema.Boolean,
   /** Whether a nearer value crossed a bound, and the bound's value was taken in its place. */
   clamped: Schema.Boolean,
+  /**
+   * Whether each node holds a session to its own as well, where that is less: a limit a
+   * node has of its own, which a level below the deployment said a value of and neither
+   * the deployment nor the environment did.
+   */
+  perNode: Schema.Boolean,
 });
 export type SettingEffective = typeof SettingEffective.Type;
 
@@ -351,3 +360,10 @@ export const saidAt = (key: SettingKey, level: SettingLevel) =>
 
 /** Whether a setting is a quota, whose values hold the levels below to at most them. */
 export const isQuota = (key: SettingKey) => (SETTINGS[key] as SettingDefinition).quota === true;
+
+/**
+ * Whether a setting is a quota each node has its own of: below the deployment, nothing
+ * says more than the node's own, nor no limit, where the deployment says nothing of it.
+ */
+export const isNodeQuota = (key: SettingKey) =>
+  isQuota(key) && (SETTINGS[key] as SettingDefinition).fallback === undefined;

@@ -93,7 +93,7 @@ Said of an account an admin took out of use without removing it: nothing signs i
 _Avoid_: Blocked, banned, suspended (which is a session's)
 
 **Event**:
-Something that was done, written down once and never changed: when, what kind of thing it was, who did it and what it was about, each as it was called then, the workspace that was of, and where the request came from. Who did it is an account, the guest of a share link, the holder of the bootstrap token, someone not known, as whoever failed to sign in, or the control plane by itself. An admin reads every event; anyone else those of their own account, done by it or to it, and of the workspaces they are in. Events are kept for a while and then forgotten, and none holds a secret.
+Something that was done, written down once and never changed: when, what kind of thing it was, who did it and what it was about, each as it was called then, the workspace that was of, and where the request came from. Who did it is an account, the guest of a share link, the holder of the bootstrap token, someone not known, as whoever failed to sign in, or the control plane by itself. An admin reads every event; anyone else those of their own account, done by it or to it, and of the workspaces they are in, but what was said of another member's settings, which a workspace's admins read alone. Events are kept for a while and then forgotten, and none holds a secret.
 _Avoid_: Audit entry, activity, log line
 
 **Ticket**:
@@ -168,14 +168,14 @@ A route a client attaches to a session so that connections the rules send `via: 
 What a session may use (memory, swap, processor time, tasks) and how long it may sit idle. Resource limits take an executor that runs sessions as systemd scopes.
 
 **Setting**:
-Something sessions are held to that is said at levels, from the widest: the instance, a workspace, a user, a session. The nearest level that says a value is what a session has. A level also sets bounds the levels below it may not cross: least and most for a time or a count, which choices are allowed for a choice. A lock is a bound of both ends alike.
+Something sessions are held to that is said at levels, from the widest: the instance, a workspace, a user, a session. The nearest level that says a value is what a session has. A level also sets bounds the levels below it may not cross: least and most for a time or a count, which choices are allowed for a choice. A lock is a bound of both ends alike. A lower level only narrows: bounds an admin set at a level are theirs alone to change, and a node's own limits are what nothing says, and of what a session uses, the most a level below the instance says where the instance says none.
 _Avoid_: Policy, option (which is a program's own, from its environment)
 
 **Pinned**:
 A session that is never deleted by itself, whatever its settings say of how long sessions live. Whether a pinned session is also kept from being asleep is a setting of its own.
 
 **Asleep**:
-Suspended by the executor for sitting idle, and resumed when someone reaches the session again. A session suspended on request stays suspended.
+Suspended by the executor for sitting idle, and resumed when someone reaches the session again. A session suspended on request stays suspended. An asleep session is counted among those that run.
 _Avoid_: Hibernated, paused
 
 **Workbench**:

@@ -49,14 +49,15 @@ export const makeEventsStore = Effect.fn("EventsStore.make")(function* () {
     yield* sql`
       INSERT INTO events (
         id, occurred_at, kind, actor_kind, actor_id, actor_name,
-        resource_kind, resource_id, resource_label, owner_id, workspace_id, address, detail
+        resource_kind, resource_id, resource_label, owner_id, workspace_id, admins_only, address,
+        detail
       )
       VALUES (
         ${event.id}, ${event.at}, ${event.kind},
         ${event.actor.kind}, ${event.actor.id}, ${event.actor.name},
         ${event.resource?.kind ?? null}, ${event.resource?.id ?? null},
         ${event.resource?.label ?? null}, ${event.ownerId}, ${event.workspaceId},
-        ${event.address}, ${JSON.stringify(event.detail)}::jsonb
+        ${event.adminsOnly}, ${event.address}, ${JSON.stringify(event.detail)}::jsonb
       )
     `.pipe(done);
   });
@@ -75,7 +76,10 @@ export const makeEventsStore = Effect.fn("EventsStore.make")(function* () {
                   sql`(actor_kind = 'account' AND actor_id = ${sought.of.accountId})`,
                   sql`owner_id = ${sought.of.accountId}`,
                 ]),
-            ...among("workspace_id", sought.of.workspaces),
+            ...among("workspace_id", sought.of.workspaces).map(
+              (named) => sql`(${named} AND NOT admins_only)`,
+            ),
+            ...among("workspace_id", sought.of.administers),
           ];
     const held =
       sought.held === null

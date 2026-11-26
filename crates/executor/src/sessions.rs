@@ -48,8 +48,6 @@ const EXIT_WITHIN: Duration = Duration::from_secs(5);
 const RUNNER_LINES_LOGGED: usize = 20;
 /// How often sessions are looked at for having sat idle too long.
 const IDLE_CHECK: Duration = Duration::from_secs(10);
-/// How often sessions' recordings are looked at for having been kept long enough.
-const RECORDINGS_CHECK: Duration = Duration::from_secs(600);
 /// The directories of a session's files that hold what was recorded of it.
 const RECORDED: [&str; 2] = ["recordings", "screenshots"];
 
@@ -101,6 +99,8 @@ pub struct Config {
     pub setup: Setup,
     /// The limits of a session that has none of its own.
     pub limits: Limits,
+    /// How often sessions' recordings are looked at for having been kept long enough.
+    pub recordings_check: Duration,
     /// What holds sessions to their limits; without it they are not.
     pub scopes: Option<Scopes>,
     /// Where snapshots are kept for more nodes than this one; this node's own store
@@ -259,11 +259,13 @@ impl Sessions {
     }
 
     /// Removes the recordings and screenshots that were kept longer than their sessions keep
-    /// them, each whole, for as long as the executor runs. Those of a session whose runner
-    /// is busy recording, editing or downloading stay until it is not.
+    /// them, each whole, for as long as the executor runs. Only those of a session at rest:
+    /// a runner holds what it recorded for as long as it runs, and tells it and serves it
+    /// from there. A session is looked at again once nothing else is done to it, and stays
+    /// at rest until its files are gone.
     pub async fn forget_recordings(self: Arc<Self>) {
         loop {
-            sleep(RECORDINGS_CHECK).await;
+            sleep(self.config.recordings_check).await;
             let sessions = match self.list() {
                 Ok(sessions) => sessions,
                 Err(err) => {
@@ -272,21 +274,25 @@ impl Sessions {
                 }
             };
             for session in sessions {
+                let id = &session.record.id;
                 let Some(keep) = session.limits.keep_recordings() else {
                     continue;
                 };
-                let live = session
-                    .status
-                    .as_ref()
-                    .is_some_and(|status| status.live.is_some());
-                if live && self.is_busy(&session).await {
+                if !matches!(session.state, State::Suspended | State::Failed) {
                     continue;
                 }
-                let Ok(paths) = self.store.session_paths(&session.record.id) else {
+                let _busy = self.busy(id).await;
+                // It may have been started, or deleted, since it was looked at.
+                if !self.store.has_session(id)
+                    || !matches!(is_alive(&self.runtime_dir(id)), Ok(false))
+                {
+                    continue;
+                }
+                let Ok(paths) = self.store.session_paths(id) else {
                     continue;
                 };
                 for directory in RECORDED {
-                    forget_older(&paths.files.join(directory), keep, &session.record.id).await;
+                    forget_older(&paths.files.join(directory), keep, id).await;
                 }
             }
         }

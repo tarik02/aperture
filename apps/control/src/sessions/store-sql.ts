@@ -151,8 +151,11 @@ export const makeSessionsStore = Effect.fn("SessionsStore.make")(function* () {
           ? sql`workspace_id IS NULL`
           : sql`workspace_id = ${asked.workspaceId}`,
         ...(asked.accountId === null ? [] : [sql`account_id = ${asked.accountId}`]),
-        // One its node suspended for sitting idle runs again only when someone reaches it.
-        ...(asked.running ? [sql`desired_state = 'running' AND NOT asleep`] : []),
+        // One its node suspended for sitting idle runs again whenever someone reaches it,
+        // which nothing refuses; one its node lost, or that does not start, runs nothing.
+        ...(asked.running
+          ? [sql`desired_state = 'running' AND observed_state NOT IN ('gone', 'failed')`]
+          : []),
       ])}
     `.pipe(one(Schema.Struct({ count: Schema.Number })));
     return count;

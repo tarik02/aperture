@@ -1,10 +1,18 @@
+import {
+  type Offers,
+  SETTINGS,
+  type SettingKey,
+  type SettingView,
+} from "@aperture-browser/control-api";
 import { suite } from "@aperture-browser/e2e/src/suite.ts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as SqlClient from "effect/sql/SqlClient";
-import { awake, boundsOf, check, resolve } from "../src/policy/cascade.ts";
+import { awake, boundsOf, check, noneOverNode, resolve } from "../src/policy/cascade.ts";
+import { limitsOf } from "../src/policy/limits.ts";
+import type { Effective } from "../src/policy/service.ts";
 import { SessionsStore } from "../src/sessions/store.ts";
 import * as Control from "./src/control.ts";
 import * as Stores from "./src/stores.ts";
@@ -24,6 +32,7 @@ describe("what a setting comes to", () => {
       source: "account",
       locked: false,
       clamped: false,
+      perNode: false,
     });
     expect(
       resolve("deleteSuspendedAfter", [{ level: "instance", entry: undefined }], {
@@ -49,6 +58,7 @@ describe("what a setting comes to", () => {
       source: "workspace",
       locked: false,
       clamped: true,
+      perNode: false,
     });
     // Never is past any bound of most.
     const never = [
@@ -73,6 +83,7 @@ describe("what a setting comes to", () => {
       source: "instance",
       locked: true,
       clamped: true,
+      perNode: false,
     });
   });
 
@@ -114,7 +125,13 @@ describe("what a setting comes to", () => {
   });
 
   it("keeps a pinned session awake no longer than a bound above lets it sit idle", () => {
-    const stays = { value: true, source: "workspace", locked: false, clamped: false } as const;
+    const stays = {
+      value: true,
+      source: "workspace",
+      locked: false,
+      clamped: false,
+      perNode: false,
+    } as const;
     expect(awake([{ level: "instance", entry: { value: 600 } }], stays)).toMatchObject({
       value: null,
       source: "workspace",
@@ -138,6 +155,7 @@ describe("what a setting comes to", () => {
       source: "instance",
       locked: false,
       clamped: true,
+      perNode: false,
     });
     expect(resolve("runningSessions", given, configured)).toMatchObject({
       value: 3,
@@ -169,6 +187,7 @@ describe("what a setting comes to", () => {
       source: "instance",
       locked: false,
       clamped: true,
+      perNode: false,
     });
     const none = [{ level: "instance", entry: { value: "anyone", allowed: ["nobody"] } }] as const;
     expect(resolve("pinning", none, { value: "anyone", source: "default" })).toEqual({
@@ -176,7 +195,108 @@ describe("what a setting comes to", () => {
       source: "instance",
       locked: true,
       clamped: true,
+      perNode: false,
     });
+  });
+});
+
+describe("a lower level only narrows", () => {
+  const gib = 1024 ** 3;
+
+  it("keeps a node's own memory and processors where the deployment says none", () => {
+    const below = [
+      { level: "instance", entry: undefined },
+      { level: "workspace", entry: { value: 2 * gib } },
+      { level: "member", entry: { value: null } },
+    ] as const;
+    // No limit said below is passed by; a number is held to the node's own as well.
+    expect(resolve("sessionMemory", below, configured)).toEqual({
+      value: 2 * gib,
+      source: "workspace",
+      locked: false,
+      clamped: true,
+      perNode: true,
+    });
+    expect(
+      resolve("sessionCpus", [{ level: "account", entry: { value: null } }], configured),
+    ).toMatchObject({ value: null, source: "node", clamped: true, perNode: false });
+    // The deployment says otherwise than its nodes, no limit too.
+    const unlimited = [
+      { level: "instance", entry: { value: null } },
+      { level: "account", entry: { value: null } },
+    ] as const;
+    expect(resolve("sessionMemory", unlimited, configured)).toMatchObject({
+      value: null,
+      source: "account",
+      perNode: false,
+    });
+    expect(
+      resolve("sessionMemory", [{ level: "account", entry: { value: gib } }], {
+        value: 4 * gib,
+        source: "configuration",
+      }),
+    ).toMatchObject({ value: gib, source: "account", perNode: false });
+    const nodes = {
+      value: null,
+      source: "node",
+      locked: false,
+      clamped: false,
+      perNode: false,
+    } as const;
+    expect(noneOverNode("sessionMemory", "account", nodes)).toBe(true);
+    expect(noneOverNode("sessionMemory", "instance", nodes)).toBe(false);
+    // What a node has of its own sessions sit idle as long as is said otherwise.
+    expect(noneOverNode("suspendIdleAfter", "account", nodes)).toBe(false);
+  });
+
+  it("gives a node no more than its own of what only a level below the deployment says", () => {
+    const left = {
+      value: null,
+      source: "node",
+      locked: false,
+      clamped: false,
+      perNode: false,
+    } as const;
+    const effective = {
+      ...(Object.fromEntries(Object.keys(SETTINGS).map((key) => [key, left])) as Effective),
+      sessionMemory: { ...left, value: 8 * gib, source: "workspace", perNode: true },
+      sessionCpus: { ...left, value: 4, source: "instance" },
+    } satisfies Effective;
+    const node = (limits: Offers["limits"]) => ({
+      offers: {
+        version: "",
+        features: [],
+        network: { tcp: "", udp: "" },
+        limits,
+        holdsResources: true,
+        sharesSnapshots: false,
+      },
+    });
+    expect(limitsOf(effective, node({ memoryBytes: 2 * gib, cpus: 1 }))).toEqual({
+      memoryBytes: BigInt(2 * gib),
+      cpus: 4,
+    });
+    expect(limitsOf(effective, node({}))).toEqual({ memoryBytes: BigInt(8 * gib), cpus: 4 });
+  });
+
+  it("does not undo a lock on a choice with the choices allowed below it", () => {
+    const chain = [
+      { level: "instance", entry: { value: "off", allowed: ["off"] } },
+      { level: "workspace", entry: { allowed: ["rw", "ro"] } },
+      { level: "session", entry: { value: "rw" } },
+    ] as const;
+    expect(boundsOf(chain).allowed).toEqual({ values: ["off"], level: "instance" });
+    expect(resolve("clipboard", chain, { value: "rw", source: "default" })).toMatchObject({
+      value: "off",
+      source: "instance",
+      locked: true,
+    });
+    // What is left of those above is what is allowed.
+    const narrowed = [
+      { level: "instance", entry: { allowed: ["rw", "ro"] } },
+      { level: "workspace", entry: { allowed: ["ro", "off"] } },
+    ] as const;
+    expect(boundsOf(narrowed).allowed).toEqual({ values: ["ro"], level: "workspace" });
   });
 });
 
@@ -619,6 +739,188 @@ suite(Control.layer())("settings over the API", (it) => {
       expect(own.settings.find((one) => one.key === "clipboard")?.bounds).toBe(false);
     }),
   );
+  it.effect("no level below the deployment lifts a node's own limit", () =>
+    Effect.gen(function* () {
+      const control = yield* Control.Control;
+      const root = yield* control.as(control.bootstrapToken);
+      const jo = yield* Control.account("Jo");
+      const memory = (value: number | null) =>
+        jo.api.settings.setAccount({
+          params: { key: "sessionMemory" },
+          query: {},
+          payload: { value },
+        });
+      expect(yield* Effect.flip(memory(null))).toMatchObject({
+        _tag: "SettingOutOfBounds",
+        level: "instance",
+      });
+      // Less they say, and each node holds them to its own where that is less still.
+      expect((yield* memory(1024 ** 3)).effective).toMatchObject({
+        value: 1024 ** 3,
+        source: "account",
+        perNode: true,
+      });
+      // Where the deployment says no limit, so may they.
+      yield* root.settings.setInstance({
+        params: { key: "sessionMemory" },
+        payload: { value: null },
+      });
+      expect((yield* memory(null)).effective).toMatchObject({
+        value: null,
+        source: "account",
+        perNode: false,
+      });
+      yield* root.settings.clearInstance({ params: { key: "sessionMemory" } });
+      // What they said before is passed by: the node's own holds.
+      expect(
+        (yield* jo.api.settings.account({ query: {} })).settings.find(
+          (one) => one.key === "sessionMemory",
+        )?.effective,
+      ).toMatchObject({ value: null, source: "node" });
+    }),
+  );
+
+  it.effect("what is said of a member is not told to the other members", () =>
+    Effect.gen(function* () {
+      const control = yield* Control.Control;
+      const kai = yield* Control.account("Kai");
+      const lu = yield* Control.account("Lu");
+      const mo = yield* Control.account("Mo");
+      const team = yield* kai.api.workspaces.create({ payload: { name: "Kai's" } });
+      for (const admitted of [lu, mo]) {
+        yield* kai.api.workspaces.admit({
+          params: { id: team.id, accountId: admitted.account.id },
+          payload: { role: "member" },
+        });
+      }
+      // Lu says theirs wherever they are and in the workspace; its admin bounds them there.
+      yield* lu.api.settings.setAccount({
+        params: { key: "clipboard" },
+        query: {},
+        payload: { value: "ro" },
+      });
+      yield* lu.api.settings.setAccount({
+        params: { key: "uploads" },
+        query: { workspaceId: team.id },
+        payload: { value: false },
+      });
+      yield* kai.api.settings.setMember({
+        params: { id: team.id, accountId: lu.account.id, key: "maxSessionAge" },
+        payload: { max: 3600 },
+      });
+
+      const said = (events: ReadonlyArray<{ readonly kind: string; readonly detail: unknown }>) =>
+        events.filter(
+          (event) =>
+            event.kind === "setting.changed" &&
+            (event.detail as { readonly level?: string }).level === "member",
+        ).length;
+      const of = (who: typeof kai) => who.api.events.list({ query: { workspaceId: team.id } });
+      expect(said((yield* of(mo)).events)).toBe(0);
+      expect(said((yield* of(lu)).events)).toBe(2);
+      expect(said((yield* of(kai)).events)).toBe(2);
+
+      yield* control.sql`
+        INSERT INTO sessions (
+          id, account_id, workspace_id, desired_state, observed_state, created_at, observed_at
+        )
+        VALUES ('lus', ${lu.account.id}, ${team.id}, 'suspended', 'suspended', now(), now())
+      `;
+      const seen = (settings: ReadonlyArray<SettingView>, key: SettingKey) =>
+        settings.find((one) => one.key === key);
+      // To another member, what comes from Lu's own levels comes from its owner, unbounded.
+      const others = (yield* mo.api.settings.session({ params: { id: "lus" } })).settings;
+      expect(seen(others, "clipboard")?.effective).toMatchObject({ value: "ro", source: "owner" });
+      expect(seen(others, "uploads")?.effective).toMatchObject({ value: false, source: "owner" });
+      expect(seen(others, "maxSessionAge")?.above.max).toBeNull();
+      // The workspace's admin reads the member's, and not what Lu says wherever they are.
+      const admins = (yield* kai.api.settings.session({ params: { id: "lus" } })).settings;
+      expect(seen(admins, "clipboard")?.effective.source).toBe("owner");
+      expect(seen(admins, "uploads")?.effective.source).toBe("member");
+      expect(seen(admins, "maxSessionAge")?.above.max).toEqual({ value: 3600, level: "member" });
+      const own = (yield* lu.api.settings.session({ params: { id: "lus" } })).settings;
+      expect(seen(own, "clipboard")?.effective.source).toBe("account");
+
+      // What is said of the session is of whoever owns it.
+      yield* lu.api.settings.setSession({
+        params: { id: "lus", key: "downloads" },
+        payload: { value: false },
+      });
+      expect(
+        yield* control.sql`
+          SELECT owner_id FROM events WHERE kind = 'setting.changed' AND resource_id = 'lus'
+        `,
+      ).toEqual([{ ownerId: lu.account.id }]);
+    }),
+  );
+
+  it.effect("the bounds an admin sets in a workspace are not its admins' to lift", () =>
+    Effect.gen(function* () {
+      const admin = yield* Control.account("Overseer", true);
+      const nia = yield* Control.account("Nia");
+      const team = yield* nia.api.workspaces.create({ payload: { name: "Nia's" } });
+      const at = { id: team.id, key: "maxSessionAge" } as const;
+      yield* admin.api.settings.setWorkspace({ params: at, payload: { value: 3600, max: 7200 } });
+
+      // Its admin neither widens them nor says others, and says the value inside them.
+      for (const payload of [{ max: 86_400 }, { max: 3600 }]) {
+        const refused = yield* Effect.flip(nia.api.settings.setWorkspace({ params: at, payload }));
+        expect(refused._tag, JSON.stringify(payload)).toBe("Forbidden");
+      }
+      const theirs = yield* nia.api.settings.setWorkspace({ params: at, payload: { value: 1800 } });
+      expect(theirs).toMatchObject({
+        here: { value: 1800 },
+        above: { max: { value: 7200, level: "workspace" } },
+        bounds: false,
+      });
+      expect(
+        yield* Effect.flip(nia.api.settings.setWorkspace({ params: at, payload: { value: 9000 } })),
+      ).toMatchObject({ _tag: "SettingOutOfBounds", level: "workspace" });
+      // Clearing it clears their value alone.
+      yield* nia.api.settings.clearWorkspace({ params: at });
+      const left = (yield* admin.api.settings.workspace({ params: { id: team.id } })).settings;
+      expect(left.find((one) => one.key === "maxSessionAge")).toMatchObject({
+        here: { max: 7200 },
+        bounds: true,
+      });
+
+      // Nor does an admin of the workspace lift what the admin held them to as a member.
+      const own = { id: team.id, accountId: nia.account.id, key: "sessionsPerUser" } as const;
+      yield* admin.api.settings.setMember({ params: own, payload: { max: 2 } });
+      expect(
+        (yield* Effect.flip(nia.api.settings.setMember({ params: own, payload: { max: 5 } })))._tag,
+      ).toBe("Forbidden");
+      yield* nia.api.settings.clearMember({ params: own });
+      expect(
+        (yield* admin.api.settings.member({
+          params: { id: team.id, accountId: nia.account.id },
+        })).settings.find((one) => one.key === "sessionsPerUser")?.here,
+      ).toEqual({ max: 2 });
+
+      // What the admin clears is theirs again.
+      yield* admin.api.settings.clearWorkspace({ params: at });
+      expect(
+        (yield* nia.api.settings.setWorkspace({ params: at, payload: { max: 86_400 } })).bounds,
+      ).toBe(true);
+    }),
+  );
+
+  it.effect("a session its node lost is deleted with no node to ask", () =>
+    Effect.gen(function* () {
+      const control = yield* Control.Control;
+      const oz = yield* Control.account("Oz");
+      yield* control.sql`
+        INSERT INTO sessions (
+          id, account_id, desired_state, observed_state, created_at, observed_at
+        )
+        VALUES ('lost', ${oz.account.id}, 'running', 'gone', now(), now())
+      `;
+      yield* oz.api.sessions.delete({ params: { id: "lost" } });
+      expect((yield* Effect.flip(oz.api.sessions.get({ params: { id: "lost" } })))._tag).toBe(
+        "SessionNotFound",
+      );
+    }),
+  );
 });
 
 suite(Stores.layer())("a session deleted by itself", (it) => {
@@ -725,29 +1027,34 @@ suite(Stores.layer())("a quota", (it) => {
     }),
   );
 
-  it.effect("of running sessions passes by one its node suspended for sitting idle", () =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      const store = yield* SessionsStore;
-      const bea = "00000000-0000-4000-8000-00000000000c";
-      yield* sql`INSERT INTO accounts (id, name, admin, created_at)
-        VALUES (${bea}, 'Bea', false, now())`;
-      for (const [id, asleep] of [
-        ["awake", false],
-        ["asleep", true],
-      ] as const) {
-        yield* sql`
-          INSERT INTO sessions (
-            id, account_id, desired_state, observed_state, asleep, created_at, observed_at
-          )
-          VALUES (${id}, ${bea}, 'running', 'running', ${asleep}, now(), now())
-        `;
-      }
-      const running = { workspaceId: null, accountId: bea, running: true };
-      expect(yield* store.count(running)).toBe(1);
-      // Resumed by someone, it counts again.
-      yield* store.desire("asleep", "running");
-      expect(yield* store.count(running)).toBe(2);
-    }),
+  it.effect(
+    "of running sessions counts one asleep, and passes by one its node lost or that failed",
+    () =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const store = yield* SessionsStore;
+        const bea = "00000000-0000-4000-8000-00000000000c";
+        yield* sql`INSERT INTO accounts (id, name, admin, created_at)
+          VALUES (${bea}, 'Bea', false, now())`;
+        for (const [id, observed, asleep] of [
+          ["awake", "running", false],
+          // Whoever reaches it has it run again, and nothing refuses them.
+          ["asleep", "suspended", true],
+          ["lost", "gone", false],
+          ["failed", "failed", false],
+        ] as const) {
+          yield* sql`
+            INSERT INTO sessions (
+              id, account_id, desired_state, observed_state, asleep, created_at, observed_at
+            )
+            VALUES (${id}, ${bea}, 'running', ${observed}, ${asleep}, now(), now())
+          `;
+        }
+        const running = { workspaceId: null, accountId: bea, running: true };
+        expect(yield* store.count(running)).toBe(2);
+        // Started again, it counts again.
+        yield* sql`UPDATE sessions SET observed_state = 'starting' WHERE id = 'failed'`;
+        expect(yield* store.count(running)).toBe(3);
+      }),
   );
 });

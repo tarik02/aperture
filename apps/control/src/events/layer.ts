@@ -40,6 +40,7 @@ export const makeEvents = Effect.fn("Events.make")(function* () {
         resource: event.resource ?? null,
         ownerId: event.ownerId ?? null,
         workspaceId: event.workspaceId ?? null,
+        adminsOnly: event.adminsOnly ?? false,
         address: event.address === undefined ? doer.address : event.address,
         detail: event.detail ?? {},
       });
@@ -64,6 +65,9 @@ export const makeEvents = Effect.fn("Events.make")(function* () {
         : {
             accountId: Option.getOrNull(Option.map(caller.account, (account) => account.id)),
             workspaces: caller.workspaces.map((workspace) => workspace.id),
+            administers: caller.workspaces
+              .filter((workspace) => workspace.role === "admin")
+              .map((workspace) => workspace.id),
           },
       held: caller.resources,
       kind: asked.kind,
