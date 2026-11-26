@@ -1,5 +1,6 @@
 import { Badge } from "@aperture-browser/ui/components/badge";
 import { Button } from "@aperture-browser/ui/components/button";
+import { Input } from "@aperture-browser/ui/components/input";
 import { DialogBody, DialogHeader, DialogTitle } from "@aperture-browser/ui/components/dialog";
 import {
   Item,
@@ -18,7 +19,6 @@ import { FreshDialog } from "#/components/fresh-dialog.tsx";
 import { ListEmpty } from "#/components/list-empty.tsx";
 import { LinesSkeleton, WHOLE } from "#/components/list-skeleton.tsx";
 import { SecretDialog } from "#/components/secret-dialog.tsx";
-import { TextField } from "#/components/text-field.tsx";
 import {
   type Session,
   useSessionKeptTabsQuery,
@@ -160,69 +160,73 @@ function Links({ session, open }: { session: Session; open: boolean }) {
       {/* Above the links, so that it stays where it is as they come and go. */}
       <form
         data-console-share-create
-        className="aperture:flex aperture:shrink-0 aperture:flex-wrap aperture:items-start aperture:gap-2"
+        className="aperture:flex aperture:shrink-0 aperture:flex-col aperture:gap-2"
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
           void form.handleSubmit();
         }}
       >
-        {/* The name and what the link shows have a line of their own, above the rest. */}
-        <div className="aperture:min-w-0 aperture:flex-1 aperture:max-sm:basis-full">
+        {/* Whom it is for and what it shows; on a phone each has a line of its own. */}
+        <div className="aperture:flex aperture:flex-wrap aperture:gap-2">
           <form.Field name="name">
             {(field) => (
-              <TextField
-                field={field}
-                label="Who it is for"
+              <Input
+                name={field.name}
+                aria-label="Who it is for"
                 placeholder="Who it is for (optional)"
                 autoComplete="off"
-                labelHidden
+                value={field.state.value}
+                onChange={(event) => field.handleChange(event.target.value)}
+                onBlur={field.handleBlur}
+                className="aperture:min-w-0 aperture:flex-1 aperture:max-sm:basis-full"
+              />
+            )}
+          </form.Field>
+          <form.Field name="shows">
+            {(field) => (
+              <Choice
+                aria-label="What it shows"
+                value={watched === undefined ? "session" : field.state.value}
+                options={[
+                  { value: "session", label: "Whole session" },
+                  ...(watched === undefined
+                    ? []
+                    : [{ value: "tab" as const, label: `This tab: ${watched.title}` }]),
+                ]}
+                onChange={field.handleChange}
+                className="aperture:w-56 aperture:max-sm:w-full aperture:[&_[data-slot=select-value]]:truncate"
               />
             )}
           </form.Field>
         </div>
-        <form.Field name="shows">
-          {(field) => (
-            <Choice
-              aria-label="What it shows"
-              value={watched === undefined ? "session" : field.state.value}
-              options={[
-                { value: "session", label: "Whole session" },
-                ...(watched === undefined
-                  ? []
-                  : [{ value: "tab" as const, label: `This tab: ${watched.title}` }]),
-              ]}
-              onChange={field.handleChange}
-              className="aperture:w-56 aperture:max-sm:w-full aperture:[&_[data-slot=select-value]]:truncate"
-            />
-          )}
-        </form.Field>
-        <div className="aperture:basis-full" />
-        <form.Field name="role">
-          {(field) => (
-            <Choice
-              aria-label="What it lets them do"
-              value={field.state.value}
-              options={ROLES}
-              onChange={field.handleChange}
-              className="aperture:max-sm:flex-1"
-            />
-          )}
-        </form.Field>
-        <form.Field name="lasts">
-          {(field) => (
-            <Choice
-              aria-label="How long it is good for"
-              value={field.state.value}
-              options={LASTS}
-              onChange={field.handleChange}
-              className="aperture:max-sm:flex-1"
-            />
-          )}
-        </form.Field>
-        <Button type="submit" pending={submitting}>
-          New link
-        </Button>
+        <div className="aperture:flex aperture:gap-2">
+          <form.Field name="role">
+            {(field) => (
+              <Choice
+                aria-label="What it lets them do"
+                value={field.state.value}
+                options={ROLES}
+                onChange={field.handleChange}
+                className="aperture:max-sm:flex-1"
+              />
+            )}
+          </form.Field>
+          <form.Field name="lasts">
+            {(field) => (
+              <Choice
+                aria-label="How long it is good for"
+                value={field.state.value}
+                options={LASTS}
+                onChange={field.handleChange}
+                className="aperture:max-sm:flex-1"
+              />
+            )}
+          </form.Field>
+          <Button type="submit" pending={submitting}>
+            New link
+          </Button>
+        </div>
       </form>
       {/* On a phone, three links: a name and the two lines its story takes there each. */}
       <DialogBody height="15.5rem">
