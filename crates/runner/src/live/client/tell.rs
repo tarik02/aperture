@@ -139,6 +139,7 @@ impl Client {
             .targets
             .borrow_and_update()
             .iter()
+            .filter(|target| self.only.is_none_or(|only| target.tab == only))
             .map(|target| (target, history.get(&target.id).copied().unwrap_or_default()))
             .map(|(target, history)| pb::Target {
                 goes_back: history.back,
@@ -249,8 +250,12 @@ impl Client {
             .iter()
             .filter(|_| answers)
             .filter_map(|request| {
-                // A page that is no target any more asks for nothing.
+                // A page that is no target any more asks for nothing, nor one of a tab the
+                // client does not see.
                 let target = targets.iter().find(|target| target.id == request.target)?;
+                self.only
+                    .is_none_or(|only| target.tab == only)
+                    .then_some(())?;
                 Some(pb::FileRequest {
                     id: request.id,
                     tab: target.tab,

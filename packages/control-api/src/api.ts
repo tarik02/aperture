@@ -426,8 +426,11 @@ export const Share = Schema.Struct({
   sessionId: Schema.String,
   /** The account that made it. */
   accountId: Schema.String,
-  name: Schema.String,
+  /** Whom it is for, as whoever made it said; none where they did not. */
+  name: Schema.NullOr(Schema.String),
   role: ShareRole,
+  /** The number of the one tab its guests see; the whole session, without. */
+  tab: Schema.NullOr(Schema.Int),
   createdAt: Schema.DateTimeUtcFromString,
   expiresAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   lastUsedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
@@ -756,9 +759,14 @@ export class SharesGroup extends HttpApiGroup.make("shares")
     HttpApiEndpoint.post("create", "/sessions/:id/shares", {
       params: session,
       payload: Schema.Struct({
-        /** What whoever makes it knows it by; guests are not told. */
-        name: Schema.NonEmptyString.check(Schema.isMaxLength(100)),
+        /** What whoever makes it knows it by; nothing, without. */
+        name: Schema.optional(Schema.String.check(Schema.isMaxLength(100))),
         role: ShareRole,
+        /**
+         * The number of the one tab its guests are to see, and no other: the session's
+         * whole, without. A tab that is closed shows them nothing.
+         */
+        tab: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
         /** How many hours it is good for; for as long as it is not taken back, without. */
         expiresInHours: Schema.optional(
           Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 87_600 })),

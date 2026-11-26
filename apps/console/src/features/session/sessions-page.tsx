@@ -16,8 +16,9 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { useHotkey } from "@tanstack/react-hotkeys";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { filter, Filters } from "#/components/filter-menu.tsx";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
@@ -189,18 +190,13 @@ export function SessionsPage() {
     .filter((session) => selected.has(session.id))
     .map((session) => session.id);
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key === "f") {
-        event.preventDefault();
-        searchInput.current?.focus();
-      } else if (event.key === "Escape") {
-        setSelected(new Set());
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  useHotkey("Mod+F", () => searchInput.current?.focus());
+  // A dialog or menu open over the list has Escape too; the selection goes all the same.
+  useHotkey("Escape", () => setSelected(new Set()), {
+    preventDefault: false,
+    stopPropagation: false,
+    conflictBehavior: "allow",
+  });
 
   const select = (id: string, on: boolean, range: boolean) => {
     const next = new Set(selected);

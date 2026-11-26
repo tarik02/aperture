@@ -1,9 +1,10 @@
 import type { Access, Caller, ShareRole } from "@aperture-browser/control-api";
 import * as UrlPath from "@aperture-browser/shared/url-path";
-import type * as Crypto from "effect/Crypto";
+import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Hex from "effect/encoding/Hex";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as Layer from "effect/Layer";
@@ -44,6 +45,8 @@ const ACCESS: Record<ShareRole, Access> = {
 
 const NAME_MOST = 40;
 const UNNAMED = "Guest";
+/** How many random bytes tell apart the guests of a link that names nobody. */
+const GUEST_MARK_BYTES = 2;
 /** How many secrets that are no link's one address may try in a while. */
 const TRIES = 30;
 const TRIES_WITHIN = Duration.minutes(1);
@@ -66,6 +69,19 @@ export const guestName = (given: string) => {
   const kept = Array.from(letters.segment(line), (letter) => letter.segment).slice(0, NAME_MOST);
   return kept.join("").trim() || UNNAMED;
 };
+
+/**
+ * What a guest who said nothing of themselves is called: whom the link is for, where it
+ * says, else a guest with a mark of their own, so that two of them are told apart.
+ */
+const unnamed = Effect.fn(function* (share: Share) {
+  if (share.name !== null && share.name.trim() !== "") {
+    return guestName(share.name);
+  }
+  const crypto = yield* Crypto.Crypto;
+  const mark = Hex.encode(yield* Effect.orDie(crypto.randomBytes(GUEST_MARK_BYTES)));
+  return `${UNNAMED} ${mark}`;
+});
 
 export const makeShares = Effect.fn("Shares.make")(function* () {
   const store = yield* SharesStore;
@@ -158,12 +174,14 @@ export const makeShares = Effect.fn("Shares.make")(function* () {
     caller: Caller,
     sessionId: string,
     link: {
-      readonly name: string;
+      readonly name: string | undefined;
       readonly role: ShareRole;
+      readonly tab: number | undefined;
       readonly lasts: Duration.Duration | undefined;
     },
   ) {
     const account = yield* accountOf(caller);
+    const name = link.name?.trim() ?? "";
     const session = yield* sessions.acted(caller, sessionId);
     const effective = yield* policy.of({
       workspaceId: session.workspaceId,
@@ -183,8 +201,9 @@ export const makeShares = Effect.fn("Shares.make")(function* () {
       id: yield* Secrets.id,
       sessionId,
       accountId: account.id,
-      name: link.name,
+      name: name === "" ? null : name,
       role: link.role,
+      tab: link.tab ?? null,
       tokenHash: yield* Secrets.hash(secret),
       createdAt: yield* now,
       expiresAt: link.lasts === undefined ? null : yield* after(link.lasts),
@@ -195,6 +214,7 @@ export const makeShares = Effect.fn("Shares.make")(function* () {
       detail: {
         sessionId,
         role: share.role,
+        tab: share.tab,
         expiresAt: share.expiresAt === null ? null : DateTime.formatIso(share.expiresAt),
       },
     });
@@ -229,7 +249,7 @@ export const makeShares = Effect.fn("Shares.make")(function* () {
     id: string,
     token: string,
     from: Option.Option<string>,
-    joining: Option.Option<string>,
+    named: { readonly said: Option.Option<string>; readonly kept: Option.Option<string> },
   ) {
     const share = yield* good(token, from);
     const session = yield* sessionsStore.find(share.sessionId);
@@ -238,13 +258,20 @@ export const makeShares = Effect.fn("Shares.make")(function* () {
       return yield* new ShareRefused({ message: "this link is not good, or not any more" });
     }
     yield* noted(share);
-    if (Option.isSome(joining)) {
+    const name = Option.isSome(named.said)
+      ? named.said.value
+      : Option.isSome(named.kept)
+        ? named.kept.value
+        : yield* unnamed(share);
+    // A guest joins once, when they are first called something: what they are called
+    // after is theirs to change.
+    if (Option.isNone(named.kept)) {
       yield* events.record({
         kind: "share.joined",
         ...about(share, session.value),
-        actor: { kind: "guest", id: guestsOf(share.id), name: joining.value },
+        actor: { kind: "guest", id: guestsOf(share.id), name },
         address: Option.getOrNull(from),
-        detail: { sessionId: share.sessionId, role: share.role },
+        detail: { sessionId: share.sessionId, role: share.role, tab: share.tab },
       });
     }
     const { nodeId, observedState, unreachableSince } = session.value;
@@ -253,8 +280,9 @@ export const makeShares = Effect.fn("Shares.make")(function* () {
       path: nodeId === null ? null : sessionPath(nodeId, share.sessionId),
       running: observedState === "running" && unreachableSince === null,
       expiresAt: share.expiresAt,
+      name,
     } satisfies Entered;
-  });
+  }, Effect.provide(crypto));
 
   const admit = Effect.fn("Shares.admit")(function* (
     uri: string,
@@ -291,6 +319,7 @@ export const makeShares = Effect.fn("Shares.make")(function* () {
       name: guestName(guest.name),
       access: ACCESS[share.role],
       until: share.expiresAt,
+      ...(share.tab === null ? {} : { tab: share.tab }),
     });
     return issued.ticket;
   });

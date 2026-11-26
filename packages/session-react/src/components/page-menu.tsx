@@ -75,6 +75,7 @@ function useAct() {
 export function PageLinkItems() {
   const session = useSession();
   const link = useSessionSnapshot().menu?.link;
+  const { features } = useWorkbench();
   const act = useAct();
 
   if (link === undefined) {
@@ -82,10 +83,12 @@ export function PageLinkItems() {
   }
   return (
     <>
-      <DropdownMenuItem onClick={act(() => session.go({ url: link }, { newTab: true }))}>
-        <ExternalLink />
-        Open link in new tab
-      </DropdownMenuItem>
+      {features.tabs ? (
+        <DropdownMenuItem onClick={act(() => session.go({ url: link }, { newTab: true }))}>
+          <ExternalLink />
+          Open link in new tab
+        </DropdownMenuItem>
+      ) : null}
       <DropdownMenuItem onClick={act(() => copyTextHere(session, link, "Link copied"))}>
         <Link2 />
         Copy link address
@@ -106,10 +109,12 @@ export function PagePictureItems() {
   }
   return (
     <>
-      <DropdownMenuItem onClick={act(() => session.go({ url: image }, { newTab: true }))}>
-        <ExternalLink />
-        Open picture in new tab
-      </DropdownMenuItem>
+      {features.tabs ? (
+        <DropdownMenuItem onClick={act(() => session.go({ url: image }, { newTab: true }))}>
+          <ExternalLink />
+          Open picture in new tab
+        </DropdownMenuItem>
+      ) : null}
       {features.access.clipboard.read ? (
         <DropdownMenuItem onClick={act(() => session.copyPicture(image))}>
           <Image />

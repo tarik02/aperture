@@ -88,6 +88,7 @@ export const makeTickets = Effect.fn("Tickets.make")(function* () {
         access,
         ...(until === undefined ? {} : { until }),
         ...(ticket.path === undefined ? {} : { path: ticket.path }),
+        ...(ticket.tab === undefined ? {} : { tab: ticket.tab }),
       })
         .setProtectedHeader({ alg: ALGORITHM, typ: "JWT" })
         .sign(keys.signing),

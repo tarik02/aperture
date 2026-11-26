@@ -45,6 +45,7 @@ catalog:
   "@resvg/resvg-js": "^2.6.2"
   sonner: "^2.0.7"
   "@tanstack/react-form": "^1.33.5"
+  "@tanstack/react-hotkeys": "^0.27.1"
   "@tanstack/react-query": "^5.90.0"
   "@tanstack/react-router": "^1.130.0"
   "@tanstack/react-start": "^1.130.0"

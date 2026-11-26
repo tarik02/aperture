@@ -21,7 +21,9 @@ use tokio::{
 };
 use tracing::debug;
 
-use crate::{ACCESS_HEADER, NAME_HEADER, SUBJECT_HEADER, Sessions, Which, auth::Caller};
+use crate::{
+    ACCESS_HEADER, NAME_HEADER, SUBJECT_HEADER, Sessions, TAB_HEADER, Which, auth::Caller,
+};
 
 /// A caller the operator dismissed from a session: the session's id, and the subject.
 type Dismissed = (String, String);
@@ -172,7 +174,7 @@ async fn forward_to(
         // Whoever mounted the routes lets anyone in: nobody is vouched for, whatever the
         // request says of itself.
         None => {
-            for name in [SUBJECT_HEADER, NAME_HEADER, ACCESS_HEADER] {
+            for name in [SUBJECT_HEADER, NAME_HEADER, ACCESS_HEADER, TAB_HEADER] {
                 request.headers_mut().remove(name);
             }
         }

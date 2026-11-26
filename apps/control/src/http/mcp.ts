@@ -246,6 +246,7 @@ const handlers = ControlTools.toLayer(
         const { share, secret } = yield* shares.create(caller, asked.session_id, {
           name: asked.name,
           role: asked.role,
+          tab: asked.tab,
           lasts:
             asked.expires_in_hours === undefined
               ? undefined

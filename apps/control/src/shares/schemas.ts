@@ -8,9 +8,11 @@ export const Share = Schema.Struct({
   sessionId: Schema.String,
   /** The account that made it. */
   accountId: Schema.String,
-  /** What whoever made it calls it; guests are not told. */
-  name: Schema.String,
+  /** What whoever made it calls it; nothing, where they said nothing. */
+  name: Schema.NullOr(Schema.String),
   role: ShareRole,
+  /** The number of the one tab its guests see; the whole session, without. */
+  tab: Schema.NullOr(Schema.Int),
   createdAt: Schema.DateTimeUtcFromDate,
   /** When it stops being good by itself; never, without. */
   expiresAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
@@ -22,7 +24,7 @@ export type Share = typeof Share.Type;
 /** Who the guests of a link are to the session's node: by that it puts them out. */
 export const guestsOf = (shareId: string) => `share:${shareId}`;
 
-/** A guest as their browser carries them: the link's secret, and what they chose to be called. */
+/** A guest as their browser carries them: the link's secret, and what they are called. */
 export interface Guest {
   readonly token: string;
   readonly name: string;
@@ -36,4 +38,6 @@ export interface Entered {
   /** Whether the session runs: one that rests is its owner's to resume. */
   readonly running: boolean;
   readonly expiresAt: DateTime.Utc | null;
+  /** What the guest is called among the session's members. */
+  readonly name: string;
 }

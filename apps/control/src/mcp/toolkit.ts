@@ -325,7 +325,7 @@ const shareId = Schema.NonEmptyString.annotate(said("The share link's id."));
 const SharesList = reads(
   Tool.make("shares.list", {
     description:
-      "List the share links into a session: who they are for, and what they let a guest do.",
+      "List the share links into a session: who they are for, what they let a guest do, and the one tab they show where they show one.",
     parameters: Schema.Struct({ session_id: sessionId }),
     success: Schema.Struct({ shares: Schema.Array(Share) }),
     failure: Refusal,
@@ -338,10 +338,21 @@ const SharesCreate = writes(
       "Make a share link into a session for someone with no account. Whoever opens its `url` is a guest: they see the session, and with `control` give input, change tabs and use the clipboard; files, routing and automation are never a guest's. The `url` is told once, here. The link is good until it is revoked or runs out.",
     parameters: Schema.Struct({
       session_id: sessionId,
-      name: Schema.NonEmptyString.check(Schema.isMaxLength(100)).annotate(
-        said("What you know the link by, such as who it is for; guests are not told."),
+      name: Schema.optional(
+        Schema.String.check(Schema.isMaxLength(100)).annotate(
+          said(
+            "What you know the link by, such as who it is for; its guests are called so until they say otherwise. Without, it names nobody.",
+          ),
+        ),
       ),
       role: ShareRole.annotate(said("`watch`, or `control` to let guests act in the session.")),
+      tab: Schema.optional(
+        Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).annotate(
+          said(
+            "The number of the one tab its guests are to see, as the session's `tabs` tool numbers it: they are shown no other, and open none. The whole session, without.",
+          ),
+        ),
+      ),
       expires_in_hours: Schema.optional(
         Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 87_600 })).annotate(
           said("How long it is good for; until it is revoked, without."),

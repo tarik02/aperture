@@ -10,17 +10,17 @@ export const makeSharesStore = Effect.fn("SharesStore.make")(function* () {
   const sql = yield* SqlClient.SqlClient;
   // Never the digest: a link is known by it, and it is told to nobody.
   const share = sql.literal(
-    "id, session_id, account_id, name, role, created_at, expires_at, last_used_at",
+    "id, session_id, account_id, name, role, tab, created_at, expires_at, last_used_at",
   );
 
   const insert = Effect.fn("SharesStore.insert")(function* (given: NewShare) {
     return yield* sql`
       INSERT INTO session_shares (
-        id, session_id, account_id, name, role, token_hash, created_at, expires_at
+        id, session_id, account_id, name, role, tab, token_hash, created_at, expires_at
       )
       VALUES (
         ${given.id}, ${given.sessionId}, ${given.accountId}, ${given.name}, ${given.role},
-        ${given.tokenHash}, ${given.createdAt}, ${given.expiresAt}
+        ${given.tab}, ${given.tokenHash}, ${given.createdAt}, ${given.expiresAt}
       )
       RETURNING ${share}
     `.pipe(one(Share));

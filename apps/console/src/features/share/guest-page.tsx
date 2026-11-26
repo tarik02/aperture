@@ -1,11 +1,19 @@
 import type { Session } from "@aperture-browser/session-client";
-import { ApertureSession, type ApertureTheme } from "@aperture-browser/session-react";
+import {
+  ApertureSession,
+  type ApertureTheme,
+  type WorkbenchContribution,
+} from "@aperture-browser/session-react";
 import { Button } from "@aperture-browser/ui/components/button";
+import { DialogFooter, DialogHeader, DialogTitle } from "@aperture-browser/ui/components/dialog";
+import { DropdownMenuItem } from "@aperture-browser/ui/components/dropdown-menu";
 import { useForm, useStore } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
+import { UserPen } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useCallback, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { FreshDialog } from "#/components/fresh-dialog.tsx";
 import { NotAnswering } from "#/components/not-answering.tsx";
 import { TextField } from "#/components/text-field.tsx";
 import { AuthCard } from "#/features/auth/auth-card.tsx";
@@ -36,10 +44,30 @@ function Said({ children, note }: { children: React.ReactNode; note: string }) {
   );
 }
 
+/** Opens the dialog that changes what the guest is called, from the workbench's menu. */
+const Naming = createContext<() => void>(() => undefined);
+
+function NameItem() {
+  const name = useContext(Naming);
+  return (
+    <DropdownMenuItem data-console-guest-rename onClick={name}>
+      <UserPen />
+      Your name
+    </DropdownMenuItem>
+  );
+}
+
+/** What the guest's workbench has besides the session's own: the way to their name. */
+const CONTRIBUTIONS: ReadonlyArray<WorkbenchContribution> = [
+  { id: "guest.name", slot: "menu.browser", group: "guest", order: 900, component: NameItem },
+  { id: "guest.name.phone", slot: "menu.phone", group: "guest", order: 900, component: NameItem },
+];
+
 /**
- * Where a share link leads: whoever opens it says what the others are to call them, and
- * is shown the session's workbench and nothing else. They have no account, and the page
- * asks the control plane for nothing but the link.
+ * Where a share link leads: whoever opens it is shown the session's workbench at once,
+ * and nothing else, under the name the link gives them until they choose their own. A
+ * link to one tab shows that tab alone. They have no account, and the page asks the
+ * control plane for nothing but the link.
  */
 export function GuestPage({ shareId }: { shareId: string }) {
   const router = useRouter();
@@ -63,16 +91,8 @@ export function GuestPage({ shareId }: { shareId: string }) {
     refetchInterval: (query) => (query.state.status === "error" ? false : ASKED_EVERY_MS),
   });
   const unanswered = useUnanswered(link);
-  const naming = useMutation({
-    mutationFn: (name: string) => enter(shareId, { token: secret, name }),
-    onSuccess: (told) => queries.setQueryData(key, told),
-  });
-  const form = useForm({
-    defaultValues: { name: "" },
-    // What it fails with is shown below the field.
-    onSubmit: ({ value }) => naming.mutateAsync(value.name.trim()).catch(() => undefined),
-  });
-  const submitting = useStore(form.store, (state) => state.isSubmitting);
+  const [naming, setNaming] = useState(false);
+  const rename = useCallback(() => setNaming(true), []);
   const expose = useCallback((session: Session | null) => {
     window.apertureSession = session ?? undefined;
   }, []);
@@ -91,57 +111,96 @@ export function GuestPage({ shareId }: { shareId: string }) {
   if (link.data === undefined) {
     return null;
   }
-  if (link.data.name === null) {
-    return (
-      <AuthCard
-        title="Join the shared session"
-        data-console-guest="name"
-        noValidate
-        onSubmit={(event) => {
-          event.preventDefault();
-          void form.handleSubmit();
-        }}
-      >
-        <form.Field name="name" validators={{ onSubmit: required("A name") }}>
-          {(field) => (
-            <TextField
-              field={field}
-              label="Your name, as the others see it"
-              autoComplete="name"
-              maxLength={NAME_MOST}
-              autoFocus
-            />
-          )}
-        </form.Field>
-        {naming.isError ? (
-          <p role="alert" className="aperture:text-sm aperture:text-destructive">
-            {naming.error.message}
-          </p>
-        ) : null}
-        <Button type="submit" pending={submitting}>
-          {link.data.role === "control" ? "Join" : "Watch"}
-        </Button>
-      </AuthCard>
-    );
-  }
   if (link.data.path === null || !link.data.running) {
     return (
       <Said note="resting">The session is not running right now. It is shown once it is.</Said>
     );
   }
-  // Connected anew when the session moves: its path is another then.
+  const { path, name, tab } = link.data;
+  // Connected anew when the session moves, its path being another then, and under a new
+  // name: the session knows its members by what let them in.
   return (
     <div
       data-console-guest="session"
+      data-console-guest-tab={tab ?? undefined}
       className="aperture:flex aperture:h-[calc(100dvh-var(--keyboard-inset,0px))] aperture:min-h-0 aperture:flex-col aperture:pt-[env(safe-area-inset-top)] aperture:pr-[env(safe-area-inset-right)] aperture:pb-[env(safe-area-inset-bottom)] aperture:pl-[env(safe-area-inset-left)]"
     >
-      <ApertureSession
-        key={link.data.path}
-        url={link.data.path}
-        theme={isTheme(theme) ? theme : "system"}
-        onThemeChange={setTheme}
-        onSession={expose}
-      />
+      <Naming.Provider value={rename}>
+        <ApertureSession
+          key={`${path} ${name}`}
+          url={path}
+          theme={isTheme(theme) ? theme : "system"}
+          onThemeChange={setTheme}
+          onSession={expose}
+          features={tab === null ? undefined : { tabs: false }}
+          contributions={CONTRIBUTIONS}
+        />
+      </Naming.Provider>
+      <FreshDialog open={naming} onOpenChange={setNaming}>
+        <NameForm
+          name={name}
+          onSave={async (chosen) => {
+            queries.setQueryData(key, await enter(shareId, { token: secret, name: chosen }));
+          }}
+          onDone={() => setNaming(false)}
+        />
+      </FreshDialog>
     </div>
+  );
+}
+
+/** What the guest is called among the session's members, changed. */
+function NameForm({
+  name,
+  onSave,
+  onDone,
+}: {
+  name: string;
+  onSave: (name: string) => Promise<void>;
+  onDone: () => void;
+}) {
+  const saving = useMutation({ mutationFn: onSave, onSuccess: onDone });
+  const form = useForm({
+    defaultValues: { name },
+    // What it fails with is shown below the field.
+    onSubmit: ({ value }) => saving.mutateAsync(value.name.trim()).catch(() => undefined),
+  });
+  const submitting = useStore(form.store, (state) => state.isSubmitting);
+
+  return (
+    <form
+      data-console-guest-name
+      className="aperture:contents"
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        void form.handleSubmit();
+      }}
+    >
+      <DialogHeader>
+        <DialogTitle>Your name</DialogTitle>
+      </DialogHeader>
+      <form.Field name="name" validators={{ onSubmit: required("A name") }}>
+        {(field) => (
+          <TextField
+            field={field}
+            label="What the others see you as"
+            labelHidden
+            autoComplete="name"
+            maxLength={NAME_MOST}
+            autoFocus
+            refused={saving.isError ? saving.error.message : undefined}
+          />
+        )}
+      </form.Field>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button type="submit" pending={submitting}>
+          Save
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }
