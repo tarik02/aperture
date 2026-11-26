@@ -1,5 +1,6 @@
 "use client";
 
+import { useHotkey } from "@tanstack/react-hotkeys";
 import * as React from "react";
 import { useIsMobile } from "../use-mobile.ts";
 
@@ -7,7 +8,7 @@ const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 const SIDEBAR_WIDTH = "16rem";
 const SIDEBAR_WIDTH_ICON = "3rem";
-const SIDEBAR_KEYBOARD_SHORTCUT = "b";
+const SIDEBAR_KEYBOARD_SHORTCUT = "Mod+B";
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed";
@@ -70,17 +71,7 @@ export function SidebarProvider({
     [isMobile, setOpen],
   );
 
-  React.useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === SIDEBAR_KEYBOARD_SHORTCUT && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        toggleSidebar();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [toggleSidebar]);
+  useHotkey(SIDEBAR_KEYBOARD_SHORTCUT, toggleSidebar);
 
   const state = open ? "expanded" : "collapsed";
   const contextValue = React.useMemo<SidebarContextProps>(

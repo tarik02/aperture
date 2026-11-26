@@ -721,6 +721,9 @@ importers:
       '@base-ui/react':
         specifier: 'catalog:'
         version: 1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@tanstack/react-hotkeys':
+        specifier: 'catalog:'
+        version: 0.27.1(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       class-variance-authority:
         specifier: 'catalog:'
         version: 0.7.1
@@ -790,6 +793,9 @@ importers:
       '@fontsource-variable/geist':
         specifier: 'catalog:'
         version: 5.3.0
+      '@tanstack/react-hotkeys':
+        specifier: 'catalog:'
+        version: 0.27.1(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       class-variance-authority:
         specifier: 'catalog:'
         version: 0.7.1

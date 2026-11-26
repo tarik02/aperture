@@ -38,6 +38,8 @@ export function SidebarGoesAway() {
       // Only where it closes the sidebar: a menu or a dialog open over it has it first.
       preventDefault: false,
       stopPropagation: false,
+      // Drawing in the session has Escape as well.
+      conflictBehavior: "allow",
     },
   );
 
