@@ -375,8 +375,8 @@ function SettingRow({
         {boundsColumn ? (
           bounds ? (
             <Toggle
-              variant="outline"
               aria-label="Limit lower levels"
+              className="aperture:text-muted-foreground aperture:aria-pressed:text-foreground"
               title="Limit lower levels"
               data-console-setting-limit
               disabled={disabled || draft.mode === "enforce"}
