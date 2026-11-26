@@ -34,8 +34,6 @@ import { WorkspacesPage } from "#/features/workspace/workspaces-page.tsx";
 import {
   AccountSettingsPage,
   InstanceSettingsPage,
-  MemberSettingsPage,
-  PersonSettingsPage,
   WorkspaceSettingsPage,
 } from "#/features/settings/settings-pages.tsx";
 import { useAccess } from "#/features/auth/access.ts";
@@ -203,20 +201,6 @@ const workspaceSettings = createRoute({
   },
 });
 
-// Who says a member's settings is told so by the control plane: an admin of the workspace.
-const memberSettings = createRoute({
-  getParentRoute: () => pages,
-  path: "/-/workspaces/$workspaceId/members/$accountId/settings",
-  component: function Settings() {
-    const { workspaceId, accountId } = memberSettings.useParams();
-    return (
-      <Only needs="workspaces:read">
-        <MemberSettingsPage workspaceId={workspaceId} accountId={accountId} />
-      </Only>
-    );
-  },
-});
-
 const instanceSettings = createRoute({
   getParentRoute: () => pages,
   path: "/-/settings",
@@ -266,19 +250,6 @@ const people = createRoute({
       <PeoplePage />
     </Only>
   ),
-});
-
-const personSettings = createRoute({
-  getParentRoute: () => pages,
-  path: "/-/people/$accountId/settings",
-  component: function Settings() {
-    const { accountId } = personSettings.useParams();
-    return (
-      <Only needs="admin">
-        <PersonSettingsPage accountId={accountId} />
-      </Only>
-    );
-  },
 });
 
 const serviceAccounts = createRoute({
@@ -370,12 +341,10 @@ export const router = createRouter({
         ]),
         workspaces,
         workspaceSettings,
-        memberSettings,
         instanceSettings,
         nodes,
         registrationTokens,
         people,
-        personSettings,
         serviceAccounts,
         serviceAccountTokens,
         providers,

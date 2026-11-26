@@ -8,7 +8,6 @@ import {
   TableHeader,
   TableRow,
 } from "@aperture-browser/ui/components/table";
-import { useNavigate } from "@tanstack/react-router";
 import { Plus, Users } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "#/components/confirm-dialog.tsx";
@@ -34,6 +33,7 @@ import {
   personActions,
 } from "#/features/account/person-actions-menu.tsx";
 import { PersonCreateDialog } from "#/features/account/person-create-dialog.tsx";
+import { SettingsDialog } from "#/features/settings/settings-dialog.tsx";
 import { useAccountQuery } from "#/features/auth/auth.queries.ts";
 import { TableRowsSkeleton } from "#/components/list-skeleton.tsx";
 import { told } from "#/lib/api.ts";
@@ -86,10 +86,11 @@ export function PeoplePage() {
   const removePasskeys = useRemovePasskeysMutation();
   const disable = useDisableAccountMutation();
   const remove = useRemoveAccountMutation();
-  const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
   const [link, setLink] = useState<string>();
   const [opened, setOpened] = useState<string>();
+  const [setting, setSetting] = useState<Account>();
+  const set = useLast(setting);
   const [confirming, setConfirming] = useState<{ doing: Confirming; account: Account }>();
   const confirmed = useLast(confirming);
   const people = accounts.data?.filter((account) => account.kind === "person");
@@ -104,7 +105,7 @@ export function PeoplePage() {
     if (doing === "details") {
       setOpened(account.id);
     } else if (doing === "settings") {
-      void navigate({ to: "/-/people/$accountId/settings", params: { accountId: account.id } });
+      setSetting(account);
     } else if (doing === "setup-link") {
       setupLink.mutate(account, { onSuccess: setLink });
     } else if (doing === "enable") {
@@ -216,6 +217,12 @@ export function PeoplePage() {
         account={people?.find((account) => account.id === opened)}
         open={opened !== undefined && people?.some((account) => account.id === opened) === true}
         onOpenChange={(open) => (open ? undefined : setOpened(undefined))}
+      />
+      <SettingsDialog
+        target={{ level: "account", accountId: set?.id ?? "" }}
+        title={`Settings of ${set?.name ?? ""}`}
+        open={setting !== undefined}
+        onOpenChange={(open) => (open ? undefined : setSetting(undefined))}
       />
       <PersonCreateDialog
         open={creating}

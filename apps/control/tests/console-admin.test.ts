@@ -1012,8 +1012,10 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
         yield* page.click(`a[href="/-/people"]`);
         yield* page.click(`[data-console-person="Plain"] [data-console-person-actions]`);
         yield* page.click(`[data-console-person-action="settings"]`);
-        const running = `[data-console-settings="account"] [data-console-setting="runningSessions"]`;
+        // They open over the people, and the people stay where they are under them.
+        const running = `${DIALOG} [data-console-settings="account"] [data-console-setting="runningSessions"]`;
         yield* page.until(`!!document.querySelector('${running}')`);
+        expect(yield* page.text(DIALOG)).toContain("Settings of Plain");
         // A quota said of a person is the most they have, and shown as the value it is.
         expect(yield* page.text(running)).toContain("Override");
         expect(
@@ -1021,7 +1023,25 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
             `!!document.querySelector('${running} [data-console-setting-limit][aria-pressed="true"]')`,
           ),
         ).toBe(false);
+        yield* rested(page);
         yield* shot(page, fs, "console-settings-person");
+        // What is changed is saved at the dialog's foot, and not closed away unasked.
+        yield* page.click(`${running} [aria-label="Less"]`);
+        yield* page.until(
+          `document.querySelector("[data-console-settings-footer]")?.textContent.includes("1 unsaved change")`,
+        );
+        yield* page.key("Escape", "Escape", ESCAPE);
+        yield* page.until(`document.body.textContent.includes("Discard unsaved changes?")`);
+        expect(yield* page.evaluate(`!!document.querySelector('${running}')`)).toBe(true);
+        yield* rested(page);
+        yield* shot(page, fs, "console-settings-discard");
+        yield* choose(page, `${DIALOG} button`, "Discard changes");
+        yield* page.until(`!document.querySelector('${DIALOG}')`);
+        expect(
+          (yield* looker.api.settings.person({ params: person })).settings.find(
+            (one) => one.key === "runningSessions",
+          )?.here,
+        ).toMatchObject({ value: 2 });
 
         // And what an admin of a workspace says of one of its members there, from its members.
         yield* keeper.api.settings.setMember({
@@ -1033,15 +1053,27 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
           `[data-console-workspace="Kept apart"] [data-console-row-action="members"]`,
         );
         yield* page.click(`[data-console-member="Plain"] [data-console-member-settings]`);
+        // Over the members, which stay open under it.
         yield* page.until(
-          `!!document.querySelector('[data-console-settings="member"] [data-console-setting="clipboard"]')`,
+          `!!document.querySelector('${DIALOG} [data-console-settings="member"] [data-console-setting="clipboard"]') && document.querySelectorAll('${DIALOG}').length === 2`,
         );
-        yield* page.until(`!document.querySelector('${DIALOG}')`);
+        expect(
+          yield* page.evaluate(
+            `[...document.querySelectorAll('${DIALOG}')].some((one) => one.textContent.includes("Settings of Plain in Kept apart"))`,
+          ),
+        ).toBe(true);
         // Of what the person has as a member, the levels above are said where they hold it.
         expect(yield* page.text(`[data-console-setting="runningSessions"]`)).toContain(
           "At most 2 by this person",
         );
+        yield* rested(page);
         yield* shot(page, fs, "console-settings-member");
+        // Nothing changed, it closes at once, and the members are there again.
+        yield* page.key("Escape", "Escape", ESCAPE);
+        yield* page.until(
+          `!document.querySelector('[data-console-settings="member"]') && !!document.querySelector('[data-console-member="Plain"]')`,
+        );
+        yield* closed(page);
         expect(page.errors()).toEqual([]);
 
         // The person reads what was said for them and by whom, and says their own values alone.
