@@ -1039,6 +1039,43 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
         yield* shot(page, fs, "console-settings-member");
         expect(page.errors()).toEqual([]);
 
+        // The person reads what was said for them and by whom, and says their own values alone.
+        const plainToken = yield* (yield* control.as(control.bootstrapToken)).accounts.createToken({
+          params: { id: plain.id },
+          payload: { name: "checks", scopes: Control.ALL_SCOPES },
+        });
+        yield* until(
+          "the page being there to sign out from",
+          page.evaluate(
+            `(localStorage.clear(), Promise.all([fetch("/api/auth/sign-out", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }), fetch("/api/control/route/cookie", { method: "DELETE" })]).then(() => true))`,
+            Schema.Boolean,
+          ),
+        );
+        yield* page.evaluate(`void (location.href = "/-/account/settings")`);
+        yield* signInWithToken(page, plainToken.token);
+        // Their own first, of no workspace; then theirs in the workspace, once it is selected.
+        yield* page.until(
+          `!!document.querySelector('[data-console-settings="account"] [data-console-setting="clipboard"]')`,
+        );
+        yield* page.click("[data-console-workspace-switcher]");
+        yield* choose(page, `[role="menuitemradio"]`, "Kept apart");
+        yield* page.key("Escape", "Escape", ESCAPE);
+        yield* page.until(`!document.querySelector('[role="menuitemradio"]')`);
+        yield* page.until(
+          `!!document.querySelector('[data-console-settings="member"] [data-console-setting="clipboard"]')`,
+        );
+        expect(yield* page.text(`[data-console-setting="runningSessions"]`)).toContain(
+          "Locked by an admin",
+        );
+        expect(yield* page.text(`[data-console-setting="clipboard"]`)).toContain(
+          "by a workspace admin",
+        );
+        expect(
+          yield* page.evaluate(`!!document.querySelector("[data-console-setting-limit]")`),
+        ).toBe(false);
+        yield* shot(page, fs, "console-settings-own");
+        expect(page.errors()).toEqual([]);
+
         // The workspace stays: the check of the events after this one counts those deleted.
         yield* looker.api.sessions.delete({ params: { id: theirs.id } });
       }),
