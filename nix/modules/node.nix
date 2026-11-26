@@ -75,6 +75,19 @@ in
       ];
       description = "What its sessions offer at most.";
     };
+    metrics = {
+      enable = lib.mkEnableOption "Prometheus metrics of the node, at `/metrics` on an address of their own";
+      listen = lib.mkOption {
+        type = lib.types.str;
+        default = "127.0.0.1:9464";
+        description = "Where the metrics are served: another address than `listen`. The endpoint has no authentication: keep it on loopback unless Prometheus runs on another machine, and then let only that machine reach it.";
+      };
+      perSession = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Whether what each running session uses is told, labelled with its id: several series for every session that runs. It is read from the sessions' scopes, so only with `APERTURE_SESSION_SCOPES`.";
+      };
+    };
     environment = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       default = { };
@@ -127,6 +140,10 @@ in
       }
       // lib.optionalAttrs (cfg.internalUrl != null) { APERTURE_INTERNAL_URL = cfg.internalUrl; }
       // lib.optionalAttrs (cfg.rtcPorts != null) { APERTURE_RTC_PORTS = cfg.rtcPorts; }
+      // lib.optionalAttrs cfg.metrics.enable {
+        APERTURE_METRICS_LISTEN = cfg.metrics.listen;
+        APERTURE_METRICS_NO_PER_SESSION = lib.boolToString (!cfg.metrics.perSession);
+      }
       // cfg.environment;
       serviceConfig = {
         ExecStart = lib.getExe' cfg.package "aperture-executor";

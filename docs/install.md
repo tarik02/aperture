@@ -248,7 +248,7 @@ api "$APERTURE_URL/api/control/nodes" | jq '.[] | {name, alive}'   # each node, 
 systemctl status aperture-control aperture-node aperture-proxy
 ```
 
-`/api/control/health` is reachable through the proxy as well, which checks the proxy and its routes at the same time. The console shows the same under **Nodes**, and what was done by whom under **Audit**.
+For Prometheus, see [Monitoring](monitoring.md). `/api/control/health` is reachable through the proxy as well, which checks the proxy and its routes at the same time. The console shows the same under **Nodes**, and what was done by whom under **Audit**.
 
 ## Container image
 
