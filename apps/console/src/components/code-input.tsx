@@ -28,8 +28,8 @@ export function CodeInput({ value, onChange, onComplete, error }: CodeInputProps
         inputMode="numeric"
         autoComplete="one-time-code"
         autoFocus
-        placeholder="000 000"
-        className="aperture:h-12 aperture:text-center aperture:font-mono aperture:text-2xl aperture:tracking-[0.4em] aperture:tabular-nums aperture:placeholder:text-muted-foreground/40"
+        placeholder="000000"
+        className="aperture:h-10 aperture:text-center aperture:indent-[0.3em] aperture:font-mono aperture:text-xl aperture:tracking-[0.3em] aperture:tabular-nums aperture:md:text-xl"
         value={value}
         onChange={(event) => {
           const code = event.target.value.replace(/\D/g, "").slice(0, DIGITS);
