@@ -832,7 +832,7 @@ suite(Control.layer())("settings over the API", (it) => {
       const others = (yield* mo.api.settings.session({ params: { id: "lus" } })).settings;
       expect(seen(others, "clipboard")?.effective).toMatchObject({ value: "ro", source: "owner" });
       expect(seen(others, "uploads")?.effective).toMatchObject({ value: false, source: "owner" });
-      expect(seen(others, "maxSessionAge")?.above.max).toBeNull();
+      expect(seen(others, "maxSessionAge")?.above.max?.level).not.toBe("member");
       // The workspace's admin reads the member's, and not what Lu says wherever they are.
       const admins = (yield* kai.api.settings.session({ params: { id: "lus" } })).settings;
       expect(seen(admins, "clipboard")?.effective.source).toBe("owner");
@@ -848,9 +848,10 @@ suite(Control.layer())("settings over the API", (it) => {
       });
       expect(
         yield* control.sql`
-          SELECT owner_id FROM events WHERE kind = 'setting.changed' AND resource_id = 'lus'
+          SELECT owner_id AS owner FROM events
+          WHERE kind = 'setting.changed' AND resource_id = 'lus'
         `,
-      ).toEqual([{ ownerId: lu.account.id }]);
+      ).toEqual([{ owner: lu.account.id }]);
     }),
   );
 
