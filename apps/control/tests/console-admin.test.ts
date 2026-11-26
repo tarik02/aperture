@@ -973,9 +973,7 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
         yield* settingsAt("/-/settings", "instance");
         // A change is made where the setting is, and waits to be saved with the others.
         const aged = `[data-console-setting="maxSessionAge"]`;
-        yield* page.click(`${aged} [aria-label="Mode"]`);
-        yield* choose(page, `[role="option"]`, "Override");
-        yield* page.until(`!document.querySelector('[role="option"]')`);
+        yield* pick(page, `${aged} [data-slot="select-trigger"][aria-label="Mode"]`, "Override");
         yield* page.click(`${aged} [aria-label="More"]`);
         yield* page.click(`[data-console-setting="suspendIdleAfter"] [data-console-setting-limit]`);
         yield* page.until(
