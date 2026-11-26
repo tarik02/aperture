@@ -117,20 +117,6 @@ export function useSettingsEditor(target: SettingsTarget) {
 
 export type SettingsEditor = ReturnType<typeof useSettingsEditor>;
 
-/** What is said of a setting with nothing to choose: never, each node's own. */
-function ValueBox({ children, muted }: { children: React.ReactNode; muted: boolean }) {
-  return (
-    <div
-      className={cn(
-        "aperture:flex aperture:h-8 aperture:w-full aperture:min-w-0 aperture:items-center aperture:truncate aperture:rounded-lg aperture:border aperture:border-input aperture:px-2.5 aperture:text-sm aperture:dark:bg-input/30",
-        muted && "aperture:bg-input/50 aperture:text-muted-foreground aperture:opacity-50",
-      )}
-    >
-      {children}
-    </div>
-  );
-}
-
 /** A number in a unit, typed or stepped by one, with the unit beside it. */
 function AmountField({
   settingKey,
@@ -312,14 +298,24 @@ function SettingRow({
           />
         );
       }
-      return (
-        <ValueBox muted>
-          {inherited.source === "node" ? "Each node's own" : valueWords(key, null)}
-        </ValueBox>
-      );
     }
-    if (draft.mode === "none") {
-      return <ValueBox muted={disabled}>{valueWords(key, null)}</ValueBox>;
+    // Of no number ("Forever", each node's own) the field is empty and says so; typing one sets it.
+    if (!choice && (draft.mode === "inherit" || draft.mode === "none")) {
+      return (
+        <AmountField
+          settingKey={key}
+          label="Value"
+          steps
+          disabled={disabled}
+          placeholder={
+            draft.mode === "inherit" && inherited.source === "node"
+              ? "Each node's own"
+              : valueWords(key, null)
+          }
+          value={{ ...draft.value, amount: "" }}
+          onChange={(amount) => update({ mode: "set", value: amount })}
+        />
+      );
     }
     return choice ? (
       <Choice
