@@ -8,6 +8,7 @@ import {
   type SettingValue,
   type SettingView,
   PERSONAL,
+  isNodeQuota,
   isQuota,
   saidAt,
 } from "@aperture-browser/control-api";
@@ -240,6 +241,13 @@ export const entryOf = (
 };
 
 /**
+ * Whether no limit is refused for a node's own: each node holds a level below the
+ * deployment to its own, where nothing above says a number.
+ */
+export const noneOverNode = (setting: SettingView, level: SettingLevel) =>
+  isNodeQuota(setting.key) && level !== "instance" && setting.inherited.source === "node";
+
+/**
  * What of an entry the levels above do not let it be, as it is said on its row: said before
  * it is saved, as the control plane would refuse it.
  */
@@ -262,6 +270,9 @@ export const beyondOf = (
     return beyond && only !== null
       ? `${byWhom(setting, only.level, level, true)} allows only ${only.values.map((one) => valueWords(key, one)).join(", ")}.`
       : undefined;
+  }
+  if (value === null && noneOverNode(setting, level)) {
+    return "Each node holds it to its own: no limit is for the instance to say.";
   }
   const ranked = value === undefined ? undefined : value === null ? Infinity : Number(value);
   for (const said of [ranked, max, min]) {

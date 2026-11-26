@@ -44,6 +44,7 @@ import {
   inUnit,
   isChoice,
   type Mode,
+  noneOverNode,
   tidy,
 } from "#/features/settings/settings-draft.ts";
 import {
@@ -347,9 +348,15 @@ function SettingRow({
       label: `Inherit · ${inheritedWords(setting, inherited, level)}`,
     },
     { value: "set", label: "Override" },
-    // Never and no limit are more than any most.
+    // Never and no limit are more than any most, and than each node's own.
     ...(!choice && words.none !== undefined
-      ? [{ value: "none" as const, label: words.none, disabled: above.max !== null }]
+      ? [
+          {
+            value: "none" as const,
+            label: words.none,
+            disabled: above.max !== null || noneOverNode(setting, level),
+          },
+        ]
       : []),
     ...(bounds ? [{ value: "enforce" as const, label: "Enforce" }] : []),
   ];
