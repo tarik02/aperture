@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.0.0-beta.3](https://github.com/tarik02/aperture/compare/v1.0.0-beta.2...v1.0.0-beta.3) (2026-11-26)
+
+
+### Features
+
+* serve Prometheus metrics from the control plane and each node ([#252](https://github.com/tarik02/aperture/issues/252)) ([ca16ea0](https://github.com/tarik02/aperture/commit/ca16ea0c014f4c2e38f75eb26a94ee7332091b41))
+* settings at four levels: lifecycle, quotas, data policy, edited in place ([#248](https://github.com/tarik02/aperture/issues/248)) ([884ca19](https://github.com/tarik02/aperture/commit/884ca19769a50b6c1b29b0d29bdd680571d164f9))
+* share a session for nobody named, or one tab of it alone, and let whoever opens the link in at once ([#255](https://github.com/tarik02/aperture/issues/255)) ([d583b72](https://github.com/tarik02/aperture/commit/d583b7237617c6f76e3ad0505026f9546a37c002))
+* show a session's tabs in the console, and open it on the tab watched last ([#247](https://github.com/tarik02/aperture/issues/247)) ([5c615c5](https://github.com/tarik02/aperture/commit/5c615c5054ed9b1f523b36b4f9510ed9d0ee8dd5))
+
+
+### Bug Fixes
+
+* keep a node's running sessions over a stop of its unit, and stop the runners left without their state ([#249](https://github.com/tarik02/aperture/issues/249)) ([12c3146](https://github.com/tarik02/aperture/commit/12c314652e111a0912f7fc6f162d0bc769be2d81))
+* let a password manager fill the two-factor code ([#257](https://github.com/tarik02/aperture/issues/257)) ([c9e1f50](https://github.com/tarik02/aperture/commit/c9e1f5040fe92f6afb85dc1a582fe21306509709))
+* show the page menu for a right click in a frame of another site ([#244](https://github.com/tarik02/aperture/issues/244)) ([94b599d](https://github.com/tarik02/aperture/commit/94b599d32d4b6c4c2cf3574b6eb1e776bd14dc9f))
+
 ## [1.0.0-beta.2](https://github.com/tarik02/aperture/compare/v1.0.0-beta.1...v1.0.0-beta.2) (2026-11-25)
 
 

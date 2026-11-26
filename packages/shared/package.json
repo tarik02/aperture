@@ -1,6 +1,6 @@
 {
   "name": "@aperture-browser/shared",
-  "version": "1.0.0-beta.2",
+  "version": "1.0.0-beta.3",
   "private": true,
   "description": "What the packages of the workspace have in common. Not published: a package that is takes it into its own build.",
   "license": "MIT",
