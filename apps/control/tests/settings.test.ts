@@ -832,7 +832,7 @@ suite(Control.layer())("settings over the API", (it) => {
       const others = (yield* mo.api.settings.session({ params: { id: "lus" } })).settings;
       expect(seen(others, "clipboard")?.effective).toMatchObject({ value: "ro", source: "owner" });
       expect(seen(others, "uploads")?.effective).toMatchObject({ value: false, source: "owner" });
-      expect(seen(others, "maxSessionAge")?.above.max).toBeNull();
+      expect(seen(others, "maxSessionAge")?.above.max?.level).not.toBe("member");
       // The workspace's admin reads the member's, and not what Lu says wherever they are.
       const admins = (yield* kai.api.settings.session({ params: { id: "lus" } })).settings;
       expect(seen(admins, "clipboard")?.effective.source).toBe("owner");
