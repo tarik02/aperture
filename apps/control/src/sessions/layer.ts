@@ -34,6 +34,7 @@ import {
 } from "../errors.ts";
 import { SYSTEM } from "../events/schemas.ts";
 import { Events } from "../events/service.ts";
+import * as Metrics from "../metrics.ts";
 import { asked } from "../nodes/asked.ts";
 import type { Node } from "../nodes/schemas.ts";
 import { Nodes } from "../nodes/service.ts";
@@ -84,6 +85,14 @@ const FILE_AREAS: Readonly<Record<string, keyof Access | undefined>> = {
   screenshots: "recordings",
 };
 const FILE_LINK_LASTS = Duration.minutes(5);
+/**
+ * How long a session that is to run may be at rest on its node before it is started again,
+ * and between the first two tries: a session is at rest for a moment while it is suspended
+ * and started again, as for a snapshot. Each try waits twice as long as the one before.
+ */
+const RESTART_AFTER = Duration.seconds(10);
+/** How often it is tried before the session is told as failed. */
+const RESTART_TRIES = 3;
 
 const ProxyJson = Schema.fromJsonString(ProxyConfig);
 const encodeProxy = Schema.encodeSync(ProxyJson);
@@ -119,11 +128,32 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     return turn.withPermit(effect);
   };
 
+  // The sessions that are to run and that their nodes have at rest, which are started
+  // again here: how often that was tried, and when it is next. Kept here alone: a control
+  // plane that starts again tries anew.
+  const restarts = new Map<
+    string,
+    { readonly tries: number; readonly next: number; readonly refused: string | null }
+  >();
+  // Those that were tried as often as they are, with why the last try did not start them.
+  // Told as failed for as long as their node has them at rest and nobody asks for more.
+  const givenUp = new Map<string, string>();
+  const forget = (id: string) => {
+    restarts.delete(id);
+    givenUp.delete(id);
+  };
+
   const observe = Effect.fn(function* (node: Node, session: proto.Session) {
     const seen = observationOf(session);
-    if (seen !== undefined) {
-      yield* store.observe(node.id, seen, yield* now);
+    if (seen === undefined) {
+      return;
     }
+    const reason = givenUp.get(seen.id);
+    const told =
+      reason !== undefined && seen.state === "suspended"
+        ? { ...seen, state: "failed" as const, failure: reason }
+        : seen;
+    yield* store.observe(node.id, told, yield* now);
   });
 
   const refresh = (node: Node, id: string) =>
@@ -384,7 +414,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
       detail: { node: node.name, snapshotId: made.snapshotId, suspended: options.suspended },
     });
     return made;
-  });
+  }, Metrics.sessionRequest("create"));
 
   const list = Effect.fn("Sessions.list")(function* (caller: Caller) {
     const all = caller.admin
@@ -443,14 +473,16 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
 
   const suspend = Effect.fn("Sessions.suspend")(function* (caller: Caller, id: string) {
     const { session, node } = yield* placed(caller, id, "act");
+    forget(id);
     yield* store.desire(id, "suspended");
     yield* through(node, id, nodes.executor(node).sessions.suspend(id));
     yield* events.record({ kind: "session.suspended", ...about(session) });
     return yield* current(id);
-  });
+  }, Metrics.sessionRequest("suspend"));
 
   const resume = Effect.fn("Sessions.resume")(function* (caller: Caller, id: string) {
     const { session, node } = yield* placed(caller, id, "act");
+    forget(id);
     const effective = yield* policy.of({
       workspaceId: session.workspaceId,
       accountId: session.accountId,
@@ -474,7 +506,7 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     yield* through(node, id, nodes.executor(node).sessions.resume(id));
     yield* events.record({ kind: "session.resumed", ...about(session) });
     return yield* current(id);
-  });
+  }, Metrics.sessionRequest("resume"));
 
   /** Deletes a session on its node. */
   const removedOn = (node: Node, id: string) =>
@@ -494,8 +526,9 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
     const { session, node } = yield* placed(caller, id, "act");
     yield* removedOn(node, id);
     yield* store.delete(id, yield* now);
+    forget(id);
     yield* events.record({ kind: "session.deleted", ...about(session) });
-  });
+  }, Metrics.sessionRequest("delete"));
 
   const expire = Effect.fn("Sessions.expire")(function* (
     id: string,
@@ -676,15 +709,93 @@ export const makeSessions = Effect.fn("Sessions.make")(function* () {
   });
 
   const gone = Effect.fn("Sessions.gone")(function* (node: Node, id: string) {
+    forget(id);
     yield* inTurn(
       node,
       Effect.flatMap(now, (at) => store.gone(node.id, id, at)),
     );
   });
 
+  /**
+   * Starts the session again where it is to run and its node has it at rest, as after its
+   * node lost what it ran: a while after it was first seen so, and again for as long as it
+   * stays so, up to as often as it is tried. One that sat idle is not: whoever reaches it
+   * resumes it.
+   */
+  const restart = Effect.fn("Sessions.restart")(function* (node: Node, session: proto.Session) {
+    const { id } = session;
+    switch (session.state) {
+      case proto.SessionState.SUSPENDED:
+        break;
+      case proto.SessionState.STARTING:
+      case proto.SessionState.SUSPENDING:
+        return;
+      default:
+        forget(id);
+        return;
+    }
+    const record = yield* store.find(id);
+    if (
+      session.asleep ||
+      Option.isNone(record) ||
+      record.value.desiredState !== "running" ||
+      record.value.nodeId !== node.id
+    ) {
+      forget(id);
+      return;
+    }
+    if (givenUp.has(id)) {
+      return;
+    }
+    const at = (yield* now).getTime();
+    const planned = restarts.get(id);
+    if (planned === undefined) {
+      restarts.set(id, { tries: 0, next: at + Duration.toMillis(RESTART_AFTER), refused: null });
+      return;
+    }
+    if (at < planned.next) {
+      return;
+    }
+    if (planned.tries >= RESTART_TRIES) {
+      const reason =
+        planned.refused === null
+          ? `it was started again ${planned.tries} times, and is at rest still`
+          : `it was not started again: ${planned.refused}`;
+      restarts.delete(id);
+      givenUp.set(id, reason);
+      yield* Effect.logError(
+        `session ${id} on node ${node.name} is to run and does not: ${reason}`,
+      );
+      yield* Effect.ignore(refresh(node, id));
+      return;
+    }
+    const tries = planned.tries + 1;
+    yield* Effect.logWarning(
+      `session ${id} is to run and node ${node.name} has it at rest; starting it again (${tries} of ${RESTART_TRIES})`,
+    );
+    const refused = yield* nodes
+      .executor(node)
+      .sessions.resume(id)
+      .pipe(
+        asked(node),
+        Effect.as(null),
+        Effect.catch((error) => Effect.succeed(error.message)),
+      );
+    restarts.set(id, {
+      tries,
+      next: (yield* now).getTime() + Duration.toMillis(RESTART_AFTER) * 2 ** tries,
+      refused,
+    });
+    yield* Effect.ignore(refresh(node, id));
+  });
+
   const reconcile = Effect.fn("Sessions.reconcile")(function* (node: Node) {
     const there = yield* nodes.executor(node).sessions.list;
     yield* Effect.forEach(there, (session) => inTurn(node, observe(node, session)), {
+      discard: true,
+    });
+    yield* Effect.forEach(there, (session) => restart(node, session), {
+      concurrency: "unbounded",
       discard: true,
     });
     const told = new Set(there.map((session) => session.id));

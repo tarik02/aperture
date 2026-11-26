@@ -54,6 +54,7 @@ impl Registration {
         loop {
             let wait = match keepalive(&client, &url, &said).await {
                 Ok(answer) => {
+                    crate::metrics::keepalive(true);
                     if kept != Some(true) {
                         info!(control_plane = %self.control_plane, node = %answer.node_id, "registered with the control plane");
                     }
@@ -66,6 +67,7 @@ impl Registration {
                         .max(AGAIN_AT_LEAST)
                 }
                 Err(error) => {
+                    crate::metrics::keepalive(false);
                     if kept != Some(false) {
                         warn!(control_plane = %self.control_plane, "the control plane does not keep this node: {error:#}");
                     }

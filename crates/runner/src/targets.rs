@@ -253,6 +253,10 @@ struct Kept {
     /// The last number a tab was given: none is given twice.
     last: u32,
     tabs: Vec<KeptTab>,
+    /// The tab that was watched last: by someone who watches the session, or where its
+    /// automation acted.
+    #[serde(default)]
+    watched: Option<u32>,
 }
 
 #[derive(Default)]
@@ -261,6 +265,8 @@ struct State {
     ready: HashMap<String, Ready>,
     next_order: u64,
     last_tab: u32,
+    /// The tab that was watched last, which stays it for as long as the session has it.
+    watched: Option<u32>,
     /// The tabs of the session's last run that the browser has yet to bring back.
     returning: Vec<KeptTab>,
     /// What the file of kept tabs holds.
@@ -363,6 +369,25 @@ impl Tabs {
         state.expected.insert(page, like);
     }
 
+    /// The tab is the one watched last, as someone chose it to watch or the session's
+    /// automation acted in it.
+    pub fn watch(&self, tab: u32) {
+        {
+            let mut state = self.0.state.lock().expect("not poisoned");
+            // What the browser does as it closes is nobody's choice.
+            if state.frozen || state.watched == Some(tab) {
+                return;
+            }
+            state.watched = Some(tab);
+        }
+        self.0.publish();
+    }
+
+    /// The tab that was watched last, where the session still has it.
+    pub fn watched(&self) -> Option<u32> {
+        self.0.state.lock().expect("not poisoned").watched
+    }
+
     /// The page a page is now: another, where it was opened again in a window of its own.
     pub fn known_as(&self, page: &str) -> String {
         let state = self.0.state.lock().expect("not poisoned");
@@ -401,6 +426,7 @@ impl Registry {
         };
         let state = State {
             last_tab: before.last,
+            watched: before.watched,
             returning: before.tabs.clone(),
             kept: before,
             ..State::default()
@@ -850,6 +876,7 @@ impl Inner {
             let kept = Kept {
                 last: state.last_tab,
                 tabs: here.chain(state.returning.iter().cloned()).collect(),
+                watched: state.watched,
             };
             if kept != state.kept {
                 match self.keep(&kept) {

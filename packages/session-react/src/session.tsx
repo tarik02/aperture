@@ -3,6 +3,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
@@ -27,19 +28,23 @@ export interface SessionConnection {
 
 /**
  * Connects to a session for as long as the component is mounted. Another address, name or
- * first way of the picture makes another connection.
+ * first way of the picture makes another connection; another first tab is the one a
+ * connection made after it starts with.
  */
 export function useConnectedSession({
   url,
   token,
   name,
   pixels,
+  tab,
 }: ConnectOptions): SessionConnection {
   const [session, setSession] = useState<Session | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const firstTab = useRef(tab);
+  firstTab.current = tab;
 
   useEffect(() => {
-    const connected = connect({ url, token, name, pixels });
+    const connected = connect({ url, token, name, pixels, tab: firstTab.current });
     setSession(connected);
     return () => {
       setSession(null);
