@@ -161,7 +161,8 @@ function AmountField({
   };
   return (
     <ButtonGroup className="aperture:w-full">
-      <InputGroup className="aperture:min-w-0 aperture:flex-1">
+      {/* Its ring over the unit beside it, as the unit's is over it. */}
+      <InputGroup className="aperture:min-w-0 aperture:flex-1 aperture:has-focus-visible:z-10">
         {steps ? (
           <InputGroupAddon>
             <InputGroupButton
@@ -264,6 +265,9 @@ function SettingRow({
   const { key, here } = setting;
   const words = SETTING_WORDS[key];
   const draft = editor.drafts[key] ?? draftOf(setting);
+  const changed =
+    editor.drafts[key] !== undefined &&
+    changes(setting, draft, boundsBelow(key, editor.target.level));
   const bounds = boundsBelow(key, editor.target.level);
   const inherited = inheritedOf(setting);
   const { notes, locked } = notesOf(setting);
@@ -346,11 +350,19 @@ function SettingRow({
   return (
     <div
       data-console-setting={key}
-      data-console-setting-changed={editor.drafts[key] === undefined ? undefined : ""}
+      data-console-setting-changed={changed ? "" : undefined}
       className="aperture:flex aperture:flex-col aperture:gap-3 aperture:px-4 aperture:py-3.5 aperture:sm:flex-row aperture:sm:items-start aperture:sm:justify-between aperture:sm:gap-6"
     >
       <div className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:gap-0.5">
-        <span className="aperture:text-sm aperture:font-medium">{words.label}</span>
+        <span className="aperture:flex aperture:items-center aperture:gap-2 aperture:text-sm aperture:font-medium">
+          {words.label}
+          {changed ? (
+            <span
+              aria-label="Changed"
+              className="aperture:size-1.5 aperture:shrink-0 aperture:rounded-full aperture:bg-primary"
+            />
+          ) : null}
+        </span>
         <span className="aperture:text-sm aperture:text-muted-foreground">{words.description}</span>
         {notes.length > 0 ? (
           <span
