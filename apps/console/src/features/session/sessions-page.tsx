@@ -87,7 +87,7 @@ const matches = (session: Session, sought: string) =>
   ].some((text) => text.toLowerCase().includes(sought));
 
 /** How wide the picture of a tab of the tabs' view is asked for. */
-const TAB_WIDTH = 480;
+const TAB_WIDTH = 320;
 
 /** Whether a tab is one that is sought: by its page's title or address. */
 const tabMatches = (tab: { title: string; url: string }, sought: string) =>
@@ -111,9 +111,9 @@ function SessionTabs({ session, sought }: { session: Session; sought: string }) 
     <section
       data-console-session-tabs-group={session.id}
       aria-label={name}
-      className="aperture:grid aperture:gap-3 aperture:border-b aperture:border-border aperture:pb-4 aperture:last:border-b-0 aperture:md:grid-cols-[13rem_minmax(0,1fr)]"
+      className="aperture:grid aperture:gap-2 aperture:border-b aperture:border-border aperture:pb-2 aperture:last:border-b-0 aperture:md:grid-cols-[12rem_minmax(0,1fr)] aperture:md:gap-3"
     >
-      <div className="aperture:flex aperture:min-w-0 aperture:flex-col aperture:gap-1.5 aperture:pt-1">
+      <div className="aperture:flex aperture:min-w-0 aperture:flex-col aperture:gap-1 aperture:pt-1.5">
         <h2 className="aperture:min-w-0 aperture:text-sm aperture:font-medium">
           <Link
             to="/-/sessions/$sessionId"
@@ -135,9 +135,9 @@ function SessionTabs({ session, sought }: { session: Session; sought: string }) 
         </span>
       </div>
       {/* One row however many there are: the page scrolls by sessions, a row by tabs. */}
-      <ul className="aperture:flex aperture:snap-x aperture:gap-3 aperture:overflow-x-auto aperture:p-1 aperture:pb-2 aperture:[scrollbar-width:thin]">
+      <ul className="aperture:flex aperture:snap-x aperture:gap-1 aperture:overflow-x-auto aperture:pb-1 aperture:[scrollbar-width:thin]">
         {shown.map((tab) => (
-          <li key={tab.tab} className="aperture:w-60 aperture:shrink-0 aperture:snap-start">
+          <li key={tab.tab} className="aperture:w-40 aperture:shrink-0 aperture:snap-start">
             <TabCard session={session} tab={tab} />
           </li>
         ))}
@@ -354,7 +354,7 @@ export function SessionsPage() {
               </ListEmpty>
             )
           ) : view === "tabs" ? (
-            <div data-console-tabs className="aperture:grid aperture:gap-4">
+            <div data-console-tabs className="aperture:grid aperture:gap-2">
               {ordered.map((session) => (
                 <SessionTabs key={session.id} session={session} sought={sought} />
               ))}

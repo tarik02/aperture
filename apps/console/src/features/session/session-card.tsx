@@ -235,45 +235,40 @@ export function TabCard({ session, tab }: { session: Session; tab: ShownTab }) {
   const open = useOpenSession(session.id, tab.picture, tab.tab);
   const title = tab.title || tab.url || `Tab ${tab.tab}`;
   return (
-    <article
+    <Link
+      to="/-/sessions/$sessionId"
+      params={{ sessionId: session.id }}
+      search={{ tab: tab.tab }}
       data-console-tab-card={tab.tab}
       data-console-tab-session={session.id}
+      data-console-tab-open
       data-watched={tab.watched ? "" : undefined}
-      title={tab.watched ? "Watched last: the session opens on it" : undefined}
-      className="aperture:group/card aperture:relative aperture:aspect-[4/3] aperture:rounded-xl aperture:bg-muted aperture:ring-1 aperture:ring-foreground/10 aperture:data-watched:ring-2 aperture:data-watched:ring-primary"
+      onClick={open.onClick}
+      aria-label={`Open ${title}`}
+      title={
+        tab.watched
+          ? `${title}\n${tab.url}\nWatched last: the session opens on it`
+          : `${title}\n${tab.url}`
+      }
+      className="aperture:group/tab aperture:flex aperture:flex-col aperture:gap-1 aperture:rounded-lg aperture:p-1 aperture:outline-none aperture:hover:bg-muted aperture:focus-visible:ring-3 aperture:focus-visible:ring-ring/50"
     >
-      <div className="aperture:absolute aperture:inset-0 aperture:[clip-path:inset(0_round_calc(var(--radius)*1.4))]">
-        <Link
-          to="/-/sessions/$sessionId"
-          params={{ sessionId: session.id }}
-          search={{ tab: tab.tab }}
-          data-console-tab-open
-          onClick={open.onClick}
-          style={open.moving}
-          aria-label={`Open ${title}`}
-          className="aperture:absolute aperture:inset-0 aperture:outline-none aperture:focus-visible:ring-3 aperture:focus-visible:ring-ring/50 aperture:focus-visible:ring-inset"
-        >
-          <SessionPicture
-            source={tab.picture}
-            markClassName="aperture:mb-12"
-            className={cn(
-              "aperture:transition-[filter] aperture:duration-100",
-              open.opening && "aperture:blur-md",
-            )}
-          />
-        </Link>
-        <div className="aperture:pointer-events-none aperture:absolute aperture:inset-x-0 aperture:bottom-0 aperture:grid aperture:gap-0.5 aperture:border-t aperture:border-foreground/10 aperture:bg-background/85 aperture:px-3 aperture:py-2 aperture:backdrop-blur-md">
-          <span className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-1.5">
-            <TabIcon source={tab.icon} />
-            <span title={title} className="aperture:truncate aperture:text-sm aperture:font-medium">
-              {title}
-            </span>
-          </span>
-          <span className="aperture:truncate aperture:text-xs aperture:text-muted-foreground">
-            {tab.url}
-          </span>
-        </div>
-      </div>
-    </article>
+      <span
+        style={open.moving}
+        className="aperture:aspect-[16/10] aperture:overflow-hidden aperture:rounded-md aperture:bg-muted aperture:ring-1 aperture:ring-foreground/10 aperture:group-data-watched/tab:ring-2 aperture:group-data-watched/tab:ring-primary"
+      >
+        <SessionPicture
+          source={tab.picture}
+          markClassName="aperture:size-5"
+          className={cn(
+            "aperture:transition-[filter] aperture:duration-100",
+            open.opening && "aperture:blur-xs",
+          )}
+        />
+      </span>
+      <span className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-1 aperture:px-0.5 aperture:text-xs">
+        <TabIcon source={tab.icon} className="aperture:size-3.5" />
+        <span className="aperture:truncate">{title}</span>
+      </span>
+    </Link>
   );
 }
