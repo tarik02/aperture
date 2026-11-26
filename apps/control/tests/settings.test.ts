@@ -251,9 +251,12 @@ suite(Control.layer())("settings over the API", (it) => {
           payload: { max: 86_400 },
         });
         const read = yield* bea.api.settings.instance();
+        // Who says no bounds there is told them as those that hold them.
         expect(read.settings.find((one) => one.key === "maxSessionAge")).toMatchObject({
-          here: { max: 86_400 },
+          here: null,
+          above: { max: { value: 86_400, level: "instance" } },
           changeable: false,
+          bounds: false,
         });
 
         const at = { id: team.id, key: "maxSessionAge" } as const;
