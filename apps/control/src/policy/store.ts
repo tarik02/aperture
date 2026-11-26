@@ -12,6 +12,11 @@ export interface Scope {
 export interface Said extends Scope {
   readonly key: SettingKey;
   readonly entry: SettingEntry;
+  /**
+   * Whether its bounds are an admin's of the deployment, which nobody else changes or
+   * clears: a workspace's admins say the value inside them.
+   */
+  readonly byAdmin: boolean;
 }
 
 /** Where what the levels say of settings is kept. */

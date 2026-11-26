@@ -7,6 +7,7 @@ import {
   type SettingKey,
   type SettingLevel,
   type SettingValue,
+  isNodeQuota,
   isQuota,
   LEVELS,
   SETTINGS,
@@ -38,7 +39,8 @@ const numeric = (key: SettingKey) => SETTINGS[key].type.kind !== "choice";
 /**
  * The narrowest of the bounds the levels set, each with the level that sets it. A level's
  * bound is held inside the range of those above it: one past it is that end of the range,
- * from the level above, so that nothing said below gets past a lock.
+ * from the level above, so that nothing said below gets past a lock. So are the choices it
+ * allows: those that leave none of the ones allowed above are those above.
  */
 export const boundsOf = (chain: Chain): SettingBounds => {
   let bounds: SettingBounds = { min: null, max: null, allowed: null };
@@ -61,19 +63,25 @@ export const boundsOf = (chain: Chain): SettingBounds => {
           : least !== null && max < least.value
             ? least
             : { value: max, level },
-      allowed:
-        allowed === undefined
-          ? bounds.allowed
-          : {
-              values:
-                bounds.allowed === null
-                  ? allowed
-                  : bounds.allowed.values.filter((value) => allowed.includes(value)),
-              level,
-            },
+      allowed: allowedWithin(bounds.allowed, allowed, level),
     };
   }
   return bounds;
+};
+
+const allowedWithin = (
+  above: SettingBounds["allowed"],
+  allowed: SettingEntry["allowed"],
+  level: SettingLevel,
+): SettingBounds["allowed"] => {
+  if (allowed === undefined) {
+    return above;
+  }
+  if (above === null) {
+    return { values: allowed, level };
+  }
+  const left = above.values.filter((value) => allowed.includes(value));
+  return left.length === 0 ? above : { values: left, level };
 };
 
 /** The bound a value crosses, with which end of it; none for a value inside them. */
@@ -144,21 +152,35 @@ export const heldBelow = (
 };
 
 /**
+ * Whether a chain leaves a quota each node has its own of to the node: neither the
+ * deployment nor the environment says a value of it.
+ */
+const leftToNode = (key: SettingKey, chain: Chain, base: Base) =>
+  isNodeQuota(key) &&
+  base.value === undefined &&
+  chain.every((link) => link.level !== "instance" || link.entry?.value === undefined);
+
+/**
  * What a setting comes to at the end of a chain: the value of the nearest level that says
  * one, or the base, held to every bound of the chain. A value that crosses one is taken as
  * the bound, from the level that sets it; a choice that is not allowed gives way to the
  * nearest one above it that is, and to the first that is allowed where none is. A quota is
- * held to what the levels above make of it as well.
+ * held to what the levels above make of it as well; one each node has its own of, left to
+ * the node, to the node's own besides: no limit said below is passed by, and a number is
+ * at most the node's.
  */
 export const resolve = (key: SettingKey, given: Chain, base: Base): SettingEffective => {
   const chain = capped(key, given, base);
   const bounds = boundsOf(chain);
   const locked = lockedBy(bounds);
-  const said = [...chain]
+  const perNode = leftToNode(key, given, base);
+  const all = [...chain]
     .reverse()
     .flatMap(({ level, entry }) =>
       entry?.value === undefined ? [] : [{ value: entry.value, source: level }],
     );
+  const said = perNode ? all.filter(({ value }) => value !== null) : all;
+  const passed = said[0] !== all[0];
   const candidates = [
     ...said,
     ...(base.value === undefined ? [] : [{ value: base.value, source: base.source }]),
@@ -166,12 +188,12 @@ export const resolve = (key: SettingKey, given: Chain, base: Base): SettingEffec
   if (!numeric(key)) {
     const fitting = candidates.find(({ value }) => crossed(key, value, bounds) === undefined);
     if (fitting !== undefined) {
-      return { ...fitting, locked, clamped: fitting !== candidates[0] };
+      return { ...fitting, locked, clamped: fitting !== candidates[0], perNode: false };
     }
     const first = bounds.allowed?.values[0];
     return first === undefined || bounds.allowed === null
-      ? { value: null, source: "default", locked, clamped: false }
-      : { value: first, source: bounds.allowed.level, locked, clamped: true };
+      ? { value: null, source: "default", locked, clamped: false, perNode: false }
+      : { value: first, source: bounds.allowed.level, locked, clamped: true, perNode: false };
   }
   const nearest = candidates[0];
   if (
@@ -180,19 +202,26 @@ export const resolve = (key: SettingKey, given: Chain, base: Base): SettingEffec
     !LEVELS.some((one) => one === nearest.source)
   ) {
     // A bound alone deletes nothing: never stays never until some level says when.
-    return { ...nearest, locked, clamped: false };
+    return { ...nearest, locked, clamped: false, perNode: false };
   }
   if (nearest === undefined) {
     // Each node holds sessions to its own, which is no wider than a bound of most.
     return bounds.max === null
-      ? { value: null, source: "node", locked, clamped: false }
-      : { value: bounds.max.value, source: bounds.max.level, locked, clamped: true };
+      ? { value: null, source: "node", locked, clamped: passed, perNode: false }
+      : { value: bounds.max.value, source: bounds.max.level, locked, clamped: true, perNode };
   }
   const beyond = crossed(key, nearest.value, bounds);
   return beyond === undefined || beyond.end === "allowed"
-    ? { ...nearest, locked, clamped: false }
-    : { value: beyond.value, source: beyond.level, locked, clamped: true };
+    ? { ...nearest, locked, clamped: passed, perNode }
+    : { value: beyond.value, source: beyond.level, locked, clamped: true, perNode };
 };
+
+/**
+ * Whether a level is held to say no limit of a quota each node has its own of: one below
+ * the deployment, where what it inherits is the node's own.
+ */
+export const noneOverNode = (key: SettingKey, level: SettingLevel, inherited: SettingEffective) =>
+  isNodeQuota(key) && level !== "instance" && inherited.source === "node";
 
 /**
  * How long a pinned session that is kept awake sits idle: as long as it likes, from where
@@ -202,8 +231,8 @@ export const awake = (chain: Chain, stays: SettingEffective): SettingEffective =
   const bounds = boundsOf(chain);
   const locked = lockedBy(bounds);
   return bounds.max === null
-    ? { value: null, source: stays.source, locked, clamped: false }
-    : { value: bounds.max.value, source: bounds.max.level, locked, clamped: true };
+    ? { value: null, source: stays.source, locked, clamped: false, perNode: false }
+    : { value: bounds.max.value, source: bounds.max.level, locked, clamped: true, perNode: false };
 };
 
 const invalid = (key: SettingKey, message: string) =>

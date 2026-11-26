@@ -104,7 +104,7 @@ export const makeLifecycle = Effect.fn("Lifecycle.make")(function* () {
             return Effect.void;
           }
           const effective = effectiveOf(placeOf(session));
-          const wanted = limitsOf(effective, node.offers?.holdsResources === true);
+          const wanted = limitsOf(effective, node);
           const features = featuresOn(node.offers?.features, effective);
           return Effect.andThen(
             holds(told.limits, wanted, node.offers?.limits)

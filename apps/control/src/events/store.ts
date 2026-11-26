@@ -17,6 +17,8 @@ export interface NewEvent {
   readonly resource: EventResource | null;
   readonly ownerId: string | null;
   readonly workspaceId: string | null;
+  /** Whether of those in its workspace, its admins alone read it. */
+  readonly adminsOnly: boolean;
   readonly address: string | null;
   readonly detail: EventDetail;
 }
@@ -25,11 +27,12 @@ export interface NewEvent {
 export interface Sought {
   /**
    * Whose events they are: what the account did or had done to it, and what was done in
-   * the workspaces. Everyone's, without.
+   * the workspaces, those for their admins in the ones it administers. Everyone's, without.
    */
   readonly of: {
     readonly accountId: string | null;
     readonly workspaces: ReadonlyArray<string>;
+    readonly administers: ReadonlyArray<string>;
   } | null;
   /** The resources they are about, for a token that is held to some; any, without. */
   readonly held: TokenResources | null;

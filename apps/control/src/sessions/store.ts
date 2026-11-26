@@ -63,7 +63,8 @@ export interface SessionsStoreShape {
   readonly pin: (id: string, pinned: boolean) => Effect.Effect<void>;
   /**
    * How many sessions there are of a workspace, or of an account's own without one: of
-   * one account alone where it is named, and those asked to run alone where so asked.
+   * one account alone where it is named, and where so asked, those asked to run that their
+   * node has and that have not failed, asleep or not.
    */
   readonly count: (asked: {
     readonly workspaceId: string | null;

@@ -150,6 +150,7 @@ export const SOURCE_WORDS: Readonly<Record<SettingSource, string>> = {
   default: "default",
   configuration: "configuration",
   node: "node",
+  owner: "owner",
 };
 
 /** The units a time or a size is said in, the largest first; none for a count. */
