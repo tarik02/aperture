@@ -20,6 +20,7 @@ type ChoiceProps<Value extends string> = {
   }>;
   onChange: (value: Value) => void;
   size?: "sm" | "default";
+  disabled?: boolean;
   id?: string;
   "aria-label"?: string;
   className?: string;
@@ -32,6 +33,7 @@ export function Choice<Value extends string>({
   groups = [],
   onChange,
   size,
+  disabled,
   id,
   className,
   "aria-label": label,
@@ -40,6 +42,7 @@ export function Choice<Value extends string>({
     <Select
       items={[...options, ...groups.flatMap((group) => group.options)]}
       value={value}
+      disabled={disabled}
       onValueChange={(next) => {
         if (next !== null) {
           onChange(next);

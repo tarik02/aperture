@@ -189,6 +189,7 @@ export const makePolicy = Effect.fn("Policy.make")(function* () {
       key,
       here: saidHere ? (index.get(at(here, key)) ?? null) : null,
       effective: effectiveOne(index, scopes, pinned, key),
+      inherited: effectiveOne(index, scopes.slice(0, -1), pinned, key),
       above: boundsOf(chain.filter((link) => link.level !== here.level)),
       changeable: writes && saidHere,
     };

@@ -971,15 +971,24 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
         yield* settingsAt(`/-/workspaces/${apart.id}/settings`, "workspace");
         yield* settingsAt("/-/account/settings", "account");
         yield* settingsAt("/-/settings", "instance");
-        yield* page.click(
-          `[data-console-setting="maxSessionAge"] button[data-console-row-action="edit"]`,
-        );
+        // A change is made where the setting is, and waits to be saved with the others.
+        const aged = `[data-console-setting="maxSessionAge"]`;
+        yield* page.click(`${aged} [aria-label="Mode"]`);
+        yield* choose(page, `[role="option"]`, "Override");
+        yield* page.until(`!document.querySelector('[role="option"]')`);
+        yield* page.click(`${aged} [aria-label="More"]`);
+        yield* page.click(`[data-console-setting="suspendIdleAfter"] [data-console-setting-limit]`);
         yield* page.until(
-          `!!document.querySelector('[data-console-setting-dialog="maxSessionAge"]')`,
+          `!!document.querySelector('[data-console-setting="suspendIdleAfter"] [aria-label="Most below"]')`,
         );
-        yield* placed(page);
-        yield* shot(page, fs, "console-settings-edit");
-        yield* closed(page);
+        yield* page.until(`!!document.querySelector("[data-console-settings-save]")`);
+        expect(yield* page.text("[data-console-settings-save]")).toContain("2 unsaved changes");
+        yield* page.until(
+          `document.querySelector("[data-console-settings-save]")?.getAnimations().every((one) => one.playState === "finished")`,
+        );
+        yield* shot(page, fs, "console-settings-unsaved");
+        yield* page.click("[data-console-settings-discard]");
+        yield* page.until(`!document.querySelector("[data-console-settings-save]")`);
         expect(page.errors()).toEqual([]);
 
         // The workspace stays: the check of the events after this one counts those deleted.
