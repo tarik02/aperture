@@ -346,8 +346,9 @@ suite(needs)("share links into a session", (it) => {
           ),
           selected: Schema.optional(Schema.Struct({ tab: Schema.optional(Schema.Number) })),
         });
+        // What the member was told last, each time it is looked at.
         const tabsOf = (member: Tickets.Member) =>
-          Schema.decodeUnknownEffect(Tabs)(member.seen).pipe(
+          Effect.suspend(() => Schema.decodeUnknownEffect(Tabs)(member.seen)).pipe(
             Effect.map((seen) => ({
               tabs: (seen.targets?.targets ?? []).map((target) => target.tab ?? 0),
               selected: seen.selected?.tab,
