@@ -59,12 +59,14 @@ const nameOf = (share: Share) => share.name ?? UNNAMED;
 
 /**
  * The tab whoever shares the session watches, which a link may show alone: the one the
- * session watched last, as it tells while it runs, or as it was kept when it rested.
+ * session watched last, as it tells while it runs, or as it was kept when it rested. Where
+ * nobody watched one yet it is the newest, which whoever comes is shown first.
  */
 function useWatchedTab(session: Session) {
   const live = useSessionTargetsQuery(session);
   const kept = useSessionKeptTabsQuery(session);
-  const running = live.data?.targets.find((target) => target.watched === true);
+  const running =
+    live.data?.targets.find((target) => target.watched === true) ?? live.data?.targets.at(-1);
   if (running !== undefined) {
     return { tab: running.tab, title: running.title || running.url };
   }

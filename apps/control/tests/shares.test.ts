@@ -335,10 +335,13 @@ suite(needs)("share links into a session", (it) => {
       Effect.gen(function* () {
         const executor = yield* Executor.Executor;
         const at = { url: `${executor.url}/sessions/${session}` };
+        // A tab's number is left out where it is naught, as the protocol's JSON leaves any.
         const Tabs = Schema.Struct({
           targets: Schema.optional(
             Schema.Struct({
-              targets: Schema.optional(Schema.Array(Schema.Struct({ tab: Schema.Number }))),
+              targets: Schema.optional(
+                Schema.Array(Schema.Struct({ tab: Schema.optional(Schema.Number) })),
+              ),
             }),
           ),
           selected: Schema.optional(Schema.Struct({ tab: Schema.optional(Schema.Number) })),
@@ -346,7 +349,7 @@ suite(needs)("share links into a session", (it) => {
         const tabsOf = (member: Tickets.Member) =>
           Schema.decodeUnknownEffect(Tabs)(member.seen).pipe(
             Effect.map((seen) => ({
-              tabs: (seen.targets?.targets ?? []).map((target) => target.tab),
+              tabs: (seen.targets?.targets ?? []).map((target) => target.tab ?? 0),
               selected: seen.selected?.tab,
             })),
           );
