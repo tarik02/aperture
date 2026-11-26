@@ -4,6 +4,7 @@ import {
   type SettingLevel,
   type SettingSource,
   type SettingValue,
+  type SettingView,
 } from "@aperture-browser/control-api";
 
 /** What each setting is called, what it does in a line, and what its none is called. */
@@ -150,6 +151,28 @@ export const SOURCE_WORDS: Readonly<Record<SettingSource, string>> = {
   default: "default",
   configuration: "configuration",
   node: "node",
+};
+
+/**
+ * Who a level is, as what holds a setting is said. To a person, who says no bounds of
+ * their own, whoever held them at their own levels is an admin; to an admin, a person's
+ * level is that of the person whose settings they are.
+ */
+export const byWhom = (
+  setting: SettingView,
+  level: SettingSource,
+  at: SettingLevel,
+  first = false,
+) => {
+  const who =
+    !setting.bounds && level === "account"
+      ? "an admin"
+      : !setting.bounds && level === "member"
+        ? "a workspace admin"
+        : level === "account" && (at === "account" || at === "member")
+          ? "this person"
+          : `the ${SOURCE_WORDS[level]}`;
+  return first ? `${who.charAt(0).toUpperCase()}${who.slice(1)}` : who;
 };
 
 /** The units a time or a size is said in, the largest first; none for a count. */

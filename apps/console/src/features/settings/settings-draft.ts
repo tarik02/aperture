@@ -7,10 +7,17 @@ import {
   type SettingLevel,
   type SettingValue,
   type SettingView,
+  PERSONAL,
   isQuota,
   saidAt,
 } from "@aperture-browser/control-api";
-import { factorOf, inUnits, unitsOf } from "#/features/settings/setting-words.ts";
+import {
+  byWhom,
+  factorOf,
+  inUnits,
+  unitsOf,
+  valueWords,
+} from "#/features/settings/setting-words.ts";
 
 /**
  * How a level has a setting: as the levels above have it, a value of its own, none (never,
@@ -48,13 +55,28 @@ export const boundsBelow = (key: SettingKey, level: SettingLevel) =>
 export const inheritedOf = (setting: SettingView): SettingEffective =>
   setting.here?.value === undefined ? setting.effective : setting.inherited;
 
+/** A number as it is typed, without the noise adding parts of one leaves in it. */
+export const tidy = (value: number) => String(Number(value.toFixed(4)));
+
 export const amountOf = (key: SettingKey, value: number | undefined, unit?: string): Amount => {
   const units = unitsOf(key);
   if (value === undefined) {
     return { amount: "", unit: unit ?? units[0]?.value ?? "" };
   }
+  if (unit !== undefined && units.length > 0) {
+    return { amount: tidy(value / factorOf(unit, units)), unit };
+  }
   const shown = inUnits(value, units);
-  return { amount: String(shown.amount), unit: shown.unit };
+  return { amount: tidy(shown.amount), unit: shown.unit };
+};
+
+/** The same amount in another unit: 2 h as 120 min. */
+export const inUnit = (key: SettingKey, amount: Amount, unit: string): Amount => {
+  const units = unitsOf(key);
+  const typed = Number(amount.amount);
+  return amount.amount.trim() === "" || !Number.isFinite(typed)
+    ? { ...amount, unit }
+    : { amount: tidy((typed * factorOf(amount.unit, units)) / factorOf(unit, units)), unit };
 };
 
 const enforcedOf = (key: SettingKey, entry: SettingEntry | null) => {
@@ -68,11 +90,22 @@ const enforcedOf = (key: SettingKey, entry: SettingEntry | null) => {
 };
 
 /**
- * What a level says, without a quota's most that is its value: a quota's value holds the
- * levels below to it, and a person's at most to it as well, whether or not it is said.
+ * What a level says, without a quota's most that is its value: what an admin says of a
+ * quota at a person's levels is their most as well, whether or not it is said, and the
+ * control plane keeps it so; a lock of it is said as one.
  */
-const plain = (key: SettingKey, entry: SettingEntry | null): SettingEntry | null => {
-  if (entry === null || !isQuota(key) || entry.min !== undefined || entry.max !== entry.value) {
+const plain = (
+  key: SettingKey,
+  level: SettingLevel,
+  entry: SettingEntry | null,
+): SettingEntry | null => {
+  if (
+    entry === null ||
+    !isQuota(key) ||
+    !PERSONAL.includes(level) ||
+    entry.max !== entry.value ||
+    entry.min === entry.value
+  ) {
     return entry;
   }
   const { max: _, ...rest } = entry;
@@ -80,9 +113,9 @@ const plain = (key: SettingKey, entry: SettingEntry | null): SettingEntry | null
 };
 
 /** What a level says of a setting, as it is edited. */
-export const draftOf = (setting: SettingView): Draft => {
+export const draftOf = (setting: SettingView, level: SettingLevel): Draft => {
   const { key } = setting;
-  const here = plain(key, setting.here);
+  const here = plain(key, level, setting.here);
   const said = here?.value;
   const inherited = inheritedOf(setting).value;
   const enforced = enforcedOf(key, here);
@@ -107,7 +140,40 @@ const filled = (amount: Amount) => amount.amount.trim() !== "";
 
 const numberOf = (key: SettingKey, amount: Amount) => {
   const scaled = Number(amount.amount) * factorOf(amount.unit, unitsOf(key));
-  return SETTINGS[key].type.kind === "cpus" ? scaled : Math.round(scaled);
+  return SETTINGS[key].type.kind === "cpus" ? Number(scaled.toFixed(3)) : Math.round(scaled);
+};
+
+/** The least a value of a setting is: none for a count, more than none for the rest. */
+const valueProblem = (key: SettingKey, amount: Amount) => {
+  if (!filled(amount)) {
+    return "Enter an amount.";
+  }
+  const typed = Number(amount.amount);
+  if (!Number.isFinite(typed)) {
+    return "Enter a number.";
+  }
+  const { kind } = SETTINGS[key].type;
+  if (kind === "count") {
+    return Number.isInteger(typed) && typed >= 0 ? undefined : "Enter a whole number, 0 or more.";
+  }
+  if (!(typed > 0)) {
+    return "Enter more than 0.";
+  }
+  return numberOf(key, amount) > 0
+    ? undefined
+    : kind === "duration"
+      ? "Enter at least a second."
+      : "Enter more than that.";
+};
+
+const boundProblem = (key: SettingKey, amount: Amount) => {
+  const typed = Number(amount.amount);
+  if (!Number.isFinite(typed) || typed < 0) {
+    return "A limit is a number, 0 or more.";
+  }
+  return SETTINGS[key].type.kind === "count" && !Number.isInteger(typed)
+    ? "A limit of a count is a whole number."
+    : undefined;
 };
 
 /** What a draft says to the control plane; or what is wrong with it, said on its row. */
@@ -122,11 +188,14 @@ export const entryOf = (
       choicesOf(key).find((one) => String(one) === text) ?? text;
     const said = draft.mode === "set" || draft.mode === "enforce";
     const value = choice(draft.choice);
+    if (limited && draft.allowed.length === 0) {
+      return { problem: "Allow at least one choice below, or stop limiting them." };
+    }
     return {
       entry: {
         ...(said ? { value } : {}),
         ...(bounds && draft.mode === "enforce" ? { allowed: [value] } : {}),
-        ...(limited && draft.allowed.length > 0 ? { allowed: draft.allowed.map(choice) } : {}),
+        ...(limited ? { allowed: draft.allowed.map(choice) } : {}),
       },
     };
   }
@@ -134,8 +203,9 @@ export const entryOf = (
   if (draft.mode === "none") {
     entry.value = null;
   } else if (draft.mode === "set" || draft.mode === "enforce") {
-    if (!(Number(draft.value.amount) > 0)) {
-      return { problem: "Say how much." };
+    const problem = valueProblem(key, draft.value);
+    if (problem !== undefined) {
+      return { problem };
     }
     entry.value = numberOf(key, draft.value);
     if (bounds && draft.mode === "enforce") {
@@ -146,21 +216,70 @@ export const entryOf = (
   if (limited) {
     for (const end of ["min", "max"] as const) {
       if (filled(draft[end])) {
-        if (!(Number(draft[end].amount) >= 0)) {
-          return { problem: "A bound is not below zero." };
+        const problem = boundProblem(key, draft[end]);
+        if (problem !== undefined) {
+          return { problem };
         }
         entry[end] = numberOf(key, draft[end]);
       }
     }
     if (entry.min !== undefined && entry.max !== undefined && entry.min > entry.max) {
-      return { problem: "The least is more than the most." };
+      return { problem: "The least below is more than the most below." };
+    }
+    if (typeof entry.value === "number" || entry.value === null) {
+      const value = entry.value ?? Number.POSITIVE_INFINITY;
+      if (
+        (entry.min !== undefined && value < entry.min) ||
+        (entry.max !== undefined && value > entry.max)
+      ) {
+        return { problem: "The value is outside the limits it sets below." };
+      }
     }
   }
   return { entry };
 };
 
-const canonical = (key: SettingKey, said: SettingEntry) => {
-  const entry = plain(key, said) ?? {};
+/**
+ * What of an entry the levels above do not let it be, as it is said on its row: said before
+ * it is saved, as the control plane would refuse it.
+ */
+export const beyondOf = (
+  setting: SettingView,
+  entry: SettingEntry,
+  level: SettingLevel,
+): string | undefined => {
+  const { key, above } = setting;
+  const most = (bound: NonNullable<typeof above.max>) =>
+    `${byWhom(setting, bound.level, level, true)} holds it to at most ${valueWords(key, bound.value)}.`;
+  const least = (bound: NonNullable<typeof above.min>) =>
+    `${byWhom(setting, bound.level, level, true)} holds it to at least ${valueWords(key, bound.value)}.`;
+  const { value, min, max, allowed } = entry;
+  if (isChoice(key)) {
+    const only = above.allowed;
+    const beyond = [...(value === undefined ? [] : [value]), ...(allowed ?? [])].some(
+      (one) => only !== null && !only.values.includes(one),
+    );
+    return beyond && only !== null
+      ? `${byWhom(setting, only.level, level, true)} allows only ${only.values.map((one) => valueWords(key, one)).join(", ")}.`
+      : undefined;
+  }
+  const ranked = value === undefined ? undefined : value === null ? Infinity : Number(value);
+  for (const said of [ranked, max, min]) {
+    if (said === undefined) {
+      continue;
+    }
+    if (above.max !== null && said > above.max.value) {
+      return most(above.max);
+    }
+    if (above.min !== null && said < above.min.value) {
+      return least(above.min);
+    }
+  }
+  return undefined;
+};
+
+const canonical = (key: SettingKey, level: SettingLevel, said: SettingEntry) => {
+  const entry = plain(key, level, said) ?? {};
   return JSON.stringify({
     value: entry.value,
     min: entry.min,
@@ -170,10 +289,15 @@ const canonical = (key: SettingKey, said: SettingEntry) => {
 };
 
 /** Whether a draft says other than what the level says now. */
-export const changes = (setting: SettingView, draft: Draft, bounds: boolean) => {
+export const changes = (
+  setting: SettingView,
+  draft: Draft,
+  bounds: boolean,
+  level: SettingLevel,
+) => {
   const made = entryOf(setting.key, draft, bounds);
   return (
     "problem" in made ||
-    canonical(setting.key, made.entry) !== canonical(setting.key, setting.here ?? {})
+    canonical(setting.key, level, made.entry) !== canonical(setting.key, level, setting.here ?? {})
   );
 };

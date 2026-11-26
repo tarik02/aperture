@@ -41,7 +41,26 @@ const everyWorkspace = kept("aperture.console.workspaces.all");
 /** The workspace whose sessions and snapshots are shown; none for the account's own. */
 export const selectedWorkspace = workspace.get;
 
-export const selectWorkspace = workspace.set;
+/** What is asked before another workspace is selected: whether what was not saved goes. */
+let guard: ((go: () => void) => void) | undefined;
+
+export const selectWorkspace = (id: string | null) => {
+  if (id === workspace.get() || guard === undefined) {
+    workspace.set(id);
+    return;
+  }
+  guard(() => workspace.set(id));
+};
+
+/** Has another workspace selected only once `ask` lets it go; until what it gives back is called. */
+export const guardWorkspace = (ask: (go: () => void) => void) => {
+  guard = ask;
+  return () => {
+    if (guard === ask) {
+      guard = undefined;
+    }
+  };
+};
 
 export const useSelectedWorkspaceId = () =>
   useSyncExternalStore(workspace.subscribe, workspace.get);

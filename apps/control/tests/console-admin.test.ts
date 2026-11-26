@@ -980,14 +980,26 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
         // The workspace they joined is the one selected: theirs as a member of it.
         yield* settingsAt("/-/account/settings", "member", "account");
         yield* settingsAt("/-/settings", "instance");
+        yield* page.cdp.call("Emulation.setEmulatedMedia", {
+          features: [{ name: "prefers-color-scheme", value: "dark" }],
+        });
+        yield* rested(page);
+        yield* shot(page, fs, "console-settings-instance-dark");
+        yield* page.cdp.call("Emulation.setEmulatedMedia", {
+          features: [{ name: "prefers-color-scheme", value: "" }],
+        });
         // A change is made where the setting is, and waits to be saved with the others.
         const aged = `[data-console-setting="maxSessionAge"]`;
-        yield* pick(page, `${aged} [data-slot="select-trigger"][aria-label="Mode"]`, "Override");
-        yield* page.click(`${aged} [aria-label="More"]`);
+        yield* pick(
+          page,
+          `${aged} [data-slot="select-trigger"][aria-label="Mode of Delete when older than"]`,
+          "Override",
+        );
+        yield* page.click(`${aged} [data-console-setting-step="more"]`);
         // The bounds of the levels below are said under the value, in the row.
         const idle = `[data-console-setting="suspendIdleAfter"]`;
         yield* page.click(`${idle} [data-console-setting-limit]`);
-        yield* page.click(`${idle} input[aria-label="Most below"]`);
+        yield* page.click(`${idle} input[data-console-setting-amount="max"]`);
         yield* page.type("8");
         yield* page.until(`!!document.querySelector("[data-console-settings-save]")`);
         expect(yield* page.text("[data-console-settings-save]")).toContain("2 unsaved changes");
@@ -1027,7 +1039,7 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
         yield* shot(page, fs, "console-settings-person");
         // What is changed is saved at the dialog's foot, and not closed away unasked.
         yield* page.click(
-          `${DIALOG} [data-console-setting="suspendIdleAfter"] [aria-label="More"]`,
+          `${DIALOG} [data-console-setting="suspendIdleAfter"] [data-console-setting-step="more"]`,
         );
         yield* page.until(
           `document.querySelector("[data-console-settings-footer]")?.textContent.includes("1 unsaved change")`,
@@ -1096,6 +1108,9 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
         yield* page.until(
           `!!document.querySelector('[data-console-settings="account"] [data-console-setting="clipboard"]')`,
         );
+        expect(yield* page.text(`[data-console-settings-own="account"]`)).toContain(
+          "Your settings everywhere",
+        );
         yield* page.click("[data-console-workspace-switcher]");
         yield* choose(page, `[role="menuitemradio"]`, "Kept apart");
         yield* page.key("Escape", "Escape", ESCAPE);
@@ -1109,7 +1124,7 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
         expect(yield* page.text(own)).toContain("Inherit · admin");
         expect(
           yield* page.evaluate(
-            `!!document.querySelector('${own} input[aria-label="Value"]:not(:disabled)')`,
+            `!!document.querySelector('${own} input[data-console-setting-amount="value"]:not(:disabled)')`,
           ),
         ).toBe(true);
         expect(yield* page.text(`[data-console-setting="clipboard"]`)).toContain(
@@ -1118,7 +1133,80 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
         expect(
           yield* page.evaluate(`!!document.querySelector("[data-console-setting-limit]")`),
         ).toBe(false);
+        expect(yield* page.text(`[data-console-settings-own="member"]`)).toContain("In Kept apart");
         yield* shot(page, fs, "console-settings-own");
+        expect(page.errors()).toEqual([]);
+
+        // The stepper goes no further than an admin lets them, and stops there.
+        const more = `${own} [data-console-setting-step="more"]`;
+        const amount = `${own} input[data-console-setting-amount="value"]`;
+        const reads = (said: string) =>
+          `document.querySelector('${amount}')?.value === ${JSON.stringify(said)}`;
+        expect(yield* page.evaluate(`document.querySelector('${more}').disabled`)).toBe(true);
+        yield* page.click(`${own} [data-console-setting-step="less"]`);
+        yield* page.until(`${reads("1")} && !document.querySelector('${more}').disabled`);
+        yield* page.click(more);
+        yield* page.until(`${reads("2")} && document.querySelector('${more}').disabled`);
+        // None at all is a count they may say, and it is saved.
+        yield* page.click(`${own} [data-console-setting-step="less"]`);
+        yield* page.until(reads("1"));
+        yield* page.click(`${own} [data-console-setting-step="less"]`);
+        yield* page.until(reads("0"));
+        yield* page.click("[data-console-settings-submit]");
+        yield* page.until(`!document.querySelector("[data-console-settings-save]")`);
+        const theirsToo = yield* control.as(plainToken.token);
+        const memberOf = {
+          params: { key: "runningSessions" as const },
+          query: { workspaceId: apart.id },
+        };
+        expect(
+          (yield* theirsToo.settings.account({ query: { workspaceId: apart.id } })).settings.find(
+            (one) => one.key === "runningSessions",
+          )?.here,
+        ).toMatchObject({ value: 0 });
+        expect(
+          yield* page.evaluate(`!!document.querySelector('${own} [data-console-setting-problem]')`),
+        ).toBe(false);
+
+        // Another workspace is another level of theirs: what is not saved is not left unasked.
+        yield* page.click(
+          `[data-console-setting="suspendIdleAfter"] [data-console-setting-step="more"]`,
+        );
+        yield* page.until(`!!document.querySelector("[data-console-settings-save]")`);
+        yield* page.click("[data-console-workspace-switcher]");
+        yield* choose(page, `[role="menuitemradio"]`, "Personal");
+        yield* page.until(`document.body.textContent.includes("Discard unsaved changes?")`);
+        yield* rested(page);
+        yield* shot(page, fs, "console-settings-own-switch");
+        yield* choose(page, `${DIALOG} button`, "Cancel");
+        yield* page.until(`!document.body.textContent.includes("Discard unsaved changes?")`);
+        expect(
+          yield* page.evaluate(
+            `!!document.querySelector('[data-console-settings="member"]') && !!document.querySelector("[data-console-settings-save]")`,
+          ),
+        ).toBe(true);
+        // Whether the list stays open under what asked is the menu's to say: it is there again.
+        if (
+          !(yield* page.evaluate(
+            `!!document.querySelector('[role="menuitemradio"]')`,
+            Schema.Boolean,
+          ))
+        ) {
+          yield* page.click("[data-console-workspace-switcher]");
+        }
+        yield* choose(page, `[role="menuitemradio"]`, "Personal");
+        yield* page.until(`document.body.textContent.includes("Discard unsaved changes?")`);
+        yield* choose(page, `${DIALOG} button`, "Discard changes");
+        yield* page.until(
+          `!!document.querySelector('[data-console-settings="account"] [data-console-setting="clipboard"]') && !document.querySelector("[data-console-settings-save]")`,
+        );
+        if (
+          yield* page.evaluate(`!!document.querySelector('[role="menuitemradio"]')`, Schema.Boolean)
+        ) {
+          yield* page.key("Escape", "Escape", ESCAPE);
+          yield* page.until(`!document.querySelector('[role="menuitemradio"]')`);
+        }
+        yield* theirsToo.settings.clearAccount(memberOf);
         expect(page.errors()).toEqual([]);
 
         // The workspace stays: the check of the events after this one counts those deleted.

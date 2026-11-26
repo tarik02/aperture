@@ -1,6 +1,11 @@
-import type { SettingEntry, SettingKey, SettingView } from "@aperture-browser/control-api";
+import type {
+  SettingEntry,
+  SettingKey,
+  SettingLevel,
+  SettingView,
+} from "@aperture-browser/control-api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LEVEL_WORDS } from "#/features/settings/setting-words.ts";
+import { byWhom } from "#/features/settings/setting-words.ts";
 import { call, type Client, isFailure, told } from "#/lib/api.ts";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { queryKeys } from "#/lib/query-keys.ts";
@@ -115,14 +120,17 @@ export function useSettingsQuery(target: SettingsTarget, enabled = true) {
   });
 }
 
-/** What a refusal of a setting says, on the row of the setting. */
-const refusal = (error: unknown) => {
+/**
+ * What a refusal of a setting says, on the row of the setting, in the words its notes say
+ * who holds it in. What the control plane says of a value it does not take is for whoever
+ * reads its logs, not for this row.
+ */
+export const refusal = (error: unknown, setting: SettingView, at: SettingLevel) => {
   if (isFailure(error) && error._tag === "SettingOutOfBounds" && "level" in error) {
-    const level = LEVEL_WORDS[error.level as keyof typeof LEVEL_WORDS] ?? "level above";
-    return `The ${level} does not let it be that.`;
+    return `${byWhom(setting, error.level as SettingLevel, at, true)} does not let it be that.`;
   }
   if (isFailure(error) && error._tag === "SettingInvalid") {
-    return error.message ?? told(error);
+    return "It does not take that value.";
   }
   return told(error);
 };
@@ -132,14 +140,14 @@ export type SettingChange = { readonly key: SettingKey; readonly entry: SettingE
 
 /**
  * Says all the changes at once. Each is said or refused alone: what was refused comes back,
- * by setting, with why, once what was said is read again.
+ * by setting, with the refusal, once what was said is read again.
  */
 export function useSaveSettingsMutation(target: SettingsTarget) {
   const queries = useQueryClient();
   return useMutation({
     mutationFn: async (
       said: ReadonlyArray<SettingChange>,
-    ): Promise<Partial<Record<SettingKey, string>>> => {
+    ): Promise<Partial<Record<SettingKey, unknown>>> => {
       const results = await Promise.allSettled(
         said.map(({ key, entry }) =>
           entry === null ? call(clear(target, key)) : call(write(target, key, entry)),
@@ -150,7 +158,7 @@ export function useSaveSettingsMutation(target: SettingsTarget) {
       return Object.fromEntries(
         said.flatMap(({ key }, at) => {
           const result = results[at];
-          return result?.status === "rejected" ? [[key, refusal(result.reason)]] : [];
+          return result?.status === "rejected" ? [[key, result.reason]] : [];
         }),
       );
     },

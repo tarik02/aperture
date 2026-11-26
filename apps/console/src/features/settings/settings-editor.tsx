@@ -1,8 +1,8 @@
 import {
+  SETTINGS,
   type SettingKey,
   type SettingEffective,
   type SettingLevel,
-  type SettingSource,
   type SettingView,
   saidAt,
 } from "@aperture-browser/control-api";
@@ -22,6 +22,8 @@ import { CornerDownRight, Lock, Minus, Plus, SlidersHorizontal } from "lucide-re
 import { useState } from "react";
 import { Choice } from "#/components/choice.tsx";
 import {
+  byWhom,
+  factorOf,
   SETTING_GROUPS,
   SETTING_WORDS,
   SOURCE_WORDS,
@@ -31,6 +33,7 @@ import {
 import {
   type Amount,
   amountOf,
+  beyondOf,
   boundsBelow,
   changes,
   choicesOf,
@@ -38,10 +41,13 @@ import {
   draftOf,
   entryOf,
   inheritedOf,
+  inUnit,
   isChoice,
   type Mode,
+  tidy,
 } from "#/features/settings/settings-draft.ts";
 import {
+  refusal,
   type SettingChange,
   type SettingsTarget,
   useSaveSettingsMutation,
@@ -62,11 +68,14 @@ export function useSettingsEditor(target: SettingsTarget) {
   const bounds = (setting: SettingView) => limitsBelow(setting, target.level);
   const changed = views.filter((setting) => {
     const draft = drafts[setting.key];
-    return draft !== undefined && changes(setting, draft, bounds(setting));
+    return draft !== undefined && changes(setting, draft, bounds(setting), target.level);
   });
 
   const change = (setting: SettingView, update: (draft: Draft) => Draft) => {
-    setDrafts((all) => ({ ...all, [setting.key]: update(all[setting.key] ?? draftOf(setting)) }));
+    setDrafts((all) => ({
+      ...all,
+      [setting.key]: update(all[setting.key] ?? draftOf(setting, target.level)),
+    }));
     setProblems(({ [setting.key]: _, ...rest }) => rest);
   };
 
@@ -84,8 +93,11 @@ export function useSettingsEditor(target: SettingsTarget) {
         continue;
       }
       const made = entryOf(setting.key, draft, bounds(setting));
+      const beyond = "problem" in made ? undefined : beyondOf(setting, made.entry, target.level);
       if ("problem" in made) {
         wrong[setting.key] = made.problem;
+      } else if (beyond !== undefined) {
+        wrong[setting.key] = beyond;
       } else {
         const empty = Object.keys(made.entry).length === 0;
         said.push({ key: setting.key, entry: empty ? null : made.entry });
@@ -102,7 +114,15 @@ export function useSettingsEditor(target: SettingsTarget) {
             Object.entries(all).filter(([key]) => refused[key as SettingKey] !== undefined),
           ),
         );
-        setProblems(refused);
+        setProblems(
+          Object.fromEntries(
+            views.flatMap((setting) =>
+              refused[setting.key] === undefined
+                ? []
+                : [[setting.key, refusal(refused[setting.key], setting, target.level)]],
+            ),
+          ),
+        );
       },
     });
   };
@@ -127,6 +147,9 @@ export type SettingsEditor = ReturnType<typeof useSettingsEditor>;
 const limitsBelow = (setting: SettingView, level: SettingLevel) =>
   setting.bounds && boundsBelow(setting.key, level);
 
+/** Where a stepper stops, in what the setting is counted in: what the levels above hold it to. */
+type Ends = { readonly least?: number; readonly most?: number };
+
 /** A number in a unit, typed or stepped by one, with the unit beside it. */
 function AmountField({
   settingKey,
@@ -134,9 +157,11 @@ function AmountField({
   onChange,
   disabled,
   steps,
+  ends = {},
   prefix,
   placeholder,
   label,
+  amountOf: part,
   invalid,
 }: {
   settingKey: SettingKey;
@@ -145,16 +170,27 @@ function AmountField({
   disabled: boolean;
   /** Whether it has buttons that step it; a bound, kept short, has a word before it instead. */
   steps: boolean;
+  ends?: Ends;
   prefix?: string;
   placeholder?: string;
+  /** The setting's title, which every control of it is named after. */
   label: string;
+  /** Which of the setting's amounts it is, as the checks find it. */
+  amountOf: "value" | "min" | "max";
   invalid?: boolean;
 }) {
   const units = unitsOf(settingKey);
-  const step = (by: number) => {
-    const next = Math.max(0, (Number(value.amount) || 0) + by);
-    onChange({ ...value, amount: String(next) });
-  };
+  const factor = factorOf(value.unit, units);
+  const counts = SETTINGS[settingKey].type.kind === "count";
+  const typed = Number(value.amount);
+  const now = value.amount.trim() === "" || !Number.isFinite(typed) ? 0 : typed;
+  const most = ends.most === undefined ? Number.POSITIVE_INFINITY : ends.most / factor;
+  const least = Math.max(ends.least === undefined ? 0 : ends.least / factor, 0);
+  const up = Math.min(now + 1, most);
+  const down = Math.max(now - 1, least);
+  // A count may be none; a time, a size or processors are more than none.
+  const lowers = value.amount.trim() !== "" && down < now && (counts ? down >= 0 : down > 0);
+  const named = part === "value" ? label : `${part === "min" ? "Least" : "Most"} below of ${label}`;
   return (
     <ButtonGroup className="aperture:w-full">
       {/* Its ring over the unit beside it, as the unit's is over it. */}
@@ -163,9 +199,10 @@ function AmountField({
           <InputGroupAddon>
             <InputGroupButton
               size="icon-xs"
-              aria-label="Less"
-              disabled={disabled || !(Number(value.amount) > 0)}
-              onClick={() => step(-1)}
+              aria-label={`Less ${label}`}
+              data-console-setting-step="less"
+              disabled={disabled || !lowers}
+              onClick={() => onChange({ ...value, amount: tidy(down) })}
             >
               <Minus />
             </InputGroupButton>
@@ -173,7 +210,8 @@ function AmountField({
         ) : null}
         {prefix === undefined ? null : <InputGroupAddon>{prefix}</InputGroupAddon>}
         <InputGroupInput
-          aria-label={label}
+          aria-label={named}
+          data-console-setting-amount={part}
           inputMode="decimal"
           className={cn("aperture:tabular-nums", steps && "aperture:text-center")}
           disabled={disabled}
@@ -186,9 +224,10 @@ function AmountField({
           <InputGroupAddon align="inline-end">
             <InputGroupButton
               size="icon-xs"
-              aria-label="More"
-              disabled={disabled}
-              onClick={() => step(1)}
+              aria-label={`More ${label}`}
+              data-console-setting-step="more"
+              disabled={disabled || !(up > now)}
+              onClick={() => onChange({ ...value, amount: tidy(up) })}
             >
               <Plus />
             </InputGroupButton>
@@ -197,31 +236,17 @@ function AmountField({
       </InputGroup>
       {units.length > 0 ? (
         <Choice
-          aria-label={`${label} unit`}
+          aria-label={`Unit of ${named}`}
           className="aperture:w-17 aperture:shrink-0"
           disabled={disabled}
           value={value.unit}
           options={units}
-          onChange={(unit) => onChange({ ...value, unit })}
+          onChange={(unit) => onChange(inUnit(settingKey, value, unit))}
         />
       ) : null}
     </ButtonGroup>
   );
 }
-
-/**
- * Who a level is, as a note says what holds a setting. To a person, who says no bounds of
- * their own, whoever held them at their own levels is an admin; to an admin, a person's
- * level is that of the person whose settings they are.
- */
-const byWhom = (setting: SettingView, level: SettingSource, at: SettingLevel) =>
-  !setting.bounds && level === "account"
-    ? "an admin"
-    : !setting.bounds && level === "member"
-      ? "a workspace admin"
-      : level === "account" && (at === "account" || at === "member")
-        ? "this person"
-        : `the ${SOURCE_WORDS[level]}`;
 
 /**
  * Where what a level inherits comes from, as its mode says it. To a person on their own
@@ -290,25 +315,42 @@ function SettingRow({
 }) {
   const { key, here } = setting;
   const words = SETTING_WORDS[key];
-  const draft = editor.drafts[key] ?? draftOf(setting);
-  const bounds = limitsBelow(setting, editor.target.level);
-  const changed = editor.drafts[key] !== undefined && changes(setting, draft, bounds);
+  const level = editor.target.level;
+  const draft = editor.drafts[key] ?? draftOf(setting, level);
+  const bounds = limitsBelow(setting, level);
+  const edited = editor.drafts[key] !== undefined;
+  const changed = edited && changes(setting, draft, bounds, level);
   const inherited = inheritedOf(setting);
-  const { notes, locked } = notesOf(setting, editor.target.level);
-  const problem = editor.problems[key];
+  const { notes, locked } = notesOf(setting, level);
+  // What the levels above do not let it be is said as it is typed, not only once it is saved.
+  const made = changed ? entryOf(key, draft, bounds) : undefined;
+  const beyond =
+    made === undefined || "problem" in made ? undefined : beyondOf(setting, made.entry, level);
+  const problem = editor.problems[key] ?? beyond;
   const disabled = !setting.changeable || editor.saving || (locked && here === null);
   const choice = isChoice(key);
   const choices = choicesOf(key);
-  const choiceOptions = choices.map((one) => ({ value: String(one), label: valueWords(key, one) }));
+  const { above } = setting;
+  const allowedAbove = (one: string | boolean) =>
+    above.allowed === null || above.allowed.values.includes(one);
+  const choiceOptions = choices.map((one) => ({
+    value: String(one),
+    label: valueWords(key, one),
+    disabled: !allowedAbove(one),
+  }));
+  const ends = { least: above.min?.value, most: above.max?.value };
   const update = (part: Partial<Draft>) => editor.change(setting, (old) => ({ ...old, ...part }));
 
-  const modes: ReadonlyArray<{ value: Mode; label: string }> = [
+  const modes: ReadonlyArray<{ value: Mode; label: string; disabled?: boolean }> = [
     {
       value: "inherit",
-      label: `Inherit · ${inheritedWords(setting, inherited, editor.target.level)}`,
+      label: `Inherit · ${inheritedWords(setting, inherited, level)}`,
     },
     { value: "set", label: "Override" },
-    ...(!choice && words.none !== undefined ? [{ value: "none" as const, label: words.none }] : []),
+    // Never and no limit are more than any most.
+    ...(!choice && words.none !== undefined
+      ? [{ value: "none" as const, label: words.none, disabled: above.max !== null }]
+      : []),
     ...(bounds ? [{ value: "enforce" as const, label: "Enforce" }] : []),
   ];
 
@@ -318,7 +360,7 @@ function SettingRow({
       if (choice) {
         return (
           <Choice
-            aria-label="Value"
+            aria-label={words.label}
             className="aperture:w-full aperture:text-muted-foreground"
             disabled={disabled}
             value={String(inherited.value)}
@@ -331,8 +373,10 @@ function SettingRow({
         return (
           <AmountField
             settingKey={key}
-            label="Value"
+            label={words.label}
+            amountOf="value"
             steps
+            ends={ends}
             disabled={disabled}
             value={amountOf(key, inherited.value)}
             onChange={(amount) => update({ mode: "set", value: amount })}
@@ -345,8 +389,10 @@ function SettingRow({
       return (
         <AmountField
           settingKey={key}
-          label="Value"
+          label={words.label}
+          amountOf="value"
           steps
+          ends={ends}
           disabled={disabled}
           placeholder={
             draft.mode === "inherit" && inherited.source === "node"
@@ -360,7 +406,7 @@ function SettingRow({
     }
     return choice ? (
       <Choice
-        aria-label="Value"
+        aria-label={words.label}
         className="aperture:w-full"
         disabled={disabled}
         value={draft.choice}
@@ -370,8 +416,10 @@ function SettingRow({
     ) : (
       <AmountField
         settingKey={key}
-        label="Value"
+        label={words.label}
+        amountOf="value"
         steps
+        ends={ends}
         disabled={disabled}
         invalid={problem !== undefined}
         value={draft.value}
@@ -396,6 +444,7 @@ function SettingRow({
           {words.label}
           {changed ? (
             <span
+              role="img"
               aria-label="Changed"
               className="aperture:size-1.5 aperture:shrink-0 aperture:rounded-full aperture:bg-primary"
             />
@@ -425,7 +474,7 @@ function SettingRow({
         {boundsColumn ? (
           bounds ? (
             <Toggle
-              aria-label="Limit lower levels"
+              aria-label={`Limit lower levels of ${words.label}`}
               className="aperture:text-muted-foreground aperture:aria-pressed:text-foreground"
               title="Limit lower levels"
               data-console-setting-limit
@@ -440,7 +489,7 @@ function SettingRow({
           )
         ) : null}
         <Choice
-          aria-label="Mode"
+          aria-label={`Mode of ${words.label}`}
           className="aperture:w-full"
           disabled={disabled}
           value={draft.mode}
@@ -459,7 +508,7 @@ function SettingRow({
                 multiple
                 variant="outline"
                 spacing={0}
-                aria-label="Allowed below"
+                aria-label={`Allowed below of ${words.label}`}
                 className="aperture:col-span-2 aperture:w-full"
                 disabled={disabled}
                 value={[...draft.allowed]}
@@ -471,9 +520,7 @@ function SettingRow({
                     value={String(one)}
                     data-console-setting-allowed={String(one)}
                     className="aperture:flex-1"
-                    disabled={
-                      setting.above.allowed !== null && !setting.above.allowed.values.includes(one)
-                    }
+                    disabled={!allowedAbove(one)}
                   >
                     {valueWords(key, one)}
                   </ToggleGroupItem>
@@ -481,15 +528,18 @@ function SettingRow({
               </ToggleGroup>
             ) : (
               (["min", "max"] as const).map((end) => {
-                const above = setting.above[end];
+                const held = above[end];
                 return (
                   <AmountField
                     key={end}
                     settingKey={key}
-                    label={end === "min" ? "Least below" : "Most below"}
+                    label={words.label}
+                    amountOf={end}
                     steps={false}
                     prefix={end}
-                    placeholder={above === null ? "any" : amountOf(key, above.value).amount}
+                    placeholder={
+                      held === null ? "any" : amountOf(key, held.value, draft[end].unit).amount
+                    }
                     disabled={disabled}
                     invalid={problem !== undefined}
                     value={draft[end]}
@@ -505,7 +555,7 @@ function SettingRow({
   );
 }
 
-function SectionsSkeleton() {
+export function SectionsSkeleton() {
   return Array.from({ length: 2 }, (_, section) => (
     <section
       key={section}
