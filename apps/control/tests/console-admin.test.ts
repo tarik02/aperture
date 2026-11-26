@@ -975,10 +975,11 @@ suite(needs)("what an admin keeps in the console, behind the proxy", (it) => {
         const aged = `[data-console-setting="maxSessionAge"]`;
         yield* pick(page, `${aged} [data-slot="select-trigger"][aria-label="Mode"]`, "Override");
         yield* page.click(`${aged} [aria-label="More"]`);
-        yield* page.click(`[data-console-setting="suspendIdleAfter"] [data-console-setting-limit]`);
-        yield* page.until(
-          `!!document.querySelector('[data-console-setting="suspendIdleAfter"] [aria-label="Most below"]')`,
-        );
+        // The bounds of the levels below are said under the value, in the row.
+        const idle = `[data-console-setting="suspendIdleAfter"]`;
+        yield* page.click(`${idle} [data-console-setting-limit]`);
+        yield* page.click(`${idle} input[aria-label="Most below"]`);
+        yield* page.type("8");
         yield* page.until(`!!document.querySelector("[data-console-settings-save]")`);
         expect(yield* page.text("[data-console-settings-save]")).toContain("2 unsaved changes");
         yield* page.until(
