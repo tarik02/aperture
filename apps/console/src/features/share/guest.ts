@@ -9,8 +9,10 @@ const Told = Schema.Struct({
   path: Schema.NullOr(Schema.String),
   running: Schema.Boolean,
   role: ShareRole,
-  /** What the guest is called there; none until they said. */
-  name: Schema.NullOr(Schema.String),
+  /** The number of the one tab the link shows; the whole session, without. */
+  tab: Schema.NullOr(Schema.Number),
+  /** What the guest is called there: what they said, else what the link gave them. */
+  name: Schema.String,
 });
 
 /** What a guest's page is told of the link it was opened with. */
@@ -26,8 +28,8 @@ export class LinkRefused extends Data.TaggedError("LinkRefused")<{ readonly stat
 }
 
 /**
- * Asks about a share link, with its secret when the page first has it and with the name
- * once one is chosen. The browser carries both from then on, to here and to the session.
+ * Asks about a share link, with its secret when the page first has it and with a name
+ * when one is chosen. The browser carries both from then on, to here and to the session.
  */
 export const enter = async (
   shareId: string,

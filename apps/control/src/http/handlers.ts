@@ -543,6 +543,7 @@ const shares = HttpApiBuilder.group(
           const { share, secret } = yield* shares.create(caller, params.id, {
             name: payload.name,
             role: payload.role,
+            tab: payload.tab,
             lasts:
               payload.expiresInHours === undefined
                 ? undefined

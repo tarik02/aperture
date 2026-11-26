@@ -2,7 +2,11 @@ import type { Features } from "@aperture-browser/session-client";
 
 /** The parts of the workbench an embedder may leave out. All are shown unless said. */
 export interface SessionFeatures {
-  /** The tab strip. */
+  /**
+   * The tab strip, and the ways to another tab and to a new one. Without, the workbench
+   * shows the one tab it watches, as for whoever is let see one tab alone: what the title
+   * bar has besides the tabs is in the toolbar, and a tab that is gone is said to be closed.
+   */
   readonly tabs?: boolean;
   /** Back, forward and reload. */
   readonly navigation?: boolean;

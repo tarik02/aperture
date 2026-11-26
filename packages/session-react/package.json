@@ -45,6 +45,7 @@
   "dependencies": {
     "@aperture-browser/session-client": "workspace:*",
     "@base-ui/react": "catalog:",
+    "@tanstack/react-hotkeys": "catalog:",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",
     "lucide-react": "catalog:",

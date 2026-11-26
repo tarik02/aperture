@@ -16,11 +16,16 @@ type SecretDialogProps = {
   title: string;
   /** The secret, while there is one to show; the dialog is open for as long. */
   secret: string | undefined;
+  /**
+   * Whether Escape and a press beside it close it, for a secret that costs nothing to
+   * make again. One that does is not taken away by anything done in passing.
+   */
+  dismissible?: boolean;
   onClose: () => void;
 };
 
 /** Shows a secret the one time it is told: it is kept nowhere it could be read again. */
-export function SecretDialog({ title, secret, onClose }: SecretDialogProps) {
+export function SecretDialog({ title, secret, dismissible = false, onClose }: SecretDialogProps) {
   const shown = useLast(secret);
   const copy = async () => {
     if (await copyText(shown ?? "")) {
@@ -31,8 +36,7 @@ export function SecretDialog({ title, secret, onClose }: SecretDialogProps) {
   return (
     <Dialog
       open={secret !== undefined}
-      // It is not shown again: Escape and a press beside it do not take it away.
-      dismissible={false}
+      dismissible={dismissible}
       onOpenChange={(open) => (open ? undefined : onClose())}
     >
       <DialogContent className="aperture:sm:max-w-lg" showCloseButton={false}>

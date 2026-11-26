@@ -12,6 +12,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture-browser/ui/components/tooltip";
 import { cn } from "@aperture-browser/ui/utils";
 import { useLease, useSession, useSessionSnapshot } from "../session.tsx";
+import { useWorkbench } from "../workbench/context.tsx";
 
 const VISIBLE_MEMBERS = 5;
 
@@ -24,6 +25,8 @@ const ROLES = { view: "may watch", control: "may give input", admin: "admin" } a
 export function SessionPresence() {
   const session = useSession();
   const snapshot = useSessionSnapshot();
+  // Whom one follows goes to other tabs, which a workbench of one tab has none of.
+  const follows = useWorkbench().features.tabs;
   const { presence } = snapshot;
   if (presence === undefined || presence.members.length === 0) {
     return null;
@@ -46,7 +49,12 @@ export function SessionPresence() {
   const overflow = members.length - visible.length;
 
   const button = (member: Member) => (
-    <MemberButton key={member.id} member={member} presence={presence} onFollow={session.follow} />
+    <MemberButton
+      key={member.id}
+      member={member}
+      presence={presence}
+      onFollow={follows ? session.follow : undefined}
+    />
   );
 
   return (
@@ -107,7 +115,8 @@ function MemberButton({
 }: {
   member: Member;
   presence: Presence;
-  onFollow: (member?: number) => void;
+  /** Follows a member, or nobody; none where nobody is followed. */
+  onFollow: ((member?: number) => void) | undefined;
 }) {
   const you = member.id === presence.you;
   const followed = presence.members.find((one) => one.id === presence.you)?.follows === member.id;
@@ -121,30 +130,31 @@ function MemberButton({
     held.length === 0 ? undefined : `holds tab ${held.map((one) => one.tab).join(", ")}`,
     follower ? "follows you" : undefined,
     followed ? "you follow them · click to stop" : undefined,
-    !you && !followed ? "click to follow them" : undefined,
+    !you && !followed && onFollow !== undefined ? "click to follow them" : undefined,
   ].filter((part) => part !== undefined);
   const label = details.join(" · ");
 
-  const trigger = you ? (
-    <span
-      className="aperture:inline-flex aperture:size-7 aperture:shrink-0 aperture:items-center aperture:justify-center aperture:rounded-full"
-      aria-label={label}
-    />
-  ) : (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon-sm"
-      className={cn(
-        "aperture:shrink-0 aperture:rounded-full aperture:p-0",
-        followed && "aperture:ring-2 aperture:ring-primary",
-      )}
-      aria-label={label}
-      aria-pressed={followed}
-      data-member-follow={member.id}
-      onClick={() => onFollow(followed ? undefined : member.id)}
-    />
-  );
+  const trigger =
+    you || onFollow === undefined ? (
+      <span
+        className="aperture:inline-flex aperture:size-7 aperture:shrink-0 aperture:items-center aperture:justify-center aperture:rounded-full"
+        aria-label={label}
+      />
+    ) : (
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        className={cn(
+          "aperture:shrink-0 aperture:rounded-full aperture:p-0",
+          followed && "aperture:ring-2 aperture:ring-primary",
+        )}
+        aria-label={label}
+        aria-pressed={followed}
+        data-member-follow={member.id}
+        onClick={() => onFollow(followed ? undefined : member.id)}
+      />
+    );
   return (
     <Tooltip>
       <TooltipTrigger render={trigger}>

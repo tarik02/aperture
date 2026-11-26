@@ -19,6 +19,7 @@
     "@better-auth/passkey": "catalog:",
     "@simplewebauthn/browser": "catalog:",
     "@tanstack/react-form": "catalog:",
+    "@tanstack/react-hotkeys": "catalog:",
     "@tanstack/react-query": "catalog:",
     "@tanstack/react-router": "catalog:",
     "better-auth": "catalog:",

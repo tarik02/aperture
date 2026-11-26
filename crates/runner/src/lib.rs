@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 
 pub use aperture_gateway::{
     ACCESS_HEADER, Access, Area, Cdp, DEVTOOLS_AUTHORITY, Live, NAME_HEADER, SUBJECT_HEADER,
+    TAB_HEADER,
 };
 
 /// The version of Aperture this is, with the commit it was built from as build metadata

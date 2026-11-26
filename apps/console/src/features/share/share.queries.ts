@@ -19,8 +19,11 @@ export function useSharesQuery(sessionId: string, enabled: boolean) {
 export type Share = NonNullable<ReturnType<typeof useSharesQuery>["data"]>[number];
 
 type NewShare = {
-  name: string;
+  /** Whom it is for; nobody named, without. */
+  name: string | undefined;
   role: ShareRole;
+  /** The number of the one tab it shows; the whole session, without. */
+  tab: number | undefined;
   /** How long it is good for; for as long as it is not taken back, without. */
   expiresInHours: number | undefined;
 };

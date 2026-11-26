@@ -8,7 +8,8 @@
 //! good: what was opened with it stays open after, but for a session socket whose ticket
 //! says `until` when, and one whose caller the operator dismisses. A ticket that says a
 //! `path` is good at that one route of its session and nowhere else: it is what a link to
-//! one file is made of.
+//! one file is made of. A ticket that says a `tab` lets its holder see that one tab of the
+//! session and no other: what tells of the others, or shows them, is not theirs.
 
 use std::{
     collections::HashMap,
@@ -33,7 +34,7 @@ use percent_encoding::{NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode
 use serde::Deserialize;
 use subtle::ConstantTimeEq;
 
-use crate::{ACCESS_HEADER, Access, Area, NAME_HEADER, Refused, SUBJECT_HEADER};
+use crate::{ACCESS_HEADER, Access, Area, NAME_HEADER, Refused, SUBJECT_HEADER, TAB_HEADER};
 
 /// What a ticket says.
 #[derive(Deserialize)]
@@ -54,6 +55,8 @@ struct Claims {
     /// The one route the ticket is good at, as a path below its session's own; at every
     /// route its access gives, without.
     path: Option<String>,
+    /// The number of the one tab its holder sees; every tab, without.
+    tab: Option<u32>,
 }
 
 /// Who a request comes from; with every request that got in.
@@ -64,6 +67,8 @@ pub struct Caller {
     pub access: Access,
     /// When the caller's sockets into the session are closed whatever they do; never, without.
     pub until: Option<SystemTime>,
+    /// The one tab the caller sees; every tab, without.
+    pub tab: Option<u32>,
 }
 
 impl Caller {
@@ -81,6 +86,15 @@ impl Caller {
             // A caller the runner is not told of would be nobody's, which there is the
             // operator: the request is not passed on without all three.
             headers.insert(header, HeaderValue::from_str(value)?);
+        }
+        // What the request says of it is nothing: it is told, or there is none.
+        match self.tab {
+            Some(tab) => {
+                headers.insert(TAB_HEADER, HeaderValue::from(tab));
+            }
+            None => {
+                headers.remove(TAB_HEADER);
+            }
         }
         Ok(())
     }
@@ -192,6 +206,7 @@ fn caller(keys: &Keys, request: &Request) -> Result<Caller, Refused> {
             name: name.unwrap_or_else(|| "Operator".to_owned()),
             access: Access::ALL,
             until: None,
+            tab: None,
         });
     }
     let key = keys
@@ -209,6 +224,7 @@ fn caller(keys: &Keys, request: &Request) -> Result<Caller, Refused> {
         &claims.sid,
         access,
         claims.path.as_deref(),
+        claims.tab,
         request.method(),
         request.uri().path(),
     ) {
@@ -224,6 +240,7 @@ fn caller(keys: &Keys, request: &Request) -> Result<Caller, Refused> {
         until: claims
             .until
             .map(|seconds| UNIX_EPOCH + Duration::from_secs(seconds)),
+        tab: claims.tab,
     })
 }
 
@@ -285,14 +302,34 @@ fn needs(method: &Method, rest: &str) -> Needs {
     }
 }
 
+/// Whether a request for `rest` shows nothing of the session's tabs but `tab`: a route
+/// that tells of all of them, or of whichever one, is not for a caller who sees one tab.
+/// What is about the session's files or its network is no tab's, and is its access's to give.
+fn within_tab(rest: &str, tab: u32) -> bool {
+    let mut parts = rest.trim_start_matches('/').split('/');
+    let (first, second) = (parts.next().unwrap_or_default(), parts.next());
+    let own = |named: Option<&str>| named.and_then(|named| named.parse::<u32>().ok()) == Some(tab);
+    match (first, second) {
+        ("" | "ws" | "busy", None) => true,
+        // A tab is named by its number here: a target's id names whichever.
+        ("targets" | "previews", Some(_)) => own(second),
+        ("uploads" | "downloads" | "proxy", _) => true,
+        ("files", Some("uploads" | "downloads")) => true,
+        // The tabs there are, the picture of whichever was watched, and what reaches all
+        // of them: the automation, the DevTools endpoint, what is recorded of any tab.
+        _ => false,
+    }
+}
+
 /// Whether a ticket for the session `sid` with this access lets its holder do this.
 /// Nothing outside the session is a ticket's, and of the session nothing but the route
-/// `only`, where the ticket names one.
+/// `only`, where the ticket names one, and nothing of any tab but `tab`, where it names one.
 fn allows(
     keys: &Keys,
     sid: &str,
     access: Access,
     only: Option<&str>,
+    tab: Option<u32>,
     method: &Method,
     path: &str,
 ) -> bool {
@@ -306,6 +343,9 @@ fn allows(
         return false;
     }
     if only.is_some_and(|only| only != rest) {
+        return false;
+    }
+    if tab.is_some_and(|tab| !within_tab(rest, tab)) {
         return false;
     }
     match needs(method, rest) {
@@ -563,7 +603,7 @@ mod tests {
         ];
         for (sid, access, only, method, path, allowed) in table {
             assert_eq!(
-                allows(&keys, sid, access, only, method, path),
+                allows(&keys, sid, access, only, None, method, path),
                 allowed,
                 "{sid} {access} {only:?} {method} {path}"
             );

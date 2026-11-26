@@ -381,6 +381,17 @@ suite(needs)("apps, providers and guests at the console, behind the proxy", (it)
             Schema.Number,
           );
         const empty = yield* height();
+        // A link shows the whole session, or the tab that is watched alone.
+        const shows = `[data-console-share-create] [aria-label="What it shows"]`;
+        yield* page.click(shows);
+        yield* page.until(
+          `[...document.querySelectorAll('[data-slot="select-content"][data-open] [data-slot="select-item"]')].some((item) => item.textContent.startsWith("This tab: "))`,
+        );
+        yield* shot(page, fs, "console-share-tab-choice");
+        // Escape closes the list, and leaves the dialog with what is in it.
+        yield* page.key("Escape", "Escape", ESCAPE);
+        yield* page.until(`!document.querySelector('[data-slot="select-content"][data-open]')`);
+        expect(yield* page.evaluate(`!!document.querySelector('${DIALOG}')`)).toBe(true);
         yield* page.click(name);
         yield* page.type("For the guest");
         yield* pick(
@@ -393,7 +404,8 @@ suite(needs)("apps, providers and guests at the console, behind the proxy", (it)
         const link = (yield* page.text("[data-console-secret]")) ?? "";
         expect(link).toMatch(new RegExp(`^${proxy.url}/share/[0-9a-f-]+#aps_`, "u"));
         yield* shot(page, fs, "console-share-link");
-        yield* choose(page, `${DIALOG} button`, "Done");
+        // Another is soon made: Escape closes it, as any dialog, and leaves the links.
+        yield* page.key("Escape", "Escape", ESCAPE);
         yield* page.until(`!document.querySelector("[data-console-secret]")`);
         yield* page.until(`!!document.querySelector('[data-console-share="For the guest"]')`);
         expect(yield* page.text(`[data-console-share="For the guest"]`)).toContain("Control");
@@ -404,20 +416,31 @@ suite(needs)("apps, providers and guests at the console, behind the proxy", (it)
         // A browser of the guest's own: it carries nothing of the owner's.
         const guests = yield* Viewer.start;
         const guest = yield* guests.open(link);
-        yield* guest.until(`!!document.querySelector('[data-console-guest="name"] input')`);
+        // The session is shown at once: nobody is asked for a name.
+        yield* guest.until(`!!document.querySelector('[data-console-guest="session"]')`);
         // The secret is in the address no more, and nothing of the console is around.
         expect(yield* guest.evaluate("location.pathname + location.hash", Schema.String)).toBe(
           new URL(link).pathname,
         );
-        expect(yield* guest.evaluate(`!!document.querySelector("[data-sidebar]")`)).toBe(false);
-        yield* shot(guest, fs, "console-guest-name");
-        yield* guest.click(`[data-console-guest="name"] input`);
-        yield* guest.type("Grace the guest");
-        yield* guest.key("Enter", "Enter", ENTER);
-        yield* guest.until(`!!document.querySelector('[data-console-guest="session"]')`);
         yield* Viewer.ready(guest);
         yield* guest.until(`!!document.querySelector("[data-aperture-drawn]")`, "30 seconds");
         expect(yield* guest.evaluate(`!!document.querySelector("[data-sidebar]")`)).toBe(false);
+        const own = `apertureSession.getSnapshot().presence?.members.find((member) => member.id === apertureSession.getSnapshot().presence.you)?.name`;
+        // They are whom the link is for, until they say otherwise from the menu.
+        yield* guest.until(`${own} === "For the guest"`);
+        yield* shot(guest, fs, "console-guest-no-name");
+        yield* guest.click("[data-workbench-menu]");
+        yield* guest.click("[data-console-guest-rename]");
+        const named = `[data-console-guest-name] input[name="name"]`;
+        yield* guest.until(
+          `document.querySelector('${named}')?.closest('[data-slot="dialog-content"]').getAnimations().length === 0`,
+        );
+        yield* guest.click(named);
+        yield* guest.evaluate(`void document.querySelector('${named}').select()`);
+        yield* guest.type("Grace the guest");
+        yield* guest.key("Enter", "Enter", ENTER);
+        yield* guest.until(`!document.querySelector("[data-console-guest-name]")`);
+        yield* guest.until(`${own} === "Grace the guest"`, "30 seconds");
         // Shown again, the page needs no link in its address: the browser carries it.
         yield* guest.evaluate("void location.reload()");
         yield* guest.until(`!!document.querySelector('[data-console-guest="session"]')`);
@@ -441,6 +464,18 @@ suite(needs)("apps, providers and guests at the console, behind the proxy", (it)
           expect.arrayContaining(["Owner of the shared", "Grace the guest"]),
         );
 
+        // The sidebar beside the session goes as a sheet does: for Escape, and for a press
+        // in the session.
+        const sidebar = `document.querySelector('[data-slot="sidebar"]')?.dataset.state`;
+        yield* opened.click("[data-console-sidebar-trigger]");
+        yield* opened.until(`${sidebar} === "expanded"`);
+        yield* opened.key("Escape", "Escape", ESCAPE);
+        yield* opened.until(`${sidebar} === "collapsed"`);
+        yield* opened.click("[data-console-sidebar-trigger]");
+        yield* opened.until(`${sidebar} === "expanded"`);
+        yield* opened.click("[data-aperture-stage]");
+        yield* opened.until(`${sidebar} === "collapsed"`);
+
         // Taking a link back is asked again, as whatever is not undone is.
         yield* page.click(`[data-console-share="For the guest"] button`);
         yield* choose(page, `[data-slot="dialog-footer"] button`, "Revoke");
@@ -451,6 +486,32 @@ suite(needs)("apps, providers and guests at the console, behind the proxy", (it)
         );
         yield* shot(guest, fs, "console-guest-refused");
         yield* opened.until(`!${members}.includes("Grace the guest")`);
+
+        // A link to one tab shows that tab with no strip of tabs, and what the strip's row
+        // had besides them in the toolbar.
+        const tab = yield* opened.evaluate("apertureSession.getSnapshot().selected", Schema.Number);
+        const one = yield* owner.api.shares.create({
+          params: { id: made.id },
+          payload: { role: "control", tab },
+        });
+        const others = yield* Viewer.start;
+        const alone = yield* others.open(`${one.url.replace(control.url, proxy.url)}`);
+        yield* alone.until(
+          `document.querySelector('[data-console-guest="session"]')?.dataset.consoleGuestTab === "${tab}"`,
+        );
+        yield* Viewer.ready(alone, 2);
+        yield* alone.until(`!!document.querySelector("[data-aperture-drawn]")`, "30 seconds");
+        expect(
+          yield* alone.evaluate(
+            `({
+              strip: !!document.querySelector("[data-browser-tab-strip]"),
+              titlebar: !!document.querySelector("[data-workbench-titlebar]"),
+              members: !!document.querySelector("[data-workbench-toolbar] [data-session-presence]"),
+              tabs: apertureSession.getSnapshot().targets.map((target) => target.tab),
+            })`,
+          ),
+        ).toEqual({ strip: false, titlebar: false, members: true, tabs: [tab] });
+        yield* shot(alone, fs, "console-guest-one-tab");
         expect(page.errors()).toEqual([]);
         yield* owner.api.sessions.delete({ params: { id: made.id } });
       }),

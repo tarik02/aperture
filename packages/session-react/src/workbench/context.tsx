@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useHotkey } from "@tanstack/react-hotkeys";
 import { toast } from "sonner";
 import type { Recording, Session, Target } from "@aperture-browser/session-client";
 import {
@@ -117,25 +118,29 @@ export function WorkbenchProvider({
  * gets none of it; a menu or dialog that is open keeps its own Escape.
  */
 function useEscapeEndsDrawing(drawing: boolean, setDrawing: (drawing: boolean) => void) {
-  useEffect(() => {
-    if (!drawing) {
-      return undefined;
-    }
-    const onKey = (event: KeyboardEvent) => {
+  useHotkey(
+    "Escape",
+    (event) => {
       if (
-        event.key !== "Escape" ||
-        (event.target instanceof Element &&
-          event.target.closest("[role=menu], [role=dialog], [role=listbox]") !== null)
+        event.target instanceof Element &&
+        event.target.closest("[role=menu], [role=dialog], [role=listbox]") !== null
       ) {
         return;
       }
       event.preventDefault();
       event.stopPropagation();
       setDrawing(false);
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [drawing, setDrawing]);
+    },
+    {
+      enabled: drawing,
+      capture: true,
+      // Taken only where it puts the pencil down, as above.
+      preventDefault: false,
+      stopPropagation: false,
+      // The sidebar beside a session has Escape as well, while it is open.
+      conflictBehavior: "allow",
+    },
+  );
 }
 
 export function useWorkbench(): Workbench {

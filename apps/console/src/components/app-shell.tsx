@@ -15,6 +15,7 @@ import { cn } from "@aperture-browser/ui/utils";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
 import { AppSidebar } from "#/components/app-sidebar.tsx";
+import { SidebarGoesAway } from "#/components/sidebar-goes-away.tsx";
 import { PageCrumb } from "#/components/page-crumb.tsx";
 import { PageHeaderActionsTarget } from "#/components/page-header-actions.tsx";
 import { WindowTitlebar } from "#/components/window-titlebar.tsx";
@@ -50,6 +51,7 @@ export function AppShell({ layout, children }: AppShellProps) {
   if (layout === "workbench") {
     return (
       <SidebarProvider key="workbench" defaultOpen={false} className={FILLS}>
+        <SidebarGoesAway />
         <AppSidebar collapsible="offcanvas" />
         <SidebarInset className={cn(INSET, "aperture:pt-[env(safe-area-inset-top)]")}>
           <WindowTitlebar />

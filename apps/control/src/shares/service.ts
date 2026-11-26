@@ -27,8 +27,11 @@ export interface SharesShape {
     caller: Caller,
     sessionId: string,
     link: {
-      readonly name: string;
+      /** Whom it is for; nobody named, without. */
+      readonly name: string | undefined;
       readonly role: ShareRole;
+      /** The number of the one tab its guests see; the whole session, without. */
+      readonly tab: number | undefined;
       /** How long it is good for; for as long as it is not taken back, without. */
       readonly lasts: Duration.Duration | undefined;
     },
@@ -51,15 +54,24 @@ export interface SharesShape {
     id: string,
   ) => Effect.Effect<void, Forbidden | SessionNotFound | ShareNotFound>;
   /**
-   * The link a guest came with, by its id and its secret, and where its session is. A link
-   * whose account is disabled lets nobody in until the account is in use again.
+   * The link a guest came with, by its id and its secret, where its session is, and what
+   * the guest is called there. A link whose account is disabled lets nobody in until the
+   * account is in use again.
    */
   readonly enter: (
     id: string,
     token: string,
     from: Option.Option<string>,
-    /** What the guest says they are to be called, when they say it: that is their joining. */
-    joining: Option.Option<string>,
+    named: {
+      /** What the guest says they are to be called, when they say it now. */
+      readonly said: Option.Option<string>;
+      /**
+       * What they were called before, as their browser carries it: none for a guest who
+       * comes for the first time, which is their joining. Without either they are given
+       * a name.
+       */
+      readonly kept: Option.Option<string>;
+    },
   ) => Effect.Effect<Entered, GuestError>;
   /**
    * Lets a guest's request to the path of the link's session pass, and to no other path:

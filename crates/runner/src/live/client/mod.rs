@@ -48,6 +48,9 @@ struct Grant {
 /// Why a client that may not do what it asked for is told it was not done.
 const NOT_ALLOWED: &str = "the session does not let this client do it";
 
+/// Why a client that is let see one tab alone is told it was not taken to another.
+const ONE_TAB: &str = "this client is let see one tab alone";
+
 /// How often the others are told where a client's pointer is, and how many points of
 /// its strokes they are shown in a second.
 const POINTED_EVERY: Duration = Duration::from_millis(40);
@@ -66,6 +69,7 @@ const CHANNEL_MESSAGES: usize = 256;
 /// Serves the client until its socket closes or the session ends.
 pub async fn serve(live: Live, socket: WebSocket, identity: Identity) {
     let access = identity.access;
+    let only = identity.tab;
     let (tiles_watch, tiles) = tiles::start(live.compositor.clone());
     let (from_peer, peer_events) = mpsc::channel(CHANNEL_MESSAGES);
     let mut client = Client {
@@ -83,6 +87,7 @@ pub async fn serve(live: Live, socket: WebSocket, identity: Identity) {
         sounding: live.sound.sounding(),
         sound: None,
         access,
+        only,
         member: live.presence.join(identity, false),
         history: live.pages.history(),
         live,
@@ -131,6 +136,9 @@ struct Client {
     drawn: (Instant, u32),
     /// What the client may do, as whoever let it in says.
     access: Access,
+    /// The one tab the client sees, as whoever let it in says: it is told of no other, and
+    /// is taken to none. Every tab, without.
+    only: Option<u32>,
     /// The session's sound, for a client that takes it on the socket.
     sound: Option<sound::Listener>,
     /// The browser's tabs that play something now.
@@ -421,8 +429,15 @@ impl Client {
                 Err(err) => self.answer(pb::Asked::ASKED_COPY_PICTURE, Err(err)).await,
             },
             Message::Follow(follow) => {
-                let followed = self.live.presence.follow(self.member.id, follow.member);
-                let followed = followed.map_err(anyhow::Error::msg);
+                // Whom it follows goes to other tabs.
+                let followed = match self.only {
+                    Some(_) => Err(anyhow::anyhow!(ONE_TAB)),
+                    None => self
+                        .live
+                        .presence
+                        .follow(self.member.id, follow.member)
+                        .map_err(anyhow::Error::msg),
+                };
                 self.answer(pb::Asked::ASKED_FOLLOW, followed).await?;
                 self.keep_up().await
             }
@@ -590,6 +605,7 @@ impl Client {
         ensure!(self.grant(Area::Tabs).write, NOT_ALLOWED);
         let pages = self.live.pages.clone();
         if go.new_tab {
+            ensure!(self.only.is_none(), ONE_TAB);
             // A tab that is not there yet is nobody's: no lease stands in its way.
             let url = match go.to {
                 Some(pb::go::To::Url(url)) => url,
@@ -620,6 +636,8 @@ impl Client {
 
     async fn close(&mut self, tab: u32) -> anyhow::Result<()> {
         ensure!(self.grant(Area::Tabs).write, NOT_ALLOWED);
+        // Its own tab gone, nothing is left that it sees.
+        ensure!(self.only.is_none(), ONE_TAB);
         let target = {
             let targets = self.live.targets.borrow();
             let closed = targets.iter().find(|closed| closed.tab == tab);
@@ -885,7 +903,8 @@ impl Client {
     /// tab it opened itself, else one the page it gives input to opened, else the one it
     /// has, else the one watched last, else the newest. A tab someone else opened takes
     /// nobody along. A target that moved to another window is followed there. What the
-    /// client comes to watch is the tab watched last. Tells whether it changed.
+    /// client comes to watch is the tab watched last. A client that sees one tab watches
+    /// that one, and nothing once it is closed. Tells whether it changed.
     async fn select(&mut self, wanted: Option<u32>) -> Result<bool, axum::Error> {
         let leads = self.leads();
         // Before the targets are borrowed: what tells of them holds what this asks.
@@ -908,14 +927,17 @@ impl Client {
                 let of = |target: &&Target| target.opener.as_deref() == Some(kept.id.as_str());
                 targets.iter().rev().filter(new).find(of)
             });
-            let selected = wanted
-                .and_then(|tab| targets.iter().find(|target| target.tab == tab))
-                .or(opened)
-                .or(popped)
-                .or(kept)
-                .or_else(|| targets.iter().find(|target| Some(target.tab) == watched))
-                .or(targets.last())
-                .map(|target| (target.id.clone(), target.window));
+            let selected = match self.only {
+                Some(only) => targets.iter().find(|target| target.tab == only),
+                None => wanted
+                    .and_then(|tab| targets.iter().find(|target| target.tab == tab))
+                    .or(opened)
+                    .or(popped)
+                    .or(kept)
+                    .or_else(|| targets.iter().find(|target| Some(target.tab) == watched))
+                    .or(targets.last()),
+            }
+            .map(|target| (target.id.clone(), target.window));
             self.known = targets.iter().map(|target| target.id.clone()).collect();
             (selected, opened.is_some())
         };

@@ -181,6 +181,7 @@ impl Automation {
             subject: "agent".to_owned(),
             name: "Agent".to_owned(),
             access: acting(),
+            tab: None,
         };
         let caller = caller
             .filter(|caller| !caller.is_operator())
@@ -197,6 +198,7 @@ impl Automation {
             subject: caller.subject.clone(),
             name: caller.name.clone(),
             access: acting(),
+            tab: None,
         };
         let member = Arc::new(self.session.presence.join(identity, true));
         let calling = Calling {
