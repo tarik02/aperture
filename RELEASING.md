@@ -13,10 +13,12 @@ The version is written in `Cargo.toml` (`[workspace.package]`), in `Cargo.lock` 
 | The control plane's image and the node's, for the same two, signed: what `deploy/compose.yaml` puts together | `ghcr.io/tarik02/aperture-control` and `ghcr.io/tarik02/aperture-node`, with the same tags |
 | The session's image as files for `docker load`, their SBOMs, and `SHA256SUMS` | the GitHub release |
 | The Companion extension, `aperture-companion-<version>.zip`, to load unpacked | the GitHub release |
+| The `aperture` command, `aperture-<version>-<os>-<arch>`, for Linux (static), macOS and Windows | the GitHub release, and a nightly's |
+| The runner and the browser `aperture run` downloads, `aperture-runner-<version>-linux-<arch>.tar.zst` and `aperture-chromium-<version>-linux-<arch>.tar.zst`: each the closure of the store its programs are in | the GitHub release, and a nightly's |
 | The programs, the control plane and the migrator as Nix builds them | the `aperture-browser` Cachix cache |
 | The changes | `CHANGELOG.md` and the GitHub release |
 
-The programs are not release files of their own: they run a browser, a sandbox and encoders that the flake wires to them, so they are installed from the flake (`github:tarik02/aperture/v<version>`), by its NixOS modules, or as the image. The migrator is `nix run github:tarik02/aperture/v<version>#aperture-migrate`.
+A node's programs are installed from the flake (`github:tarik02/aperture/v<version>`), by its NixOS modules, or as the image: they run a browser, a sandbox and encoders that the flake wires to them. The runner's file is the same programs with what they run, for one session started by `aperture run`; `files.yml` builds the files and starts a session from the runner's and the browser's before they are published, and on a pull request that changes what they are made of. The migrator is `nix run github:tarik02/aperture/v<version>#aperture-migrate`.
 
 A prerelease moves the tag it is named as, `beta` for `1.0.0-beta.2`, on the registry and on npm. `latest` is moved by a stable release alone.
 

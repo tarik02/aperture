@@ -1,8 +1,9 @@
 name: publish
 
 # What a release or a nightly gives whoever installs it: the images for both
-# architectures and the packages on npm, and for a release the same images and the
-# Companion extension as its files.
+# architectures, the packages on npm, and as its files the `aperture` program and the
+# runner and browser it downloads; for a release the same images and the Companion
+# extension as files too.
 on:
   workflow_call:
     inputs:
@@ -324,12 +325,28 @@ jobs:
           retention-days: 1
           compression-level: 0
 
+  # The `aperture` program for each system, and the runner and the browser it downloads.
+  build-files:
+    name: files
+    uses: ./.github/workflows/files.yml
+    secrets:
+      CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+    with:
+      version: ${{ inputs.version }}
+      tag: ${{ inputs.tag }}
+
+  # A nightly's as well: `aperture run --runner-version nightly` downloads from it.
   files:
     name: release files
     needs:
       - image
       - companion
-    if: inputs.release
+      - build-files
+    if: >-
+      !cancelled() &&
+      needs.image.result == 'success' &&
+      needs.build-files.result == 'success' &&
+      (needs.companion.result == 'success' || needs.companion.result == 'skipped')
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -357,7 +374,6 @@ jobs:
     needs:
       - manifest
       - files
-    # A nightly has no files, and is published without them.
     if: >-
       !cancelled() &&
       needs.manifest.result == 'success' &&

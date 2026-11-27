@@ -9,6 +9,7 @@
 
 use std::{
     io,
+    net::SocketAddr,
     sync::Arc,
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -23,12 +24,19 @@ use fast_socks5::{
 use futures_util::{SinkExt, StreamExt, future};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
-    net::TcpStream,
+    net::{TcpListener, TcpStream},
 };
-use tokio_tungstenite::{WebSocketStream, tungstenite::Message};
+use tokio_tungstenite::{
+    WebSocketStream,
+    tungstenite::{
+        Message,
+        handshake::server::{ErrorResponse, Request, Response},
+        http::{StatusCode, header},
+    },
+};
 use tokio_util::io::{CopyToBytes, SinkWriter, StreamReader};
 use tokio_yamux::{Config, Control, Session};
-use tracing::debug;
+use tracing::{debug, info, warn};
 
 /// The WebSocket subprotocol of a tunnel a client attaches to a session.
 pub const SUBPROTOCOL: &str = "aperture-tunnel.v1";
@@ -122,6 +130,41 @@ pub async fn serve(stream: impl AsyncRead + AsyncWrite + Unpin + Send + 'static)
         tokio::spawn(async move {
             if let Err(err) = answer(asked).await {
                 debug!("a tunnelled connection ended: {err:#}");
+            }
+        });
+    }
+}
+
+/// Serves tunnels that sessions dial at `addr`, as an upstream `ws+yamux+socks5://ADDR/`
+/// whose `auth` is `auth`, until the listener fails.
+pub async fn listen(addr: SocketAddr, auth: &str) -> anyhow::Result<()> {
+    let listener = TcpListener::bind(addr).await?;
+    info!(%addr, "waiting for sessions");
+    let expected = format!("Bearer {auth}");
+    loop {
+        let (connection, peer) = listener.accept().await?;
+        let expected = expected.clone();
+        tokio::spawn(async move {
+            #[expect(
+                clippy::result_large_err,
+                reason = "the handshake takes the refusal itself as the error"
+            )]
+            let check = |request: &Request, response: Response| {
+                let given = request.headers().get(header::AUTHORIZATION);
+                if given.and_then(|value| value.to_str().ok()) == Some(&expected) {
+                    Ok(response)
+                } else {
+                    let mut refusal = ErrorResponse::new(None);
+                    *refusal.status_mut() = StatusCode::UNAUTHORIZED;
+                    Err(refusal)
+                }
+            };
+            match tokio_tungstenite::accept_hdr_async(connection, check).await {
+                Ok(socket) => {
+                    info!(%peer, "a session dialed in");
+                    serve(bytes(socket)).await;
+                }
+                Err(err) => warn!(%peer, "refused: {err}"),
             }
         });
     }

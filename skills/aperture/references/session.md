@@ -37,7 +37,7 @@ Refusals here are plain text with a status: `401` no good credential, `403` the 
 | `POST /storage-state` | Cookies and the storage of origins, out of the browser as JSON; `PUT` puts one in, with tabs to open | `cdp:w` |
 | `POST /mcp` | The session's own MCP server: the browser tools without `session_id` | `mcp:w` |
 | `/cdp`, `/cdp/json/version` | The browser's DevTools endpoint | `cdp:w` |
-| `/tunnel` | Where `aperture-tunnel attach` connects | `tunnel:w` |
+| `/tunnel` | Where `aperture tunnel` attaches | `tunnel:w` |
 
 ## DevTools (CDP)
 

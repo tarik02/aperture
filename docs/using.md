@@ -51,6 +51,34 @@ A session whose `desiredState` is `running` and whose node has it at rest, as af
 
 A session is ready once its `observedState` is `running`. Its own routes (`/targets`, `/files`, `/cdp`, `/mcp` and the rest) are below `$APERTURE_URL<path>`, and take the same API token; [`session.md`](../skills/aperture/references/session.md) lists them.
 
+## The `aperture` command
+
+`aperture` is a client of its own: one file for Linux, macOS and Windows, attached to every release as `aperture-<version>-<os>-<arch>` (`linux-amd64`, `linux-arm64`, `darwin-arm64`, `darwin-amd64`, `windows-amd64.exe`), with `SHA256SUMS`.
+
+```sh
+aperture login "$APERTURE_URL"            # asks for an API token, or takes APERTURE_TOKEN
+aperture sessions new --label demo        # says the new session's id
+aperture sessions ls
+aperture tunnel <session-id> --route localhost:3000
+aperture sessions rm <session-id>
+```
+
+`login` keeps the address and the token in the user's configuration directory (`~/.config/aperture/config.json` on Linux); `APERTURE_URL` and `APERTURE_TOKEN` are taken over what is kept. `new`, `rm` and `tunnel` take a token with `sessions:write`.
+
+**`aperture tunnel <session-id>`** attaches the session's local tunnel, and attaches it again when it drops: a session that moved to another node is found at its new `path`. What the session's rules route `via: local` is connected to from this machine. `--route MATCH[=TO]` puts such a rule before the session's own for as long as the tunnel runs, and takes it away on Ctrl-C: `--route localhost:3000`, or `--route app.test:80=localhost:3000`. The session needs the `tunnel` [feature](configuration.md#session-features).
+
+- `aperture tunnel --url wss://…/tunnel --token …` attaches to a session's tunnel endpoint itself, such as that of `aperture-runner serve`. `--route` replaces such a session's routing, and empties it on Ctrl-C.
+- `aperture tunnel listen 0.0.0.0:7000 --auth SECRET` is the other end of the other kind of tunnel: an operator's, which sessions dial as the upstream `ws+yamux+socks5://<host>:7000/` with `auth` `SECRET`.
+
+**`aperture run`** runs one session on this machine, with no control plane, and opens its workbench in the browser; `--no-open` says its address alone. Ctrl-C stops it.
+
+- On Linux it downloads the release's runner, `aperture-runner-<version>-linux-<arch>.tar.zst`, into `~/.cache/aperture`, checks it against the release's `SHA256SUMS` and runs `aperture-runner serve`. The runner downloads the release's browser the same way when it first starts. Both are of the release `aperture` is of; `--runner-version <version>` takes another, and `nightly` the newest nightly. The machine needs what a node needs: unprivileged user namespaces, and overlayfs in them. Sessions draw on the CPU.
+- On macOS and Windows, and with `--container`, it runs the [container image](install.md#container-image) of the release in podman, Docker or Apple's `container`, whichever is found first (`--runtime` names one), on a port of `127.0.0.1`.
+- `--feature` turns on what the session offers, as for the image: `--feature mcp,cdp,recordings`. `--tunnel` attaches a tunnel to the session as well, and `--route` routes through it.
+- The session is kept in `--data`: `~/.local/share/aperture/session` on Linux by default, and in a container the volume `aperture-session`, or the volume or directory named.
+
+`aperture-runner browser install` downloads the browser ahead of time. A runner given one by `--chromium` or `APERTURE_CHROMIUM`, as the flake's packages and the image are, downloads none.
+
 ## Recording a tab
 
 A recording is a tab's raw video, with the pointer in it, and a journal of what automation did meanwhile. Nothing about the cut is said when it starts. It is said when it stops, and the edit is made of the raw video then: a second video, with a timeline that maps one to the other.

@@ -499,6 +499,39 @@
           }
         );
 
+        # What the runner runs but the browser, for its wrapper.
+        runnerTools = [
+          "--set-default"
+          "APERTURE_BWRAP"
+          (lib.getExe pkgs.bubblewrap)
+          "--set-default"
+          "APERTURE_PASTA"
+          (lib.getExe' pkgs.passt "pasta")
+          "--set-default"
+          "APERTURE_FFMPEG"
+          (lib.getExe' runtimeFfmpeg "ffmpeg")
+          "--set-default"
+          "APERTURE_CURSOR_THEME"
+          "${browserCursorPath}/default"
+          "--set-default"
+          "FONTCONFIG_FILE"
+          "${browserFontsConf}"
+          "--set-default"
+          "APERTURE_GST_PLUGIN_PATH"
+          (lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" gstPlugins)
+          "--set"
+          "APERTURE_COMMIT"
+          commit
+          "--prefix"
+          "LD_LIBRARY_PATH"
+          ":"
+          # libEGL is found when the compositor starts; vendor drivers come from the system.
+          (lib.makeLibraryPath [
+            pkgs.libglvnd
+            pkgs.libgbm
+          ])
+        ];
+
         # The programs with what they run: the browser and its sandbox, ffmpeg, pasta, the
         # encoders. Each is still named by its option or its variable where another is wanted.
         aperture =
@@ -511,26 +544,89 @@
               mkdir -p $out/bin
               for program in aperture-runner aperture-executor; do
                 makeWrapper ${apertureUnwrapped}/bin/$program $out/bin/$program \
-                  --set-default APERTURE_BWRAP ${lib.getExe pkgs.bubblewrap} \
-                  --set-default APERTURE_PASTA ${lib.getExe' pkgs.passt "pasta"} \
+                  ${lib.escapeShellArgs runnerTools} \
                   --set-default APERTURE_TAR ${lib.getExe pkgs.gnutar} \
                   --set-default APERTURE_ZSTD ${lib.getExe pkgs.zstd} \
-                  --set-default APERTURE_CHROMIUM ${lib.getExe' runtimeChromium "chromium"} \
-                  --set-default APERTURE_FFMPEG ${lib.getExe' runtimeFfmpeg "ffmpeg"} \
-                  --set-default APERTURE_CURSOR_THEME ${browserCursorPath}/default \
-                  --set-default FONTCONFIG_FILE ${browserFontsConf} \
-                  --set-default APERTURE_GST_PLUGIN_PATH ${lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" gstPlugins} \
-                  --set APERTURE_COMMIT ${lib.escapeShellArg commit} \
-                  --prefix LD_LIBRARY_PATH : ${
-                    # libEGL is found when the compositor starts; vendor drivers come from the system.
-                    lib.makeLibraryPath [
-                      pkgs.libglvnd
-                      pkgs.libgbm
-                    ]
-                  }
+                  --set-default APERTURE_CHROMIUM ${lib.getExe' runtimeChromium "chromium"}
               done
-              ln -s ${apertureUnwrapped}/bin/aperture-tunnel $out/bin/aperture-tunnel
+              ln -s ${apertureUnwrapped}/bin/aperture $out/bin/aperture
             '';
+
+        # How a release's files name the machine they are for.
+        arch =
+          {
+            x86_64-linux = "amd64";
+            aarch64-linux = "arm64";
+          }
+          .${system};
+
+        # What `roots` are and all they take, as the Nix store they are in, with `files`
+        # beside it: a `.tar.zst` of a release, which runs on a Linux with no Nix.
+        storeBundle =
+          {
+            name,
+            roots,
+            files,
+          }:
+          pkgs.runCommand "${name}.tar.zst"
+            {
+              nativeBuildInputs = [ pkgs.zstd ];
+              closure = pkgs.closureInfo { rootPaths = roots; };
+            }
+            ''
+              mkdir -p bundle/nix/store
+              xargs --arg-file $closure/store-paths cp --archive --target-directory bundle/nix/store
+              ${files}
+              # Writable once it is unpacked, for whoever deletes it then.
+              tar --create --directory bundle --sort=name --mtime=@1 \
+                --owner=0 --group=0 --numeric-owner --mode=u+w . \
+                | zstd --threads=0 -12 > $out
+            '';
+
+        # The runner as a release has it, for `aperture run`: its programs and what they
+        # run but the browser, which it downloads itself. `bin/aperture-runner` runs them.
+        runnerBundle =
+          let
+            runner =
+              pkgs.runCommand "aperture-runner-${version}" { nativeBuildInputs = [ pkgs.makeWrapper ]; }
+                ''
+                  mkdir -p $out/bin
+                  # A GPU's drivers are the machine's, built against its own C library and
+                  # not this one: sessions draw on the CPU.
+                  makeWrapper ${apertureUnwrapped}/bin/aperture-runner $out/bin/aperture-runner \
+                    ${lib.escapeShellArgs runnerTools} \
+                    --set-default APERTURE_NO_GPU true
+                '';
+            bwrap = pkgs.closureInfo { rootPaths = [ pkgs.bubblewrap ]; };
+          in
+          storeBundle {
+            name = "aperture-runner-${version}-linux-${arch}";
+            roots = [ runner ];
+            files = ''
+              libraryPath=$(
+                while read -r path; do
+                  if [ -d "$path/lib" ]; then printf '%s' "\$here$path/lib:"; fi
+                done < ${bwrap}/store-paths
+              )
+              mkdir bundle/bin
+              substitute ${./nix/runner-launcher.sh} bundle/bin/aperture-runner \
+                --subst-var-by runner ${runner}/bin/aperture-runner \
+                --subst-var-by loader ${pkgs.stdenv.cc.bintools.dynamicLinker} \
+                --subst-var-by bwrap ${lib.getExe pkgs.bubblewrap} \
+                --subst-var libraryPath
+              chmod +x bundle/bin/aperture-runner
+            '';
+          };
+
+        # The browser as a release has it, which a runner downloads where it is named none.
+        # `chromium` says which program of the store it is.
+        chromiumBundle = storeBundle {
+          name = "aperture-chromium-${version}-linux-${arch}";
+          roots = [ runtimeChromium ];
+          files = ''
+            echo ${lib.getExe' runtimeChromium "chromium"} > bundle/chromium
+          '';
+        };
 
         # One session in a container: `aperture-runner serve`, with its directory at /data.
         # Its browser is sandboxed inside the container, with a /proc of its own, which a
@@ -710,6 +806,8 @@
           aperture-migrate = migrate;
           aperture-chromium = runtimeChromium;
           aperture-ffmpeg = runtimeFfmpeg;
+          runner-bundle = runnerBundle;
+          chromium-bundle = chromiumBundle;
         };
 
         checks = {

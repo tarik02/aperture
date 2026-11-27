@@ -13,11 +13,22 @@ if [[ ! -e .commit ]]; then
   git add --intent-to-add .commit
 fi
 
-sed -i -E '/^\[workspace\.package\]$/,/^\[/ s/^version = ".*"$/version = "'"$version"'"/' Cargo.toml
+# In place, as GNU's sed and macOS's alike take it: the programs are built on macOS too.
+edit() {
+  local file="$1"
+  shift
+  sed -E "$@" "$file" > "$file.new"
+  mv "$file.new" "$file"
+}
+
+edit Cargo.toml '/^\[workspace\.package\]$/,/^\[/ s/^version = ".*"$/version = "'"$version"'"/'
 
 for manifest in crates/*/Cargo.toml; do
   name="$(sed -n -E '/^\[package\]$/,/^\[/ s/^name = "(.*)"$/\1/p' "$manifest")"
-  sed -i -E '/^name = "'"$name"'"$/{n;s/^version = ".*"$/version = "'"$version"'"/}' Cargo.lock
+  edit Cargo.lock '/^name = "'"$name"'"$/{
+n
+s/^version = ".*"$/version = "'"$version"'"/
+}'
 done
 
 for manifest in packages/*/package.json apps/*/package.json extensions/*/package.json; do

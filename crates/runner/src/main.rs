@@ -60,9 +60,17 @@ async fn main() -> anyhow::Result<ExitCode> {
     let (spec, front): (Spec, _) = match &arguments[..] {
         // Its own name is what the first argument stands for here.
         [first, ..] if first == "serve" => {
-            let (spec, front) = alone::Serve::parse_from(&arguments).session()?;
+            let mut serve = alone::Serve::parse_from(&arguments);
+            serve.download_browser().await?;
+            let (spec, front) = serve.session()?;
             front.listen().await?;
             (spec, Some(front))
+        }
+        [first, second, ..] if first == "browser" && second == "install" => {
+            let install = alone::Install::parse_from(&arguments[1..]);
+            let dir = aperture_runner::downloaded::install(install.release.as_deref()).await?;
+            println!("{}", dir.display());
+            return Ok(ExitCode::SUCCESS);
         }
         [flag] if flag == "--version" || flag == "-V" => {
             println!("aperture-runner {}", *aperture_runner::VERSION);
@@ -80,7 +88,7 @@ async fn main() -> anyhow::Result<ExitCode> {
         }
         _ => {
             eprintln!(
-                "usage: aperture-runner RUNTIME_DIR\n       aperture-runner serve --data DIR"
+                "usage: aperture-runner RUNTIME_DIR\n       aperture-runner serve --data DIR\n       aperture-runner browser install"
             );
             return Ok(ExitCode::from(2));
         }

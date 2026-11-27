@@ -1,0 +1,15 @@
+[package]
+name = "aperture-release"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+serde_json.workspace = true
+sha2 = "0.10"
+tar = "0.4"
+tokio.workspace = true
+tracing.workspace = true
+zstd = "0.13"

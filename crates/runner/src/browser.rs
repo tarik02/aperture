@@ -29,9 +29,12 @@ const SYSTEM_ROOTS: &[&str] = &[
     "/lib",
     "/lib64",
     "/bin",
-    "/nix/store",
+    STORE,
     "/var/cache/fontconfig",
 ];
+
+/// Where Nix keeps what it builds, a downloaded browser among it.
+const STORE: &str = "/nix/store";
 
 /// What the browser is shown of the machine's `/etc`, where the machine has it: how fonts
 /// are found, and the certificates the machine trusts, wherever its distribution keeps
@@ -256,7 +259,18 @@ fn sandbox(command: &mut Command, spec: &Spec, given: &Given, home: &Path) -> an
         "/run",
     ]);
     for root in SYSTEM_ROOTS {
-        if Path::new(root).exists() {
+        let there = Path::new(root).exists();
+        if *root == STORE
+            && let Some(store) = &spec.tools.browser_store
+        {
+            if there {
+                command.args(["--overlay-src", root]);
+                command.arg("--overlay-src").arg(store);
+                command.args(["--ro-overlay", root]);
+            } else {
+                command.arg("--ro-bind").arg(store).arg(root);
+            }
+        } else if there {
             command.args(["--ro-bind", root, root]);
         }
     }

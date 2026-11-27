@@ -11,6 +11,7 @@ license = "MIT"
 anyhow = "1"
 aperture-compositor = { path = "crates/compositor" }
 aperture-gateway = { path = "crates/gateway" }
+aperture-release = { path = "crates/release" }
 aperture-runner = { path = "crates/runner" }
 aperture-store = { path = "crates/store" }
 aperture-tunnel = { path = "crates/tunnel" }

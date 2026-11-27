@@ -65,7 +65,26 @@ pub struct Serve {
     options: Options,
 }
 
+/// Downloads the browser `serve` runs where it is named none, into the user's cache, and
+/// says where it is.
+#[derive(clap::Parser)]
+#[command(
+    name = "aperture-runner browser install",
+    bin_name = "aperture-runner browser install",
+    version
+)]
+pub struct Install {
+    /// The release whose browser it is, or `nightly`. This runner's own by default.
+    #[arg(long)]
+    pub release: Option<String>,
+}
+
 impl Serve {
+    /// Downloads the browser the session runs where it is named none, unless it is there.
+    pub async fn download_browser(&mut self) -> anyhow::Result<()> {
+        self.options.download_browser().await
+    }
+
     /// The session's spec, and what it is served with.
     pub fn session(self) -> anyhow::Result<(Spec, Front)> {
         let private = |dir: &Path| {
