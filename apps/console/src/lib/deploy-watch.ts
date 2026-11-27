@@ -5,9 +5,15 @@ import { toast } from "sonner";
 const CHECK_INTERVAL_MS = 5 * 60_000;
 const ENTRY_SCRIPT = /<script[^>]*type="module"[^>]*src="([^"]+)"/u;
 
-const loadedEntry = () =>
-  document.querySelector<HTMLScriptElement>('script[type="module"][src]')?.getAttribute("src") ??
-  null;
+// A built page's scripts are under /assets/; a development server's are not.
+const built = () => document.querySelector('script[type="module"][src^="/assets/"]') !== null;
+
+// Whether the window runs the build that names this entry. Not the first module script there
+// is: an extension may put its own before it, which is then taken for another build.
+const loaded = (entry: string) =>
+  [...document.querySelectorAll<HTMLScriptElement>('script[type="module"][src]')].some(
+    (script) => script.getAttribute("src") === entry,
+  );
 
 const deployedEntry = async () => {
   const response = await fetch("/", { cache: "no-store", headers: { accept: "text/html" } });
@@ -27,9 +33,8 @@ export function useDeployWatch() {
   const stale = useRef(false);
 
   useEffect(() => {
-    const current = loadedEntry();
     // A development server serves modules without hashes and replaces them itself.
-    if (!import.meta.env.PROD || current === null) {
+    if (!import.meta.env.PROD || !built()) {
       return undefined;
     }
 
@@ -38,7 +43,7 @@ export function useDeployWatch() {
         return;
       }
       const deployed = await deployedEntry().catch(() => null);
-      if (deployed === null || deployed === current || stale.current) {
+      if (deployed === null || loaded(deployed) || stale.current) {
         return;
       }
       stale.current = true;
