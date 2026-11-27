@@ -1,6 +1,6 @@
 {
   "name": "@aperture-browser/docs",
-  "version": "1.0.0-beta.3",
+  "version": "1.0.0-beta.4",
   "private": true,
   "description": "The documentation as a site: the markdown of the repository, and the control plane's API.",
   "type": "module",
