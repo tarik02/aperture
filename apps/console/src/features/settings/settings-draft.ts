@@ -71,15 +71,6 @@ export const amountOf = (key: SettingKey, value: number | undefined, unit?: stri
   return { amount: tidy(shown.amount), unit: shown.unit };
 };
 
-/** The same amount in another unit: 2 h as 120 min. */
-export const inUnit = (key: SettingKey, amount: Amount, unit: string): Amount => {
-  const units = unitsOf(key);
-  const typed = Number(amount.amount);
-  return amount.amount.trim() === "" || !Number.isFinite(typed)
-    ? { ...amount, unit }
-    : { amount: tidy((typed * factorOf(amount.unit, units)) / factorOf(unit, units)), unit };
-};
-
 const enforcedOf = (key: SettingKey, entry: SettingEntry | null) => {
   const value = entry?.value;
   if (entry === null || value === undefined || value === null) {

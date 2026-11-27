@@ -41,7 +41,6 @@ import {
   draftOf,
   entryOf,
   inheritedOf,
-  inUnit,
   isChoice,
   type Mode,
   noneOverNode,
@@ -242,7 +241,8 @@ function AmountField({
           disabled={disabled}
           value={value.unit}
           options={units}
-          onChange={(unit) => onChange(inUnit(settingKey, value, unit))}
+          // The number typed stays: 15 and then "min" is 15 min, not 15 d in minutes.
+          onChange={(unit) => onChange({ ...value, unit })}
         />
       ) : null}
     </ButtonGroup>
