@@ -322,6 +322,17 @@ export function SessionWorkbench({ sessionId, tab }: { sessionId: string; tab?: 
     }
   }, [resumesOnOpen, resume.mutate, sessionId]);
 
+  // A node suspends a session that sat idle and keeps it to run: it wakes once it is
+  // reached, and the workbench reaches it only once it runs. Opening it is reaching it.
+  const asleep =
+    session.data?.desiredState === "running" && session.data.observedState === "suspended";
+  const wakes = asleep && mayResume && resume.isIdle;
+  useEffect(() => {
+    if (wakes) {
+      resume.mutate(sessionId);
+    }
+  }, [wakes, resume.mutate, sessionId]);
+
   if (unanswered) {
     return (
       <State note="unanswered" action={<TryNow />}>
@@ -402,6 +413,32 @@ export function SessionWorkbench({ sessionId, tab }: { sessionId: string; tab?: 
           <span>Join the workspace to resume it.</span>
         ) : (
           <span>You may not resume it: that is for whoever may change the session.</span>
+        )}
+      </State>
+    );
+  }
+  if (asleep && (resume.isError || !mayResume)) {
+    return (
+      <State
+        session={session.data}
+        note="asleep"
+        action={
+          mayResume ? (
+            <Button data-console-resume onClick={() => resume.mutate(sessionId)}>
+              Resume
+            </Button>
+          ) : undefined
+        }
+      >
+        Asleep after sitting idle
+        {resume.isError ? (
+          <span role="alert" className="aperture:text-destructive">
+            It was not woken: {told(resume.error)}
+          </span>
+        ) : onlooks ? (
+          <span>Join the workspace to wake it.</span>
+        ) : (
+          <span>You may not wake it: that is for whoever may change the session.</span>
         )}
       </State>
     );
