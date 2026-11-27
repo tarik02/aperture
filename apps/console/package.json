@@ -1,6 +1,6 @@
 {
   "name": "@aperture-browser/console",
-  "version": "1.0.0-beta.3",
+  "version": "1.0.0-beta.4",
   "private": true,
   "description": "The control plane in a browser: an account's sessions, and each of them opened.",
   "type": "module",

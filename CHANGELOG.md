@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.0-beta.4](https://github.com/tarik02/aperture/compare/v1.0.0-beta.3...v1.0.0-beta.4) (2026-11-27)
+
+
+### Bug Fixes
+
+* keep the number typed when a setting's unit changes ([#258](https://github.com/tarik02/aperture/issues/258)) ([4100dba](https://github.com/tarik02/aperture/commit/4100dbaa2421100463ff650bd53eef844a8ad3a4))
+* no "new version" toast while the build is the same ([#260](https://github.com/tarik02/aperture/issues/260)) ([468364a](https://github.com/tarik02/aperture/commit/468364ab169b98861b6120bb18558effb2af510f))
+* wake a session that sat idle when it is opened ([#261](https://github.com/tarik02/aperture/issues/261)) ([8ac1d88](https://github.com/tarik02/aperture/commit/8ac1d888524cc9450b9f528a68b9c10465c6a458))
+
 ## [1.0.0-beta.3](https://github.com/tarik02/aperture/compare/v1.0.0-beta.2...v1.0.0-beta.3) (2026-11-26)
 
 
