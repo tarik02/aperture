@@ -1,0 +1,39 @@
+name: prune nightlies
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      keep:
+        description: How many of the newest nightlies to keep
+        default: "10"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prune-nightlies
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: prune nightlies
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      # Plain gh: the ready-made actions for this still run on Node 20, which runners drop.
+      # Releases and their tags go; the images of the same version on ghcr.io stay.
+      - name: Delete all but the newest nightlies
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP: ${{ inputs.keep || '10' }}
+        run: |
+          gh release list --limit 1000 --json tagName,createdAt \
+            --jq "[.[] | select(.tagName | contains(\"-nightly.\"))] | sort_by(.createdAt) | reverse | .[$KEEP:][] | .tagName" |
+            while read -r tag; do
+              echo "deleting $tag"
+              gh release delete "$tag" --cleanup-tag --yes
+            done
