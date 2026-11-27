@@ -200,6 +200,8 @@
             ./packages
             # A member of the workspace, so the lockfile names it; its checks are not built.
             ./e2e/package.json
+            # Another: what CI and a release run, which nothing installed has in it.
+            ./tools/package.json
             # Another: the extension for a browser of someone's own, which no program has in it.
             ./extensions/aperture-companion/package.json
             ./package.json
@@ -242,6 +244,7 @@
               (manifests ./packages)
               (lib.fileset.intersection (lib.fileset.maybeMissing ./extensions) (manifests ./.))
               ./e2e/package.json
+              ./tools/package.json
               ./apps/workbench
               ./packages/session-client
               ./packages/session-react

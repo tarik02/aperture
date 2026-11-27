@@ -44,14 +44,18 @@ Any version can be forced the same way, with `Release-As: x.y.z` in the body of 
 
 ## Nightlies
 
-Every push to `master` that is not a release's commit is published by `nightly.yml` as `v0.0.0-nightly.<run>.<sha>`: a GitHub prerelease, the image as `:nightly` and `:nightly-<sha>`, and the npm packages under the dist-tag `nightly`. A nightly has no files on its release. The tree is not bumped for it; `.github/scripts/set-version.sh` writes the version into the checkout it is built from.
+Every push to `master` that is not a release's commit is published by `nightly.yml` as `v0.0.0-nightly.<run>.<sha>`: a GitHub prerelease, the image as `:nightly` and `:nightly-<sha>`, and the npm packages under the dist-tag `nightly`. Its release has the `aperture` program, the runner and the browser as files, with their `SHA256SUMS`, and none of a release's other files. The tree is not bumped for it; `pnpm tools version set` writes the version into the checkout it is built from.
 
-Between releases every build from the tree has the last release's version. What the flake builds says the commit beside it: `aperture-runner --version`, a node's version, the MCP servers', `GET /api/control/about` and the console's sidebar. The flake takes its own revision for it, with `-dirty` for a tree with changes; `set-version.sh` writes the commit to `.commit` first, which the flake takes instead, as the version it writes leaves the tree with changes. The wrappers set it as `APERTURE_COMMIT`, which a build of the tree's own run without them leaves unset: it tells no commit then.
+Between releases every build from the tree has the last release's version. What the flake builds says the commit beside it: `aperture-runner --version`, a node's version, the MCP servers', `GET /api/control/about` and the console's sidebar. The flake takes its own revision for it, with `-dirty` for a tree with changes; `pnpm tools version set` writes the commit to `.commit` first, which the flake takes instead, as the version it writes leaves the tree with changes. The wrappers set it as `APERTURE_COMMIT`, which a build of the tree's own run without them leaves unset: it tells no commit then.
 
 ## What is checked
 
 - `checks.yml`, on every pull request and on pushes to `master`: formatting, lint, types, the builds, the Rust checks, the generated code, and `nix packages`, which builds what the flake installs and fetches the pnpm dependencies again, so that a `workspacePnpmDeps` hash left behind by a change of `pnpm-lock.yaml` fails. What it builds goes to the Cachix cache, so the next run builds only what changed: the crates the programs take from elsewhere are built apart from the programs' own, and a change of the programs' source takes them from the cache; `session image` and `deployment images` then start the images as their users do.
 - `e2e.yml`, which `checks.yml` runs after `nix packages` for pushes to `master`, for a release's pull request and for a pull request labelled `e2e`, and `release-please.yml` runs before anything of a release is published: real sessions end to end, and the NixOS modules on a machine of their own, on the programs `nix packages` put into the cache. A label given after the checks began starts it by itself.
+
+## What the workflows run
+
+What the workflows do beyond checking out, setting up and `nix build` is `pnpm tools <command>`, the private package in `tools/`: writing the version, building and naming the files of a release, `SHA256SUMS` and putting them on the release, the nightly's release, pushing and signing the images, and starting the images and the runner's and the browser's files as their users do. `pnpm tools --help` lists the commands, and `--dry-run` tells what `version nightly` and `files publish` would publish. On a pull request `files.yml` runs both with `--dry-run` over the programs it built; making the release, uploading to it, pushing and signing are run by a release or a nightly alone.
 
 ## What the workflows need
 

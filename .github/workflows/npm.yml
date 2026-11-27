@@ -37,7 +37,7 @@ jobs:
       # Before the build, which takes the version into what it builds. Internal
       # dependencies are `workspace:*`, so pack pins them to this version too.
       - name: Write the version
-        run: .github/scripts/set-version.sh "${GITHUB_REF_NAME#v}"
+        run: pnpm tools version set "${GITHUB_REF_NAME#v}"
 
       - run: pnpm --filter "./packages/**" build
 

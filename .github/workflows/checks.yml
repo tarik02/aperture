@@ -166,12 +166,12 @@ jobs:
         include:
           - name: session image
             images: container
-            smoke: .github/scripts/smoke-image.sh container.tar.gz
+            smoke: pnpm tools smoke image container.tar.gz
           # A whole deployment: the control plane's image and the node's, with the
           # database and the proxy deploy/compose.yaml puts beside them, under Docker.
           - name: deployment images
             images: control-image node-image
-            smoke: .github/scripts/smoke-compose.sh control-image.tar.gz node-image.tar.gz
+            smoke: pnpm tools smoke compose control-image.tar.gz node-image.tar.gz
     steps:
       - uses: actions/checkout@v7.0.0
 
@@ -181,6 +181,8 @@ jobs:
         with:
           name: aperture-browser
           skipPush: true
+
+      - uses: ./.github/actions/tools
 
       - name: Build
         env:

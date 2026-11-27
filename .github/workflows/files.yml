@@ -15,8 +15,10 @@ on:
       - flake.lock
       - nix/**
       - .github/workflows/files.yml
-      - .github/scripts/set-version.sh
-      - .github/scripts/smoke-bundles.sh
+      - .github/actions/tools/**
+      - tools/**
+      - package.json
+      - pnpm-lock.yaml
   workflow_call:
     inputs:
       version:
@@ -79,11 +81,13 @@ jobs:
         with:
           ref: ${{ inputs.tag }}
 
+      - uses: ./.github/actions/tools
+
       - name: Write the version
         if: inputs.version != ''
         env:
           VERSION: ${{ inputs.version }}
-        run: .github/scripts/set-version.sh "$VERSION"
+        run: pnpm tools version set "$VERSION"
 
       - name: Install the toolchain
         env:
@@ -101,22 +105,8 @@ jobs:
 
       - name: Build
         env:
-          OS: ${{ matrix.os }}
-          ARCH: ${{ matrix.arch }}
           TARGET: ${{ matrix.target }}
-        run: |
-          cargo build --release --locked --package aperture-cli --target "$TARGET"
-          version="$(sed -n -E '/^\[workspace\.package\]$/,/^\[/ s/^version = "(.*)"$/\1/p' Cargo.toml)"
-          exe=""
-          if [[ "$OS" == windows ]]; then
-            exe=.exe
-          fi
-          mkdir files
-          cp "target/$TARGET/release/aperture$exe" "files/aperture-$version-$OS-$ARCH$exe"
-          # An Intel program does not run on this Mac.
-          if [[ "$TARGET" != x86_64-apple-darwin ]]; then
-            "files/aperture-$version-$OS-$ARCH$exe" --version
-          fi
+        run: pnpm tools files cli --target "$TARGET" --out files
 
       - uses: actions/upload-artifact@v7.0.1
         with:
@@ -144,6 +134,8 @@ jobs:
 
       - uses: cachix/install-nix-action@v31
 
+      - uses: ./.github/actions/tools
+
       # The programs the runner's file is made of, for the next run; the files are not.
       - uses: cachix/cachix-action@v17
         with:
@@ -156,23 +148,17 @@ jobs:
         if: inputs.version != ''
         env:
           VERSION: ${{ inputs.version }}
-        run: .github/scripts/set-version.sh "$VERSION"
+        run: pnpm tools version set "$VERSION"
 
       - name: Build
-        run: |
-          mkdir files
-          for bundle in runner-bundle chromium-bundle; do
-            nix build ".#$bundle" --out-link "$bundle" --print-build-logs
-            cp "$bundle" "files/$(nix eval --raw ".#$bundle.name")"
-          done
-          ls -l files
+        run: pnpm tools files bundles --out files
 
       # A session's sandbox is made of user namespaces, which this runner's AppArmor
       # keeps from whoever is not root.
       - name: Start a session from them
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          .github/scripts/smoke-bundles.sh files/aperture-runner-*.tar.zst files/aperture-chromium-*.tar.zst
+          pnpm tools smoke bundles files/aperture-runner-*.tar.zst files/aperture-chromium-*.tar.zst
 
       - uses: actions/upload-artifact@v7.0.1
         if: inputs.version != ''
@@ -182,3 +168,38 @@ jobs:
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
+
+  # What publish.yml does with these files and a nightly's version, short of making the
+  # release and putting them on it, for a pull request: the version a nightly of this run
+  # would have, written into the tree, and the sums of the programs.
+  dry-run:
+    name: release files (dry run)
+    needs: cli
+    if: inputs.version == ''
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: ./.github/actions/tools
+
+      - name: Name the nightly
+        id: nightly
+        run: pnpm tools version nightly --dry-run
+
+      - name: Write its version
+        env:
+          VERSION: ${{ steps.nightly.outputs.version }}
+        run: |
+          pnpm tools version set "$VERSION"
+          git status --short
+
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: release-files-*
+          merge-multiple: true
+          path: files
+
+      - name: Sum the files
+        env:
+          TAG: v${{ steps.nightly.outputs.version }}
+        run: pnpm tools files publish --tag "$TAG" --dir files --dry-run
