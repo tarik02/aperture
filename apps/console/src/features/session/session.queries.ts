@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import * as Schema from "effect/Schema";
 import { useMay } from "#/features/auth/access.ts";
 import { every } from "#/lib/answering.ts";
@@ -31,6 +31,14 @@ export function useSessionQuery(id: string) {
     refetchInterval: every(ASKED_EVERY),
   });
 }
+
+/**
+ * When what a session keeps of itself was last made: as it was suspended last. Its node
+ * tells of it every few seconds while it rests, which is no new rest: what is kept is asked
+ * for again only when this changes.
+ */
+export const restedAt = (session: Session) =>
+  (session.suspendedSince ?? session.observedAt).epochMilliseconds;
 
 /** A page a session has open, as the session's own `targets` route tells it. */
 const Target = Schema.Struct({
@@ -93,7 +101,7 @@ const decodeKeptTabs = Schema.decodeUnknownPromise(KeptTabs);
  */
 export function useSessionKeptTabsQuery(session: Session) {
   const path = session.path;
-  const at = session.observedAt.epochMilliseconds;
+  const at = restedAt(session);
   return useQuery({
     queryKey: queryKeys.keptTabs(session.id, at),
     queryFn: async () => {
@@ -108,5 +116,7 @@ export function useSessionKeptTabsQuery(session: Session) {
     },
     enabled: path !== null && session.observedState === "suspended",
     staleTime: Number.POSITIVE_INFINITY,
+    // What it kept as it rested before stays while what it kept now is asked for.
+    placeholderData: keepPreviousData,
   });
 }

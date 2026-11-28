@@ -2,6 +2,7 @@ import { cn } from "@aperture-browser/ui/utils";
 import { AppWindow } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
+  restedAt,
   type Session,
   useSessionKeptTabsQuery,
   useSessionTargetsQuery,
@@ -27,7 +28,7 @@ export function useSessionPicture(session: Session, width: number) {
   const shown = useSessionTargetsQuery(session);
   const kept = useSessionKeptTabsQuery(session);
   const { path } = session;
-  const at = session.observedAt.epochMilliseconds;
+  const at = restedAt(session);
   // What a session told of its tabs while it ran is not what it has once it rests. One
   // being restored runs for whoever looks, and keeps what it told meanwhile.
   const runs = session.observedState === "running" || session.observedState === "restoring";
