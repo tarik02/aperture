@@ -1,6 +1,6 @@
 {
   "name": "@aperture-browser/session-client",
-  "version": "1.0.0-beta.5",
+  "version": "1.0.0-beta.6",
   "description": "Framework-free client for one Aperture session: the live protocol, its picture and sound, browser input, and the session's HTTP routes.",
   "homepage": "https://github.com/tarik02/aperture#readme",
   "bugs": "https://github.com/tarik02/aperture/issues",

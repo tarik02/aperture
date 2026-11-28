@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.0-beta.6](https://github.com/tarik02/aperture/compare/v1.0.0-beta.5...v1.0.0-beta.6) (2026-11-28)
+
+
+### Bug Fixes
+
+* keep suspended sessions and their tabs in place on the sessions page ([#267](https://github.com/tarik02/aperture/issues/267)) ([ff0b70f](https://github.com/tarik02/aperture/commit/ff0b70ffa865bb035bbe3f8b916a5a9c2dd6dfd7))
+* take a key that is down already as still down, not pressed once more ([#268](https://github.com/tarik02/aperture/issues/268)) ([1ef05d1](https://github.com/tarik02/aperture/commit/1ef05d1fa440fee6702d218f12adb703b677cc54))
+
 ## [1.0.0-beta.5](https://github.com/tarik02/aperture/compare/v1.0.0-beta.4...v1.0.0-beta.5) (2026-11-28)
 
 
