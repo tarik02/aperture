@@ -25,6 +25,11 @@ import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { useAccess } from "#/features/auth/access.ts";
 import { SessionCreateDialog } from "#/features/session/session-create-dialog.tsx";
 import { SessionCard, TabCard } from "#/features/session/session-card.tsx";
+import {
+  SessionActionsMenu,
+  SessionContextMenu,
+  useSessionActions,
+} from "#/features/session/session-actions-menu.tsx";
 import { useSessionPicture } from "#/features/session/session-picture.tsx";
 import { SessionStatusBadge } from "#/features/session/session-status-badge.tsx";
 import {
@@ -100,6 +105,7 @@ const tabMatches = (tab: { title: string; url: string }, sought: string) =>
  */
 function SessionTabs({ session, sought }: { session: Session; sought: string }) {
   const { tabs } = useSessionPicture(session, TAB_WIDTH);
+  const { actions, dialogs } = useSessionActions(session);
   const shown =
     sought === "" || matches(session, sought)
       ? tabs
@@ -109,41 +115,49 @@ function SessionTabs({ session, sought }: { session: Session; sought: string }) 
   }
   const name = session.label ?? session.id;
   return (
-    <section
-      data-console-session-tabs-group={session.id}
-      aria-label={name}
-      className="aperture:grid aperture:gap-2 aperture:rounded-xl aperture:bg-card aperture:p-2 aperture:text-card-foreground aperture:ring-1 aperture:ring-foreground/10 aperture:md:grid-cols-[12rem_minmax(0,1fr)] aperture:md:gap-0"
-    >
-      <div className="aperture:flex aperture:min-w-0 aperture:flex-col aperture:gap-1 aperture:px-1 aperture:pt-1 aperture:md:border-r aperture:md:border-foreground/10 aperture:md:pr-3">
-        <h2 className="aperture:min-w-0 aperture:text-sm aperture:font-medium">
-          <Link
-            to="/-/sessions/$sessionId"
-            params={{ sessionId: session.id }}
-            title={name}
-            className="aperture:block aperture:truncate aperture:hover:underline"
-          >
-            {name}
-          </Link>
-        </h2>
-        <div className="aperture:flex aperture:flex-wrap aperture:items-center aperture:gap-2">
-          <SessionStatusBadge session={session} />
-          <span className="aperture:text-xs aperture:text-muted-foreground">
-            {tabs.length === 1 ? "1 tab" : `${tabs.length} tabs`}
-          </span>
-        </div>
-        <span className="aperture:truncate aperture:font-mono aperture:text-[0.7rem] aperture:text-muted-foreground/80">
-          {session.id}
-        </span>
-      </div>
-      {/* One row however many there are: the page scrolls by sessions, a row by tabs. */}
-      <ul className="aperture:flex aperture:snap-x aperture:gap-1 aperture:overflow-x-auto aperture:pb-1 aperture:[scrollbar-width:thin] aperture:md:pl-2">
-        {shown.map((tab) => (
-          <li key={tab.tab} className="aperture:w-40 aperture:shrink-0 aperture:snap-start">
-            <TabCard session={session} tab={tab} />
-          </li>
-        ))}
-      </ul>
-    </section>
+    <>
+      <SessionContextMenu actions={actions}>
+        <section
+          data-console-session-tabs-group={session.id}
+          aria-label={name}
+          className="aperture:grid aperture:gap-2 aperture:rounded-xl aperture:bg-card aperture:p-2 aperture:text-card-foreground aperture:ring-1 aperture:ring-foreground/10 aperture:md:grid-cols-[12rem_minmax(0,1fr)] aperture:md:gap-0"
+        >
+          <div className="aperture:flex aperture:min-w-0 aperture:flex-col aperture:gap-1 aperture:px-1 aperture:pt-1 aperture:md:border-r aperture:md:border-foreground/10 aperture:md:pr-3">
+            <div className="aperture:flex aperture:items-start aperture:gap-1">
+              <h2 className="aperture:min-w-0 aperture:flex-1 aperture:pt-1 aperture:text-sm aperture:font-medium">
+                <Link
+                  to="/-/sessions/$sessionId"
+                  params={{ sessionId: session.id }}
+                  title={name}
+                  className="aperture:block aperture:truncate aperture:hover:underline"
+                >
+                  {name}
+                </Link>
+              </h2>
+              <SessionActionsMenu actions={actions} />
+            </div>
+            <div className="aperture:flex aperture:flex-wrap aperture:items-center aperture:gap-2">
+              <SessionStatusBadge session={session} />
+              <span className="aperture:text-xs aperture:text-muted-foreground">
+                {tabs.length === 1 ? "1 tab" : `${tabs.length} tabs`}
+              </span>
+            </div>
+            <span className="aperture:truncate aperture:font-mono aperture:text-[0.7rem] aperture:text-muted-foreground/80">
+              {session.id}
+            </span>
+          </div>
+          {/* One row however many there are: the page scrolls by sessions, a row by tabs. */}
+          <ul className="aperture:flex aperture:snap-x aperture:gap-1 aperture:overflow-x-auto aperture:pb-1 aperture:[scrollbar-width:thin] aperture:md:pl-2">
+            {shown.map((tab) => (
+              <li key={tab.tab} className="aperture:w-40 aperture:shrink-0 aperture:snap-start">
+                <TabCard session={session} tab={tab} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      </SessionContextMenu>
+      {dialogs}
+    </>
   );
 }
 
