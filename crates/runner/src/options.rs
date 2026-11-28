@@ -84,6 +84,10 @@ pub struct Options {
     /// An argument for every session's browser. May be repeated.
     #[arg(long = "browser-arg", allow_hyphen_values = true)]
     browser_args: Vec<String>,
+    /// The largest file clients put into a session, such as `1G` or `16G`; `0` for any
+    /// size. A unit is a power of 1024. Whoever starts a session may say another of it.
+    #[arg(long, env = "APERTURE_UPLOAD_MOST", default_value = "1G", value_parser = size)]
+    upload_most: u64,
 }
 
 /// The options, with every program found.
@@ -97,6 +101,7 @@ pub struct Setup {
     network: Network,
     browser_args: Vec<String>,
     features: Features,
+    upload_most: Option<u64>,
 }
 
 /// Where a session's own directories are.
@@ -135,6 +140,7 @@ impl Options {
             gpu: !self.no_gpu,
             egress_allow: self.egress_allow,
             browser_args: self.browser_args,
+            upload_most: Some(self.upload_most).filter(|&most| most > 0),
             features: self.features.into_iter().fold(
                 Features::default(),
                 |mut features, (feature, on)| {
@@ -155,6 +161,12 @@ impl Setup {
     /// The network sessions' browsers have, and no session's more.
     pub fn network(&self) -> Network {
         self.network
+    }
+
+    /// The largest file clients put into a session that is said nothing else of; any size
+    /// without.
+    pub fn upload_most(&self) -> Option<u64> {
+        self.upload_most
     }
 
     /// The spec of a session that runs with these options.
@@ -184,6 +196,7 @@ impl Setup {
             network,
             browser_args: self.browser_args.clone(),
             features,
+            upload_most: self.upload_most,
             restoring: false,
         }
     }
@@ -237,6 +250,15 @@ fn feature(said: &str) -> Result<(Feature, bool), String> {
         format!("{name:?} is none of {}", names.join(", "))
     })?;
     Ok((feature, on))
+}
+
+/// A size in bytes, as `512M`, `1G`, `1.5G` or a number of bytes. A unit is a power of
+/// 1024.
+fn size(text: &str) -> Result<u64, String> {
+    parse_size::Config::new()
+        .with_binary()
+        .parse_size(text.trim())
+        .map_err(|err| format!("{text:?} is not a size like 512M or 4G: {err}"))
 }
 
 fn port_range(ports: &str) -> Result<PortRange, String> {

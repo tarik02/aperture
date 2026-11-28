@@ -192,9 +192,15 @@ export interface Session {
    */
   readonly copyHere: (forms: readonly ClipboardForm[]) => Promise<boolean>;
 
+  /**
+   * Puts a file into the session's uploads. One larger than the session takes is refused
+   * before it is sent. Aborted by `signal`, the upload is given up, and what came of it
+   * is removed.
+   */
   readonly upload: (
     file: File,
     onProgress?: (progress: UploadProgress) => void,
+    signal?: AbortSignal,
   ) => Promise<Uploaded>;
   readonly uploads: () => Promise<Uploaded[]>;
   readonly removeUpload: (name: string) => Promise<void>;
@@ -288,7 +294,8 @@ export const connect = (options: ConnectOptions): Session => {
     copySelection: () => Effect.runSync(session.copySelection),
     selectAll: () => Effect.runSync(session.selectAll),
     copyHere: (forms) => promised(session.copyHere(forms)),
-    upload: (file, onProgress) => promised(session.upload(file, onProgress)),
+    upload: (file, onProgress, signal) =>
+      Effect.runPromise(session.upload(file, onProgress), { signal }),
     uploads: () => promised(session.uploads),
     removeUpload: (name) => promised(session.removeUpload(name)),
     chooseFiles: (request, names) => Effect.runSync(session.chooseFiles(request, names)),

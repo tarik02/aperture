@@ -72,6 +72,15 @@ The raw video stays, so the edit is made again with other options whenever the c
 
 How automation moves the pointer in a recorded tab is not a recording's but the session's: its **pace**, `instant`, `fast` (the default) or `slow`. Every recording that runs shares it, everyone in the session sees the same, and it stays over a suspend. Set it with the `pace` tool, `PUT /pace`, or **Automation pace** in the workbench's menu. A tab nothing records gets automation's input at once whatever the pace is. The pointer's way is in the raw video, so a later edit does not change it.
 
+## Putting files into a session
+
+A file is put among a session's uploads for a page to take: from the workbench's files panel, by dropping it onto the session, or with `uploads:w` over HTTP.
+
+- **In the workbench** a file goes a piece of 64 MiB at a time, as [tus 1.0](https://tus.io/protocols/resumable-upload) has it. A piece that fails is sent again, and a file whose connection dropped, or that is picked again after the page was loaded again, goes on where it left off. The panel shows how far it is, and its cancel button gives it up.
+- **Over HTTP**, `PUT /uploads/{name}` takes the body as the file, or `POST /uploads` and then `PATCH` send it in pieces with any tus client.
+
+A file larger than [`uploadMaxSize`](configuration.md#settings), 1 GiB unless an admin says more, is refused before it is sent, and so is one the node's disk has no room for.
+
 ## Embedding a session
 
 A page of yours shows a session with a ticket. Your backend holds the API token and asks for the ticket; the page never sees the token.

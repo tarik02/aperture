@@ -8,6 +8,7 @@ import {
   FolderOpen,
   Loader2,
   Trash2,
+  X,
 } from "lucide-react";
 import type { Download, FileRequest, Uploaded } from "@aperture-browser/session-client";
 import { Button } from "@aperture-browser/ui/components/button";
@@ -309,8 +310,21 @@ function SessionFiles({
                     {file.name}
                   </span>
                   <span className="aperture:shrink-0 aperture:text-xs aperture:text-muted-foreground aperture:tabular-nums">
-                    {percent(file.loaded, file.total)}
+                    {file.rate === undefined || file.rate <= 0
+                      ? percent(file.loaded, file.total)
+                      : `${speed(file.rate)} · ${left((file.total - file.loaded) / file.rate)} · ${percent(file.loaded, file.total)}`}
                   </span>
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label={`Cancel the upload of ${file.name}`}
+                    data-session-upload-cancel=""
+                    className="aperture:shrink-0"
+                    onClick={() => uploads.cancel(file.name)}
+                  >
+                    <X />
+                  </Button>
                 </div>
                 <div className="aperture:h-1 aperture:overflow-hidden aperture:rounded-full aperture:bg-muted">
                   <div
@@ -461,6 +475,27 @@ function giveLabel(request: FileRequest, chosen: number): string {
     return `Give ${chosen} files`;
   }
   return request.multiple && chosen === 0 ? "Give the files" : "Give the file";
+}
+
+function speed(bytesPerSecond: number): string {
+  const [unit, size] =
+    bytesPerSecond >= 1024 ** 3
+      ? ["GB", 1024 ** 3]
+      : bytesPerSecond >= 1024 ** 2
+        ? ["MB", 1024 ** 2]
+        : ["KB", 1024];
+  return `${Number((bytesPerSecond / size).toFixed(1))} ${unit}/s`;
+}
+
+function left(seconds: number): string {
+  const whole = Math.max(1, Math.ceil(seconds));
+  if (whole < 60) {
+    return `${whole} s left`;
+  }
+  const minutes = Math.ceil(whole / 60);
+  return minutes < 60
+    ? `${minutes} min left`
+    : `${Math.floor(minutes / 60)} h ${minutes % 60} min left`;
 }
 
 function percent(loaded: number, total: number): string {

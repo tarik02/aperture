@@ -71,6 +71,9 @@ in
         TRAEFIK_ENTRYPOINTS_WEB_ADDRESS = cfg.address;
         TRAEFIK_PROVIDERS_HTTP_ENDPOINT = "${cfg.controlUrl}/api/control/route/traefik";
         TRAEFIK_PROVIDERS_HTTP_POLLINTERVAL = cfg.pollInterval;
+        # Traefik's own is a minute for the whole of a request, which a piece of an upload
+        # takes longer than to come on a slow link.
+        TRAEFIK_ENTRYPOINTS_WEB_TRANSPORT_RESPONDINGTIMEOUTS_READTIMEOUT = "15m";
         TRAEFIK_GLOBAL_CHECKNEWVERSION = "false";
         TRAEFIK_GLOBAL_SENDANONYMOUSUSAGE = "false";
       }

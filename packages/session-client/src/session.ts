@@ -892,7 +892,12 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
 
   const listed = async (files: readonly File[]) => {
     const put = await Promise.all(
-      files.map((file) => Effect.runPromise(Http.upload(address, file))),
+      files.map((file) => {
+        const refused = Http.tooLarge(file, snapshot.features.uploadMost);
+        return Effect.runPromise(
+          refused === undefined ? Http.upload(address, file) : Effect.fail(refused),
+        );
+      }),
     );
     const uris = put.map((file) => {
       return `${UrlPath.make`file://${UrlPath.segments(file.path)}`}\r\n`;
@@ -1120,7 +1125,10 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
     selectAll: Effect.sync(() => keyboard.chord(KEY.a)),
     copyHere: (forms) => Effect.promise(() => Clipboard.writeByHand(forms)),
 
-    upload: (file, onProgress) => Http.upload(address, file, onProgress),
+    upload: (file, onProgress) => {
+      const refused = Http.tooLarge(file, snapshot.features.uploadMost);
+      return refused === undefined ? Http.upload(address, file, onProgress) : Effect.fail(refused);
+    },
     uploads: Http.uploads(address),
     removeUpload: (name) => Http.removeUpload(address, name),
     chooseFiles: (request, names) =>

@@ -286,6 +286,9 @@ fn needs(method: &Method, rest: &str) -> Needs {
         ("recordings" | "screenshots", _) => either(Area::Recordings),
         // How the automation moves in what is recorded is for whoever may record.
         ("pace", None) => either(Area::Recordings),
+        // What tells how far an upload came, or what is taken, is for whoever sends one.
+        ("uploads", Some("resumable")) => Needs::Writing(Area::Uploads),
+        ("uploads", None) if *method == Method::OPTIONS => Needs::Writing(Area::Uploads),
         ("uploads", _) => either(Area::Uploads),
         ("downloads", None) if reads => Needs::Reading(Area::Downloads),
         ("files", Some("recordings" | "screenshots")) if reads => Needs::Reading(Area::Recordings),
@@ -365,12 +368,14 @@ mod tests {
 
     #[test]
     fn a_route_takes_what_is_said_of_it_and_one_that_is_not_named_the_operator() {
-        let (get, head, post, put, delete) = (
+        let (get, head, post, put, delete, patch, options) = (
             Method::GET,
             Method::HEAD,
             Method::POST,
             Method::PUT,
             Method::DELETE,
+            Method::PATCH,
+            Method::OPTIONS,
         );
         let table = [
             (&get, "", Watching),
@@ -405,6 +410,13 @@ mod tests {
             (&get, "/uploads", Reading(Uploads)),
             (&put, "/uploads/a.txt", Writing(Uploads)),
             (&delete, "/uploads/a.txt", Writing(Uploads)),
+            (&post, "/uploads", Writing(Uploads)),
+            (&options, "/uploads", Writing(Uploads)),
+            (&head, "/uploads/resumable/0a1b", Writing(Uploads)),
+            (&get, "/uploads/resumable/0a1b", Writing(Uploads)),
+            (&patch, "/uploads/resumable/0a1b", Writing(Uploads)),
+            (&delete, "/uploads/resumable/0a1b", Writing(Uploads)),
+            (&patch, "/uploads/a.txt", Writing(Uploads)),
             (&get, "/downloads", Reading(Downloads)),
             (&post, "/downloads", Operator),
             (&delete, "/downloads", Operator),
@@ -453,7 +465,7 @@ mod tests {
         let reads: Access = "uploads:r recordings:r downloads:r".parse().unwrap();
         let tabs: Access = "tabs:w".parse().unwrap();
         let file = Some("/files/uploads/a.txt");
-        let (get, put) = (Method::GET, Method::PUT);
+        let (get, put, head, patch) = (Method::GET, Method::PUT, Method::HEAD, Method::PATCH);
         let table = [
             // Watching is everyone's who is let into the session.
             ("abc", nothing, None, &get, "/sessions/abc", true),
@@ -480,6 +492,31 @@ mod tests {
                 true,
             ),
             ("abc", uploads, None, &get, "/sessions/abc/downloads", false),
+            // How far an upload came is for whoever may send one.
+            (
+                "abc",
+                reads,
+                None,
+                &head,
+                "/sessions/abc/uploads/resumable/0a1b",
+                false,
+            ),
+            (
+                "abc",
+                uploads,
+                None,
+                &head,
+                "/sessions/abc/uploads/resumable/0a1b",
+                true,
+            ),
+            (
+                "abc",
+                uploads,
+                None,
+                &patch,
+                "/sessions/abc/uploads/resumable/0a1b",
+                true,
+            ),
             (
                 "abc",
                 reads,

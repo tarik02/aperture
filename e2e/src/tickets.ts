@@ -86,14 +86,31 @@ export const layer = (options: Runner.RunnerOptions = {}) =>
 export const Failure = Schema.Struct({ asked: Schema.String, reason: Schema.String });
 export type Failure = typeof Failure.Type;
 
-/** What the session tells a client its token or ticket grants, area by area. */
-export const Features = Schema.Record(
-  Schema.String,
+const Grant = Schema.optional(
   Schema.Struct({
     read: Schema.optional(Schema.Boolean),
     write: Schema.optional(Schema.Boolean),
   }),
 );
+
+/**
+ * What the session tells a client its token or ticket grants, area by area, and the
+ * largest file it takes, a number as JSON tells a 64-bit one.
+ */
+export const Features = Schema.Struct({
+  input: Grant,
+  tabs: Grant,
+  lease: Grant,
+  sound: Grant,
+  uploads: Grant,
+  downloads: Grant,
+  recordings: Grant,
+  clipboard: Grant,
+  mcp: Grant,
+  cdp: Grant,
+  tunnel: Grant,
+  uploadMost: Schema.optional(Schema.String),
+});
 
 /** Someone in the session, as its presence tells them. */
 export const Present = Schema.Struct({

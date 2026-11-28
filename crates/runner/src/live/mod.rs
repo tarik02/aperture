@@ -21,6 +21,7 @@ pub mod sound;
 mod state;
 pub mod stream;
 mod tiles;
+pub mod uploads;
 
 pub use encoders::frame_layouts;
 pub use http::{Live, serve};

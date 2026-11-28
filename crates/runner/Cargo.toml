@@ -29,6 +29,7 @@ gstreamer = "0.25"
 gstreamer-app = "0.25"
 gstreamer-allocators = "0.25"
 gstreamer-video = { version = "0.25", features = ["v1_24"] }
+parse-size = "1.1.0"
 percent-encoding = "2"
 png = "0.18"
 rustix = { version = "1", features = ["fs"] }

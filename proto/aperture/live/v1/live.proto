@@ -116,8 +116,9 @@ enum Pace {
 }
 
 // What the client may do in the session, area by area: what whoever let it in gave it, of
-// what the session offers at all. Sent first after `hello`. What is not granted is refused:
-// a client need not show it. Watching takes no grant.
+// what the session offers at all. Sent first after `hello`, and again when the largest
+// upload changes. What is not granted is refused: a client need not show it. Watching
+// takes no grant.
 message Features {
   // Write: the pointer, the keyboard and what is dropped go into the tab the client holds.
   Grant input = 9;
@@ -143,6 +144,9 @@ message Features {
   Grant cdp = 7;
   // Write: a tunnel, at `tunnel`.
   Grant tunnel = 8;
+  // The largest file that is put into the session, in bytes; any size without. A larger
+  // one is refused before it is sent.
+  optional uint64 upload_most = 12;
 }
 
 message Grant {

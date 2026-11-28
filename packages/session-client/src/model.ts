@@ -80,6 +80,8 @@ export interface Features {
   readonly cdp: Grant;
   /** Write: attaching a tunnel. */
   readonly tunnel: Grant;
+  /** The largest file that is put into the session, in bytes; any size where none. */
+  readonly uploadMost: number | null;
 }
 
 const NOTHING: Grant = { read: false, write: false };
@@ -97,6 +99,7 @@ export const NO_FEATURES: Features = {
   mcp: NOTHING,
   cdp: NOTHING,
   tunnel: NOTHING,
+  uploadMost: null,
 };
 
 const grantOf = (grant: pb.Grant | undefined): Grant =>
@@ -114,6 +117,7 @@ export const featuresOf = (features: pb.Features): Features => ({
   mcp: grantOf(features.mcp),
   cdp: grantOf(features.cdp),
   tunnel: grantOf(features.tunnel),
+  uploadMost: features.uploadMost === undefined ? null : Number(features.uploadMost),
 });
 
 /** How the session's automation moves the pointer in a tab that is being recorded. */

@@ -116,6 +116,7 @@ impl Client {
             mcp: buffa::MessageField::some(self.told(Area::Mcp)),
             cdp: buffa::MessageField::some(self.told(Area::Cdp)),
             tunnel: buffa::MessageField::some(self.told(Area::Tunnel)),
+            upload_most: *self.upload_most.borrow_and_update(),
             ..Default::default()
         };
         self.send(server_message::Message::Features(Box::new(features)))

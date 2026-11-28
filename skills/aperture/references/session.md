@@ -33,7 +33,8 @@ Refusals here are plain text with a status: `401` no good credential, `403` the 
 | `POST /recordings/{id}/edit` | Makes the edit again from the same raw video, with a body as `stop` takes; `409` while one is being made or the raw video is gone | `recordings:w` |
 | `GET /pace`, `PUT /pace` | How automation moves the pointer in what is recorded: `{"pace": "instant" \| "fast" \| "slow"}` | `recordings:r`, `recordings:w` |
 | `GET /files/<path>` | A file's bytes, `path` as the `files` tool gives it | the area of its directory |
-| `PUT /uploads/{name}` | Puts a file for a page to take; the body is the bytes | `uploads:w` |
+| `PUT /uploads/{name}` | Puts a file for a page to take, in place of one of its name; the body is the bytes. `413` for one larger than the session takes, `507` where its disk has no room | `uploads:w` |
+| `POST /uploads`, then `HEAD`, `PATCH`, `DELETE` at what it answers | The same, a piece at a time, as [tus 1.0](https://tus.io/protocols/resumable-upload) has it with its creation and termination extensions: `Upload-Length`, and the name as `filename` in `Upload-Metadata`. `OPTIONS /uploads` tells the largest file as `Tus-Max-Size`. What came of one nobody went on with for a day is removed | `uploads:w` |
 | `POST /storage-state` | Cookies and the storage of origins, out of the browser as JSON; `PUT` puts one in, with tabs to open | `cdp:w` |
 | `POST /mcp` | The session's own MCP server: the browser tools without `session_id` | `mcp:w` |
 | `/cdp`, `/cdp/json/version` | The browser's DevTools endpoint | `cdp:w` |

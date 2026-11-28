@@ -68,6 +68,7 @@ api -X PUT "$APERTURE_URL/api/control/sessions/$SESSION/pin" -d '{"pinned":true}
 - A value past a bound above is refused with `SettingOutOfBounds`, whose `level` names who set the bound.
 - A pinned session is never deleted by `deleteSuspendedAfter` or `maxSessionAge`. Who pins is the `pinning` setting; one pin too many is `QuotaExceeded`.
 - Quotas (`sessionsPerUser`, `sessionsPerWorkspace`, `runningSessions`) refuse creating or resuming past them with `QuotaExceeded`; `sessionMemory` and `sessionCpus` bound what each session uses.
+- `uploadMaxSize` is the largest file put into a session (1 GiB unless said; a session may say more for itself, inside the bounds an admin sets); a larger one is `413` from the session.
 - `clipboard`, `uploads`, `downloads` and `recording` hold every ticket into a session; a file link for what is off is `Forbidden`. A share link or an API token longer than `shareLinkMaxLifetime` / `apiTokenMaxLifetime`, or one that never runs out where those are set, is `SettingOutOfBounds`.
 - Over MCP: `settings.get`, `settings.set`, `settings.clear`, `sessions.pin`.
 

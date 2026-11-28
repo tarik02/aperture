@@ -75,6 +75,7 @@ Each is told with what it comes to and where that comes from: the console shows 
 | `sessionMemory` | all | `APERTURE_CONTROL_SESSION_MEMORY` | each node's own | The memory a session may use, in bytes; a variable takes `512M` or `4G`. Held only on a node that runs sessions as [scopes](#limits); another's sessions are held to nothing |
 | `clipboard` | all | `APERTURE_CONTROL_CLIPBOARD` | `rw` | What is copied passes between a session and its clients both ways (`rw`), only out of the session to them (`ro`), or not at all (`off`) |
 | `uploads` | all | `APERTURE_CONTROL_UPLOADS` | `true` | Whether files are put into a session |
+| `uploadMaxSize` | all | `APERTURE_CONTROL_UPLOAD_MAX_SIZE` | `1G` | The largest file put into a session, in bytes; a variable takes `512M` or `16G`, and `none` for any size. Its node refuses a larger one as `413` before it takes a byte of it, and the console before it sends it. A change holds at once for a session that runs. Not a quota: a session says more for itself, as far as the bounds above let it; an admin who would hold people to a size says it as a bound |
 | `downloads` | all | `APERTURE_CONTROL_DOWNLOADS` | `true` | Whether a session's browser downloads files, and they are read out of it |
 | `recording` | all | `APERTURE_CONTROL_RECORDING` | `true` | Whether a session's tabs are recorded and screenshots taken. What was recorded before is still read |
 | `recordingRetention` | all | `APERTURE_CONTROL_RECORDING_RETENTION` | kept for good | How long a session's recordings and screenshots are kept: its node removes each whole, all its files together, once the newest of them was last changed longer ago, looking at the sessions at rest every ten minutes, or as its [`APERTURE_RECORDINGS_CHECK`](#limits) says. A session that runs keeps all of its until it is next suspended, by someone or for sitting idle; one that was still recorded or edited when it stopped stays |
@@ -190,11 +191,12 @@ None of these has a module option: set them in `services.aperture.node.environme
 | `APERTURE_NETWORK_TCP` | `environment` | `proxied` or `direct` | `proxied` | `proxied`: a browser's TCP goes nowhere but through the session's egress, which holds it to the session's routing. `direct`: out as well, held to nothing, the local network included |
 | `APERTURE_NETWORK_UDP` | `environment` | `none` or `direct` | `none` | `none`: a browser has no UDP, so pages' own WebRTC has no way out. `direct`: out, held to nothing |
 | `APERTURE_NO_GPU` | `environment` | flag | off | Draw sessions on the CPU also where a GPU works |
+| `APERTURE_UPLOAD_MOST` | `environment` | size, such as `16G`; `0` for any size | `1G` | The largest file put into a session the control plane says nothing of, which is none of those it makes: it says [`uploadMaxSize`](#settings) of each. A file is also refused, as `507`, where the disk the sessions' files are on has less free than it and 256 MiB more |
 | `--browser-arg` | | flag, repeatable | none | An argument for every session's browser. It has no variable |
 
 The package sets the programs a session runs: `APERTURE_CHROMIUM`, `APERTURE_BWRAP`, `APERTURE_PASTA`, `APERTURE_FFMPEG`, `APERTURE_TAR`, `APERTURE_ZSTD`, `APERTURE_CURSOR_THEME`, `APERTURE_GST_PLUGIN_PATH`. Each can be set to another.
 
-`aperture-runner serve`, which is what the container image runs, takes the browser and network settings above, and `APERTURE_DATA` (required: the session's directory), `APERTURE_LISTEN`, `APERTURE_RUNTIME_DIR`, `APERTURE_TOKEN_FILE`, `APERTURE_TICKET_KEY`, `APERTURE_SESSION_ID` and `APERTURE_CORS_ORIGINS`.
+`aperture-runner serve`, which is what the container image runs, takes the browser and network settings above, and `APERTURE_DATA` (required: the session's directory), `APERTURE_LISTEN`, `APERTURE_RUNTIME_DIR`, `APERTURE_TOKEN_FILE`, `APERTURE_TICKET_KEY`, `APERTURE_SESSION_ID`, `APERTURE_CORS_ORIGINS` and `APERTURE_UPLOAD_MOST`.
 
 ### What a session's browser sees of the machine
 

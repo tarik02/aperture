@@ -27,7 +27,7 @@ use std::{fmt, io, net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc};
 use axum::{
     Router,
     extract::{FromRequestParts, RawPathParams},
-    http::{HeaderValue, StatusCode, header, request::Parts},
+    http::{HeaderName, HeaderValue, StatusCode, header, request::Parts},
     middleware,
     response::{IntoResponse, Response},
 };
@@ -175,7 +175,18 @@ pub fn guarded(routes: Router, keys: auth::Keys, origins: &[Origin]) -> Router {
         CorsLayer::new()
             .allow_origin(allowed)
             .allow_methods(AllowMethods::mirror_request())
-            .allow_headers(AllowHeaders::mirror_request()),
+            .allow_headers(AllowHeaders::mirror_request())
+            // What a page reads of the answers to a resumable upload, besides the few that
+            // any page reads.
+            .expose_headers([
+                header::LOCATION,
+                HeaderName::from_static("upload-offset"),
+                HeaderName::from_static("upload-length"),
+                HeaderName::from_static("tus-resumable"),
+                HeaderName::from_static("tus-version"),
+                HeaderName::from_static("tus-extension"),
+                HeaderName::from_static("tus-max-size"),
+            ]),
     )
 }
 

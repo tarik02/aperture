@@ -91,6 +91,24 @@ impl Beneath {
         Ok(File::from(self.opened(Path::new(name), flags, mode)?))
     }
 
+    /// A file of that name in this directory, to write at its end, with how long it is.
+    /// Only a file is one, as for [`Self::file`].
+    pub fn extend(&self, name: &str) -> io::Result<(File, u64)> {
+        let flags = OFlags::WRONLY | OFlags::APPEND | OFlags::NONBLOCK;
+        let file = self.opened(Path::new(plain(name)?), flags, Mode::empty())?;
+        let stat = rustix::fs::fstat(&file)?;
+        if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile {
+            return Err(io::Error::new(io::ErrorKind::NotFound, "not a file"));
+        }
+        Ok((File::from(file), stat.st_size.max(0) as u64))
+    }
+
+    /// The bytes left free to whoever is not root on the filesystem this directory is on.
+    pub fn free(&self) -> io::Result<u64> {
+        let stat = rustix::fs::fstatvfs(&self.0)?;
+        Ok(stat.f_bavail.saturating_mul(stat.f_frsize))
+    }
+
     /// Gives what is in this directory another name in it, in place of whatever had that.
     pub fn rename(&self, from: &str, to: &str) -> io::Result<()> {
         Ok(rustix::fs::renameat(

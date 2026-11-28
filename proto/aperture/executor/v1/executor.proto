@@ -184,6 +184,9 @@ message Limits {
   // How long the session's recordings and screenshots are kept: the executor removes
   // those that were last changed longer ago. Kept for good, without.
   optional google.protobuf.Duration keep_recordings = 6;
+  // The largest file clients put into the session, in bytes; zero for any size. Holds at
+  // once where the session runs. As the executor is set up, without.
+  optional uint64 upload_bytes = 7;
 }
 
 message Usage {
