@@ -135,7 +135,7 @@ pub(super) fn routes() -> Router<Live> {
         .route("/uploads/{name}", put(put_whole).delete(remove))
         .route(
             "/uploads/resumable/{id}",
-            head(offset).patch(append).delete(terminate),
+            head(offset).get(receipt).patch(append).delete(terminate),
         )
         .layer(axum::middleware::map_response(spoken))
 }
@@ -177,7 +177,11 @@ fn remove_stale(files: &Path) -> std::io::Result<usize> {
         if entry.kind != FileType::RegularFile || !entry.name.starts_with('.') {
             continue;
         }
-        let of = match entry.name.strip_suffix(".json") {
+        let of = match entry
+            .name
+            .strip_suffix(".json")
+            .or_else(|| entry.name.strip_suffix(".json.new"))
+        {
             Some(data) if data.ends_with(".upload") => data.to_owned(),
             _ if entry.name.ends_with(".upload") || entry.name.ends_with(".part") => {
                 entry.name.clone()
@@ -365,6 +369,11 @@ struct Resumable {
     /// The file it is to be.
     name: String,
     length: u64,
+    /// Whether the file was made of it. What tells of it is kept a while after, for a
+    /// client whose answer to the last piece was lost to learn it is whole, rather than
+    /// send all of it again.
+    #[serde(default)]
+    done: bool,
 }
 
 /// Where the bytes of an upload go until it is whole.
@@ -438,6 +447,7 @@ async fn create(State(live): State<Live>, headers: HeaderMap) -> Result<Response
     let telling = Resumable {
         name: name.clone(),
         length,
+        done: false,
     };
     let telling = serde_json::to_vec(&telling).expect("an upload is serializable");
     uploads.create(&told(&id))?.write_all(&telling)?;
@@ -484,8 +494,21 @@ fn whole(
     size: u64,
 ) -> std::io::Result<Uploaded> {
     uploads.rename(&partial(id), &name)?;
-    if let Err(err) = uploads.remove(&told(id)) {
-        warn!(upload = %id, %err, "what told of an upload is left behind");
+    let done = Resumable {
+        name: name.clone(),
+        length: size,
+        done: true,
+    };
+    let fresh = format!("{}.new", told(id));
+    let kept = match uploads.remove(&fresh) {
+        Err(err) if err.kind() != std::io::ErrorKind::NotFound => Err(err),
+        _ => uploads.create(&fresh).and_then(|mut file| {
+            file.write_all(&serde_json::to_vec(&done).expect("an upload is serializable"))
+        }),
+    }
+    .and_then(|()| uploads.rename(&fresh, &told(id)));
+    if let Err(err) = kept {
+        warn!(upload = %id, %err, "an upload's file was made, and what tells of it was not kept");
     }
     Ok(Uploaded { name, size, path })
 }
@@ -498,6 +521,9 @@ async fn offset(
 ) -> Result<Response, Refusal> {
     tus(&headers)?;
     let (uploads, telling, path) = resumed(&live, &id)?;
+    if telling.done {
+        return Ok(offset_said(telling.length, telling.length));
+    }
     let came = uploads
         .file(Path::new(&partial(&id)))
         .and_then(|file| file.metadata())
@@ -516,12 +542,35 @@ async fn offset(
             }
         }
     }
+    Ok(offset_said(came, telling.length))
+}
+
+fn offset_said(came: u64, length: u64) -> Response {
     let mut response = StatusCode::OK.into_response();
     let headers = response.headers_mut();
     headers.insert(UPLOAD_OFFSET, HeaderValue::from(came));
-    headers.insert(UPLOAD_LENGTH, HeaderValue::from(telling.length));
+    headers.insert(UPLOAD_LENGTH, HeaderValue::from(length));
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    Ok(response)
+    response
+}
+
+/// The file an upload was made, for whoever sends it: they may not be let list the others.
+async fn receipt(
+    State(live): State<Live>,
+    RoutePath(id): RoutePath<String>,
+) -> Result<Json<Uploaded>, Refusal> {
+    let (_, telling, path) = resumed(&live, &id)?;
+    if !telling.done {
+        return Err(Refusal(
+            StatusCode::CONFLICT,
+            "the upload is not whole yet".into(),
+        ));
+    }
+    Ok(Json(Uploaded {
+        name: telling.name,
+        size: telling.length,
+        path,
+    }))
 }
 
 /// Puts the request's body into the upload at its offset, which is where what came of it
@@ -544,6 +593,12 @@ async fn append(
     let at = bytes(&headers, &UPLOAD_OFFSET)?
         .ok_or_else(|| Refusal::bad_request("what goes into an upload says its Upload-Offset"))?;
     let (uploads, telling, path) = resumed(&live, &id)?;
+    if telling.done {
+        return Err(Refusal(
+            StatusCode::CONFLICT,
+            format!("all {} bytes of the upload came", telling.length),
+        ));
+    }
     let _held = live.uploads.hold(&id)?;
     let (file, came) = uploads
         .extend(&partial(&id))
@@ -618,7 +673,7 @@ async fn terminate(
     tus(&headers)?;
     let (uploads, _, _) = resumed(&live, &id)?;
     let _held = live.uploads.hold(&id)?;
-    for name in [partial(&id), told(&id)] {
+    for name in [partial(&id), told(&id), format!("{}.new", told(&id))] {
         match uploads.remove(&name) {
             Ok(()) => {}
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}

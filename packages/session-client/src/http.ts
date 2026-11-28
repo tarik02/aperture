@@ -179,6 +179,22 @@ const json = <A>(address: Address, path: string, asked?: Request) =>
 
 const named = (name: string) => UrlPath.make`/uploads/${name}`;
 
+/** The file a resumable upload was made, asked of the upload itself, as its sender may. */
+const receipt = Effect.fnUntraced(function* (address: Address, at: string | null) {
+  if (at === null) {
+    return yield* new SessionError({ message: "the upload has no address to ask" });
+  }
+  const response = yield* Effect.tryPromise({
+    try: (signal) => fetch(at, { headers: headers(address), signal }),
+    catch: failed,
+  });
+  const text = yield* Effect.tryPromise({ try: () => response.text(), catch: failed });
+  if (!response.ok) {
+    return yield* refused(response.status, text);
+  }
+  return yield* Effect.try({ try: () => JSON.parse(text) as Uploaded, catch: failed });
+});
+
 /** How much of a file goes in one request: little enough for whatever is on the way. */
 const CHUNK = 64 * 1024 * 1024;
 
@@ -218,7 +234,7 @@ const uploadResumable = (
   file: File,
   onProgress: ((progress: UploadProgress) => void) | undefined,
 ) =>
-  Effect.callback<string, SessionError>((resume) => {
+  Effect.callback<{ readonly body: string; readonly at: string | null }, SessionError>((resume) => {
     const sending = new Tus.Upload(file, {
       endpoint: route(address, "/uploads"),
       headers: headers(address),
@@ -235,7 +251,8 @@ const uploadResumable = (
       },
       onProgress: (loaded, total) => onProgress?.({ loaded, total }),
       onError: (error) => resume(Effect.fail(tusFailed(error))),
-      onSuccess: ({ lastResponse }) => resume(Effect.succeed(lastResponse.getBody())),
+      onSuccess: ({ lastResponse }) =>
+        resume(Effect.succeed({ body: lastResponse.getBody(), at: sending.url })),
     });
     sending.findPreviousUploads().then(
       (previous) => {
@@ -249,21 +266,10 @@ const uploadResumable = (
     );
     return Effect.promise(() => sending.abort(true).catch(() => undefined));
   }).pipe(
-    Effect.flatMap((body) =>
+    Effect.flatMap(({ body, at }) =>
       Effect.try({ try: () => JSON.parse(body) as Uploaded, catch: failed }).pipe(
-        // The file was whole before the answer that said so came: it is among the uploads.
-        Effect.catch(() =>
-          uploads(address).pipe(
-            Effect.flatMap((listed) => {
-              const found = listed.find((one) => one.name === file.name);
-              return found === undefined
-                ? Effect.fail(
-                    new SessionError({ message: "the upload is not among the session's" }),
-                  )
-                : Effect.succeed(found);
-            }),
-          ),
-        ),
+        // The file was whole before the answer that said so came: the upload tells of it.
+        Effect.catch(() => receipt(address, at)),
       ),
     ),
   );
