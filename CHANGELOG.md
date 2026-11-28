@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.0-beta.5](https://github.com/tarik02/aperture/compare/v1.0.0-beta.4...v1.0.0-beta.5) (2026-11-28)
+
+
+### Features
+
+* resumable uploads up to a size an admin sets, refused early past it ([#265](https://github.com/tarik02/aperture/issues/265)) ([65e8935](https://github.com/tarik02/aperture/commit/65e8935efa3a743ae3efdd4c31ce5014f2145bbf))
+
+
+### Bug Fixes
+
+* let go of keys a client holds when their release never comes ([#264](https://github.com/tarik02/aperture/issues/264)) ([54c7312](https://github.com/tarik02/aperture/commit/54c7312078e23b0ef147013d94ba770ff477f803))
+
 ## [1.0.0-beta.4](https://github.com/tarik02/aperture/compare/v1.0.0-beta.3...v1.0.0-beta.4) (2026-11-27)
 
 
