@@ -133,6 +133,7 @@ export const wire = Effect.fn("Input.wire")(function* (surfaces: Surfaces, wirin
 
   const button = (surface: HTMLElement, pressed: boolean) => (event: PointerEvent) => {
     focus();
+    keyboard.settle(event);
     if (pressed) {
       wiring.dismissMenu();
       surface.setPointerCapture(event.pointerId);
@@ -368,6 +369,7 @@ export const wire = Effect.fn("Input.wire")(function* (surfaces: Surfaces, wirin
     surface.addEventListener(
       "wheel",
       (event) => {
+        keyboard.settle(event);
         const at = position(event);
         const notch = event.deltaMode === WheelEvent.DOM_DELTA_PIXEL ? NOTCH.pixels : NOTCH.lines;
         if (at !== undefined) {
@@ -423,6 +425,7 @@ export const wire = Effect.fn("Input.wire")(function* (surfaces: Surfaces, wirin
   keys.addEventListener(
     "keydown",
     (event) => {
+      keyboard.settle(event);
       if (event.key === "Escape") {
         wiring.dismissMenu();
       }
@@ -454,6 +457,7 @@ export const wire = Effect.fn("Input.wire")(function* (surfaces: Surfaces, wirin
   keys.addEventListener(
     "keyup",
     (event) => {
+      keyboard.settle(event);
       const code = KEYS[event.code];
       if (code !== undefined) {
         keyboard.press(code, false);
@@ -462,7 +466,19 @@ export const wire = Effect.fn("Input.wire")(function* (surfaces: Surfaces, wirin
     },
     { signal },
   );
+  // A key let go where this page is not focused comes up nowhere here. The field loses
+  // the focus with the window, but no blur tells that it was taken out of the page.
   keys.addEventListener("blur", () => keyboard.releaseAll(), { signal });
+  window.addEventListener("blur", () => keyboard.releaseAll(), { signal });
+  document.addEventListener(
+    "visibilitychange",
+    () => {
+      if (document.visibilityState === "hidden") {
+        keyboard.releaseAll();
+      }
+    },
+    { signal },
+  );
   keys.addEventListener("compositionupdate", (event) => text(event.data, true), { signal });
   keys.addEventListener(
     "compositionend",

@@ -118,6 +118,22 @@ export const CONTROLS = [29, 97] as const;
 
 export const METAS = [125, 126] as const;
 
+/** What an event tells of the modifiers held with it. */
+export interface Modifiers {
+  readonly shiftKey: boolean;
+  readonly ctrlKey: boolean;
+  readonly altKey: boolean;
+  readonly metaKey: boolean;
+}
+
+/** The keys of each modifier an event tells of, on both sides. */
+const MODIFIER_KEYS = [
+  ["shiftKey", [42, 54]],
+  ["ctrlKey", CONTROLS],
+  ["altKey", [56, 100]],
+  ["metaKey", METAS],
+] as const;
+
 const DIGITS = "1!2@3#4$5%6^7&8*9(0)";
 
 const LETTERS = "abcdefghijklmnopqrstuvwxyz";
@@ -163,19 +179,26 @@ export interface Keyboard {
   readonly chord: (code: number) => void;
   /** Control and V, whatever modifiers are held here. */
   readonly paste: () => void;
+  /**
+   * Lets go of the modifiers an event says are up. Their release may never have come
+   * here: the system takes some for itself, as Windows does Control and Shift that switch
+   * the layout, or the AltGr's Control, and none comes to a page that is not focused.
+   */
+  readonly settle: (modifiers: Modifiers) => void;
   readonly releaseAll: () => void;
 }
 
-export const makeKeyboard = (send: (code: number, pressed: boolean) => void): Keyboard => {
+/** `send` tells whether the key went: one that did not is not held there. */
+export const makeKeyboard = (send: (code: number, pressed: boolean) => boolean): Keyboard => {
   const held = new Set<number>();
 
   const press = (code: number, pressed: boolean) => {
-    if (pressed) {
-      held.add(code);
-    } else if (!held.delete(code)) {
+    if (!pressed && !held.delete(code)) {
       return;
     }
-    send(code, pressed);
+    if (send(code, pressed) && pressed) {
+      held.add(code);
+    }
   };
 
   const tap = (code: number) => {
@@ -203,6 +226,15 @@ export const makeKeyboard = (send: (code: number, pressed: boolean) => void): Ke
       tap(KEY.v);
       if (!controlled) {
         press(CONTROLS[0], false);
+      }
+    },
+    settle: (modifiers) => {
+      for (const [flag, codes] of MODIFIER_KEYS) {
+        if (!modifiers[flag]) {
+          for (const code of codes) {
+            press(code, false);
+          }
+        }
       }
     },
     releaseAll: () => {

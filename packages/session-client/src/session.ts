@@ -380,6 +380,8 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
       update({
         connection: reason === undefined ? { state: "closed" } : { state: "closed", reason },
       });
+      // The session lets go of the keys this client held as the socket goes.
+      keyboard.releaseAll();
       // A picture that comes on a connection of its own would go on without the session.
       runFork(stop());
     },
@@ -413,7 +415,9 @@ export const make = Effect.fn("Session.make")(function* (options: ConnectOptions
     socket.send(message);
   };
 
-  const keyboard = makeKeyboard((code, pressed) => send({ case: "key", value: { code, pressed } }));
+  const keyboard = makeKeyboard((code, pressed) =>
+    socket.send({ case: "key", value: { code, pressed } }),
+  );
 
   /** Says how the picture is to come: again whenever something changes that. */
   const hello = Effect.fn("Session.hello")(function* () {
