@@ -465,8 +465,14 @@ impl Client {
                     Message::PointerLeave(_) => self.point(None),
                     _ => {}
                 }
-                // A click on a page that is not yet what it is to be is a wrong click.
-                if self.restored().is_ok() {
+                // A click on a page that is not yet what it is to be is a wrong click. What
+                // was pressed before still comes up: it would stay down otherwise.
+                let lets_go = match &message {
+                    Message::Key(key) => !key.pressed,
+                    Message::PointerButton(button) => !button.pressed,
+                    _ => false,
+                };
+                if lets_go || self.restored().is_ok() {
                     self.input(message);
                 }
                 Ok(())

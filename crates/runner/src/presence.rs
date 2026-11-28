@@ -473,9 +473,12 @@ impl Presence {
         let Some(hands) = state.hands.get(&id) else {
             return;
         };
-        let window = window.or(hands.at.map(|(window, ..)| window));
-        let Some(window) = window else {
-            return;
+        // A member who only typed has pressed no button, which is what tells where they
+        // were: their keys come up all the same, where the compositor says.
+        let window = match window.or(hands.at.map(|(window, ..)| window)) {
+            Some(window) => window,
+            None if !pressed => WindowId(0),
+            None => return,
         };
         for code in &hands.keys {
             self.compositor.input(Input::Key {
