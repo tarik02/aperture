@@ -169,16 +169,24 @@ impl State {
             } => {
                 // A key comes up wherever the keyboard is by then: the window it went down
                 // in may be gone, as after Control and W, and it would stay down otherwise.
+                let keycode = Keycode::new(code + EVDEV_XKB_OFFSET);
                 let state = if pressed {
                     let Ok(window) = self.window(window) else {
                         return;
                     };
                     self.focus_window(&window);
+                    // A key held down comes again and again where the system repeats it, as
+                    // Windows does Control and Shift too. XKB counts each press of a
+                    // modifier, and the one release would leave it down for good; the
+                    // window repeats a held key itself.
+                    if self.keyboard().pressed_keys().contains(&keycode) {
+                        return;
+                    }
                     KeyState::Pressed
                 } else {
                     KeyState::Released
                 };
-                self.send_key(Keycode::new(code + EVDEV_XKB_OFFSET), state);
+                self.send_key(keycode, state);
             }
             Input::Text {
                 window,
@@ -296,10 +304,15 @@ impl State {
                 context.set_layout(key.layout);
             }
         });
+        // A Shift that is down already is left alone: let go of here, it would be up to
+        // the keyboard and down to XKB, and the next press of it, as one repeated is,
+        // would leave it down for good.
+        let pressed = self.keyboard().pressed_keys();
         let shift = key
             .shift
             .then(|| self.key_table.find(Keysym::Shift_L))
-            .flatten();
+            .flatten()
+            .filter(|shift| !pressed.contains(&shift.keycode));
         if let Some(shift) = shift {
             self.send_key(shift.keycode, KeyState::Pressed);
         }
