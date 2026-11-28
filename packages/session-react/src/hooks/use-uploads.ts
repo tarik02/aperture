@@ -68,25 +68,28 @@ export function useUploads(enabled = true): UploadsControl {
     async (files: readonly File[], onFailure?: (file: File, cause: unknown) => void) => {
       const put = await Promise.all(
         files.map(async (file) => {
-          let measured = { at: performance.now(), loaded: 0 };
+          // Measured from what is said first: an upload that goes on says at once all that
+          // came before, which was not sent now.
+          let measured: { readonly at: number; readonly loaded: number } | undefined;
           let rate: number | undefined;
-          const progress = (loaded: number, total: number) => {
-            const at = performance.now();
-            const elapsed = at - measured.at;
-            if (elapsed >= RATE_EVERY_MS) {
-              const lately = ((loaded - measured.loaded) * 1000) / elapsed;
-              // What came back at once after a resume is no speed of the link.
-              if (lately >= 0) {
-                rate = rate === undefined ? lately : rate * 0.7 + lately * 0.3;
-              }
-              measured = { at, loaded };
-            }
+          const shown = (loaded: number, total: number) =>
             setInProgress((current) => [
               ...current.filter((one) => one.name !== file.name),
               { name: file.name, loaded, total, rate },
             ]);
+          const progress = (loaded: number, total: number) => {
+            const at = performance.now();
+            // A try again starts over from what the session says it has.
+            if (measured === undefined || loaded < measured.loaded) {
+              measured = { at, loaded };
+            } else if (at - measured.at >= RATE_EVERY_MS) {
+              const lately = ((loaded - measured.loaded) * 1000) / (at - measured.at);
+              rate = rate === undefined ? lately : rate * 0.7 + lately * 0.3;
+              measured = { at, loaded };
+            }
+            shown(loaded, total);
           };
-          progress(0, file.size);
+          shown(0, file.size);
           // A file of the name that is on its way already is put in its place.
           sending.current.get(file.name)?.abort();
           const aborted = new AbortController();
