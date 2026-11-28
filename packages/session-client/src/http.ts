@@ -195,7 +195,7 @@ export const sizeWords = (bytes: number) => {
 export const tooLarge = (file: File, most: number | null) =>
   most !== null && file.size > most
     ? new SessionError({
-        message: `Larger than the ${sizeWords(most)} uploads may be`,
+        message: `Over the ${sizeWords(most)} upload limit`,
         status: 413,
       })
     : undefined;

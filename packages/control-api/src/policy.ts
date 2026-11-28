@@ -233,7 +233,6 @@ export const SETTINGS = {
     levels: LEVELS,
     fallback: 1024 ** 3,
     variable: "APERTURE_CONTROL_UPLOAD_MAX_SIZE",
-    quota: true,
   },
   /** Whether a session's browser downloads files, and they are taken out of it. */
   downloads: {

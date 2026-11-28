@@ -7,7 +7,12 @@ export interface UploadInProgress {
   readonly name: string;
   readonly loaded: number;
   readonly total: number;
+  /** Bytes a second lately, once there was time enough to tell. */
+  readonly rate: number | undefined;
 }
+
+/** How long between the measures of a rate: shorter ones swing with each piece sent. */
+const RATE_EVERY_MS = 1000;
 
 export interface UploadsControl {
   /** The files that are in the session for its browser to take. */
@@ -63,11 +68,24 @@ export function useUploads(enabled = true): UploadsControl {
     async (files: readonly File[], onFailure?: (file: File, cause: unknown) => void) => {
       const put = await Promise.all(
         files.map(async (file) => {
-          const progress = (loaded: number, total: number) =>
+          let measured = { at: performance.now(), loaded: 0 };
+          let rate: number | undefined;
+          const progress = (loaded: number, total: number) => {
+            const at = performance.now();
+            const elapsed = at - measured.at;
+            if (elapsed >= RATE_EVERY_MS) {
+              const lately = ((loaded - measured.loaded) * 1000) / elapsed;
+              // What came back at once after a resume is no speed of the link.
+              if (lately >= 0) {
+                rate = rate === undefined ? lately : rate * 0.7 + lately * 0.3;
+              }
+              measured = { at, loaded };
+            }
             setInProgress((current) => [
               ...current.filter((one) => one.name !== file.name),
-              { name: file.name, loaded, total },
+              { name: file.name, loaded, total, rate },
             ]);
+          };
           progress(0, file.size);
           // A file of the name that is on its way already is put in its place.
           sending.current.get(file.name)?.abort();

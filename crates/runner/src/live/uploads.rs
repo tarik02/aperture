@@ -258,7 +258,7 @@ fn said(bytes: u64) -> String {
 fn too_large(most: u64) -> Refusal {
     Refusal(
         StatusCode::PAYLOAD_TOO_LARGE,
-        format!("the file is larger than the {} uploads may be", said(most)),
+        format!("the file is over the {} upload limit", said(most)),
     )
 }
 

@@ -310,7 +310,9 @@ function SessionFiles({
                     {file.name}
                   </span>
                   <span className="aperture:shrink-0 aperture:text-xs aperture:text-muted-foreground aperture:tabular-nums">
-                    {percent(file.loaded, file.total)}
+                    {file.rate === undefined || file.rate <= 0
+                      ? percent(file.loaded, file.total)
+                      : `${speed(file.rate)} · ${left((file.total - file.loaded) / file.rate)} · ${percent(file.loaded, file.total)}`}
                   </span>
                   <Button
                     type="button"
@@ -473,6 +475,27 @@ function giveLabel(request: FileRequest, chosen: number): string {
     return `Give ${chosen} files`;
   }
   return request.multiple && chosen === 0 ? "Give the files" : "Give the file";
+}
+
+function speed(bytesPerSecond: number): string {
+  const [unit, size] =
+    bytesPerSecond >= 1024 ** 3
+      ? ["GB", 1024 ** 3]
+      : bytesPerSecond >= 1024 ** 2
+        ? ["MB", 1024 ** 2]
+        : ["KB", 1024];
+  return `${Number((bytesPerSecond / size).toFixed(1))} ${unit}/s`;
+}
+
+function left(seconds: number): string {
+  const whole = Math.max(1, Math.ceil(seconds));
+  if (whole < 60) {
+    return `${whole} s left`;
+  }
+  const minutes = Math.ceil(whole / 60);
+  return minutes < 60
+    ? `${minutes} min left`
+    : `${Math.floor(minutes / 60)} h ${minutes % 60} min left`;
 }
 
 function percent(loaded: number, total: number): string {
