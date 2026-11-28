@@ -74,6 +74,11 @@ export const SETTING_WORDS: Readonly<
     description: "Which way what is copied passes between a session and who uses it.",
   },
   uploads: { label: "Uploads", description: "Files may be put into a session." },
+  uploadMaxSize: {
+    label: "Largest upload",
+    description: "The largest file put into a session.",
+    none: "No limit",
+  },
   downloads: {
     label: "Downloads",
     description: "A session's browser may download files, and they may be taken out.",
@@ -121,7 +126,7 @@ export const SETTING_GROUPS: ReadonlyArray<{
   },
   {
     title: "Data",
-    keys: ["clipboard", "uploads", "downloads", "recording", "recordingRetention"],
+    keys: ["clipboard", "uploads", "uploadMaxSize", "downloads", "recording", "recordingRetention"],
   },
   { title: "Access", keys: ["shareLinkMaxLifetime", "apiTokenMaxLifetime"] },
 ];

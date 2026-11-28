@@ -223,6 +223,18 @@ export const SETTINGS = {
     fallback: true,
     variable: "APERTURE_CONTROL_UPLOADS",
   },
+  /**
+   * The largest file put into a session, in bytes. Its node refuses a larger one before it
+   * takes a byte of it.
+   */
+  uploadMaxSize: {
+    type: { kind: "bytes" },
+    none: true,
+    levels: LEVELS,
+    fallback: 1024 ** 3,
+    variable: "APERTURE_CONTROL_UPLOAD_MAX_SIZE",
+    quota: true,
+  },
   /** Whether a session's browser downloads files, and they are taken out of it. */
   downloads: {
     type: { kind: "choice", choices: [true, false] },

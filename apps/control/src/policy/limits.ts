@@ -30,7 +30,9 @@ export const limitsOf = (
   const memory = holdsResources ? given(effective.sessionMemory, own?.memoryBytes) : undefined;
   const cpus = holdsResources ? given(effective.sessionCpus, own?.cpus) : undefined;
   const kept = given(effective.recordingRetention);
+  const upload = given(effective.uploadMaxSize);
   return {
+    ...(upload === undefined ? {} : { uploadBytes: BigInt(upload) }),
     ...(kept === undefined ? {} : { keepRecordings: { seconds: BigInt(kept) } }),
     ...(idle === undefined ? {} : { suspendIdleAfter: { seconds: BigInt(idle) } }),
     ...(memory === undefined ? {} : { memoryBytes: BigInt(memory) }),
@@ -67,8 +69,10 @@ export const holds = (
   );
   const cpus = expected(wanted.cpus, own?.cpus);
   const kept = expected(wanted.keepRecordings?.seconds, undefined);
+  const upload = expected(wanted.uploadBytes, undefined);
   return (
     told?.keepRecordings?.seconds === kept &&
+    told?.uploadBytes === upload &&
     told?.suspendIdleAfter?.seconds === idle &&
     told?.memoryBytes === memory &&
     told?.cpus === cpus

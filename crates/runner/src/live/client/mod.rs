@@ -77,6 +77,7 @@ pub async fn serve(live: Live, socket: WebSocket, identity: Identity) {
         clipboard: live.compositor.clipboard(),
         pace: live.pace.watch(),
         restore: live.restore.watch(),
+        upload_most: live.uploads.watch_most(),
         downloads: live.downloads.clone(),
         file_requests: live.pages.requests(),
         menus: live.pages.menus(),
@@ -124,6 +125,8 @@ struct Client {
     pace: watch::Receiver<Pace>,
     /// Whether the session is being given what its browser starts with.
     restore: watch::Receiver<Restore>,
+    /// The largest file that is put into the session.
+    upload_most: watch::Receiver<Option<u64>>,
     downloads: watch::Receiver<Vec<Download>>,
     file_requests: watch::Receiver<Vec<pages::Request>>,
     menus: broadcast::Receiver<pages::Menu>,
@@ -325,6 +328,12 @@ impl Client {
                         return Ok(());
                     }
                     self.send_restore().await?;
+                }
+                changed = self.upload_most.changed(), if self.greeted => {
+                    if changed.is_err() {
+                        return Ok(());
+                    }
+                    self.send_features().await?;
                 }
             }
         }

@@ -8,6 +8,7 @@ import {
   FolderOpen,
   Loader2,
   Trash2,
+  X,
 } from "lucide-react";
 import type { Download, FileRequest, Uploaded } from "@aperture-browser/session-client";
 import { Button } from "@aperture-browser/ui/components/button";
@@ -311,6 +312,17 @@ function SessionFiles({
                   <span className="aperture:shrink-0 aperture:text-xs aperture:text-muted-foreground aperture:tabular-nums">
                     {percent(file.loaded, file.total)}
                   </span>
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label={`Cancel the upload of ${file.name}`}
+                    data-session-upload-cancel=""
+                    className="aperture:shrink-0"
+                    onClick={() => uploads.cancel(file.name)}
+                  >
+                    <X />
+                  </Button>
                 </div>
                 <div className="aperture:h-1 aperture:overflow-hidden aperture:rounded-full aperture:bg-muted">
                   <div

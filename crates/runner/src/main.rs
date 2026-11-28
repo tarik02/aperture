@@ -538,6 +538,7 @@ impl Session {
             presence,
             files: spec.files_dir.clone(),
             features: spec.features,
+            uploads: Arc::new(live::uploads::Uploads::new(spec.upload_most)),
         };
         self.recordings = Some(recordings);
         let socket = spec.runtime_dir.join("live.sock");

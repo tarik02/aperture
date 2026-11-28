@@ -393,6 +393,7 @@ fn limits_message(limits: Limits) -> pb::Limits {
         tasks: limits.tasks,
         suspend_idle_after: limits.idle().map(Duration::from).into(),
         keep_recordings: limits.keep_recordings().map(Duration::from).into(),
+        upload_bytes: limits.upload_bytes,
         ..Default::default()
     }
 }
@@ -451,6 +452,7 @@ fn limits(limits: &pb::Limits) -> Limits {
             .keep_recordings
             .as_option()
             .map(|kept| Every::try_from(kept.clone()).map_or(0, |kept| kept.as_millis() as u64)),
+        upload_bytes: limits.upload_bytes,
     }
 }
 

@@ -17,12 +17,9 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post, put},
 };
-use futures_util::StreamExt;
 use percent_encoding::percent_decode_str;
-use rustix::fs::FileType;
 use serde::{Deserialize, Serialize};
-use tokio::{io::AsyncWriteExt, sync::watch};
-use tracing::warn;
+use tokio::sync::watch;
 
 use super::{
     client,
@@ -34,13 +31,14 @@ use super::{
     sound::Sound,
     state,
     stream::Streams,
+    uploads::{self, Uploads},
 };
 use crate::{
     automation::Automation,
     beneath::Beneath,
     cdp,
     egress::Egress,
-    files::{self, Download, Progress, UPLOADS},
+    files::{Download, Progress},
     pace::{Pace, Paced},
     pages::Pages,
     presence::{Identity, Presence},
@@ -76,10 +74,8 @@ pub struct Live {
     /// The session's files.
     pub files: PathBuf,
     pub features: Features,
+    pub uploads: Arc<Uploads>,
 }
-
-/// The largest file that is taken for the browser, in bytes.
-const UPLOAD_MOST: u64 = 1024 * 1024 * 1024;
 
 /// Serves until the listener fails.
 pub async fn serve(socket: &Path, live: Live, automation: Arc<Automation>) -> std::io::Result<()> {
@@ -95,6 +91,7 @@ pub async fn serve(socket: &Path, live: Live, automation: Arc<Automation>) -> st
         .route("/targets/{id}/viewport", put(viewport_set))
         .route("/targets/{id}/mode", put(mode_set))
         .route("/proxy", put(proxy_update))
+        .route("/limits", put(limits_set))
         .route(
             "/storage-state",
             post(state_export)
@@ -122,11 +119,13 @@ pub async fn serve(socket: &Path, live: Live, automation: Arc<Automation>) -> st
         app = app.route("/screenshots", get(screenshots_list).post(screenshot_take));
     }
     if live.features.uploads {
-        app = app
-            .route("/uploads", get(uploads_list))
-            .route("/uploads/{name}", put(upload).delete(upload_remove));
+        app = app.merge(uploads::routes());
     }
-    axum::serve(listener, app.with_state(live)).await
+    let swept = uploads::sweep(live.files.clone());
+    tokio::select! {
+        served = axum::serve(listener, app.with_state(live)) => served,
+        () = swept => Ok(()),
+    }
 }
 
 /// A client's session socket. Who the client is comes with the request, from whoever let
@@ -187,19 +186,19 @@ pub(super) fn vouched(headers: &HeaderMap) -> Result<Option<Identity>, &'static 
 }
 
 /// Why a route does not do what was asked of it, as it answers.
-struct Refusal(StatusCode, String);
+pub(super) struct Refusal(pub(super) StatusCode, pub(super) String);
 
 impl Refusal {
-    fn not_found(what: impl std::fmt::Display) -> Self {
+    pub(super) fn not_found(what: impl std::fmt::Display) -> Self {
         Self(StatusCode::NOT_FOUND, what.to_string())
     }
 
-    fn bad_request(why: impl std::fmt::Display) -> Self {
+    pub(super) fn bad_request(why: impl std::fmt::Display) -> Self {
         Self(StatusCode::BAD_REQUEST, why.to_string())
     }
 
     /// What went wrong here rather than with what was asked.
-    fn failed(err: impl std::fmt::Display) -> Self {
+    pub(super) fn failed(err: impl std::fmt::Display) -> Self {
         Self(StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
     }
 }
@@ -311,102 +310,6 @@ async fn file(
     };
     let file = tokio::fs::File::from_std(file);
     Ok(served::file(&headers, file, name).await?)
-}
-
-/// A file put into the session for the browser to take.
-#[derive(Serialize)]
-struct Uploaded {
-    name: String,
-    size: u64,
-    /// Where the file is, for the browser as for the session's tools.
-    path: PathBuf,
-}
-
-async fn uploads_list(State(live): State<Live>) -> Result<Json<Vec<Uploaded>>, Refusal> {
-    let directory = live.files.join(UPLOADS);
-    let entries = Beneath::open(&live.files)
-        .and_then(|files| files.directory(Path::new(UPLOADS)))
-        .and_then(|uploads| uploads.entries());
-    let entries = match entries {
-        Ok(entries) => entries,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Json(Vec::new())),
-        Err(err) => return Err(err.into()),
-    };
-    let mut uploads: Vec<Uploaded> = entries
-        .into_iter()
-        .filter(|entry| entry.kind == FileType::RegularFile)
-        .filter_map(|entry| {
-            Some(Uploaded {
-                path: files::named(&directory, &entry.name)?,
-                name: entry.name,
-                size: entry.size,
-            })
-        })
-        .collect();
-    uploads.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(Json(uploads))
-}
-
-/// Takes the request's body as the file `name` of the session's uploads, in place of one
-/// there was.
-async fn upload(
-    State(live): State<Live>,
-    RoutePath(name): RoutePath<String>,
-    body: Body,
-) -> Result<Json<Uploaded>, Refusal> {
-    let path = files::named(&live.files.join(UPLOADS), &name)
-        .ok_or_else(|| Refusal::bad_request("not a file name"))?;
-    let uploads = Beneath::open(&live.files)?.directory_made(UPLOADS)?;
-    // Under a name no listing shows until the file is whole.
-    let partial = format!(".{name}.part");
-    let written = async {
-        let mut file = tokio::fs::File::from_std(uploads.create(&partial)?);
-        let mut chunks = body.into_data_stream();
-        let mut size = 0;
-        while let Some(chunk) = chunks.next().await {
-            let chunk = chunk.map_err(std::io::Error::other)?;
-            size += chunk.len() as u64;
-            if size > UPLOAD_MOST {
-                return Ok(None);
-            }
-            file.write_all(&chunk).await?;
-        }
-        file.flush().await?;
-        uploads.rename(&partial, &name)?;
-        std::io::Result::Ok(Some(size))
-    };
-    let size = match written.await {
-        Ok(Some(size)) => return Ok(Json(Uploaded { name, size, path })),
-        Ok(None) => Err(Refusal(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "the file is too large".into(),
-        )),
-        Err(err) => Err(err.into()),
-    };
-    match uploads.remove(&partial) {
-        Ok(()) => {}
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-        Err(err) => warn!(file = %partial, %err, "what came of an upload is left behind"),
-    }
-    size
-}
-
-async fn upload_remove(
-    State(live): State<Live>,
-    RoutePath(name): RoutePath<String>,
-) -> Result<StatusCode, Refusal> {
-    files::named(&live.files.join(UPLOADS), &name)
-        .ok_or_else(|| Refusal::bad_request("not a file name"))?;
-    let removed = Beneath::open(&live.files)
-        .and_then(|files| files.directory(Path::new(UPLOADS)))
-        .and_then(|uploads| uploads.remove(&name));
-    match removed {
-        Ok(()) => Ok(StatusCode::NO_CONTENT),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            Err(Refusal::not_found("no such upload"))
-        }
-        Err(err) => Err(err.into()),
-    }
 }
 
 #[derive(Serialize)]
@@ -575,6 +478,18 @@ async fn mode_set(
 }
 
 /// Takes the session's proxy configuration, for the connections made from now on.
+/// What the session is held to that may change while it runs.
+#[derive(Deserialize)]
+struct Limits {
+    /// The largest file put into the session, in bytes; any size without.
+    upload_most: Option<u64>,
+}
+
+async fn limits_set(State(live): State<Live>, Json(limits): Json<Limits>) -> StatusCode {
+    live.uploads.set_most(limits.upload_most);
+    StatusCode::NO_CONTENT
+}
+
 async fn proxy_update(
     State(live): State<Live>,
     Json(config): Json<proxy::Config>,

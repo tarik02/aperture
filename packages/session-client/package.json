@@ -40,7 +40,8 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "@bufbuild/protobuf": "catalog:"
+    "@bufbuild/protobuf": "catalog:",
+    "tus-js-client": "catalog:"
   },
   "devDependencies": {
     "@aperture-browser/shared": "workspace:*",

@@ -1,5 +1,7 @@
 import * as UrlPath from "@aperture-browser/shared/url-path";
 import * as Effect from "effect/Effect";
+import * as Tus from "tus-js-client";
+import type { DetailedError } from "tus-js-client";
 import { type Address, headers, route } from "./address.ts";
 import { SessionError } from "./errors.ts";
 import type { Pace, Target } from "./model.ts";
@@ -177,32 +179,94 @@ const json = <A>(address: Address, path: string, asked?: Request) =>
 
 const named = (name: string) => UrlPath.make`/uploads/${name}`;
 
-// `fetch` does not tell how much of a body it has sent.
-const uploadTold = (address: Address, file: File, onProgress: (progress: UploadProgress) => void) =>
-  Effect.callback<Uploaded, SessionError>((resume) => {
-    const sending = new XMLHttpRequest();
-    sending.open("PUT", route(address, named(file.name)));
-    for (const [name, value] of Object.entries(headers(address))) {
-      sending.setRequestHeader(name, value);
-    }
-    sending.upload.addEventListener("progress", (event) => {
-      onProgress({ loaded: event.loaded, total: event.lengthComputable ? event.total : file.size });
+/** How much of a file goes in one request: little enough for whatever is on the way. */
+const CHUNK = 64 * 1024 * 1024;
+
+/** How long to wait before each new try of a request that failed, until there are no more. */
+const RETRIES = [1000, 3000, 5000, 10_000, 20_000, 30_000, 30_000, 30_000, 30_000];
+
+/** A size as it is read in what tells of it: `1 GB`, `1.5 GB`, `512 MB`. */
+export const sizeWords = (bytes: number) => {
+  const [unit, size] = bytes >= 1024 ** 3 ? ["GB", 1024 ** 3] : ["MB", 1024 ** 2];
+  return `${Number((bytes / size).toFixed(1))} ${unit}`;
+};
+
+/** A file larger than the session takes, refused before it is sent. */
+export const tooLarge = (file: File, most: number | null) =>
+  most !== null && file.size > most
+    ? new SessionError({
+        message: `Larger than the ${sizeWords(most)} uploads may be`,
+        status: 413,
+      })
+    : undefined;
+
+const tusFailed = (error: Error | DetailedError) => {
+  const response = "originalResponse" in error ? error.originalResponse : null;
+  if (response === null) {
+    return failed(error);
+  }
+  return refused(response.getStatus(), response.getBody());
+};
+
+/**
+ * A file sent a piece at a time, as tus has it: a request that fails is tried again, a
+ * file whose connection dropped goes on where it left off, and so does one that is sent
+ * again after the page was loaded again. Interrupted, it is given up.
+ */
+const uploadResumable = (
+  address: Address,
+  file: File,
+  onProgress: ((progress: UploadProgress) => void) | undefined,
+) =>
+  Effect.callback<string, SessionError>((resume) => {
+    const sending = new Tus.Upload(file, {
+      endpoint: route(address, "/uploads"),
+      headers: headers(address),
+      metadata: { filename: file.name, filetype: file.type },
+      chunkSize: CHUNK,
+      retryDelays: RETRIES,
+      removeFingerprintOnSuccess: true,
+      // As it would be, but a disk that is full is full the next time too.
+      onShouldRetry: (error) => {
+        const status = error.originalResponse?.getStatus() ?? 0;
+        return (
+          status !== 507 && (status < 400 || status >= 500 || status === 409 || status === 423)
+        );
+      },
+      onProgress: (loaded, total) => onProgress?.({ loaded, total }),
+      onError: (error) => resume(Effect.fail(tusFailed(error))),
+      onSuccess: ({ lastResponse }) => resume(Effect.succeed(lastResponse.getBody())),
     });
-    sending.addEventListener("error", () => {
-      resume(Effect.fail(new SessionError({ message: "the session could not be reached" })));
-    });
-    sending.addEventListener("load", () => {
-      if (sending.status < 200 || sending.status >= 300) {
-        resume(Effect.fail(refused(sending.status, sending.responseText)));
-        return;
-      }
-      resume(
-        Effect.try({ try: () => JSON.parse(sending.responseText) as Uploaded, catch: failed }),
-      );
-    });
-    sending.send(file);
-    return Effect.sync(() => sending.abort());
-  });
+    sending.findPreviousUploads().then(
+      (previous) => {
+        const latest = previous.toSorted((a, b) => b.creationTime.localeCompare(a.creationTime));
+        if (latest[0] !== undefined) {
+          sending.resumeFromPreviousUpload(latest[0]);
+        }
+        sending.start();
+      },
+      () => sending.start(),
+    );
+    return Effect.promise(() => sending.abort(true).catch(() => undefined));
+  }).pipe(
+    Effect.flatMap((body) =>
+      Effect.try({ try: () => JSON.parse(body) as Uploaded, catch: failed }).pipe(
+        // The file was whole before the answer that said so came: it is among the uploads.
+        Effect.catch(() =>
+          uploads(address).pipe(
+            Effect.flatMap((listed) => {
+              const found = listed.find((one) => one.name === file.name);
+              return found === undefined
+                ? Effect.fail(
+                    new SessionError({ message: "the upload is not among the session's" }),
+                  )
+                : Effect.succeed(found);
+            }),
+          ),
+        ),
+      ),
+    ),
+  );
 
 /** Every target of the session, oldest first. */
 export const targets = Effect.fn("SessionHttp.targets")((address: Address) =>
@@ -229,15 +293,16 @@ export const uploads = Effect.fn("SessionHttp.uploads")((address: Address) =>
 /**
  * Puts a file into the session's uploads under its own name, in place of one there was.
  * Files get to the session's browser this way: they are put there, and the browser is
- * told where they are.
+ * told where they are. A browser sends it a piece at a time, and goes on with a file it
+ * did not finish; elsewhere it goes in one request.
  */
 export const upload = Effect.fn("SessionHttp.upload")(function* (
   address: Address,
   file: File,
   onProgress?: (progress: UploadProgress) => void,
 ) {
-  if (onProgress !== undefined && typeof XMLHttpRequest !== "undefined") {
-    return yield* uploadTold(address, file, onProgress);
+  if (Tus.isSupported && typeof XMLHttpRequest !== "undefined") {
+    return yield* uploadResumable(address, file, onProgress);
   }
   const response = yield* Effect.tryPromise({
     try: (signal) =>

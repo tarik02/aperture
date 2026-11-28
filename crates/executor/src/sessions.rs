@@ -440,7 +440,8 @@ impl Sessions {
     }
 
     /// Sets the session's own limits. How long it may sit idle holds at once, as it is read
-    /// from the record each time; what it may use holds from when its browser next starts.
+    /// from the record each time, and so does the largest file it takes, which its runner
+    /// is told; what it may use holds from when its browser next starts.
     pub async fn set_limits(&self, id: &str, limits: Limits) -> Result<()> {
         self.store.session(id)?;
         limits.check().map_err(Error::Limits)?;
@@ -453,6 +454,15 @@ impl Sessions {
         self.store.set_session_limits(id, kept)?;
         if let Some(shared) = &self.config.shared_sessions {
             shared.put_session(&self.store.session(id)?).await?;
+        }
+        if let Ok(live) = self.running_live(id) {
+            let most = limits.over(self.config.limits).upload_bytes;
+            let body = serde_json::to_vec(&serde_json::json!({ "upload_most": most }))
+                .expect("limits are serializable");
+            // Its runner is told again when it next starts.
+            if let Err(reason) = aperture_gateway::put(&live.socket, "/limits", body).await {
+                warn!(session = %id, "the session's runner was not told its limits: {reason:#}");
+            }
         }
         info!(session = %id, ?limits, "session limits set");
         Ok(())
@@ -929,6 +939,7 @@ impl Sessions {
                 .setup
                 .spec(id, runtime.clone(), directories, proxy, features, network);
         spec.restoring = restoring;
+        spec.upload_most = limits.upload_bytes;
         fs::write(
             aperture_runner::spec_path(&runtime),
             serde_json::to_vec_pretty(&spec).expect("a spec is serializable"),

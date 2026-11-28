@@ -214,6 +214,7 @@ async fn main() -> anyhow::Result<()> {
         arguments.ticket_key.as_deref(),
         Box::new(|session| Some(sessions::path(session))),
     )?;
+    let setup = arguments.options.setup()?;
     let limits = Limits {
         memory: arguments.session_memory,
         swap: arguments.session_swap,
@@ -223,6 +224,7 @@ async fn main() -> anyhow::Result<()> {
             .suspend_idle_after
             .map(|after| after.as_millis() as u64),
         keep_recordings_ms: None,
+        upload_bytes: setup.upload_most(),
     }
     .over(Limits::default());
     limits.check().map_err(anyhow::Error::msg)?;
@@ -301,7 +303,7 @@ async fn main() -> anyhow::Result<()> {
             transfers: arguments.transfers.into(),
             runtime_root,
             runner: options::executable(&runner)?,
-            setup: arguments.options.setup()?,
+            setup,
             limits,
             recordings_check: arguments.recordings_check,
             scopes,

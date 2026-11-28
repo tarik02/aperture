@@ -75,6 +75,8 @@ pub struct Spec {
     pub browser_args: Vec<String>,
     #[serde(default)]
     pub features: Features,
+    /// The largest file clients put into the session, in bytes; any size without.
+    pub upload_most: Option<u64>,
     /// Whoever starts the session puts a storage state into it next: until that is in, the
     /// session says it is being restored, from its first moment.
     #[serde(default)]

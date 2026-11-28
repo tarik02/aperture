@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Uploaded } from "@aperture-browser/session-client";
 import { useSession, useSessionSnapshot } from "../session.tsx";
 
@@ -24,6 +24,8 @@ export interface UploadsControl {
   ) => Promise<Uploaded[]>;
   /** Rejects with what the session answered. */
   readonly remove: (name: string) => Promise<void>;
+  /** Gives up a file on its way, and what came of it. */
+  readonly cancel: (name: string) => void;
 }
 
 /** The session's uploads. A file put there by another member shows at the next `refresh`. */
@@ -55,6 +57,7 @@ export function useUploads(enabled = true): UploadsControl {
   }, [session, open, asked]);
 
   const refresh = useCallback(() => setAsked((current) => current + 1), []);
+  const sending = useRef(new Map<string, AbortController>());
 
   const upload = useCallback(
     async (files: readonly File[], onFailure?: (file: File, cause: unknown) => void) => {
@@ -66,13 +69,26 @@ export function useUploads(enabled = true): UploadsControl {
               { name: file.name, loaded, total },
             ]);
           progress(0, file.size);
+          // A file of the name that is on its way already is put in its place.
+          sending.current.get(file.name)?.abort();
+          const aborted = new AbortController();
+          sending.current.set(file.name, aborted);
           try {
-            return await session.upload(file, ({ loaded, total }) => progress(loaded, total));
+            return await session.upload(
+              file,
+              ({ loaded, total }) => progress(loaded, total),
+              aborted.signal,
+            );
           } catch (cause) {
-            onFailure?.(file, cause);
+            if (!aborted.signal.aborted) {
+              onFailure?.(file, cause);
+            }
             return undefined;
           } finally {
-            setInProgress((current) => current.filter((one) => one.name !== file.name));
+            if (sending.current.get(file.name) === aborted) {
+              sending.current.delete(file.name);
+              setInProgress((current) => current.filter((one) => one.name !== file.name));
+            }
           }
         }),
       );
@@ -93,5 +109,7 @@ export function useUploads(enabled = true): UploadsControl {
     [session, refresh],
   );
 
-  return { uploads, inProgress, refresh, upload, remove };
+  const cancel = useCallback((name: string) => sending.current.get(name)?.abort(), []);
+
+  return { uploads, inProgress, refresh, upload, remove, cancel };
 }

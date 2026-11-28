@@ -1,5 +1,5 @@
-//! What a session may use, how long it may sit idle before it is suspended, and how long
-//! its recordings are kept.
+//! What a session may use, how long it may sit idle before it is suspended, how long its
+//! recordings are kept, and how large a file is put into it.
 
 use std::time::Duration;
 
@@ -27,6 +27,9 @@ pub struct Limits {
     /// How long its recordings and screenshots are kept before they are removed.
     #[serde(default)]
     pub keep_recordings_ms: Option<u64>,
+    /// Bytes of the largest file clients put into it.
+    #[serde(default)]
+    pub upload_bytes: Option<u64>,
 }
 
 impl Limits {
@@ -43,6 +46,10 @@ impl Limits {
                 .keep_recordings_ms
                 .or(defaults.keep_recordings_ms)
                 .filter(|&ms| ms > 0),
+            upload_bytes: self
+                .upload_bytes
+                .or(defaults.upload_bytes)
+                .filter(|&bytes| bytes > 0),
         }
     }
 

@@ -181,6 +181,7 @@ dependencies = [
  "ipnet",
  "libc",
  "native-tls",
+ "parse-size",
  "percent-encoding",
  "png",
  "rcgen",
