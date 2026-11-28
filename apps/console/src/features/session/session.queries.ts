@@ -60,7 +60,9 @@ export function useSessionTargetsQuery(session: Session) {
       }
       return { targets: await decodeTargets(await answer.json()), at: Date.now() };
     },
-    enabled: path !== null && session.observedState === "running",
+    enabled:
+      path !== null &&
+      (session.observedState === "running" || session.observedState === "restoring"),
     refetchInterval: SHOWN_EVERY,
   });
 }
