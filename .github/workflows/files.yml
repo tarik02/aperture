@@ -1,0 +1,205 @@
+name: files
+
+# The files of a release beside its images: the `aperture` program for each system it is
+# built for, and the runner and the browser as `aperture run` downloads them. publish.yml
+# builds them for a release and a nightly. For a pull request that changes what they are
+# made of they are built as well, and a session is started from the runner's and the
+# browser's as `aperture run` starts one.
+on:
+  pull_request:
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - crates/**
+      - flake.nix
+      - flake.lock
+      - nix/**
+      - .github/workflows/files.yml
+      - .github/actions/tools/**
+      - tools/**
+      - package.json
+      - pnpm-lock.yaml
+  workflow_call:
+    inputs:
+      version:
+        description: The version everything is built as
+        required: true
+        type: string
+      tag:
+        description: The release's git tag, which is what is built
+        required: true
+        type: string
+    secrets:
+      CACHIX_AUTH_TOKEN:
+        description: Token for pushing to the aperture-browser Cachix cache
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: files-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # A program of its own for each, with nothing it loads but the system's: built by cargo
+  # on a machine of each system, where the C that ring and zstd are partly made of is
+  # compiled for it as well.
+  cli:
+    name: aperture ${{ matrix.os }}-${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+          - os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+          - os: darwin
+            arch: arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+          - os: darwin
+            arch: amd64
+            runner: macos-15
+            target: x86_64-apple-darwin
+          - os: windows
+            arch: amd64
+            runner: windows-2025
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: ./.github/actions/tools
+
+      - name: Write the version
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+        run: pnpm tools version set "$VERSION"
+
+      - name: Install the toolchain
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          rustup toolchain install stable --profile minimal --target "$TARGET"
+          rustup default stable
+
+      # What compiles C for a program linked with musl, statically.
+      - name: Install musl
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes musl-tools
+
+      - name: Build
+        env:
+          TARGET: ${{ matrix.target }}
+        run: pnpm tools files cli --target "$TARGET" --out files
+
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: release-files-cli-${{ matrix.os }}-${{ matrix.arch }}
+          path: files/*
+          if-no-files-found: error
+          retention-days: 7
+
+  bundles:
+    name: runner and browser ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: cachix/install-nix-action@v31
+
+      - uses: ./.github/actions/tools
+
+      # The programs the runner's file is made of, for the next run; the files are not.
+      - uses: cachix/cachix-action@v17
+        with:
+          name: aperture-browser
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ secrets.CACHIX_AUTH_TOKEN == '' }}
+          pushFilter: (-source$|-vendor|\.tar\.zst$|closure-info|user-environment)
+
+      - name: Write the version
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+        run: pnpm tools version set "$VERSION"
+
+      - name: Build
+        run: pnpm tools files bundles --out files
+
+      # A session's sandbox is made of user namespaces, which this runner's AppArmor
+      # keeps from whoever is not root.
+      - name: Start a session from them
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          pnpm tools smoke bundles files/aperture-runner-*.tar.zst files/aperture-chromium-*.tar.zst
+
+      - uses: actions/upload-artifact@v7.0.1
+        if: inputs.version != ''
+        with:
+          name: release-files-bundles-${{ matrix.arch }}
+          path: files/*
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  # What publish.yml does with these files and a nightly's version, short of making the
+  # release and putting them on it, for a pull request: the version a nightly of this run
+  # would have, written into the tree, and the sums of the programs.
+  dry-run:
+    name: release files (dry run)
+    needs: cli
+    if: inputs.version == ''
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: ./.github/actions/tools
+
+      - name: Name the nightly
+        id: nightly
+        run: pnpm tools version nightly --dry-run
+
+      - name: Write its version
+        env:
+          VERSION: ${{ steps.nightly.outputs.version }}
+        run: |
+          pnpm tools version set "$VERSION"
+          git status --short
+
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: release-files-*
+          merge-multiple: true
+          path: files
+
+      - name: Sum the files
+        env:
+          TAG: v${{ steps.nightly.outputs.version }}
+        run: pnpm tools files publish --tag "$TAG" --dir files --dry-run

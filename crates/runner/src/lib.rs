@@ -4,6 +4,7 @@
 //! The runner knows nothing of sessions beyond its own, nor of where the directories it is
 //! given come from.
 
+pub mod downloaded;
 pub mod options;
 pub mod proxy;
 
@@ -238,7 +239,12 @@ pub struct Profile {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tools {
     pub bwrap: PathBuf,
+    /// The browser, as its sandbox sees it.
     pub chromium: PathBuf,
+    /// The store a downloaded browser is in, which its sandbox sees as `/nix/store`, over
+    /// the machine's own.
+    #[serde(default)]
+    pub browser_store: Option<PathBuf>,
     /// The native messaging host of the session's extension, `aperture-native-host`.
     pub native_host: PathBuf,
     /// ffmpeg, which makes the edits of recordings; without it they are left raw.

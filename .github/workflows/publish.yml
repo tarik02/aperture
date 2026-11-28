@@ -1,8 +1,9 @@
 name: publish
 
 # What a release or a nightly gives whoever installs it: the images for both
-# architectures and the packages on npm, and for a release the same images and the
-# Companion extension as its files.
+# architectures, the packages on npm, and as its files the `aperture` program and the
+# runner and browser it downloads; for a release the same images and the Companion
+# extension as files too.
 on:
   workflow_call:
     inputs:
@@ -63,22 +64,16 @@ jobs:
 
       - uses: cachix/install-nix-action@v31
 
+      - uses: ./.github/actions/tools
+
       - name: Write the version
         env:
           VERSION: ${{ inputs.version }}
-        run: .github/scripts/set-version.sh "$VERSION"
+        run: pnpm tools version set "$VERSION"
 
       - name: Resolve what is cached
         id: cached
-        run: |
-          {
-            echo "paths<<EOF"
-            for package in aperture aperture-control aperture-migrate; do
-              nix eval --raw ".#$package.outPath"
-              echo
-            done
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+        run: pnpm tools nix out-paths aperture aperture-control aperture-migrate --output paths
 
       # A release's programs only: a nightly's change with every commit and would fill
       # the cache, and the image is made of them.
@@ -111,7 +106,7 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          .github/scripts/smoke-image.sh "aperture-session-$VERSION-linux-$ARCH.tar.gz"
+          pnpm tools smoke image "aperture-session-$VERSION-linux-$ARCH.tar.gz"
 
       # The same for a whole deployment, as deploy/compose.yaml puts it together.
       - name: Build the images of a deployment
@@ -122,7 +117,7 @@ jobs:
           done
 
       - name: Bring the deployment up and make a session in it
-        run: .github/scripts/smoke-compose.sh aperture-control.tar.gz aperture-node.tar.gz
+        run: pnpm tools smoke compose aperture-control.tar.gz aperture-node.tar.gz
 
       - name: Build what the modules install
         if: inputs.release
@@ -133,12 +128,14 @@ jobs:
         env:
           ARCH: ${{ matrix.arch }}
           VERSION: ${{ inputs.version }}
-        run: |
-          docker load < "aperture-session-$VERSION-linux-$ARCH.tar.gz"
-          docker tag "aperture-session:$VERSION" "$IMAGE:$VERSION-$ARCH"
-          docker push "$IMAGE:$VERSION-$ARCH"
-          repo_digest="$(docker image inspect "$IMAGE:$VERSION-$ARCH" --format '{{json .RepoDigests}}' | jq -r --arg image "$IMAGE" '.[] | select(startswith($image + "@"))' | head -n 1)"
-          echo "digest=${repo_digest#*@}" >> "$GITHUB_OUTPUT"
+        run: >-
+          pnpm tools image push
+          --archive "aperture-session-$VERSION-linux-$ARCH.tar.gz"
+          --name aperture-session
+          --repository "$IMAGE"
+          --image-version "$VERSION"
+          --arch "$ARCH"
+          --output digest
 
       - name: Generate SBOM
         uses: anchore/sbom-action@v0.24.0
@@ -179,12 +176,13 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           for part in control node; do
-            image="$IMAGES-$part"
-            docker load < "aperture-$part.tar.gz"
-            docker tag "aperture-$part:$VERSION" "$image:$VERSION-$ARCH"
-            docker push "$image:$VERSION-$ARCH"
-            repo_digest="$(docker image inspect "$image:$VERSION-$ARCH" --format '{{json .RepoDigests}}' | jq -r --arg image "$image" '.[] | select(startswith($image + "@"))' | head -n 1)"
-            cosign sign --yes "$repo_digest"
+            pnpm tools image push \
+              --archive "aperture-$part.tar.gz" \
+              --name "aperture-$part" \
+              --repository "$IMAGES-$part" \
+              --image-version "$VERSION" \
+              --arch "$ARCH" \
+              --sign
           done
 
       - uses: actions/upload-artifact@v7.0.1
@@ -208,6 +206,12 @@ jobs:
       id-token: write
       packages: write
     steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: ./.github/actions/tools
+
       - uses: docker/login-action@v4.1.0
         with:
           registry: ghcr.io
@@ -219,26 +223,12 @@ jobs:
         env:
           TAGS: ${{ inputs.image-tags }}
           VERSION: ${{ inputs.version }}
-        run: |
-          tag_args=()
-          first_tag=""
-          while IFS= read -r tag; do
-            if [[ -n "$tag" ]]; then
-              if [[ -z "$first_tag" ]]; then
-                first_tag="$tag"
-              fi
-              tag_args+=(--tag "$IMAGE:$tag")
-            fi
-          done <<< "$TAGS"
-
-          docker buildx imagetools create \
-            "${tag_args[@]}" \
-            "$IMAGE:$VERSION-amd64" \
-            "$IMAGE:$VERSION-arm64"
-
-          docker buildx imagetools inspect "$IMAGE:$first_tag"
-          digest="$(docker buildx imagetools inspect "$IMAGE:$first_tag" --format '{{json .Manifest}}' | jq -r '.digest')"
-          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+        run: >-
+          pnpm tools image manifest
+          --repository "$IMAGE"
+          --image-version "$VERSION"
+          --tags "$TAGS"
+          --output digest
 
       - name: Attest build provenance
         uses: actions/attest@v4.2.1
@@ -261,25 +251,11 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           for part in control node; do
-            image="$IMAGES-$part"
-            tag_args=()
-            first_tag=""
-            while IFS= read -r tag; do
-              if [[ -n "$tag" ]]; then
-                if [[ -z "$first_tag" ]]; then
-                  first_tag="$tag"
-                fi
-                tag_args+=(--tag "$image:$tag")
-              fi
-            done <<< "$TAGS"
-
-            docker buildx imagetools create \
-              "${tag_args[@]}" \
-              "$image:$VERSION-amd64" \
-              "$image:$VERSION-arm64"
-
-            digest="$(docker buildx imagetools inspect "$image:$first_tag" --format '{{json .Manifest}}' | jq -r '.digest')"
-            cosign sign --yes "$image@$digest"
+            pnpm tools image manifest \
+              --repository "$IMAGES-$part" \
+              --image-version "$VERSION" \
+              --tags "$TAGS" \
+              --sign
           done
 
   # The extension for a browser of someone's own, as a release has it to load unpacked.
@@ -302,19 +278,15 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
+      - run: pnpm install --frozen-lockfile
+
       - name: Write the version
         env:
           VERSION: ${{ inputs.version }}
-        run: .github/scripts/set-version.sh "$VERSION"
+        run: pnpm tools version set "$VERSION"
 
       - name: Build
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm --filter @aperture-browser/companion build
-          cd extensions/aperture-companion/dist
-          zip --quiet --recurse-paths "$GITHUB_WORKSPACE/aperture-companion-$VERSION.zip" .
+        run: pnpm tools files companion
 
       - uses: actions/upload-artifact@v7.0.1
         with:
@@ -324,16 +296,38 @@ jobs:
           retention-days: 1
           compression-level: 0
 
+  # The `aperture` program for each system, and the runner and the browser it downloads.
+  build-files:
+    name: files
+    uses: ./.github/workflows/files.yml
+    secrets:
+      CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+    with:
+      version: ${{ inputs.version }}
+      tag: ${{ inputs.tag }}
+
+  # A nightly's as well: `aperture run --runner-version nightly` downloads from it.
   files:
     name: release files
     needs:
       - image
       - companion
-    if: inputs.release
+      - build-files
+    if: >-
+      !cancelled() &&
+      needs.image.result == 'success' &&
+      needs.build-files.result == 'success' &&
+      (needs.companion.result == 'success' || needs.companion.result == 'skipped')
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: ./.github/actions/tools
+
       - uses: actions/download-artifact@v8.0.1
         with:
           pattern: release-files-*
@@ -341,14 +335,11 @@ jobs:
           path: files
 
       - name: Upload to the release
-        working-directory: files
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ inputs.tag }}
-        run: |
-          sha256sum -- * > SHA256SUMS
-          gh release upload "$TAG" ./* --clobber
+        run: pnpm tools files publish --tag "$TAG" --dir files
 
   # Last, what is on npm being there for good. It is npm.yml that publishes, which is the
   # one workflow npm trusts, whoever asks for it.
@@ -357,7 +348,6 @@ jobs:
     needs:
       - manifest
       - files
-    # A nightly has no files, and is published without them.
     if: >-
       !cancelled() &&
       needs.manifest.result == 'success' &&

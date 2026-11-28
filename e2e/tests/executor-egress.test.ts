@@ -257,7 +257,8 @@ suite(node)("what a session's browser reaches from a node", (it) => {
     Effect.gen(function* () {
       operatorPort = yield* freePort;
       yield* Node.lasting(
-        run(yield* program("aperture-tunnel"), [
+        run(yield* program("aperture"), [
+          "tunnel",
           "listen",
           `${ALLOWED}:${operatorPort}`,
           "--auth",
@@ -302,8 +303,9 @@ suite(node)("what a session's browser reaches from a node", (it) => {
     Effect.gen(function* () {
       const executor = yield* Executor;
       attached = yield* Node.lasting(
-        run(yield* program("aperture-tunnel"), [
-          "attach",
+        run(yield* program("aperture"), [
+          "tunnel",
+          "--url",
           `${executor.url.replace(/^http/u, "ws")}${tunnelPath}`,
           "--token",
           executor.token,

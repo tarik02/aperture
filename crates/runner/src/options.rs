@@ -8,7 +8,8 @@ use anyhow::Context;
 use clap::ValueEnum;
 
 use crate::{
-    Feature, Features, Network, PortRange, Profile, Spec, Tcp, Tools, Udp, Viewport, proxy,
+    Feature, Features, Network, PortRange, Profile, Spec, Tcp, Tools, Udp, Viewport, downloaded,
+    proxy,
 };
 
 /// What a session's windows fill until a client asks for another size.
@@ -33,8 +34,13 @@ pub struct Options {
     no_gpu: bool,
     #[arg(long, env = "APERTURE_BWRAP", default_value = "bwrap")]
     bwrap: PathBuf,
-    #[arg(long, env = "APERTURE_CHROMIUM", default_value = "chromium")]
-    chromium: PathBuf,
+    /// The browser. `chromium` in `PATH` by default, or for `serve` the release's own,
+    /// which it downloads.
+    #[arg(long, env = "APERTURE_CHROMIUM")]
+    chromium: Option<PathBuf>,
+    /// Where a downloaded browser is kept, for sessions named no other.
+    #[arg(skip)]
+    downloaded: Option<PathBuf>,
     /// A local address or network, such as `10.1.2.3` or `192.168.0.0/16`, that sessions'
     /// browsers may reach. What is local to this machine and its network is otherwise
     /// refused them. May be repeated.
@@ -108,6 +114,14 @@ pub struct Directories {
 }
 
 impl Options {
+    /// Downloads the release's browser where no other is named, unless it is there already.
+    pub async fn download_browser(&mut self) -> anyhow::Result<()> {
+        if self.chromium.is_none() {
+            self.downloaded = Some(downloaded::install(None).await?);
+        }
+        Ok(())
+    }
+
     pub fn setup(self) -> anyhow::Result<Setup> {
         let beside = |given: Option<PathBuf>, name: &str| match given {
             Some(program) => executable(&program),
@@ -117,10 +131,19 @@ impl Options {
             tcp: self.network_tcp,
             udp: self.network_udp,
         };
+        let (chromium, browser_store) = match (&self.chromium, &self.downloaded) {
+            (Some(chromium), _) => (executable(chromium)?, None),
+            (None, Some(dir)) => {
+                let (chromium, store) = downloaded::chromium(dir)?;
+                (chromium, Some(store))
+            }
+            (None, None) => (executable(Path::new("chromium"))?, None),
+        };
         Ok(Setup {
             tools: Tools {
                 bwrap: executable(&self.bwrap)?,
-                chromium: executable(&self.chromium)?,
+                chromium,
+                browser_store,
                 native_host: beside(self.native_host, "aperture-native-host")?,
                 browser_shim: beside(self.browser_shim, "aperture-browser-shim")?,
                 ffmpeg: self.ffmpeg.as_deref().map(executable).transpose()?,

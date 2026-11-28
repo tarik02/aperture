@@ -1,0 +1,35 @@
+[package]
+name = "aperture-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "aperture"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+aperture-tunnel.workspace = true
+clap = { version = "4", features = ["derive", "env"] }
+dirs = "6"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
+rpassword = "7"
+# ring, which builds for every target the program is released for with no more than a C
+# compiler.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-platform-verifier = "0.7"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-tungstenite = { workspace = true, features = ["rustls-tls-native-roots"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+aperture-release.workspace = true

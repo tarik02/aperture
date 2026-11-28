@@ -8,6 +8,7 @@ license.workspace = true
 anyhow.workspace = true
 aperture-compositor.workspace = true
 aperture-gateway.workspace = true
+aperture-release.workspace = true
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws"] }
 browse-capture = { git = "https://github.com/anomalyco/browse", rev = "be5528ff2194c8defab74d41e13abb7cb149548e" }
@@ -47,6 +48,8 @@ tracing-subscriber.workspace = true
 uuid.workspace = true
 hickory-resolver = "0.26.3"
 rcgen = "0.14.10"
+# The TLS of the client aperture-release downloads the browser with.
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 sha2 = "0.10"
 
 [build-dependencies]

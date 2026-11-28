@@ -33,22 +33,16 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       short_sha: ${{ steps.version.outputs.short_sha }}
     steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: ./.github/actions/tools
+
       - name: Create the nightly release
         id: version
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          short_sha="${GITHUB_SHA::12}"
-          version="0.0.0-nightly.${GITHUB_RUN_NUMBER}.${short_sha}"
-          gh release create "v$version" \
-            --target "$GITHUB_SHA" \
-            --title "v$version" \
-            --notes "Built from $GITHUB_SHA." \
-            --prerelease \
-            --latest=false
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
+        run: pnpm tools version nightly
 
   publish:
     name: publish

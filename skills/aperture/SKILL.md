@@ -89,7 +89,7 @@ Then wait for the person to say they are done; `snapshot` shows what they left.
 
 To reach a service on your own machine from the session's browser:
 1. `sessions.set_proxy` with `{"rules": [{"match": "localhost:3000", "via": "local"}]}`.
-2. Leave running: `aperture-tunnel attach --token "$APERTURE_TOKEN" "wss://<host><session.path>/tunnel"`.
+2. Leave running: `aperture tunnel <session_id>`, with `APERTURE_URL` and `APERTURE_TOKEN` set. It attaches again by itself when the session moves.
 3. `navigate` to `http://localhost:3000`. Done when the page loads.
 
 ### Work in a workspace

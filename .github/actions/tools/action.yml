@@ -1,0 +1,20 @@
+name: tools
+description: >-
+  Node, pnpm and the tools package's dependencies alone, for the steps that run
+  `pnpm tools`
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6.0.9
+      with:
+        version: 11.27.1
+
+    - uses: actions/setup-node@v6.4.0
+      with:
+        node-version: 26
+        cache: pnpm
+        cache-dependency-path: pnpm-lock.yaml
+
+    - name: Install the tools' dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile --filter @aperture-browser/tools
