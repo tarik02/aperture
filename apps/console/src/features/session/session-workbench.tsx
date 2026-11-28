@@ -31,6 +31,7 @@ import { openedPicture } from "#/lib/view-transition.ts";
 import { noteOpened } from "#/features/session/recent-sessions.ts";
 import { useSessionActionMutation } from "#/features/session/session.mutations.ts";
 import {
+  restedAt,
   type Session as SessionRecord,
   useSessionQuery,
 } from "#/features/session/session.queries.ts";
@@ -77,9 +78,7 @@ function State({ children, note, session, action }: StateProps) {
         className="aperture:absolute aperture:top-[max(0.5rem,env(safe-area-inset-top))] aperture:left-[max(0.5rem,env(safe-area-inset-left))] aperture:z-10"
       />
       {session === undefined || session.path === null ? null : (
-        <Backdrop
-          source={`${session.path}/preview.png?at=${session.observedAt.epochMilliseconds}`}
-        />
+        <Backdrop source={`${session.path}/preview.png?at=${restedAt(session)}`} />
       )}
       <section className="aperture:relative aperture:flex aperture:w-full aperture:max-w-sm aperture:flex-col aperture:items-center aperture:gap-4 aperture:rounded-xl aperture:border aperture:bg-card/90 aperture:p-6 aperture:text-center aperture:shadow-sm aperture:backdrop-blur">
         {session === undefined ? null : (
@@ -353,7 +352,7 @@ export function SessionWorkbench({ sessionId, tab }: { sessionId: string; tab?: 
     openedPicture(sessionId) ??
     (session.data.path === null
       ? undefined
-      : `${session.data.path}/preview.png?at=${session.data.observedAt.epochMilliseconds}`);
+      : `${session.data.path}/preview.png?at=${restedAt(session.data)}`);
   const { observedState, unreachableSince, failure } = session.data;
   // Asked to run: what follows is the wait for it, whatever the record still says.
   const starting = resume.isPending || resume.isSuccess;

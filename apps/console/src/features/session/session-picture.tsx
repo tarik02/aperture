@@ -2,6 +2,7 @@ import { cn } from "@aperture-browser/ui/utils";
 import { AppWindow } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
+  restedAt,
   type Session,
   useSessionKeptTabsQuery,
   useSessionTargetsQuery,
@@ -27,10 +28,12 @@ export function useSessionPicture(session: Session, width: number) {
   const shown = useSessionTargetsQuery(session);
   const kept = useSessionKeptTabsQuery(session);
   const { path } = session;
-  const at = session.observedAt.epochMilliseconds;
-  // What a session told of its tabs while it ran is not what it has once it rests.
-  const live = session.observedState === "running" ? shown.data : undefined;
-  const tabs: ReadonlyArray<ShownTab> =
+  const at = restedAt(session);
+  // What a session told of its tabs while it ran is not what it has once it rests. One
+  // being restored runs for whoever looks, and keeps what it told meanwhile.
+  const runs = session.observedState === "running" || session.observedState === "restoring";
+  const live = runs ? shown.data : undefined;
+  const listed: ReadonlyArray<ShownTab> =
     path === null
       ? []
       : live !== undefined
@@ -51,10 +54,12 @@ export function useSessionPicture(session: Session, width: number) {
             icon: tab.icon === null ? undefined : `${path}/previews/${tab.tab}/favicon?at=${at}`,
             watched: tab.tab === kept.data?.watched,
           })) ?? []);
+  // In the order the tabs were made, whichever of the two tells of them.
+  const tabs = listed.toSorted((one, other) => one.tab - other.tab);
   // Whoever opens the session watches the newest where none was watched.
   const target = tabs.find((tab) => tab.watched) ?? tabs.at(-1);
   // A running session is asked what it shows; what was kept is of one that rests.
-  const asking = session.observedState === "running" && shown.data === undefined && !shown.isError;
+  const asking = runs && shown.data === undefined && !shown.isError;
   const source =
     path === null || asking
       ? undefined

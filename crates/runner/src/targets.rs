@@ -176,8 +176,6 @@ struct Ready {
     window: WindowId,
     title: String,
     url: String,
-    /// Targets are listed in the order they came to be.
-    order: u64,
     tab: u32,
     browser_tab: i64,
     opener: Option<String>,
@@ -263,7 +261,6 @@ struct Kept {
 struct State {
     bindings: HashMap<i64, Binding>,
     ready: HashMap<String, Ready>,
-    next_order: u64,
     last_tab: u32,
     /// The tab that was watched last, which stays it for as long as the session has it.
     watched: Option<u32>,
@@ -825,14 +822,16 @@ impl Inner {
         Ok(())
     }
 
-    /// Tells watchers the targets whose windows have content, in the order they came to be.
+    /// Tells watchers the targets whose windows have content, in the order their tabs were
+    /// made: a tab keeps its number when its session is resumed, and its place with it,
+    /// though the browser brings the pages back in whatever order they load.
     fn publish(&self) {
         let windows = self.compositor.windows();
         let windows = windows.borrow();
         let mut state = self.state.lock().expect("not poisoned");
         let state = &mut *state;
         let mut ready: Vec<(&String, &Ready)> = state.ready.iter().collect();
-        ready.sort_by_key(|(_, ready)| ready.order);
+        ready.sort_by_key(|(_, ready)| ready.tab);
         let targets: Vec<Target> = ready
             .into_iter()
             .filter_map(|(id, ready)| {
@@ -939,7 +938,6 @@ impl State {
             }
             info!(page = %page.id, window = binding.window.0, "target ready");
             fresh.push(page.id.clone());
-            self.next_order += 1;
             let back = self
                 .returning
                 .iter()
@@ -984,7 +982,6 @@ impl State {
                 window: binding.window,
                 title: String::new(),
                 url: String::new(),
-                order: self.next_order,
                 tab,
                 browser_tab: binding.tab,
                 opener: page.opener.clone(),
