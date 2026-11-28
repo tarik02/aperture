@@ -90,7 +90,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "aperture-compositor"
-version = "1.0.0-beta.6"
+version = "1.0.0-beta.7"
 dependencies = [
  "anyhow",
  "smithay",
@@ -102,7 +102,7 @@ dependencies = [
 
 [[package]]
 name = "aperture-executor"
-version = "1.0.0-beta.6"
+version = "1.0.0-beta.7"
 dependencies = [
  "anyhow",
  "aperture-gateway",
@@ -130,7 +130,7 @@ dependencies = [
 
 [[package]]
 name = "aperture-gateway"
-version = "1.0.0-beta.6"
+version = "1.0.0-beta.7"
 dependencies = [
  "anyhow",
  "aperture-tunnel",
@@ -153,7 +153,7 @@ dependencies = [
 
 [[package]]
 name = "aperture-runner"
-version = "1.0.0-beta.6"
+version = "1.0.0-beta.7"
 dependencies = [
  "anyhow",
  "aperture-compositor",
@@ -204,7 +204,7 @@ dependencies = [
 
 [[package]]
 name = "aperture-store"
-version = "1.0.0-beta.6"
+version = "1.0.0-beta.7"
 dependencies = [
  "bytes",
  "futures-util",
@@ -220,7 +220,7 @@ dependencies = [
 
 [[package]]
 name = "aperture-tunnel"
-version = "1.0.0-beta.6"
+version = "1.0.0-beta.7"
 dependencies = [
  "anyhow",
  "bytes",

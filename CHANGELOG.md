@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0-beta.7](https://github.com/tarik02/aperture/compare/v1.0.0-beta.6...v1.0.0-beta.7) (2026-11-28)
+
+
+### Bug Fixes
+
+* give sessions their menu in the tabs view ([#270](https://github.com/tarik02/aperture/issues/270)) ([07eb825](https://github.com/tarik02/aperture/commit/07eb825b2672887db8f26e0352ea09ebf2d4c12f))
+
 ## [1.0.0-beta.6](https://github.com/tarik02/aperture/compare/v1.0.0-beta.5...v1.0.0-beta.6) (2026-11-28)
 
 
